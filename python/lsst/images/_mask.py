@@ -1,4 +1,4 @@
-# This file is part of lsst-shoefits.
+# This file is part of lsst-images.
 #
 # Developed for the LSST Data Management System.
 # This product includes software developed by the LSST Project
@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("Mask", "MaskPlane", "MaskSchema")
+__all__ = ("Mask", "MaskModel", "MaskPlane", "MaskSchema")
 
 import dataclasses
 import math
@@ -19,8 +19,10 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 
 import numpy as np
 import numpy.typing as npt
+import pydantic
 
-from ._geom import Box
+from . import asdf_utils
+from ._geom import Box, Interval
 
 
 @dataclasses.dataclass(frozen=True)
@@ -253,8 +255,9 @@ class Mask:
 
     @property
     def bbox(self) -> Box:
-        """Bounding box for the mask.  This sets the shape of all but the last
-        dimension of the array.
+        """2-d bounding box of the mask.
+
+        This sets the shape of all but the last dimension of the array.
         """
         return self._bbox
 
@@ -263,4 +266,19 @@ class Mask:
             self.array[bbox.y.slice_within(self._bbox.y), bbox.x.slice_within(self._bbox.x), :],
             bbox=bbox,
             schema=self.schema,
+        )
+
+
+class MaskModel(pydantic.BaseModel):
+    """Pydantic model used to represent the serialized form of a `Mask`."""
+
+    data: asdf_utils.ArrayReferenceModel
+    start: list[int]
+    planes: list[MaskPlane | None]
+
+    @property
+    def bbox(self) -> Box:
+        """The 2-d bounding box of the mask."""
+        return Box(
+            *[Interval.factory[begin : begin + size] for begin, size in zip(self.start, self.data.shape[:-1])]
         )

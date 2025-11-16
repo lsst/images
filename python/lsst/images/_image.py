@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("Image",)
+__all__ = ("Image", "ImageModel")
 
 from collections.abc import Sequence
 from typing import final
@@ -19,8 +19,10 @@ from typing import final
 import astropy.units
 import numpy as np
 import numpy.typing as npt
+import pydantic
 
-from ._geom import Box
+from . import asdf_utils
+from ._geom import Box, Interval
 
 
 @final
@@ -115,3 +117,62 @@ class Image:
 
     def __getitem__(self, bbox: Box) -> Image:
         return Image(self.array[bbox.slice_within(self._bbox)], bbox=bbox)
+
+
+class ImageModel(pydantic.BaseModel):
+    """Pydantic model used to represent the serialized form of an `Image`."""
+
+    data: asdf_utils.ArrayReferenceQuantityModel | asdf_utils.ArrayReferenceModel
+    start: list[int]
+
+    @property
+    def bbox(self) -> Box:
+        """The bounding box of the image."""
+        if isinstance(self.data, asdf_utils.ArrayReferenceQuantityModel):
+            shape = self.data.value.shape
+        else:
+            shape = self.data.shape
+        return Box(*[Interval.factory[begin : begin + size] for begin, size in zip(self.start, shape)])
+
+    @classmethod
+    def pack(
+        cls, array_model: asdf_utils.ArrayReferenceModel, start: Sequence[int], unit: asdf_utils.Unit | None
+    ) -> ImageModel:
+        """Construct an `ImageReference` from the components of a serialized
+        image.
+
+        Parameters
+        ----------
+        array_model
+            Serialized form of the underlying array.
+        start
+            Logical coordinates of the first pixel in the array.
+        unit, optional
+            Units for the image's pixel values.
+        """
+        if unit is None:
+            return cls.model_construct(data=array_model, start=list(start))
+        return cls.model_construct(
+            data=asdf_utils.ArrayReferenceQuantityModel.model_construct(value=array_model, unit=unit),
+            start=list(start),
+        )
+
+    def unpack(self) -> tuple[asdf_utils.ArrayReferenceModel, asdf_utils.Unit | None]:
+        """Return the components of a serialized image from this model.
+
+        Returns
+        -------
+        array_model
+            Serialized form of the underlying array.
+        unit
+            Units for the image's pixel values.
+
+        Notes
+        -----
+        The ``start`` attribute is not included in the results because it is
+        directly accessible, rather than possibly nested under `data` as with
+        the other attributes.
+        """
+        if isinstance(self.data, asdf_utils.ArrayReferenceQuantityModel):
+            return self.data.value, self.data.unit
+        return self.data, None
