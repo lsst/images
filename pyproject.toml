@@ -25,6 +25,7 @@ dependencies = [
     "lsst-resources",
     "numpy >= 2.0",
     "astropy >= 7.0",
+    "fsspec",
 ]
 dynamic = ["version"]
 [project.urls]
