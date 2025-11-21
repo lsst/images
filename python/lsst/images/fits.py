@@ -21,9 +21,10 @@ __all__ = (
 
 import dataclasses
 import io
-from collections.abc import Callable, Hashable, Iterable
+from collections.abc import Callable, Hashable, Iterable, Iterator
+from contextlib import contextmanager
 from functools import cached_property
-from typing import IO, Any
+from typing import IO, Any, Self
 
 import astropy.io.fits
 import astropy.table
@@ -52,6 +53,27 @@ class InvalidFitsArchiveError(RuntimeError):
     """The error type raised when the content of a FITS file presumed to have
     been written by FitsOutputArchive is not self-consistent.
     """
+
+
+@dataclasses.dataclass
+class HDUBytes:
+    header_address: int
+    data_address: int
+    data_size: int
+
+    @property
+    def size(self) -> int:
+        return self.data_size + self.data_address - self.header_address
+
+    @classmethod
+    def from_hdu(cls, hdu: astropy.io.fits.PrimaryHDU | ExtensionHDU) -> Self:
+        if (header_address := getattr(hdu, "_header_offset", None)) is None:
+            raise RuntimeError("Failed to get Astropy's _header_offset.")
+        if (data_address := getattr(hdu, "_data_offset", None)) is None:
+            raise RuntimeError("Failed to get Astropy's _data_offset.")
+        if (data_size := getattr(hdu, "_data_size", None)) is None:
+            raise RuntimeError("Failed to get Astropy's _data_size.")
+        return cls(header_address, data_address, data_size)
 
 
 @dataclasses.dataclass
@@ -86,12 +108,18 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
 
     def __init__(
         self,
+        hdu_list: astropy.io.fits.HDUList,
         compression_options: FitsCompressionOptions | None = None,
-        opaque_metadata: FitsOpaqueMetadata | None = None,
+        opaque_metadata: Any = None,
     ):
+        # JSON blobs for objects we've saved as pointers:
+        self._pointer_targets: list[bytes] = []
+        # Mapping from user provided key (e.g. id(some object)) to a table
+        # pointer to where we actually saved it:
+        self._pointers_by_key: dict[Hashable, TableCellReferenceModel] = {}
+        self._hdu_list = hdu_list
         self._primary_hdu = astropy.io.fits.PrimaryHDU()
         # TODO: add subformat description and version to primary HDU.
-        self._hdu_list = astropy.io.fits.HDUList([self._primary_hdu])  # actual FITS HDUs to write.
         self._primary_hdu.header.set("INDXADDR", 0, "Offset in bytes to the HDU index.")
         self._primary_hdu.header.set("INDXSIZE", 0, "Size of the HDU index.")
         self._primary_hdu.header.set("JSONADDR", 0, "Offset in bytes to the JSON tree HDU.")
@@ -99,14 +127,43 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         self._compression_options = (
             compression_options if compression_options is not None else FitsCompressionOptions()
         )
-        self._opaque_metadata = opaque_metadata if opaque_metadata is not None else FitsOpaqueMetadata()
+        self._opaque_metadata = (
+            opaque_metadata if isinstance(opaque_metadata, FitsOpaqueMetadata) else FitsOpaqueMetadata()
+        )
         if (opaque_primary_header := self._opaque_metadata.headers.get("")) is not None:
             self._primary_hdu.header.extend(opaque_primary_header)
-        # JSON blobs for objects we've saved as pointers:
-        self._pointer_targets: list[bytes] = []
-        # Mapping from user provided key (e.g. id(some object)) to a table
-        # pointer to where we actually saved it:
-        self._pointers_by_key: dict[Hashable, TableCellReferenceModel] = {}
+        self._hdu_list.append(self._primary_hdu)
+        self._json_hdu_added: bool = False
+
+    @classmethod
+    @contextmanager
+    def open(
+        cls,
+        filename: str,
+        compression_options: FitsCompressionOptions | None = None,
+        opaque_metadata: Any = None,
+    ) -> Iterator[Self]:
+        with astropy.io.fits.open(filename, mode="append") as hdu_list:
+            archive = cls(hdu_list, compression_options, opaque_metadata)
+            yield archive
+            if not archive._json_hdu_added:
+                raise RuntimeError("Write context exited without 'add_tree' being called.")
+            hdu_list.flush()
+            hdu_list.append(cls._make_index_table(hdu_list))
+            hdu_list.flush()
+            json_bytes = HDUBytes.from_hdu(hdu_list[-2])
+            index_bytes = HDUBytes.from_hdu(hdu_list[-1])
+        # Update the primary HDU with the address and size of the index and
+        # JSON HDUs, and rewrite just that.  We do this write manually, since
+        # astropy's docs on its 'update' mode are scarce and it's not obvious
+        # whether we can guarantee it won't rewrite the whole file if we edit
+        # the primary header.
+        archive._primary_hdu.header["INDXADDR"] = index_bytes.header_address
+        archive._primary_hdu.header["INDXSIZE"] = index_bytes.size
+        archive._primary_hdu.header["JSONADDR"] = json_bytes.header_address
+        archive._primary_hdu.header["JSONSIZE"] = json_bytes.size
+        with open(filename, "r+b") as stream:
+            stream.write(archive._primary_hdu.header.tostring().encode())
 
     def add_coordinate_transform(
         self, transform: CoordinateTransform, from_frame: str, to_frame: str = "sky"
@@ -114,13 +171,13 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         raise NotImplementedError("TODO")
 
     def serialize_direct[T: pydantic.BaseModel](
-        self, name: str, serializer: Callable[[OutputArchive], T]
+        self, name: str, serializer: Callable[[OutputArchive[TableCellReferenceModel]], T]
     ) -> T:
         nested = NestedOutputArchive[TableCellReferenceModel](f"/{name}", self)
         return serializer(nested)
 
     def serialize_pointer[T: pydantic.BaseModel](
-        self, name: str, serializer: Callable[[OutputArchive], T], key: Hashable
+        self, name: str, serializer: Callable[[OutputArchive[TableCellReferenceModel]], T], key: Hashable
     ) -> TableCellReferenceModel:
         if (pointer := self._pointers_by_key.get(key)) is not None:
             return pointer
@@ -143,7 +200,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
     ) -> ImageModel:
         # TODO: look for compression options in both the main options and the
         # opaque metadata, make a CompImageHDU instead if requested.
-        hdu = astropy.io.fits.ImageHDU(image.array, name=name)
+        hdu = astropy.io.fits.ImageHDU(image.array, name=name.upper())
         if image.unit:
             hdu.header["BUNIT"] = image.unit.to_string(format="fits")
         # TODO: add a default WCS from pixel_frame to 'sky', if pixel_frame is
@@ -155,7 +212,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         if (opaque_headers := self._opaque_metadata.headers.get(name)) is not None:
             hdu.header.extend(opaque_headers)
         array_model = ArrayReferenceModel(
-            source=f"fits:{name}",
+            source=f"fits:{name.upper()}",
             shape=list(image.array.shape),
             datatype=NumberType.from_numpy(image.array.dtype),
         )
@@ -173,7 +230,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
     ) -> MaskModel:
         # TODO: look for compression options in both the main options and the
         # opaque metadata, make a CompImageHDU instead if requested.
-        hdu = astropy.io.fits.ImageHDU(mask.array, name=name)
+        hdu = astropy.io.fits.ImageHDU(mask.array, name=name.upper())
         # TODO: add a default WCS from pixel_frame to 'sky', if pixel_frame is
         # provided and 'sky' is known to the archive; use the 'A'-suffix WCS to
         # transform from 1-indexed FITS to the image's bounding box (or the
@@ -184,7 +241,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         if (opaque_headers := self._opaque_metadata.headers.get(name)) is not None:
             hdu.header.extend(opaque_headers)
         array_model = ArrayReferenceModel(
-            source=f"fits:{name}",
+            source=f"fits:{name.upper()}",
             shape=list(mask.array.shape),
             datatype=NumberType.from_numpy(mask.array.dtype),
         )
@@ -204,47 +261,30 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
     ) -> TableModel:
         raise NotImplementedError("TODO")
 
-    def write(self, filename: str, tree: pydantic.BaseModel) -> None:
+    def add_tree(self, tree: pydantic.BaseModel) -> None:
         json_hdu = astropy.io.fits.BinTableHDU.from_columns(
-            [astropy.io.fits.Column("JSON", "PA")],
+            [astropy.io.fits.Column("JSON", "PB")],
             nrows=len(self._pointer_targets) + 1,
             name="JSON",
         )
-        json_hdu.data["JSON"][0] = tree.model_dump_json().encode()
+        json_hdu.data[0]["JSON"] = np.frombuffer(tree.model_dump_json().encode(), dtype=np.byte)
         for n, json_target_data in enumerate(self._pointer_targets):
-            json_hdu.data["JSON"][n + 1] = json_target_data
-        # We write the file in three phases, opening it again each time. There
-        # might be ways to avoid that, but this avoids relying on any astropy
-        # behavior that isn't crystal-clear in the docs. The first write
-        # includes a preliminary version of the primary HDU (with zero
-        # placeholders for the addresses), all of the regular image and binary
-        # table extensions, and the JSON binary table extension.
-        self._hdu_list.writeto(filename)
-        json_file_info = json_hdu.fileinfo()
-        # The next write appends a binary table HDU an index into all of the
-        # other HDUs.
-        with astropy.io.fits.open(filename, mode="append") as reopened_hdu_list:
-            index_hdu = self._make_index_table(self._hdu_list)
-            reopened_hdu_list.append(index_hdu)
-            reopened_hdu_list.flush()
-        index_file_info = index_hdu.fileinfo()
-        # Update the primary HDU with the address and size of the index and
-        # JSON HDUs, and rewrite just that.  We do this write manually, since
-        # astropy's docs on its 'update' mode are scarce and it's not obvious
-        # what it's possible to ask it to just rewrite the primary header and
-        # definitely not resize the rest of the file.
-        self._primary_hdu.header["INDXADDR"] = index_file_info["hdrLoc"]
-        self._primary_hdu.header["INDXSIZE"] = self._size_from_file_info(index_file_info)
-        self._primary_hdu.header["JSONADDR"] = json_file_info["hdrLoc"]
-        self._primary_hdu.header["JSONSIZE"] = self._size_from_file_info(json_file_info)
-        with open(filename, "r+b") as stream:
-            stream.write(self._primary_hdu.header.tostring().encode())
+            json_hdu.data[n + 1]["JSON"] = np.frombuffer(json_target_data, dtype=np.byte)
+        self._hdu_list.append(json_hdu)
+        self._json_hdu_added = True
 
     @staticmethod
     def _make_index_table(hdu_list: astropy.io.fits.HDUList) -> astropy.io.fits.BinTableHDU:
+        # Use a fixed-length string for the EXTNAME column; it might be better
+        # to use a variable-length array, but I have not been able to figure
+        # out how to get astropy to accept a string for the the character
+        # (TFORM='A') variant of that.  And that's only better if the EXTNAMEs
+        # get super long, which is not likely (but maybe something to guard
+        # against).
+        max_name_size = max(len(hdu.header.get("EXTNAME", "")) for hdu in hdu_list)
         index_hdu = astropy.io.fits.BinTableHDU.from_columns(
             [
-                astropy.io.fits.Column("EXTNAME", "PA"),
+                astropy.io.fits.Column("EXTNAME", f"A{max_name_size}"),
                 astropy.io.fits.Column("XTENSION", "A8"),
                 astropy.io.fits.Column("ZIMAGE", "L"),
                 astropy.io.fits.Column("HDRADDR", "K"),
@@ -256,21 +296,17 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         )
         hdu: ExtensionHDU | astropy.io.fits.PrimaryHDU
         for n, hdu in enumerate(hdu_list):
-            file_info = hdu.fileinfo()
+            bytes = HDUBytes.from_hdu(hdu)
             index_hdu.data[n]["EXTNAME"] = hdu.header.get("EXTNAME", "")
             index_hdu.data[n]["XTENSION"] = hdu.header.get("XTENSION", "IMAGE")
             index_hdu.data[n]["ZIMAGE"] = isinstance(hdu, astropy.io.fits.CompImageHDU)
-            index_hdu.data[n]["HDRADDR"] = file_info["hdrLoc"]
-            index_hdu.data[n]["DATADDR"] = file_info["datLoc"]
-            index_hdu.data[n]["DATSIZE"] = file_info["dataSpan"]
+            index_hdu.data[n]["HDRADDR"] = bytes.header_address
+            index_hdu.data[n]["DATADDR"] = bytes.data_address
+            index_hdu.data[n]["DATSIZE"] = bytes.data_size
         return index_hdu
 
-    @staticmethod
-    def _size_from_file_info(file_info: dict[str, int]) -> int:
-        return file_info["datSpan"] + file_info["datLoc"] - file_info["hdrLoc"]
 
-
-class FitsInputArchive(InputArchive):
+class FitsInputArchive(InputArchive[TableCellReferenceModel]):
     """An implementation of the `InputArchive` interface that reads from FITS
     files.
 
@@ -339,14 +375,15 @@ class FitsInputArchive(InputArchive):
         index_hdu = astropy.io.fits.BinTableHDU.fromstring(tail_data[json_size:])
         # Initialize lazy readers for all of the regular HDUs and the JSON HDU.
         self._readers = {
-            row["EXTNAME"]: ExtensionReader.from_index_row(row, buffered_stream) for row in index_hdu.data
+            str(row["EXTNAME"]): ExtensionReader.from_index_row(row, buffered_stream)
+            for row in index_hdu.data
         }
         self._readers["JSON"] = ExtensionReader.from_bytes(astropy.io.fits.BinTableHDU, tail_data[:json_size])
         # Make any empty dictionary to cache deserialized objects.
         self._deserialized_pointer_cache: dict[TableCellReferenceModel, Any] = {}
 
     def get_tree[T: pydantic.BaseModel](self, model_type: type[T]) -> T:
-        json_bytes = self._readers["JSON"].data["JSON"][0]
+        json_bytes = self._readers["JSON"].data[0]["JSON"].tobytes()
         return model_type.model_validate_json(json_bytes)
 
     def get_coordinate_transform(self, from_frame: str, to_frame: str = "sky") -> CoordinateTransform:
@@ -356,13 +393,13 @@ class FitsInputArchive(InputArchive):
         self,
         pointer: TableCellReferenceModel,
         model_type: type[U],
-        deserializer: Callable[[U, InputArchive], V],
+        deserializer: Callable[[U, InputArchive[TableCellReferenceModel]], V],
     ) -> V:
         if (cached := self._deserialized_pointer_cache.get(pointer)) is not None:
             return cached
         _, reader = self._get_source_reader(pointer)
         try:
-            json_bytes = reader.data[pointer.column][pointer.row]
+            json_bytes = reader.data[pointer.row][pointer.column].tobytes()
         except Exception as err:
             raise InvalidFitsArchiveError(
                 f"Failed to access the table cell referenced by {pointer.model_dump_json()}."
