@@ -1,1 +1,2 @@
+setupRequired(resources)
 envPrepend(PYTHONPATH, ${PRODUCT_DIR}/python)

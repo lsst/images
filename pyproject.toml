@@ -22,6 +22,7 @@ classifiers = [
 ]
 keywords=["lsst"]
 dependencies = [
+    "lsst-resources",
     "numpy >= 2.0",
     "astropy >= 7.0",
 ]
@@ -32,6 +33,11 @@ dynamic = ["version"]
 test = [
     "pytest >= 3.2",
 ]
+# Also expose the optional dependencies of lsst-resources as optional
+# dependencies of lsst-images (lsst-daf-butler doe the same thing).
+s3 = ["lsst-resources[s3]"]
+https = ["lsst-resources[https]"]
+gs = ["lsst-resources[gs]"]
 
 [tool.setuptools.packages.find]
 where = ["python"]
