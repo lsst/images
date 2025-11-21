@@ -29,7 +29,7 @@ __all__ = (
     "Unit",
 )
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, ClassVar, Literal
 
 import astropy.time
 import astropy.units
@@ -103,6 +103,8 @@ class ArrayReferenceModel(pydantic.BaseModel):
             "tag": "!core/ndarray-1.1.0",
         }
     )
+
+    source_is_table: ClassVar[Literal[False]] = False
 
 
 class InlineArrayModel(pydantic.BaseModel):

@@ -9,28 +9,9 @@
 # Use of this source code is governed by a 3-clause BSD-style
 # license that can be found in the LICENSE file.
 
-"""Archive implementations for saving to FITS.
-
-The FITS archive meta-format assumes the following layout:
-
-- a header-only primary HDU, with some special keys (prefixed with 'ADR', for
-  'address') providing information about the rest of the file;
-
-- any number of [compressed] image and binary table extension HDUs;
-
-- a special final binary table HDU with a single row and a single
-  variable-length string column, holding a JSON block.
-
-The JSON block's contents corresponds to the Pydantic `FitsArchiveModel` class,
-with the `FitsArchiveModel.tree` attribute defined by the type being saved to
-the file and the other attributes for internal use by the archive
-implementations.
-"""
-
 from __future__ import annotations
 
 __all__ = (
-    "FitsArchiveModel",
     "FitsCompressionOptions",
     "FitsInputArchive",
     "FitsOpaqueMetadata",
@@ -41,10 +22,12 @@ __all__ = (
 import dataclasses
 import io
 from collections.abc import Callable, Hashable, Iterable
-from typing import IO, Any, Literal
+from functools import cached_property
+from typing import IO, Any
 
 import astropy.io.fits
 import astropy.table
+import numpy as np
 import pydantic
 
 from ._coordinate_transform import CoordinateTransform
@@ -52,9 +35,15 @@ from ._dtypes import NumberType
 from ._geom import Box
 from ._image import Image, ImageModel
 from ._mask import Mask, MaskModel, MaskSchema
-from .archive import InputArchive, NestedOutputArchive, OutputArchive, TableModel, no_header_updates
+from .archive import (
+    InputArchive,
+    NestedOutputArchive,
+    OutputArchive,
+    TableCellReferenceModel,
+    TableModel,
+    no_header_updates,
+)
 from .asdf_utils import ArrayReferenceModel
-from .json_utils import JsonValue, PointerModel
 
 type ExtensionHDU = astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU
 
@@ -90,141 +79,7 @@ class FitsOpaqueMetadata:
     """
 
 
-class FitsExtensionModel(pydantic.BaseModel):
-    """Model the describes a FITS extension.
-
-    Addresses are typically initialized with zeros and written to the primary
-    when an HDU is added to an output archive, in order to reserve space for
-    the real values added later.
-    """
-
-    index: int
-    """Index of this HDU (where zero is the primary HDU)."""
-
-    name: str
-    """Value of the EXTNAME keyword."""
-
-    type: Literal["IMAGE", "BINTABLE", "COMPRESSED_IMAGE"]
-    """FITS extension type."""
-
-    header_address: int = 0
-    """Offset (in bytes) from the beginning of the file to the start of the
-    header.
-    """
-
-    data_address: int = 0
-    """Offset (in bytes) from the beginning of the file to the start of the
-    binary data.
-    """
-
-    data_size: int = 0
-    """Size of the binary data (not including the header) for this extension.
-
-    This is not stored in the header because it can be computed from the
-    address of the following header or (for the last HDU) the tree address.
-    """
-
-    @property
-    def end_address(self) -> int:
-        return self.data_address + self.data_size
-
-    @property
-    def size(self) -> int:
-        return self.end_address - self.header_address
-
-    @pydantic.computed_field
-    def target(self) -> PointerModel:
-        """JSON Pointer to the JSON element that fully describes the content of
-        this extension.
-        """
-        return PointerModel(ref=f"/tree/{self.name}")
-
-    def set_header_addresses(self, header: astropy.io.fits.Header) -> None:
-        """Write addresses to a FITS header."""
-        if self.index >= 999:
-            # Too much for the primary HDU.  We'll still write the addresses
-            # into the JSON block at the end of the file, though.
-            return
-        header.set(f"ADRNM{self.index:03d}", self.name, f"EXTNAME for HDU {self.index}")
-        header.set(f"ADRTP{self.index:03d}", self.type, f"Type of HDU {self.index}")
-        header.set(
-            f"ADRHD{self.index:03d}",
-            self.header_address,
-            f"Offset in bytes to the header of HDU {self.index}.",
-        )
-        header.set(
-            f"ADRDT{self.index:03d}", self.data_address, f"Offset in bytes to the data of HDU {self.index}."
-        )
-
-    @classmethod
-    def read_header_addresses(
-        cls, header: astropy.io.fits.Header
-    ) -> tuple[int, int, dict[str, FitsExtensionModel]]:
-        extensions: dict[str, FitsExtensionModel] = {}
-        last_extension: FitsExtensionModel | None = None
-        for index in range(1, 1000):
-            if (name := header.pop(f"ADRNM{index:03d}", None)) is None:
-                break
-            extension_type: str = header.pop(f"ADRTP{index:03d}")
-            header_address: int = header.pop(f"ADRHD{index:03d}")
-            data_address: int = header.pop(f"ADRDT{index:03d}")
-            if last_extension:
-                last_extension.data_size = header_address - last_extension.data_address
-            last_extension = FitsExtensionModel(
-                index=index,
-                name=name,
-                type=extension_type,
-                header_address=header_address,
-                data_address=data_address,
-            )
-            extensions[name] = last_extension
-        tree_address: int = header.pop("ADRTREE")
-        file_size: int = header.pop("ADRSIZE")
-        if last_extension:
-            last_extension.data_size = tree_address - last_extension.data_address
-        return tree_address, file_size, extensions
-
-    def read_hdu(self, stream: IO[bytes], seek: bool) -> ExtensionHDU:
-        if seek:
-            stream.seek(self.header_address)
-        match self.type:
-            case "IMAGE":
-                hdu_type = astropy.io.fits.ImageHDU
-            case "BINTABLE":
-                hdu_type = astropy.io.fits.BinTableHDU
-            case "COMPRESSED_IMAGE":
-                hdu_type = astropy.io.fits.CompImageHDU
-            case other:
-                raise AssertionError(f"Unexpected extension type {other!r}")
-        return hdu_type.readfrom(stream)
-
-
-class FitsArchiveModel(pydantic.BaseModel):
-    """Model that describes the JSON block of the FITS files written by this
-    module.
-    """
-
-    # TODO: just using Any here (instead of generics) simplifies the archive
-    # implementations, but it might make it harder to use Pydantic to extract
-    # JSON Schema information to document any concrete FITS format with a
-    # particular tree type.  But we could also just ask the tree model for JSON
-    # schema and manually compose it into the schema for this outer model.
-    tree: Any
-    """Information specific to the type stored in this file.
-    """
-
-    pointers: list[JsonValue] = pydantic.Field(default_factory=list)
-    """JSON-compatible raw data (nested dictionaries, etc.) for objects
-    serialized as pointers to the archive.
-
-    At present this drops any JSON schema information we might have had for
-    objects serialized as pointers (it's just not something we
-    """
-
-    extensions: list[FitsExtensionModel] = pydantic.Field(default_factory=list)
-
-
-class FitsOutputArchive(OutputArchive):
+class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
     """An implementation of the `OutputArchive` interface that writes to FITS
     files.
     """
@@ -237,38 +92,43 @@ class FitsOutputArchive(OutputArchive):
         self._primary_hdu = astropy.io.fits.PrimaryHDU()
         # TODO: add subformat description and version to primary HDU.
         self._hdu_list = astropy.io.fits.HDUList([self._primary_hdu])  # actual FITS HDUs to write.
-        self._pointer_targets: list[JsonValue] = []
-        self._extension_models: list[FitsExtensionModel] = []
-        self._primary_hdu.header.set("ADRTREE", 0, "Offset in bytes to the JSON tree HDU.")
-        self._primary_hdu.header.set("ADRSIZE", 0, "Total size of the file in bytes.")
+        self._primary_hdu.header.set("INDXADDR", 0, "Offset in bytes to the HDU index.")
+        self._primary_hdu.header.set("INDXSIZE", 0, "Size of the HDU index.")
+        self._primary_hdu.header.set("JSONADDR", 0, "Offset in bytes to the JSON tree HDU.")
+        self._primary_hdu.header.set("JSONSIZE", 0, "Size of the JSON tree HDU.")
         self._compression_options = (
             compression_options if compression_options is not None else FitsCompressionOptions()
         )
         self._opaque_metadata = opaque_metadata if opaque_metadata is not None else FitsOpaqueMetadata()
-        # Mapping from user provided key (e.g. id(some object)) to a JSON
-        # Pointer to where we actually saved it:
-        self._pointers_by_key: dict[Hashable, PointerModel] = {}
+        if (opaque_primary_header := self._opaque_metadata.headers.get("")) is not None:
+            self._primary_hdu.header.extend(opaque_primary_header)
+        # JSON blobs for objects we've saved as pointers:
+        self._pointer_targets: list[bytes] = []
+        # Mapping from user provided key (e.g. id(some object)) to a table
+        # pointer to where we actually saved it:
+        self._pointers_by_key: dict[Hashable, TableCellReferenceModel] = {}
 
     def add_coordinate_transform(
-        self, mapping: CoordinateTransform, from_frame: str, to_frame: str = "sky"
-    ) -> PointerModel:
+        self, transform: CoordinateTransform, from_frame: str, to_frame: str = "sky"
+    ) -> TableCellReferenceModel:
         raise NotImplementedError("TODO")
 
     def serialize_direct[T: pydantic.BaseModel](
         self, name: str, serializer: Callable[[OutputArchive], T]
     ) -> T:
-        nested = NestedOutputArchive(f"/tree/{name}", self)
+        nested = NestedOutputArchive[TableCellReferenceModel](f"/{name}", self)
         return serializer(nested)
 
     def serialize_pointer[T: pydantic.BaseModel](
         self, name: str, serializer: Callable[[OutputArchive], T], key: Hashable
-    ) -> T | PointerModel:
+    ) -> TableCellReferenceModel:
         if (pointer := self._pointers_by_key.get(key)) is not None:
             return pointer
-        ref = f"/pointers/{len(self._pointer_targets)}"
-        pointer = PointerModel(ref=ref)
-        model = self.serialize_direct(ref, serializer)
-        self._pointer_targets.append(model.model_dump())
+        pointer = TableCellReferenceModel(
+            source="fits:JSON", column="JSON", row=len(self._pointer_targets) + 1
+        )
+        model = self.serialize_direct("/", serializer)
+        self._pointer_targets.append(model.model_dump_json().encode())
         self._pointers_by_key[key] = pointer
         return pointer
 
@@ -299,9 +159,6 @@ class FitsOutputArchive(OutputArchive):
             shape=list(image.array.shape),
             datatype=NumberType.from_numpy(image.array.dtype),
         )
-        extension_model = FitsExtensionModel(index=len(self._hdu_list), name=name, type="IMAGE")
-        extension_model.set_header_addresses(self._primary_hdu.header)
-        self._extension_models.append(extension_model)
         self._hdu_list.append(hdu)
         return ImageModel.pack(array_model, start=[i.start for i in image.bbox], unit=image.unit)
 
@@ -331,9 +188,6 @@ class FitsOutputArchive(OutputArchive):
             shape=list(mask.array.shape),
             datatype=NumberType.from_numpy(mask.array.dtype),
         )
-        extension_model = FitsExtensionModel(index=len(self._hdu_list), name=name, type="IMAGE")
-        extension_model.set_header_addresses(self._primary_hdu.header)
-        self._extension_models.append(extension_model)
         self._hdu_list.append(hdu)
         return MaskModel(
             data=array_model,
@@ -350,53 +204,70 @@ class FitsOutputArchive(OutputArchive):
     ) -> TableModel:
         raise NotImplementedError("TODO")
 
-    def write(self, filename: str, tree: Any) -> None:
-        if (opaque_primary_header := self._opaque_metadata.headers.get("")) is not None:
-            self._primary_hdu.header.extend(opaque_primary_header)
+    def write(self, filename: str, tree: pydantic.BaseModel) -> None:
+        json_hdu = astropy.io.fits.BinTableHDU.from_columns(
+            [astropy.io.fits.Column("JSON", "PA")],
+            nrows=len(self._pointer_targets) + 1,
+            name="JSON",
+        )
+        json_hdu.data["JSON"][0] = tree.model_dump_json().encode()
+        for n, json_target_data in enumerate(self._pointer_targets):
+            json_hdu.data["JSON"][n + 1] = json_target_data
         # We write the file in three phases, opening it again each time. There
         # might be ways to avoid that, but this avoids relying on any astropy
-        # behavior that isn't crystal-clear in the docs.
-        # The first write includes a preliminary version of the primary HDU
-        # (with zero placeholders for all addresses) and all of the regular
-        # image and binary table extensions.
+        # behavior that isn't crystal-clear in the docs. The first write
+        # includes a preliminary version of the primary HDU (with zero
+        # placeholders for the addresses), all of the regular image and binary
+        # table extensions, and the JSON binary table extension.
         self._hdu_list.writeto(filename)
-        # Now that we've written most of the file, we can determine what all
-        # of the addressses were.
-        for extension in self._extension_models:
-            file_info = self._hdu_list.fileinfo(extension.index)
-            extension.header_address = file_info["hdrLoc"]
-            extension.data_address = file_info["datLoc"]
-            extension.data_size = file_info["dataSpan"]
-        # The next write appends a binary table HDU with a single
-        # variable-length string column and a single row, holding the JSON
-        # block.  Docs are scarce on how astropy's open-for-append mode works,
-        # but this is such a simple case that it's hard to imagine it not
-        # working.  It might be nice to compress this, but
-        archive_model = FitsArchiveModel(
-            tree=tree, pointers=self._pointer_targets, extensions=self._extension_models
-        )
-        json_data = archive_model.model_dump_json().encode()
-        json_hdu = astropy.io.fits.BinTableHDU.from_columns(
-            [astropy.io.fits.Column("json", f"PA({len(json_data)})")], nrows=1
-        )
-        json_hdu.data[0]["json"] = json_data
+        json_file_info = json_hdu.fileinfo()
+        # The next write appends a binary table HDU an index into all of the
+        # other HDUs.
         with astropy.io.fits.open(filename, mode="append") as reopened_hdu_list:
-            reopened_hdu_list.append(json_hdu)
+            index_hdu = self._make_index_table(self._hdu_list)
+            reopened_hdu_list.append(index_hdu)
             reopened_hdu_list.flush()
-        file_info = json_hdu.fileinfo()
-        tree_address = file_info["hdrLoc"]
-        file_size = file_info["datLoc"] + file_info["datSpan"]
-        # Update the primary HDU with all of the addresses, and rewrite just
-        # that.  We do this write manually, since astropy's docs on its
-        # 'update' mode are scarce and it's not obvious what it's possible to
-        # ask it to just rewrite the primary header and definitely not resize
-        # the rest of the file.
-        self._primary_hdu.header["ADRTREE"] = tree_address
-        self._primary_hdu.header["ADRSIZE"] = file_size
-        for extension in self._extension_models:
-            extension.set_header_addresses(self._primary_hdu.header)
+        index_file_info = index_hdu.fileinfo()
+        # Update the primary HDU with the address and size of the index and
+        # JSON HDUs, and rewrite just that.  We do this write manually, since
+        # astropy's docs on its 'update' mode are scarce and it's not obvious
+        # what it's possible to ask it to just rewrite the primary header and
+        # definitely not resize the rest of the file.
+        self._primary_hdu.header["INDXADDR"] = index_file_info["hdrLoc"]
+        self._primary_hdu.header["INDXSIZE"] = self._size_from_file_info(index_file_info)
+        self._primary_hdu.header["JSONADDR"] = json_file_info["hdrLoc"]
+        self._primary_hdu.header["JSONSIZE"] = self._size_from_file_info(json_file_info)
         with open(filename, "r+b") as stream:
             stream.write(self._primary_hdu.header.tostring().encode())
+
+    @staticmethod
+    def _make_index_table(hdu_list: astropy.io.fits.HDUList) -> astropy.io.fits.BinTableHDU:
+        index_hdu = astropy.io.fits.BinTableHDU.from_columns(
+            [
+                astropy.io.fits.Column("EXTNAME", "PA"),
+                astropy.io.fits.Column("XTENSION", "A8"),
+                astropy.io.fits.Column("ZIMAGE", "L"),
+                astropy.io.fits.Column("HDRADDR", "K"),
+                astropy.io.fits.Column("DATADDR", "K"),
+                astropy.io.fits.Column("DATSIZE", "K"),
+            ],
+            nrows=len(hdu_list),
+            name="INDEX",
+        )
+        hdu: ExtensionHDU | astropy.io.fits.PrimaryHDU
+        for n, hdu in enumerate(hdu_list):
+            file_info = hdu.fileinfo()
+            index_hdu.data[n]["EXTNAME"] = hdu.header.get("EXTNAME", "")
+            index_hdu.data[n]["XTENSION"] = hdu.header.get("XTENSION", "IMAGE")
+            index_hdu.data[n]["ZIMAGE"] = isinstance(hdu, astropy.io.fits.CompImageHDU)
+            index_hdu.data[n]["HDRADDR"] = file_info["hdrLoc"]
+            index_hdu.data[n]["DATADDR"] = file_info["datLoc"]
+            index_hdu.data[n]["DATSIZE"] = file_info["dataSpan"]
+        return index_hdu
+
+    @staticmethod
+    def _size_from_file_info(file_info: dict[str, int]) -> int:
+        return file_info["datSpan"] + file_info["datLoc"] - file_info["hdrLoc"]
 
 
 class FitsInputArchive(InputArchive):
@@ -425,13 +296,10 @@ class FitsInputArchive(InputArchive):
         page_size: int = 2880 * 50,
         partial: bool = False,
     ):
-        # TODO: everything below is wholly untested, and it relies on guesses
-        # about what astropy's 'readfrom' methods do (these look like the only
-        # way to read an individual HDU from a file-like object).  Note that
-        # we're no asking astropy to use fsspec because fsspec can't know about
-        # the addresses we've saved and hence it has no choice but to skip
-        # along 2880 bytes at a time looking for HDU boundaries, which we
-        # really don't want on network storage.
+        # Note that we're not asking astropy to use fsspec because fsspec can't
+        # know about the addresses we've saved and hence it has no choice but
+        # to skip along 2880 bytes at a time looking for HDU boundaries, which
+        # we really don't want on network storage.
         buffered_stream: IO[bytes]
         if not partial:
             buffered_stream = io.BytesIO(stream.read())
@@ -440,78 +308,67 @@ class FitsInputArchive(InputArchive):
             # at least page_size at a time to avoid per-read overheads in
             # network storage.  So we use a buffered file-like object with that
             # page_size.
-            buffered_stream = io.BufferedRandom(stream, page_size)
+            #
+            # For some reason typing.IO[bytes] isn't substitutable for
+            # io.RawIOBase.
+            buffered_stream = io.BufferedRandom(stream, page_size)  # type:ignore[arg-type]
         self._primary_hdu = astropy.io.fits.PrimaryHDU.readfrom(buffered_stream)
         # TODO: read and strip subformat declaration and version, once we start
         # writing those.
+        #
         # TODO: do some basic checks that the file format conforms to our
         # expectations (e.g. primary HDU should have no data).
-        self._tree_address, self._file_size, self._extension_models = (
-            FitsExtensionModel.read_header_addresses(self._primary_hdu.header)
-        )
+        #
+        # Read and strip the addresses and sizes from the headers.  We don't
+        # actually need the index address because we always want to read the
+        # JSON HDU, too (but that could change in the future).
+        json_address: int = self._primary_hdu.header.pop("JSONADDR")
+        json_size: int = self._primary_hdu.header.pop("JSONSIZE")
+        del self._primary_hdu.header["INDXADDR"]
+        index_size: int = self._primary_hdu.header.pop("INDXSIZE")
+        # Save the remaining primary header keys so we can propagate them on
+        # rewrite.
         self._opaque_metadata = FitsOpaqueMetadata()
         self._opaque_metadata.headers[""] = self._primary_hdu.header.copy(strip=True)
-        # We've probably now read more of the file than just the primary HDU,
-        # due to either partial=False or page_size buffering.  If that includes
-        # any HDUs in their entirety just initialize them now.
-        # TODO: we could optimize this further by also handling the case where
-        # we've read enough for the header but not the data section of an HDU.
-        # It seems like that would require a custom file-like object or a new
-        # lower-level astropy interface.
-        buffer_end_address = stream.tell()
-        self._extension_hdus: dict[str, ExtensionHDU] = {}
-        for extension in self._extension_models.values():
-            if extension.end_address < buffer_end_address:
-                hdu_stream = io.BytesIO(buffered_stream.read(extension.size))
-                self._extension_hdus[extension.name] = extension.read_hdu(hdu_stream, seek=False)
-            else:
-                break
-        # Load the JSON tree on first use only, unless we've already read those
-        # bytes, too.  It's not clear this is actually useful, if you need to
-        # (e.g.) load the tree just to get an ImageModel with which to call
-        # `get_image` anyway, but for prototyping we want to at least see if a
-        # hyper-optimized logic path works with the interfaces, in case we need
-        # it later.
-        self._archive_model: FitsArchiveModel | None = None
-        # We only set self._stream if we didn't already read the whole file, to
-        # force an AttributeError if we try to reread something unnecessarily.
-        self._stream: IO[bytes]
-        if self._file_size == stream.tell():
-            # If we've already read the entire file, load the JSON tree, too.
-            tree_hdu = astropy.io.fits.BinTableHDU.fromstring(buffered_stream.read())
-            self._archive_model = FitsArchiveModel.model_validate_json(tree_hdu.data["json"][0])
-        else:
-            self._stream = stream
-        self._deserialized_pointer_cache: dict[int, Any] = {}
+        # Read the JSON and index HDUs from the buffered stream.  If
+        # partial=True, the seek here will probably drop some bytes of earlier
+        # HDUs that were in the buffer, so there might be a small opportunity
+        # for future optimization.
+        buffered_stream.seek(json_address)
+        tail_data = buffered_stream.read(json_size + index_size)
+        index_hdu = astropy.io.fits.BinTableHDU.fromstring(tail_data[json_size:])
+        # Initialize lazy readers for all of the regular HDUs and the JSON HDU.
+        self._readers = {
+            row["EXTNAME"]: ExtensionReader.from_index_row(row, buffered_stream) for row in index_hdu.data
+        }
+        self._readers["JSON"] = ExtensionReader.from_bytes(astropy.io.fits.BinTableHDU, tail_data[:json_size])
+        # Make any empty dictionary to cache deserialized objects.
+        self._deserialized_pointer_cache: dict[TableCellReferenceModel, Any] = {}
 
     def get_tree[T: pydantic.BaseModel](self, model_type: type[T]) -> T:
-        archive_model = self._get_archive_model()
-        archive_model.tree = model_type.model_validate(archive_model.tree)
-        return archive_model.tree
+        json_bytes = self._readers["JSON"].data["JSON"][0]
+        return model_type.model_validate_json(json_bytes)
 
     def get_coordinate_transform(self, from_frame: str, to_frame: str = "sky") -> CoordinateTransform:
         raise NotImplementedError("TODO")
 
     def deserialize_pointer[U: pydantic.BaseModel, V](
-        self, pointer: PointerModel, model_type: type[U], deserializer: Callable[[U, InputArchive], V]
+        self,
+        pointer: TableCellReferenceModel,
+        model_type: type[U],
+        deserializer: Callable[[U, InputArchive], V],
     ) -> V:
-        if not pointer.ref.startswith("/pointers/"):
-            raise InvalidFitsArchiveError(
-                f"JSON pointer to serialized object {pointer.ref!r} does not start "
-                "with the expected prefix ('/pointers') for a FITs archive."
-            )
-        try:
-            index = int(pointer.ref.removeprefix("/pointers/"))
-        except ValueError as err:
-            raise InvalidFitsArchiveError(
-                f"JSON pointer to serialized object {pointer.ref!r} does not reference "
-                "an element in the /pointers/ array."
-            ) from err
-        if (cached := self._deserialized_pointer_cache.get(index)) is not None:
+        if (cached := self._deserialized_pointer_cache.get(pointer)) is not None:
             return cached
-        archive_model = self._get_archive_model()
-        result = deserializer(model_type.model_validate(archive_model.pointers[index]), self)
-        self._deserialized_pointer_cache[index] = result
+        _, reader = self._get_source_reader(pointer)
+        try:
+            json_bytes = reader.data[pointer.column][pointer.row]
+        except Exception as err:
+            raise InvalidFitsArchiveError(
+                f"Failed to access the table cell referenced by {pointer.model_dump_json()}."
+            ) from err
+        result = deserializer(model_type.model_validate_json(json_bytes), self)
+        self._deserialized_pointer_cache[pointer] = result
         return result
 
     def get_image(
@@ -522,14 +379,14 @@ class FitsInputArchive(InputArchive):
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> Image:
         array_model, unit = ref.unpack()
-        name, hdu = self._get_array_hdu(array_model)
+        name, reader = self._get_source_reader(array_model)
         if bbox is not None:
-            array = hdu.section[ref.bbox.slice_within(bbox)]
+            array = reader.section[ref.bbox.slice_within(bbox)]
         else:
-            array = hdu.data
+            array = reader.data
             bbox = ref.bbox
         if name not in self._opaque_metadata.headers:
-            opaque_header = hdu.header.copy(strip=True)
+            opaque_header = reader.header.copy(strip=True)
             if unit is not None:
                 opaque_header.pop("BUINT", None)
             # TODO: strip any WCS keys we might have added.
@@ -545,7 +402,7 @@ class FitsInputArchive(InputArchive):
         bbox: Box | None = None,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> Mask:
-        name, hdu = self._get_array_hdu(ref.data)
+        name, hdu = self._get_source_reader(ref.data)
         if bbox is not None:
             array = hdu.section[ref.bbox.slice_within(bbox) + (slice(None),)]
         else:
@@ -571,37 +428,78 @@ class FitsInputArchive(InputArchive):
     def get_opaque_metadata(self) -> FitsOpaqueMetadata:
         return self._opaque_metadata
 
-    def _get_archive_model(self) -> FitsArchiveModel:
-        if self._archive_model is None:
-            self._stream.seek(self._tree_address)
-            tree_hdu = astropy.io.fits.BinTableHDU.fromstring(self._stream.read())
-            self._archive_model = FitsArchiveModel.model_validate_json(tree_hdu.data["json"][0])
-            if len(self._archive_model.extensions) > len(self._extension_models):
-                # There were so many HDUs we didn't write all of them to the
-                # primary header.  Add the remaining ones now.
-                for extension_model in self._archive_model.extensions:
-                    self._extension_models.setdefault(extension_model.name, extension_model)
-        return self._archive_model
-
-    def _get_hdu(self, name: str) -> ExtensionHDU:
-        if (hdu := self._extension_hdus.get(name)) is None:
-            if (extension_model := self._extension_models.get(name)) is None:
-                # Maybe we have more than 999 extensions, so we might not know
-                # about them all from reading the primary header.only.  Force a
-                # read of the archive model to get a complete list.
-                self._get_archive_model()
-                try:
-                    extension_model = self._extension_models[name]
-                except KeyError:
-                    raise InvalidFitsArchiveError(f"HDU with name {name!r} does not exist.") from None
-            # TODO: we want to enforce the page_size passed at construction
-            # here, too; probably requires a custom file-like object.
-            hdu = extension_model.read_hdu(self._stream, seek=True)
-            self._extension_hdus[name] = hdu
-        return hdu
-
-    def _get_array_hdu(self, ref: ArrayReferenceModel) -> tuple[str, ExtensionHDU]:
+    def _get_source_reader(
+        self, ref: ArrayReferenceModel | TableCellReferenceModel
+    ) -> tuple[str, ExtensionReader]:
+        if not isinstance(ref.source, str):
+            raise InvalidFitsArchiveError(f"Reference with source={ref.source!r} is not a string.")
         if not ref.source.startswith("fits:"):
-            raise InvalidFitsArchiveError(f"Array reference {ref.source!r} does not start with 'fits:'.")
+            raise InvalidFitsArchiveError(
+                f"Reference with source={ref.source!r} does not start with 'fits:'."
+            )
         name = ref.source.removeprefix("fits:")
-        return name, self._get_hdu(name)
+        try:
+            reader = self._readers[name]
+        except KeyError:
+            if name.isnumeric():
+                msg = f"Extension index {name!r} in source={ref.source!r} is not supported."
+            else:
+                msg = f"Unrecognized EXTNAME {name!r} in source={ref.source!r}"
+            raise InvalidFitsArchiveError(msg) from None
+        if ref.source_is_table and not reader.is_table:
+            raise InvalidFitsArchiveError(
+                f"Extension with EXTNAME={name!r} was expected to be be a binary table, not an image."
+            )
+        elif not ref.source_is_table and reader.is_table:
+            raise InvalidFitsArchiveError(
+                f"Extension with EXTNAME={name!r} was expected to be be an image, not a binary table."
+            )
+        return name, reader
+
+
+class ExtensionReader:
+    def __init__(self, hdu_cls: type[ExtensionHDU], header_address: int, stream: IO[bytes]):
+        self._hdu_cls = hdu_cls
+        self._header_address = header_address
+        self._stream = stream
+
+    @classmethod
+    def from_index_row(cls, index_row: np.void, stream: IO[bytes]) -> ExtensionReader:
+        match index_row["XTENSION"].strip():
+            case "IMAGE":
+                hdu_cls = astropy.io.fits.ImageHDU
+            case "BINTABLE":
+                if index_row["ZIMAGE"]:
+                    hdu_cls = astropy.io.fits.CompImageHDU
+                else:
+                    hdu_cls = astropy.io.fits.BinTableHDU
+            case other:
+                raise AssertionError(f"Unsupported HDU type {other!r}.")
+        return ExtensionReader(hdu_cls, index_row["HDRADDR"], stream)
+
+    @classmethod
+    def from_bytes(cls, hdu_cls: type[ExtensionHDU], data: bytes) -> ExtensionReader:
+        return ExtensionReader(hdu_cls, 0, io.BytesIO(data))
+
+    @property
+    def is_table(self) -> bool:
+        return issubclass(self._hdu_cls, astropy.io.fits.BinTableHDU) and not issubclass(
+            self._hdu_cls, astropy.io.fits.CompImageHDU
+        )
+
+    @cached_property
+    def hdu(self) -> ExtensionHDU:
+        self._stream.seek(self._header_address)
+        return self._hdu_cls.readfrom(self._stream, memmap=False, cache=False)
+
+    @property
+    def header(self) -> astropy.io.fits.Header:
+        return self.hdu.header
+
+    @property
+    def data(self) -> np.ndarray:
+        return self.hdu.data
+
+    @property
+    def section(self) -> astropy.io.fits.Section | astropy.io.fits.CompImageSection:
+        return self.hdu.section

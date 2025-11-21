@@ -49,11 +49,12 @@ from __future__ import annotations
 __all__ = (
     "InputArchive",
     "OutputArchive",
+    "TableCellReferenceModel",
 )
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Iterable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import astropy.table
 import pydantic
@@ -62,7 +63,6 @@ from ._coordinate_transform import CoordinateTransform
 from ._geom import Box
 from ._image import Image, ImageModel
 from ._mask import Mask, MaskModel
-from .json_utils import PointerModel
 
 if TYPE_CHECKING:
     import astropy.io.fits
@@ -74,11 +74,33 @@ class TableModel(pydantic.BaseModel):
     """
 
 
+class TableCellReferenceModel(pydantic.BaseModel):
+    """A model that acts as a pointer to data in a table cell."""
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    source: str | int
+    """Identifier for the table as a whole.
+
+    This is analogous to the ASDF ``ndarray`` field of the same name, i.e
+    for a FITS binary table, use "fits:EXTNAME[,EXTVER]" or "fits:INDEX"
+    (zero-indexed) to identify the HDU.
+    """
+
+    column: str
+    """Name of the column."""
+
+    row: int
+    """Row of the cell (zero-indexed)."""
+
+    source_is_table: ClassVar[Literal[True]] = True
+
+
 def no_header_updates(header: astropy.io.fits.Header) -> None:
     """Do not make any modifications to the given FITS header."""
 
 
-class OutputArchive(ABC):
+class OutputArchive[P: pydantic.BaseModel](ABC):
     """Abstract interface for writing to a file format.
 
     Notes
@@ -97,9 +119,9 @@ class OutputArchive(ABC):
 
     @abstractmethod
     def add_coordinate_transform(
-        self, mapping: CoordinateTransform, from_frame: str, to_frame: str = "sky"
-    ) -> PointerModel:
-        """Add a coordinate mapping between two frames to the archive.
+        self, transform: CoordinateTransform, from_frame: str, to_frame: str = "sky"
+    ) -> P:
+        """Add a coordinate transform between two frames to the archive.
 
         Parameters
         ----------
@@ -151,7 +173,7 @@ class OutputArchive(ABC):
     @abstractmethod
     def serialize_pointer[T: pydantic.BaseModel](
         self, name: str, serializer: Callable[[OutputArchive], T], key: Hashable
-    ) -> T | PointerModel:
+    ) -> T | P:
         """Use a serializer function to save a nested object that may be
         referenced in multiple locations in the same archive.
 
@@ -175,11 +197,9 @@ class OutputArchive(ABC):
         Returns
         -------
         serialized_or_pointer
-            Either the result of the call to the serializer, or a JSON Pointer
-            model that references it.  A JSON Pointer is always returned if
-            ``key`` was already used in a previous call to `serialize_pointer`.
-            Whether a JSON Pointer is returned the first time a key is used is
-            up to the archive implementation.
+            Either the result of the call to the serializer, or a Pydantic
+            model that can be considered a reference to it and added to a
+            larger model in its place.
         """
         # Since Pydantic doesn't provide us a good way to "dereference" a JSON
         # Pointer (i.e. traversing the tree to extract the original model), it
@@ -344,7 +364,7 @@ class OutputArchive(ABC):
         raise NotImplementedError()
 
 
-class NestedOutputArchive(OutputArchive):
+class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
     """A proxy output archive that joins a root path into all names before
     delegating back to its parent archive.
 
@@ -366,18 +386,18 @@ class NestedOutputArchive(OutputArchive):
         self._parent = parent
 
     def add_coordinate_transform(
-        self, mapping: CoordinateTransform, from_frame: str, to_frame: str = "sky"
-    ) -> PointerModel:
-        return self._parent.add_coordinate_transform(mapping, from_frame, to_frame)
+        self, transform: CoordinateTransform, from_frame: str, to_frame: str = "sky"
+    ) -> P:
+        return self._parent.add_coordinate_transform(transform, from_frame, to_frame)
 
     def serialize_direct[T: pydantic.BaseModel](
-        self, name: str, serializer: Callable[[OutputArchive], T]
+        self, name: str, serializer: Callable[[OutputArchive[P]], T]
     ) -> T:
         return self._parent.serialize_direct(self._join_path(name), serializer)
 
     def serialize_pointer[T: pydantic.BaseModel](
-        self, name: str, serializer: Callable[[OutputArchive], T], key: Hashable
-    ) -> T | PointerModel:
+        self, name: str, serializer: Callable[[OutputArchive[P]], T], key: Hashable
+    ) -> T | P:
         return self._parent.serialize_pointer(self._join_path(name), serializer, key)
 
     def add_image(
@@ -419,7 +439,7 @@ class NestedOutputArchive(OutputArchive):
         return f"{self._root}/{name}"
 
 
-class InputArchive(ABC):
+class InputArchive[P: pydantic.BaseModel](ABC):
     """Abstract interface for reading from a file format.
 
     Notes
@@ -459,9 +479,12 @@ class InputArchive(ABC):
         """
         raise NotImplementedError()
 
+    # TODO: we probably need a way to get a coordinate transform from a P model
+    # pointer, too.
+
     @abstractmethod
     def deserialize_pointer[U: pydantic.BaseModel, V](
-        self, pointer: PointerModel, model_type: type[U], deserializer: Callable[[U, InputArchive], V]
+        self, pointer: P, model_type: type[U], deserializer: Callable[[U, InputArchive[P]], V]
     ) -> V:
         """Deserialize an object that was saved by
         `OutputArchive.serialize_pointer`.
