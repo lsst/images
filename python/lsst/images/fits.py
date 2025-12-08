@@ -164,6 +164,8 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
             A context manager that returns a `FitsOutputArchive` when entered.
         """
         with astropy.io.fits.open(filename, mode="append") as hdu_list:
+            if hdu_list:
+                raise OSError(f"File {filename!r} already exists.")
             archive = cls(hdu_list, compression_options, opaque_metadata)
             yield archive
             if not archive._json_hdu_added:
