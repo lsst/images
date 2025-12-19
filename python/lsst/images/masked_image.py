@@ -111,6 +111,12 @@ class MaskedImage:
     def __getitem__(self, bbox: Box) -> MaskedImage:
         return MaskedImage(self.image[bbox], mask=self.mask[bbox], variance=self.variance[bbox])
 
+    def __str__(self) -> str:
+        return f"MaskedImage({self.image!s}, {list(self.mask.schema.names)})"
+
+    def __repr__(self) -> str:
+        return f"MaskedImage({self.image!r}, mask_schema={self.mask.schema!r})"
+
     def serialize(self, archive: OutputArchive[Any]) -> MaskedImageModel:
         """Serialize the masked image to an output archive.
 

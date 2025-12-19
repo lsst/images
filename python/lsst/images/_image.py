@@ -118,6 +118,12 @@ class Image:
     def __getitem__(self, bbox: Box) -> Image:
         return Image(self.array[bbox.slice_within(self._bbox)], bbox=bbox)
 
+    def __str__(self) -> str:
+        return f"Image({self.bbox!s}, {self.array.dtype.type.__name__})"
+
+    def __repr__(self) -> str:
+        return f"Image(..., bbox={self.bbox!r}, dtype={self.array.dtype!r})"
+
 
 class ImageModel(pydantic.BaseModel):
     """Pydantic model used to represent the serialized form of an `Image`."""

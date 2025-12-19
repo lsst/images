@@ -15,7 +15,7 @@ __all__ = ("Mask", "MaskModel", "MaskPlane", "MaskSchema")
 
 import dataclasses
 import math
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence, Set
 
 import numpy as np
 import numpy.typing as npt
@@ -133,6 +133,11 @@ class MaskSchema:
         uses this schema.
         """
         return self._mask_size
+
+    @property
+    def names(self) -> Set[str]:
+        """The names of the mask planes, in bit order."""
+        return self._bits.keys()
 
     @property
     def descriptions(self) -> Mapping[str, str]:
@@ -267,6 +272,12 @@ class Mask:
             bbox=bbox,
             schema=self.schema,
         )
+
+    def __str__(self) -> str:
+        return f"Mask({self.bbox!s}, {list(self.schema.names)})"
+
+    def __repr__(self) -> str:
+        return f"Mask(..., bbox={self.bbox!r}, schema={self.schema!r})"
 
 
 class MaskModel(pydantic.BaseModel):
