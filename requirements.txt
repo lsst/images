@@ -1,0 +1,5 @@
+astropy >= 7.0
+fsspec
+numpy >= 2.0
+pydantic >= 2.12
+lsst-resources[https,s3] @ git+https://github.com/lsst/resources@main

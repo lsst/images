@@ -1,3 +1,202 @@
-# Pytest configuration required to prevent pytest from looking for
-# configurations in parent directories. Can be empty.
+[build-system]
+requires = ["setuptools", "lsst-versions >= 1.3.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lsst-images"
+requires-python = ">=3.12.0"
+description = "Public image types for the Rubin Observatory Legacy Survey of Space and Time (LSST)."
+license = "BSD-3-Clause"
+license-files = ["COPYRIGHT", "LICENSE"]
+readme = "README.rst"
+authors = [
+    {name="Rubin Observatory Data Management", email="dm-admin@lists.lsst.org"},
+]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+keywords=["lsst"]
+dependencies = [
+    "astropy >= 7.0",
+    "fsspec",
+    "numpy >= 2.0",
+    "pydantic >= 2.12",
+    "lsst-resources",
+]
+dynamic = ["version"]
+[project.urls]
+"Homepage" = "https://github.com/lsst/images"
+[project.optional-dependencies]
+test = [
+    "pytest >= 3.2",
+]
+# Also expose the optional dependencies of lsst-resources as optional
+# dependencies of lsst-images (lsst-daf-butler doe the same thing).
+s3 = ["lsst-resources[s3]"]
+https = ["lsst-resources[https]"]
+gs = ["lsst-resources[gs]"]
+
+[tool.setuptools.packages.find]
+where = ["python"]
+
+[tool.setuptools]
+zip-safe = true
+
+[tool.setuptools.package-data]
+"lsst.images" = ["py.typed"]
+
+[tool.setuptools.dynamic]
+version = { attr = "lsst_versions.get_lsst_version" }
+
+[tool.towncrier]
+    package = "lsst.images"
+    package_dir = "python"
+    filename = "doc/lsst.images/CHANGES.rst"
+    directory = "doc/changes"
+    title_format = "lsst-images {version} ({project_date})"
+    issue_format = "`{issue} <https://rubinobs.atlassian.net/browse/{issue}>`_"
+
+
+    [[tool.towncrier.type]]
+        directory = "feature"
+        name = "New Features"
+        showcontent = true
+
+    [[tool.towncrier.type]]
+        directory = "api"
+        name = "API Changes"
+        showcontent = true
+
+    [[tool.towncrier.type]]
+        directory = "bugfix"
+        name = "Bug Fixes"
+        showcontent = true
+
+    [[tool.towncrier.type]]
+        directory = "perf"
+        name = "Performance Enhancement"
+        showcontent = true
+
+    [[tool.towncrier.type]]
+        directory = "misc"
+        name = "Miscellaneous Changes of Minor Interest"
+        showcontent = true
+
+    [[tool.towncrier.type]]
+        directory = "removal"
+        name = "An API Removal or Deprecation"
+        showcontent = true
+
+[tool.black]
+line-length = 110
+target-version = ["py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 110
+known_first_party = ["lsst"]
+
+[tool.lsst_versions]
+write_to = "python/lsst/images/version.py"
+
 [tool.pytest.ini_options]
+
+[tool.pydocstyle]
+convention = "numpy"
+# Our coding style does not require docstrings for magic methods (D105)
+# Our docstyle documents __init__ at the class level (D107)
+# We allow methods to inherit docstrings and this is not compatible with D102.
+# Docstring at the very first line is not required
+# D200, D205 and D400 all complain if the first sentence of the docstring does
+# not fit on one line.
+add-ignore = ["D107", "D105", "D102", "D100", "D200", "D205", "D400"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    'if "sphinx" in sys.modules:',
+    'if "sphinx" in sys.modules and not TYPE_CHECKING:',
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+exclude = [
+    "__init__.py",
+]
+
+[tool.ruff.lint]
+ignore = [
+    "N802",
+    "N803",
+    "N806",
+    "N812",
+    "N815",
+    "N816",
+    "N999",
+    "D107",
+    "D105",
+    "D102",
+    "D104",
+    "D100",
+    "D200",
+    "D205",
+    "D400",
+]
+select = [
+    "E",  # pycodestyle
+    "F",  # pyflakes
+    "N",  # pep8-naming
+    "W",  # pycodestyle
+    "D",  # pydocstyle
+    "I",  # isort
+    "C4",  # comprehensions
+    "UP",  # pyupgrade
+    "RUF022",  # sort __all__
+]
+extend-select = [
+    "RUF100", # Warn about unused noqa
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lsst"]
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 79
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 79
+
+[tool.numpydoc_validation]
+checks = [
+    "all",  # All except the rules listed below.
+    "SA01",  # See Also section.
+    "EX01",  # Example section.
+    "SS06",  # Summary can go into second line.
+    "GL01",  # Summary text can start on same line as """
+    "GL08",  # Do not require docstring.
+    "ES01",  # No extended summary required.
+    "RT01",  # Unfortunately our @property trigger this.
+    "RT02",  # Does not want named return value. DM style says we do.
+    "SS05",  # pydocstyle is better at finding infinitive verb.
+    "GL03",  # ruff format of docstrings disagrees.
+]
+exclude = [
+    "^test_.*",  # Do not test docstrings in test code.
+    '^__init__$',
+    '\._[a-zA-Z_]+$',  # Private methods.
+]
