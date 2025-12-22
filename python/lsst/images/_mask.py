@@ -18,6 +18,7 @@ import math
 from collections.abc import Iterable, Iterator, Mapping, Sequence, Set
 from types import EllipsisType
 
+import astropy.io.fits
 import numpy as np
 import numpy.typing as npt
 import pydantic
@@ -35,6 +36,28 @@ class MaskPlane:
 
     description: str
     """Human-readable documentation for the mask plane."""
+
+    @classmethod
+    def read_legacy(cls, header: astropy.io.fits.Header) -> dict[str, int]:
+        """Read mask plane descriptions written by
+        `lsst.afw.image.Mask.writeFits`.
+
+        Parameters
+        ----------
+        header
+            FITS header.
+
+        Returns
+        -------
+        planes
+            A dictionary mapping mask plane name to integer bit index.
+        """
+        result: dict[str, int] = {}
+        for card in list(header.cards):
+            if card.keyword.startswith("MP_"):
+                result[card.keyword.removeprefix("MP_")] = card.value
+                del header[card.keyword]
+        return result
 
 
 @dataclasses.dataclass(frozen=True)
@@ -308,6 +331,32 @@ class Mask:
 
     def __repr__(self) -> str:
         return f"Mask(..., bbox={self.bbox!r}, schema={self.schema!r})"
+
+    @classmethod
+    def read_legacy(cls, hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU) -> Mask:
+        """Read a FITS file written by `lsst.afw.image.Mask.writeFits`.
+
+        Parameters
+        ----------
+        hdu
+            An astropy image object.
+
+        Returns
+        -------
+        image
+            A new `Image` object.
+        """
+        dx: int = hdu.header.pop("LTV1")
+        dy: int = hdu.header.pop("LTV2")
+        start = (-dy, -dx)
+        plane_dict = MaskPlane.read_legacy(hdu.header)
+        schema = MaskSchema([MaskPlane(name, "") for name in plane_dict])
+        array2d: np.ndarray = hdu.data
+        mask = cls(0, schema=schema, start=start, shape=array2d.shape)
+        for name, bit2d in plane_dict.items():
+            bitmask2d = 1 << bit2d
+            mask.set(name, array2d & bitmask2d)
+        return mask
 
 
 class MaskModel(pydantic.BaseModel):
