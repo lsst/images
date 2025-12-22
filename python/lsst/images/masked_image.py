@@ -109,7 +109,12 @@ class MaskedImage:
         return self._image.unit
 
     def __getitem__(self, bbox: Box) -> MaskedImage:
-        return MaskedImage(self.image[bbox], mask=self.mask[bbox], variance=self.variance[bbox])
+        return MaskedImage(
+            self.image[bbox],
+            mask=self.mask[bbox],
+            variance=self.variance[bbox],
+            opaque_metadata=self._opaque_metadata,
+        )
 
     def __str__(self) -> str:
         return f"MaskedImage({self.image!s}, {list(self.mask.schema.names)})"
