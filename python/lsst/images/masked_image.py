@@ -15,6 +15,7 @@ __all__ = ("MaskedImage",)
 
 from typing import Any
 
+import astropy.io.fits
 import astropy.units
 import numpy as np
 import pydantic
@@ -25,7 +26,14 @@ from ._geom import Box
 from ._image import Image, ImageModel
 from ._mask import Mask, MaskModel, MaskSchema
 from .archive import InputArchive, OpaqueArchiveMetadata, OutputArchive
-from .fits import FitsCompressionOptions, FitsInputArchive, FitsOutputArchive
+from .fits import (
+    ExtensionHDU,
+    FitsCompressionOptions,
+    FitsInputArchive,
+    FitsOpaqueMetadata,
+    FitsOutputArchive,
+    strip_wcs_cards,
+)
 
 
 class MaskedImage:
@@ -258,6 +266,51 @@ class MaskedImage:
             # reworked, but I don't see a better approach right now.
             result._opaque_metadata = archive.get_opaque_metadata()
         return result
+
+    @classmethod
+    def read_legacy(cls, filename: str) -> MaskedImage:
+        """Read a FITS file written by `lsst.afw.image.MaskedImage.writeFits`.
+
+        Parameters
+        ----------
+        filename
+            Full name of the file.
+
+        Returns
+        -------
+        masked_image
+            A new `MaskedImage` object.
+        """
+        opaque_metadata = FitsOpaqueMetadata()
+        with astropy.io.fits.open(filename) as hdu_list:
+            image_hdu: ExtensionHDU = hdu_list[1]
+            image = Image.read_legacy(image_hdu)
+            strip_wcs_cards(image_hdu.header)
+            image_hdu.header.strip()
+            image_hdu.header.remove("EXTNAME", ignore_missing=True)
+            image_hdu.header.remove("EXTTYPE", ignore_missing=True)
+            image_hdu.header.remove("INHERIT", ignore_missing=True)
+            opaque_metadata.headers["image"] = image_hdu.header
+            mask_hdu: ExtensionHDU = hdu_list[2]
+            mask = Mask.read_legacy(mask_hdu)
+            strip_wcs_cards(mask_hdu.header)
+            mask_hdu.header.strip()
+            mask_hdu.header.remove("EXTNAME", ignore_missing=True)
+            mask_hdu.header.remove("EXTTYPE", ignore_missing=True)
+            mask_hdu.header.remove("INHERIT", ignore_missing=True)
+            # afw set BUNIT on masks because of limitations in how FITS
+            # metadata is handled there.
+            mask_hdu.header.remove("BUNIT", ignore_missing=True)
+            opaque_metadata.headers["mask"] = mask_hdu.header
+            variance_hdu: ExtensionHDU = hdu_list[3]
+            variance = Image.read_legacy(variance_hdu)
+            strip_wcs_cards(variance_hdu.header)
+            variance_hdu.header.strip()
+            variance_hdu.header.remove("EXTNAME", ignore_missing=True)
+            variance_hdu.header.remove("EXTTYPE", ignore_missing=True)
+            variance_hdu.header.remove("INHERIT", ignore_missing=True)
+            opaque_metadata.headers["variance"] = variance_hdu.header
+        return cls(image, mask=mask, variance=variance, opaque_metadata=opaque_metadata)
 
 
 class MaskedImageModel(pydantic.BaseModel):
