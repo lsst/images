@@ -185,7 +185,14 @@ class MaskedImage:
         variance = archive.get_image(model.variance, bbox=bbox)
         return MaskedImage(image, mask=mask, variance=variance)
 
-    def write_fits(self, filename: str, compression: FitsCompressionOptions | None = None) -> None:
+    def write_fits(
+        self,
+        filename: str,
+        *,
+        image_compression: FitsCompressionOptions | None = FitsCompressionOptions.DEFAULT,
+        mask_compression: FitsCompressionOptions | None = FitsCompressionOptions.DEFAULT,
+        variance_compression: FitsCompressionOptions | None = FitsCompressionOptions.DEFAULT,
+    ) -> None:
         """Write the masked image to a FITS file.
 
         Parameters
@@ -195,8 +202,15 @@ class MaskedImage:
         compression, optional
             Compression options.
         """
+        compression_options = {}
+        if image_compression is not FitsCompressionOptions.DEFAULT:
+            compression_options["image"] = image_compression
+        if mask_compression is not FitsCompressionOptions.DEFAULT:
+            compression_options["mask"] = mask_compression
+        if variance_compression is not FitsCompressionOptions.DEFAULT:
+            compression_options["variance"] = variance_compression
         with FitsOutputArchive.open(
-            filename, opaque_metadata=self._opaque_metadata, compression_options=compression
+            filename, opaque_metadata=self._opaque_metadata, compression_options=compression_options
         ) as archive:
             archive.add_tree(self.serialize(archive))
 
