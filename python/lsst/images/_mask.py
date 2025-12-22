@@ -16,6 +16,7 @@ __all__ = ("Mask", "MaskModel", "MaskPlane", "MaskSchema")
 import dataclasses
 import math
 from collections.abc import Iterable, Iterator, Mapping, Sequence, Set
+from types import EllipsisType
 
 import numpy as np
 import numpy.typing as npt
@@ -47,17 +48,17 @@ class MaskPlaneBit:
     is stored.
     """
 
-    mask: int
+    mask: np.unsignedinteger
     """Bitmask that select just this plane's bit from a mask array value.
     """
 
     @classmethod
-    def compute(cls, overall_index: int, stride: int) -> MaskPlaneBit:
+    def compute(cls, overall_index: int, stride: int, mask_type: type[np.unsignedinteger]) -> MaskPlaneBit:
         """Construct from the overall index of a plane in a `MaskSchema` and
         the stride (number of bits per mask array element).
         """
         index, bit = divmod(overall_index, stride)
-        return cls(index, 1 << bit)
+        return cls(index, mask_type(1 << bit))
 
 
 class MaskSchema:
@@ -79,7 +80,7 @@ class MaskSchema:
     and bitmask for each plane.
 
     `MaskSchema` indexing is by integer (the overall index of a plane in the
-    schema).  The `descriptions` attribute may be index by plane name to get
+    schema).  The `descriptions` attribute may be indexed by plane name to get
     the description for that plane, and the `bitmask` method can be used to
     obtain an array that can be used to select one or more planes by name in
     a mask array that uses this schema.
@@ -88,11 +89,13 @@ class MaskSchema:
     def __init__(self, planes: Iterable[MaskPlane | None], dtype: npt.DTypeLike = np.uint8):
         self._planes = tuple(planes)
         self._dtype = np.dtype(dtype)
+        if not issubclass(self._dtype.type, np.unsignedinteger):
+            raise TypeError("dtype for masks must be an unsigned integer.")
         self._descriptions = {plane.name: plane.description for plane in self._planes if plane is not None}
         stride = self._dtype.itemsize * 8
         self._mask_size = math.ceil(len(self._planes) / stride)
         self._bits: dict[str, MaskPlaneBit] = {
-            plane.name: MaskPlaneBit.compute(n, stride)
+            plane.name: MaskPlaneBit.compute(n, stride, self._dtype.type)
             for n, plane in enumerate(self._planes)
             if plane is not None
         }
@@ -143,6 +146,10 @@ class MaskSchema:
     def descriptions(self) -> Mapping[str, str]:
         """A mapping from plane name to description."""
         return self._descriptions
+
+    def bit(self, plane: str) -> MaskPlaneBit:
+        """Return the last array index and mask for the given mask plane."""
+        return self._bits[plane]
 
     def bitmask(self, *planes: str) -> np.ndarray:
         """Return a 1-d mask array that represents the union (i.e. bitwise OR)
@@ -272,6 +279,25 @@ class Mask:
             bbox=bbox,
             schema=self.schema,
         )
+
+    def get(self, plane: str) -> np.ndarray:
+        """Return a 2-d boolean array for the given mask plane."""
+        bit = self.schema.bit(plane)
+        return (self._array[..., bit.index] & bit.mask).astype(bool)
+
+    def set(self, plane: str, boolean_mask: np.ndarray | EllipsisType = ...) -> None:
+        """Set a mask plane from a 2-d boolean array or ``...```."""
+        bit = self.schema.bit(plane)
+        if boolean_mask is not ...:
+            boolean_mask = boolean_mask.astype(bool)
+        self._array[boolean_mask, bit.index] |= bit.mask
+
+    def clear(self, plane: str, boolean_mask: np.ndarray | EllipsisType = ...) -> None:
+        """Clear a mask plane from a 2-d boolean array or ``...```."""
+        bit = self.schema.bit(plane)
+        if boolean_mask is not ...:
+            boolean_mask = boolean_mask.astype(bool)
+        self._array[boolean_mask, bit.index] &= ~bit.mask
 
     def __str__(self) -> str:
         return f"Mask({self.bbox!s}, {list(self.schema.names)})"
