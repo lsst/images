@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 
@@ -19,6 +20,8 @@ import numpy as np
 
 from lsst.images import Box, Image, MaskPlane, MaskSchema
 from lsst.images.masked_image import MaskedImage
+
+DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
 
 class MaskedImageTestCase(unittest.TestCase):
@@ -95,6 +98,23 @@ class MaskedImageTestCase(unittest.TestCase):
         np.testing.assert_array_equal(subimage.image.array, self.masked_image.image.array[subslices])
         np.testing.assert_array_equal(subimage.mask.array, self.masked_image.mask.array[subslices])
         np.testing.assert_array_equal(subimage.variance.array, self.masked_image.variance.array[subslices])
+
+    @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
+    @unittest.expectedFailure
+    def test_afw_rewrite(self) -> None:
+        assert DATA_DIR is not None, "Guaranteed by decorator."
+        filename = os.path.join(DATA_DIR, "extracted", "visit_image.fits")
+        from_afw = MaskedImage.read_afw(filename)
+        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
+            tmp.close()
+            from_afw.write_fits(tmp.name)
+            roundtripped = MaskedImage.read_fits(tmp.name)
+        self.assertEqual(roundtripped.bbox, from_afw.bbox)
+        self.assertEqual(roundtripped.unit, from_afw.unit)
+        self.assertEqual(roundtripped.mask.schema, from_afw.mask.schema)
+        np.testing.assert_array_equal(roundtripped.image.array, from_afw.image.array)
+        np.testing.assert_array_equal(roundtripped.mask.array, from_afw.mask.array)
+        np.testing.assert_array_equal(roundtripped.variance.array, from_afw.variance.array)
 
 
 if __name__ == "__main__":
