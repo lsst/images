@@ -42,7 +42,12 @@ from ..archive import (
     no_header_updates,
 )
 from ..asdf_utils import ArrayReferenceModel
-from ._common import ExtensionHDU, FitsOpaqueMetadata, InvalidFitsArchiveError
+from ._common import (
+    ExtensionHDU,
+    FitsOpaqueMetadata,
+    InvalidFitsArchiveError,
+    strip_wcs_cards,
+)
 
 
 class FitsInputArchive(InputArchive[TableCellReferenceModel]):
@@ -185,7 +190,7 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
             opaque_header = reader.header.copy(strip=True)
             if unit is not None:
                 opaque_header.pop("BUINT", None)
-            # TODO: strip any WCS keys we might have added.
+            strip_wcs_cards(opaque_header)
             strip_header(opaque_header)
             self._opaque_metadata.headers[name] = opaque_header
         return Image(array, bbox=bbox, unit=unit)
@@ -208,7 +213,7 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         if name not in self._opaque_metadata.headers:
             opaque_header = reader.header.copy(strip=True)
             # TODO: strip mask plane information from headers.
-            # TODO: strip any WCS keys we might have added.
+            strip_wcs_cards(opaque_header)
             strip_header(opaque_header)
             self._opaque_metadata.headers[name] = opaque_header
         return Mask(array, schema=schema, bbox=bbox)

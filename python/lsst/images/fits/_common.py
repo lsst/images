@@ -20,10 +20,13 @@ __all__ = (
     "FitsOpaqueMetadata",
     "FitsQuantizationOptions",
     "InvalidFitsArchiveError",
+    "strip_wcs_cards",
 )
 
 import dataclasses
 import enum
+import itertools
+import string
 from typing import ClassVar
 
 import astropy.io.fits
@@ -161,3 +164,40 @@ class FitsOpaqueMetadata:
 
     Keys are EXTNAME values, or "" for the primary header.
     """
+
+
+_WCS_VECTOR_KEYS = ("CUNIT", "CRPIX", "CRPIX", "CRVAL", "CRDELT", "CROTA", "CRDER", "CSYER")
+_WCS_MATRIX_KEYS = ("CD{0}_{1}", "PC{0}_{1}")
+
+
+def strip_wcs_cards(header: astropy.io.fits.Header) -> None:
+    """Strip WCS cards from a FITS header.
+
+    This does *not* attempt to cover all possible FITS WCS forms; it focuses on
+    the ones we actually plan to write (simple undistorted ones + TAN-SIP).
+    """
+    wcsaxes = header.pop("WCSAXES", 2)
+    for wcsname in [""] + list(string.ascii_uppercase):
+        header.remove("RADESYS" + wcsname, ignore_missing=True)
+        if "CTYPE1" + wcsname in header:
+            ctype: str = ""  # just for linters that can't figure out that the loop always executes
+            for n in range(wcsaxes):
+                suffix = f"{n + 1}{wcsname}"
+                ctype = header.pop("CTYPE" + suffix)
+                for key in _WCS_VECTOR_KEYS:
+                    header.remove(key + suffix, ignore_missing=True)
+                for m in range(wcsaxes):
+                    for tmpl in _WCS_MATRIX_KEYS:
+                        header.remove(tmpl.format(m + 1, suffix), ignore_missing=True)
+            if ctype.endswith("-SIP"):
+                _strip_sip_poly(header, wcsname, "A")
+                _strip_sip_poly(header, wcsname, "B")
+                _strip_sip_poly(header, wcsname, "AP")
+                _strip_sip_poly(header, wcsname, "BP")
+
+
+def _strip_sip_poly(header: astropy.io.fits.Header, wcsname: str, which: str) -> None:
+    order: int | None = header.pop(f"{which}_ORDER{wcsname}", None)
+    if order is not None:
+        for i, j in itertools.product(range(order + 1), range(order + 1)):
+            header.remove(f"{which}_{i}_{j}{wcsname}", ignore_missing=True)
