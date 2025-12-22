@@ -199,15 +199,15 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> Mask:
         # Docstring inherited.
-        name, hdu = self._get_source_reader(ref.data)
+        name, reader = self._get_source_reader(ref.data)
         if bbox is not None:
-            array = hdu.section[bbox.slice_within(ref.bbox) + (slice(None),)]
+            array = reader.section[bbox.slice_within(ref.bbox) + (slice(None),)]
         else:
-            array = hdu.data
+            array = reader.data
             bbox = ref.bbox
         schema = MaskSchema(ref.planes, dtype=array.dtype)
         if name not in self._opaque_metadata.headers:
-            opaque_header = hdu.header.copy(strip=True)
+            opaque_header = reader.header.copy(strip=True)
             # TODO: strip mask plane information from headers.
             # TODO: strip any WCS keys we might have added.
             strip_header(opaque_header)
