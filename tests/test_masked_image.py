@@ -14,10 +14,12 @@ from __future__ import annotations
 import tempfile
 import unittest
 
+import astropy.io.fits
 import astropy.units as u
 import numpy as np
 
 from lsst.images import Box, Image, MaskPlane, MaskSchema
+from lsst.images.fits import FitsCompressionOptions
 from lsst.images.masked_image import MaskedImage
 
 
@@ -83,6 +85,11 @@ class MaskedImageTestCase(unittest.TestCase):
             self.masked_image.write_fits(tmp.name)
             roundtripped = MaskedImage.read_fits(tmp.name)
             subimage = MaskedImage.read_fits(tmp.name, bbox=subbox)
+            # Check that we used lossless compression (the default).
+            with astropy.io.fits.open(tmp.name, disable_image_compression=True) as fits:
+                self.assertEqual(fits[1].header["ZCMPTYPE"], "GZIP_2")
+                self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
+                self.assertEqual(fits[3].header["ZCMPTYPE"], "GZIP_2")
         self.assertEqual(roundtripped.bbox, self.masked_image.bbox)
         self.assertEqual(roundtripped.unit, self.masked_image.unit)
         self.assertEqual(roundtripped.mask.schema, self.masked_image.mask.schema)
@@ -95,6 +102,41 @@ class MaskedImageTestCase(unittest.TestCase):
         np.testing.assert_array_equal(subimage.image.array, self.masked_image.image.array[subslices])
         np.testing.assert_array_equal(subimage.mask.array, self.masked_image.mask.array[subslices])
         np.testing.assert_array_equal(subimage.variance.array, self.masked_image.variance.array[subslices])
+
+    def test_fits_roundtrip_lossy(self) -> None:
+        """Test that we can round-trip the MaskedImage through FITS, including
+        subimage reads, with lossy compression.
+        """
+        subbox = Box.factory[11:20, 25:30]
+        subslices = (slice(6, 15), slice(17, 22))
+        np.testing.assert_array_equal(
+            self.masked_image.image.array[subslices], self.masked_image.image[subbox].array
+        )
+        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
+            tmp.close()
+            self.masked_image.write_fits(
+                tmp.name,
+                image_compression=FitsCompressionOptions.LOSSY,
+                variance_compression=FitsCompressionOptions.LOSSY,
+            )
+            roundtripped = MaskedImage.read_fits(tmp.name)
+            subimage = MaskedImage.read_fits(tmp.name, bbox=subbox)
+            with astropy.io.fits.open(tmp.name, disable_image_compression=True) as fits:
+                self.assertEqual(fits[1].header["ZCMPTYPE"], "RICE_1")
+                self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
+                self.assertEqual(fits[3].header["ZCMPTYPE"], "RICE_1")
+        self.assertEqual(roundtripped.bbox, self.masked_image.bbox)
+        self.assertEqual(roundtripped.unit, self.masked_image.unit)
+        self.assertEqual(roundtripped.mask.schema, self.masked_image.mask.schema)
+        np.testing.assert_allclose(roundtripped.image.array, self.masked_image.image.array, rtol=0.01)
+        np.testing.assert_array_equal(roundtripped.mask.array, self.masked_image.mask.array)
+        np.testing.assert_allclose(roundtripped.variance.array, self.masked_image.variance.array, rtol=0.01)
+        self.assertEqual(subimage.bbox, subbox)
+        self.assertEqual(subimage.unit, self.masked_image.unit)
+        self.assertEqual(subimage.mask.schema, self.masked_image.mask.schema)
+        np.testing.assert_array_equal(subimage.image.array, roundtripped.image.array[subslices])
+        np.testing.assert_array_equal(subimage.mask.array, roundtripped.mask.array[subslices])
+        np.testing.assert_array_equal(subimage.variance.array, roundtripped.variance.array[subslices])
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("FitsOutputArchive",)
 
 import dataclasses
-from collections.abc import Callable, Hashable, Iterable, Iterator
+from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, Self
 
@@ -49,7 +49,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
     def __init__(
         self,
         hdu_list: astropy.io.fits.HDUList,
-        compression_options: FitsCompressionOptions | None = None,
+        compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
         opaque_metadata: Any = None,
     ):
         # JSON blobs for objects we've saved as pointers:
@@ -64,9 +64,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         self._primary_hdu.header.set("INDXSIZE", 0, "Size of the HDU index.")
         self._primary_hdu.header.set("JSONADDR", 0, "Offset in bytes to the JSON tree HDU.")
         self._primary_hdu.header.set("JSONSIZE", 0, "Size of the JSON tree HDU.")
-        self._compression_options = (
-            compression_options if compression_options is not None else FitsCompressionOptions()
-        )
+        self._compression_options = dict(compression_options) if compression_options is not None else {}
         self._opaque_metadata = (
             opaque_metadata if isinstance(opaque_metadata, FitsOpaqueMetadata) else FitsOpaqueMetadata()
         )
@@ -80,7 +78,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
     def open(
         cls,
         filename: str,
-        compression_options: FitsCompressionOptions | None = None,
+        compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
         opaque_metadata: Any = None,
     ) -> Iterator[Self]:
         """Create an output archive that writes to the given file.
@@ -90,7 +88,9 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         filename
             Name of the file to write to.  Must not already exist.
         compression_options, optional
-            Options for how to compress the FITS file.
+            Options for how to compress the FITS file, keyed by the name of
+            the attribute (with JSON pointer ``/`` separators for nested
+            attributes).
         opaque_metadata, optional
             Metadata read from an input archive along with the object being
             written now.  Ignored if the metadata is not from a FITS archive.
@@ -108,10 +108,15 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
             if not archive._json_hdu_added:
                 raise RuntimeError("Write context exited without 'add_tree' being called.")
             hdu_list.flush()
-            hdu_list.append(cls._make_index_table(hdu_list))
-            hdu_list.flush()
-            json_bytes = _HDUBytes.from_hdu(hdu_list[-2])
-            index_bytes = _HDUBytes.from_hdu(hdu_list[-1])
+        # This multi-open dance is necessary to get Astropy to tell us the
+        # byte addresses of the HDUs.  Hopefully we can get an upstream change
+        # make this unnecessary at some point.
+        with astropy.io.fits.open(filename, mode="readonly", disable_image_compression=True) as hdu_list:
+            index_hdu = cls._make_index_table(hdu_list)
+        with astropy.io.fits.open(filename, mode="append") as hdu_list:
+            hdu_list.append(index_hdu)
+        json_bytes = _HDUBytes.from_index_row(index_hdu.data[-1])
+        index_bytes = _HDUBytes.from_write_hdu(index_hdu)
         # Update the primary HDU with the address and size of the index and
         # JSON HDUs, and rewrite just that.  We do this write manually, since
         # astropy's docs on its 'update' mode are scarce and it's not obvious
@@ -157,9 +162,10 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         wcs_frames: Iterable[str] = (),
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> ImageModel:
-        # TODO: look for compression options in both the main options and the
-        # opaque metadata, make a CompImageHDU instead if requested.
-        hdu = astropy.io.fits.ImageHDU(image.array, name=name.upper())
+        if (compression_options := self._get_compression_options(name)) is not None:
+            hdu = compression_options.make_hdu(image.array, name=name.upper())
+        else:
+            hdu = astropy.io.fits.ImageHDU(image.array, name=name.upper())
         if image.unit:
             hdu.header["BUNIT"] = image.unit.to_string(format="fits")
         # TODO: add a default WCS from pixel_frame to 'sky', if pixel_frame is
@@ -187,9 +193,10 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         wcs_frames: Iterable[str] = (),
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> MaskModel:
-        # TODO: look for compression options in both the main options and the
-        # opaque metadata, make a CompImageHDU instead if requested.
-        hdu = astropy.io.fits.ImageHDU(mask.array, name=name.upper())
+        if (compression_options := self._get_compression_options(name)) is not None:
+            hdu = compression_options.make_hdu(mask.array, name=name.upper())
+        else:
+            hdu = astropy.io.fits.ImageHDU(mask.array, name=name.upper())
         # TODO: add a default WCS from pixel_frame to 'sky', if pixel_frame is
         # provided and 'sky' is known to the archive; use the 'A'-suffix WCS to
         # transform from 1-indexed FITS to the image's bounding box (or the
@@ -242,6 +249,9 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         self._hdu_list.append(json_hdu)
         self._json_hdu_added = True
 
+    def _get_compression_options(self, name: str) -> FitsCompressionOptions | None:
+        return self._compression_options.get(name, FitsCompressionOptions.DEFAULT)
+
     @staticmethod
     def _make_index_table(hdu_list: astropy.io.fits.HDUList) -> astropy.io.fits.BinTableHDU:
         # We use a fixed-length string for the EXTNAME column; it might be
@@ -265,8 +275,8 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         for n, hdu in enumerate(hdu_list):
             index_hdu.data[n]["EXTNAME"] = hdu.header.get("EXTNAME", "")
             index_hdu.data[n]["XTENSION"] = hdu.header.get("XTENSION", "IMAGE")
-            index_hdu.data[n]["ZIMAGE"] = isinstance(hdu, astropy.io.fits.CompImageHDU)
-            bytes = _HDUBytes.from_hdu(hdu)
+            index_hdu.data[n]["ZIMAGE"] = hdu.header.get("ZIMAGE", False)
+            bytes = _HDUBytes.from_read_hdu(hdu)
             bytes.update_index_row(index_hdu.data[n])
         return index_hdu
 
@@ -276,9 +286,8 @@ class _HDUBytes:
     """A struct that records the byte offsets into a FITS HDU."""
 
     @classmethod
-    def from_hdu(cls, hdu: astropy.io.fits.PrimaryHDU | ExtensionHDU) -> Self:
-        """Construct from an Astropy HDU instance that has just been read or
-        written.
+    def from_write_hdu(cls, hdu: astropy.io.fits.PrimaryHDU | ExtensionHDU) -> Self:
+        """Construct from an Astropy HDU instance that has just been written.
 
         Parameters
         ----------
@@ -289,6 +298,11 @@ class _HDUBytes:
         -------
         hdu_bytes
             Struct with byte offsets.
+
+        Notes
+        -----
+        This method relies on internal Astropy attributes and does not work on
+        CompImageHDU objects.
         """
         # This is implemented by accessing private Astropy attributes because
         # it turns out that's much more reliable than the public fileinfo()
@@ -301,6 +315,26 @@ class _HDUBytes:
             raise RuntimeError("Failed to get Astropy's _data_offset.")
         if (data_size := getattr(hdu, "_data_size", None)) is None:
             raise RuntimeError("Failed to get Astropy's _data_size.")
+        return cls(header_address, data_address, data_size)
+
+    @classmethod
+    def from_read_hdu(cls, hdu: astropy.io.fits.PrimaryHDU | ExtensionHDU) -> Self:
+        """Construct from an Astropy HDU instance that has just been read.
+
+        Parameters
+        ----------
+        hdu
+            An Astropy HDU object.
+
+        Returns
+        -------
+        hdu_bytes
+            Struct with byte offsets.
+        """
+        info = hdu.fileinfo()
+        header_address = info["hdrLoc"]
+        data_address = info["datLoc"]
+        data_size = info["datSpan"]
         return cls(header_address, data_address, data_size)
 
     @classmethod

@@ -188,7 +188,6 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
             # TODO: strip any WCS keys we might have added.
             strip_header(opaque_header)
             self._opaque_metadata.headers[name] = opaque_header
-        # TODO: extract compression information into opaque_metadata
         return Image(array, bbox=bbox, unit=unit)
 
     def get_mask(
@@ -212,7 +211,6 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
             # TODO: strip any WCS keys we might have added.
             strip_header(opaque_header)
             self._opaque_metadata.headers[name] = opaque_header
-        # TODO: extract compression information into opaque_metadata
         return Mask(array, schema=schema, bbox=bbox)
 
     def get_table(
@@ -352,7 +350,14 @@ class _ExtensionReader:
     def hdu(self) -> ExtensionHDU:
         """The Astropy HDU object."""
         self._stream.seek(0)
-        return self._hdu_cls.readfrom(self._stream, memmap=False, cache=False)
+        if self._hdu_cls is astropy.io.fits.CompImageHDU:
+            # CompImageHDU.readfrom doesn't work; we need to make a minimal
+            # example and report it upstream.  Happily this workaround does
+            # work.
+            bintable_hdu = astropy.io.fits.BinTableHDU.readfrom(self._stream, memmap=False, cache=False)
+            return self._hdu_cls(bintable=bintable_hdu)
+        else:
+            return self._hdu_cls.readfrom(self._stream, memmap=False, cache=False)
 
     @property
     def header(self) -> astropy.io.fits.Header:
