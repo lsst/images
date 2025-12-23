@@ -290,7 +290,7 @@ class MaskedImage:
             image_hdu.header.remove("EXTNAME", ignore_missing=True)
             image_hdu.header.remove("EXTTYPE", ignore_missing=True)
             image_hdu.header.remove("INHERIT", ignore_missing=True)
-            opaque_metadata.headers["image"] = image_hdu.header
+            opaque_metadata.headers["IMAGE"] = image_hdu.header
             mask_hdu: ExtensionHDU = hdu_list[2]
             mask = Mask.read_legacy(mask_hdu)
             strip_wcs_cards(mask_hdu.header)
@@ -301,7 +301,7 @@ class MaskedImage:
             # afw set BUNIT on masks because of limitations in how FITS
             # metadata is handled there.
             mask_hdu.header.remove("BUNIT", ignore_missing=True)
-            opaque_metadata.headers["mask"] = mask_hdu.header
+            opaque_metadata.headers["MASK"] = mask_hdu.header
             variance_hdu: ExtensionHDU = hdu_list[3]
             variance = Image.read_legacy(variance_hdu)
             strip_wcs_cards(variance_hdu.header)
@@ -309,7 +309,7 @@ class MaskedImage:
             variance_hdu.header.remove("EXTNAME", ignore_missing=True)
             variance_hdu.header.remove("EXTTYPE", ignore_missing=True)
             variance_hdu.header.remove("INHERIT", ignore_missing=True)
-            opaque_metadata.headers["variance"] = variance_hdu.header
+            opaque_metadata.headers["VARIANCE"] = variance_hdu.header
         return cls(image, mask=mask, variance=variance, opaque_metadata=opaque_metadata)
 
 
