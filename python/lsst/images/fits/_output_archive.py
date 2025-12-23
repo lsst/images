@@ -174,7 +174,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         # default WCS otherwise); use B-Z for mappings from pixel_frame to each
         # entry in wcs_frames.
         update_header(hdu.header)
-        if (opaque_headers := self._opaque_metadata.headers.get(name)) is not None:
+        if (opaque_headers := self._opaque_metadata.headers.get(name.upper())) is not None:
             hdu.header.extend(opaque_headers)
         array_model = ArrayReferenceModel(
             source=f"fits:{name.upper()}",
@@ -204,7 +204,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         # entry in wcs_frames.
         # TODO: write mask schema to FITS header.
         update_header(hdu.header)
-        if (opaque_headers := self._opaque_metadata.headers.get(name)) is not None:
+        if (opaque_headers := self._opaque_metadata.headers.get(name.upper())) is not None:
             hdu.header.extend(opaque_headers)
         array_model = ArrayReferenceModel(
             source=f"fits:{name.upper()}",
