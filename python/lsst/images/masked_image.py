@@ -24,7 +24,7 @@ from lsst.resources import ResourcePathExpression
 from ._geom import Box
 from ._image import Image, ImageModel
 from ._mask import Mask, MaskModel, MaskSchema
-from .archive import InputArchive, OutputArchive
+from .archive import InputArchive, OpaqueArchiveMetadata, OutputArchive
 from .fits import FitsCompressionOptions, FitsInputArchive, FitsOutputArchive
 
 
@@ -58,7 +58,7 @@ class MaskedImage:
         mask: Mask | None = None,
         variance: Image | None = None,
         mask_schema: MaskSchema | None = None,
-        opaque_metadata: Any = None,
+        opaque_metadata: OpaqueArchiveMetadata | None = None,
     ):
         if mask is None:
             if mask_schema is None:
@@ -113,7 +113,9 @@ class MaskedImage:
             self.image[bbox],
             mask=self.mask[bbox],
             variance=self.variance[bbox],
-            opaque_metadata=self._opaque_metadata,
+            opaque_metadata=(
+                self._opaque_metadata.subset(bbox) if self._opaque_metadata is not None else None
+            ),
         )
 
     def __str__(self) -> str:
@@ -121,6 +123,15 @@ class MaskedImage:
 
     def __repr__(self) -> str:
         return f"MaskedImage({self.image!r}, mask_schema={self.mask.schema!r})"
+
+    def copy(self) -> MaskedImage:
+        """Deep-copy the masked image."""
+        return MaskedImage(
+            image=self._image.copy(),
+            mask=self._mask.copy(),
+            variance=self._variance.copy(),
+            opaque_metadata=(self._opaque_metadata.copy() if self._opaque_metadata is not None else None),
+        )
 
     def serialize(self, archive: OutputArchive[Any]) -> MaskedImageModel:
         """Serialize the masked image to an output archive.

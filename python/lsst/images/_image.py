@@ -124,6 +124,10 @@ class Image:
     def __repr__(self) -> str:
         return f"Image(..., bbox={self.bbox!r}, dtype={self.array.dtype!r})"
 
+    def copy(self) -> Image:
+        """Deep-copy the image."""
+        return Image(self._array.copy(), bbox=self._bbox, unit=self._unit)
+
 
 class ImageModel(pydantic.BaseModel):
     """Pydantic model used to represent the serialized form of an `Image`."""
