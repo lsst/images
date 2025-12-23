@@ -280,6 +280,10 @@ class Mask:
             schema=self.schema,
         )
 
+    def copy(self) -> Mask:
+        """Deep-copy the mask."""
+        return Mask(self._array.copy(), bbox=self._bbox, schema=self._schema)
+
     def get(self, plane: str) -> np.ndarray:
         """Return a 2-d boolean array for the given mask plane."""
         bit = self.schema.bit(plane)

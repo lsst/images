@@ -27,10 +27,13 @@ import dataclasses
 import enum
 import itertools
 import string
-from typing import ClassVar
+from typing import ClassVar, Self
 
 import astropy.io.fits
 import numpy as np
+
+from .._geom import Box
+from ..archive import OpaqueArchiveMetadata
 
 type ExtensionHDU = astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU
 
@@ -143,7 +146,7 @@ FitsCompressionOptions.DEFAULT = FitsCompressionOptions()
 
 
 @dataclasses.dataclass
-class FitsOpaqueMetadata:
+class FitsOpaqueMetadata(OpaqueArchiveMetadata):
     """Opaque metadata that may be carried around by a serializable type to
     propagate serialization options and opaque information without that type
     knowing how it was serialized.
@@ -155,6 +158,14 @@ class FitsOpaqueMetadata:
 
     Keys are EXTNAME values, or "" for the primary header.
     """
+
+    def copy(self) -> Self:
+        # Docstring inherited.
+        return self
+
+    def subset(self, bbox: Box) -> Self:
+        # Docstring inherited.
+        return self
 
 
 _WCS_VECTOR_KEYS = ("CUNIT", "CRPIX", "CRPIX", "CRVAL", "CRDELT", "CROTA", "CRDER", "CSYER")
