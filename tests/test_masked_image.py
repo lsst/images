@@ -143,12 +143,21 @@ class MaskedImageTestCase(unittest.TestCase):
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_legacy_rewrite(self) -> None:
+        """Test that we can read a ``lsst.afw.image.MaskedImage`` into an
+        `lsst.images.MaskedImage` and write that out while preserving even
+        lossy-compressed pixel values exactly.
+        """
         assert DATA_DIR is not None, "Guaranteed by decorator."
         filename = os.path.join(DATA_DIR, "extracted", "visit_image.fits")
-        from_afw = MaskedImage.read_legacy(filename)
+        from_afw = MaskedImage.read_legacy(filename, preserve_quantization=True)
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
             tmp.close()
             from_afw.write_fits(tmp.name)
+            # Check that we're still using the right compression.
+            with astropy.io.fits.open(tmp.name, disable_image_compression=True) as fits:
+                self.assertEqual(fits[1].header["ZCMPTYPE"], "RICE_1")
+                self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
+                self.assertEqual(fits[3].header["ZCMPTYPE"], "RICE_1")
             roundtripped = MaskedImage.read_fits(tmp.name)
         self.assertEqual(roundtripped.bbox, from_afw.bbox)
         self.assertEqual(roundtripped.unit, from_afw.unit)

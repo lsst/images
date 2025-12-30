@@ -32,6 +32,7 @@ from .fits import (
     FitsInputArchive,
     FitsOpaqueMetadata,
     FitsOutputArchive,
+    PrecompressedImage,
     strip_wcs_cards,
 )
 
@@ -268,13 +269,20 @@ class MaskedImage:
         return result
 
     @classmethod
-    def read_legacy(cls, filename: str) -> MaskedImage:
+    def read_legacy(cls, filename: str, preserve_quantization: bool = False) -> MaskedImage:
         """Read a FITS file written by `lsst.afw.image.MaskedImage.writeFits`.
 
         Parameters
         ----------
         filename
             Full name of the file.
+        preserve_quantization
+            If `True`, ensure that writing the masked image back out again will
+            exactly preserve quantization-compressed pixel values.  This causes
+            the image and variance plane arrays to be marked as read-only and
+            stores the original binary table data for those planes in memory.
+            If the `MaskedImage` is copied, the precompressed pixel values are
+            not transferred to the copy.
 
         Returns
         -------
@@ -310,6 +318,13 @@ class MaskedImage:
             variance_hdu.header.remove("EXTTYPE", ignore_missing=True)
             variance_hdu.header.remove("INHERIT", ignore_missing=True)
             opaque_metadata.headers["VARIANCE"] = variance_hdu.header
+        if preserve_quantization:
+            image._array.flags["WRITEABLE"] = False
+            mask._array.flags["WRITEABLE"] = False
+            variance._array.flags["WRITEABLE"] = False
+            with astropy.io.fits.open(filename, disable_image_compression=True) as hdu_list:
+                opaque_metadata.precompressed["IMAGE"] = PrecompressedImage.from_bintable(hdu_list[1])
+                opaque_metadata.precompressed["VARIANCE"] = PrecompressedImage.from_bintable(hdu_list[3])
         return cls(image, mask=mask, variance=variance, opaque_metadata=opaque_metadata)
 
 

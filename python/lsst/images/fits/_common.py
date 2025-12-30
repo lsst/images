@@ -20,6 +20,7 @@ __all__ = (
     "FitsOpaqueMetadata",
     "FitsQuantizationOptions",
     "InvalidFitsArchiveError",
+    "PrecompressedImage",
     "strip_wcs_cards",
 )
 
@@ -27,7 +28,7 @@ import dataclasses
 import enum
 import itertools
 import string
-from typing import ClassVar, Self
+from typing import ClassVar, Self, final
 
 import astropy.io.fits
 import numpy as np
@@ -154,6 +155,71 @@ FitsCompressionOptions.LOSSY = FitsCompressionOptions(
 )
 
 
+_COMPRESSION_KEYS = frozenset(
+    (
+        "ZIMAGE",
+        "ZCMPTYPE",
+        "ZBITPIX",
+        "ZNAXIS",
+        "ZMASKCMP",
+        "ZQUANTIZ",
+        "ZDITHER0",
+        "ZCHECKSUM",
+        "ZDATASUM",
+    )
+)
+_COMPRESSION_PREFIX_KEYS = ("ZNAXIS", "ZTILE", "ZNAME", "ZVAL")
+
+
+@dataclasses.dataclass
+class PrecompressedImage:
+    """Already-compressed FITS HDUs that are attached to high-level objects
+    via `FitsOpaqueMetadata`, allowing lossy-compressed pixel values to be
+    round-tripped exactly.
+    """
+
+    header: astropy.io.fits.Header
+    """Header for the HDU.
+
+    This contains only FITS tile-compression keywords.
+    """
+
+    data: astropy.io.fits.FITS_rec
+    """FITS binary table data that serves as the low-level representation of a
+    tile-compressed image HDU.
+    """
+
+    @classmethod
+    def from_bintable(cls, hdu: astropy.io.fits.BinTableHDU) -> Self:
+        """Construct from a binary table HDU.
+
+        Parameters
+        ----------
+        hdu
+            Binary table HDU, typically read from a FITS file opened with
+            ``disable_image_compression=True``.
+
+        Returns
+        -------
+        precompressed
+            A `PrecompressedImage` instance.
+        """
+        header = astropy.io.fits.Header(
+            [
+                card
+                for card in hdu.header.cards
+                if card.keyword in _COMPRESSION_KEYS
+                or any(card.keyword.startswith(k) for k in _COMPRESSION_PREFIX_KEYS)
+            ]
+        )
+        # This is an opportunity to fix CFITSIO's non-standard writing of the
+        # old RICE_ONE value instead of RICE_1.
+        if header["ZCMPTYPE"] == "RICE_ONE":
+            header["ZCMPTYPE"] = "RICE_1"
+        return cls(header=header, data=hdu.data)
+
+
+@final
 @dataclasses.dataclass
 class FitsOpaqueMetadata(OpaqueArchiveMetadata):
     """Opaque metadata that may be carried around by a serializable type to
@@ -165,16 +231,45 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
     """FITS headers found (but not interpreted and stripped) when reading, to
     be propagated on write.
 
-    Keys are EXTNAME values, or "" for the primary header.
+    Keys are EXTNAME values, or "" for the primary header.  Header information
+    in opaque metadata is considered immutable, allowing it to be transferred
+    by reference to copies and subsets of the object it is attached to.
     """
+
+    precompressed: dict[str, PrecompressedImage] = dataclasses.field(default_factory=dict)
+    """FITS tile-compressed HDUs that should be written out directly instead
+    of the in-memory data provided.
+
+    Keys are EXTNAME values.  Precompressed pixel values are never copied or
+    transferred to subsets.
+    """
+
+    def maybe_use_precompressed(self, name: str) -> astropy.io.fits.BinTableHDU | None:
+        """Look up the given EXTNAME to see if there is a tile compressed image
+        HDU that should be used directly, instead of requantizing.
+
+        Parameters
+        ----------
+        name
+            EXTNAME (all caps).
+
+        Returns
+        -------
+        hdu
+            An already-compressed HDU, in binary table form, or `None` if there
+            is no precompressed HDU for this EXTNAME.
+        """
+        if (precompressed := self.precompressed.get(name)) is None:
+            return None
+        return astropy.io.fits.BinTableHDU(precompressed.data, header=precompressed.header.copy(), name=name)
 
     def copy(self) -> Self:
         # Docstring inherited.
-        return self
+        return FitsOpaqueMetadata(headers=self.headers)
 
     def subset(self, bbox: Box) -> Self:
         # Docstring inherited.
-        return self
+        return FitsOpaqueMetadata(headers=self.headers)
 
 
 _WCS_VECTOR_KEYS = ("CUNIT", "CRPIX", "CRPIX", "CRVAL", "CRDELT", "CROTA", "CRDER", "CSYER")

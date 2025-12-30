@@ -162,19 +162,22 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         wcs_frames: Iterable[str] = (),
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> ImageModel:
-        if (compression_options := self._get_compression_options(name)) is not None:
-            hdu = compression_options.make_hdu(image.array, name=name.upper())
-        else:
-            hdu = astropy.io.fits.ImageHDU(image.array, name=name.upper())
+        extname = name.upper()
+        hdu = self._opaque_metadata.maybe_use_precompressed(extname)
+        if hdu is None:
+            if (compression_options := self._get_compression_options(name)) is not None:
+                hdu = compression_options.make_hdu(image.array, name=extname)
+            else:
+                hdu = astropy.io.fits.ImageHDU(image.array, name=extname)
         if image.unit:
             hdu.header["BUNIT"] = image.unit.to_string(format="fits")
-        # TODO: add a default WCS from pixel_frame to 'sky', if pixel_frame is
-        # provided and 'sky' is known to the archive; use the 'A'-suffix WCS to
-        # transform from 1-indexed FITS to the image's bounding box (or the
-        # default WCS otherwise); use B-Z for mappings from pixel_frame to each
-        # entry in wcs_frames.
+        # TODO: add a default WCS from pixel_frame to 'sky', if pixel_frame
+        # is provided and 'sky' is known to the archive; use the 'A'-suffix
+        # WCS to transform from 1-indexed FITS to the image's bounding box
+        # (or the default WCS otherwise); use B-Z for mappings from
+        # pixel_frame to each entry in wcs_frames.
         update_header(hdu.header)
-        if (opaque_headers := self._opaque_metadata.headers.get(name.upper())) is not None:
+        if (opaque_headers := self._opaque_metadata.headers.get(extname)) is not None:
             hdu.header.extend(opaque_headers)
         array_model = ArrayReferenceModel(
             source=f"fits:{name.upper()}",
@@ -193,21 +196,24 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         wcs_frames: Iterable[str] = (),
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> MaskModel:
-        if (compression_options := self._get_compression_options(name)) is not None:
-            hdu = compression_options.make_hdu(mask.array, name=name.upper())
-        else:
-            hdu = astropy.io.fits.ImageHDU(mask.array, name=name.upper())
-        # TODO: add a default WCS from pixel_frame to 'sky', if pixel_frame is
-        # provided and 'sky' is known to the archive; use the 'A'-suffix WCS to
-        # transform from 1-indexed FITS to the image's bounding box (or the
-        # default WCS otherwise); use B-Z for mappings from pixel_frame to each
-        # entry in wcs_frames.
+        extname = name.upper()
+        hdu = self._opaque_metadata.maybe_use_precompressed(extname)
+        if hdu is None:
+            if (compression_options := self._get_compression_options(name)) is not None:
+                hdu = compression_options.make_hdu(mask.array, name=extname)
+            else:
+                hdu = astropy.io.fits.ImageHDU(mask.array, name=extname)
+        # TODO: add a default WCS from pixel_frame to 'sky', if pixel_frame
+        # is provided and 'sky' is known to the archive; use the 'A'-suffix
+        # WCS to transform from 1-indexed FITS to the image's bounding box
+        # (or the default WCS otherwise); use B-Z for mappings from
+        # pixel_frame to each entry in wcs_frames.
         # TODO: write mask schema to FITS header.
         update_header(hdu.header)
-        if (opaque_headers := self._opaque_metadata.headers.get(name.upper())) is not None:
+        if (opaque_headers := self._opaque_metadata.headers.get(extname)) is not None:
             hdu.header.extend(opaque_headers)
         array_model = ArrayReferenceModel(
-            source=f"fits:{name.upper()}",
+            source=f"fits:{extname}",
             shape=list(mask.array.shape),
             datatype=NumberType.from_numpy(mask.array.dtype),
         )
