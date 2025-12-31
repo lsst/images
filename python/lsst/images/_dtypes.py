@@ -30,6 +30,7 @@ import numpy.typing as npt
 class NumberType(enum.StrEnum):
     """Enumeration of array values types supported by the library."""
 
+    bool = enum.auto()
     uint8 = enum.auto()
     uint16 = enum.auto()
     uint32 = enum.auto()
@@ -81,7 +82,8 @@ class NumberType(enum.StrEnum):
 
 
 type UnsignedIntegerType = (
-    Literal[NumberType.uint8]
+    Literal[NumberType.bool]
+    | Literal[NumberType.uint8]
     | Literal[NumberType.uint16]
     | Literal[NumberType.uint32]
     | Literal[NumberType.uint64]
