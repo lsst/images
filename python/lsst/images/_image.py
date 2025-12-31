@@ -14,6 +14,7 @@ from __future__ import annotations
 __all__ = ("Image", "ImageModel")
 
 from collections.abc import Sequence
+from types import EllipsisType
 from typing import Any, final
 
 import astropy.io.fits
@@ -54,6 +55,20 @@ class Image:
     `start` offset, but accessing a subimage by indexing an `Image` with a
     `Box` does, and the `bbox` of the subimage is set to match its location
     within the original image.
+
+    Indexed assignment to a subimage requires consistency between the
+    coordinate systems and units of both operands, but it will automatically
+    select a subimage of the right-hand side and convert compatible units when
+    possible.  In other words::
+
+        a[box] = b
+
+    is a shortcut for
+
+        a[box].quantity = b[box].quantity
+
+    An ellipsis (``...``) can be used instead of a `Box` to assign to the full
+    image.
     """
 
     def __init__(
@@ -107,6 +122,19 @@ class Image:
         self._array[...] = value
 
     @property
+    def quantity(self) -> astropy.units.Quantity:
+        """The low-level array with units.
+
+        Assigning to this attribute modifies the existing array in place; the
+        bounding box and underlying data pointer are never changed.
+        """
+        return astropy.units.Quantity(self._array, self._unit, copy=False)
+
+    @quantity.setter
+    def quantity(self, value: astropy.units.Quantity) -> None:
+        self.quantity[...] = value
+
+    @property
     def unit(self) -> astropy.units.Unit | None:
         """Units for the image's pixel values."""
         return self._unit
@@ -116,8 +144,22 @@ class Image:
         """Bounding box for the image."""
         return self._bbox
 
-    def __getitem__(self, bbox: Box) -> Image:
-        return Image(self.array[bbox.slice_within(self._bbox)], bbox=bbox)
+    def __getitem__(self, bbox: Box | EllipsisType) -> Image:
+        indices: EllipsisType | tuple[slice, ...]
+        if bbox is ...:
+            indices = ...
+            bbox = self._bbox
+        else:
+            indices = bbox.slice_within(self._bbox)
+        return Image(self._array[indices], bbox=bbox, unit=self._unit)
+
+    def __setitem__(self, bbox: Box | EllipsisType, value: Image) -> None:
+        if bbox is ...:
+            bbox = self._bbox
+        if value._bbox != bbox:
+            value = value[bbox]
+        # Use the quantity property to handle unit conversions and checks.
+        self.quantity[bbox.slice_within(self._bbox)] = value.quantity
 
     def __str__(self) -> str:
         return f"Image({self.bbox!s}, {self.array.dtype.type.__name__})"
