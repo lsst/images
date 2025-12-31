@@ -27,14 +27,9 @@ from .._coordinate_transform import CoordinateTransform
 from .._dtypes import NumberType
 from .._image import Image, ImageModel
 from .._mask import Mask, MaskModel
-from ..archive import (
-    NestedOutputArchive,
-    OutputArchive,
-    TableCellReferenceModel,
-    TableModel,
-    no_header_updates,
-)
+from ..archive import NestedOutputArchive, OutputArchive, no_header_updates
 from ..asdf_utils import ArrayReferenceModel
+from ..tables import TableCellReferenceModel, TableModel
 from ._common import ExtensionHDU, FitsCompressionOptions, FitsOpaqueMetadata
 
 
@@ -231,7 +226,11 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         *,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> TableModel:
-        raise NotImplementedError("TODO")
+        extname = name.upper()
+        hdu: astropy.io.fits.BinTableHDU = astropy.io.fits.table_to_hdu(table, name=extname)
+        update_header(hdu.header)
+        if (opaque_headers := self._opaque_metadata.headers.get(extname)) is not None:
+            hdu.header.extend(opaque_headers)
 
     def add_tree(self, tree: pydantic.BaseModel) -> None:
         """Write the JSON tree to the archive.
