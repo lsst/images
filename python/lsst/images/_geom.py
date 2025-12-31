@@ -176,6 +176,17 @@ class Interval:
         """
         return slice(self.start - other.start, self.stop - other.start)
 
+    @classmethod
+    def from_legacy(cls, legacy: Any) -> Interval:
+        """Convert from an `lsst.geom.IntervalI` instance."""
+        return cls(legacy.begin, legacy.end)
+
+    def to_legacy(self) -> Any:
+        """Convert to an `lsst.geom.IntervalI` instance."""
+        from lsst.geom import IntervalI
+
+        return IntervalI(min=self.min, max=self.max)
+
     def __reduce__(self) -> tuple[type[Interval], tuple[int, int]]:
         return (
             Interval,
@@ -337,6 +348,17 @@ class Box(Sequence[Interval]):
 
     def __reduce__(self) -> tuple[type[Box], tuple[Interval, ...]]:
         return (Box, self._intervals)
+
+    @classmethod
+    def from_legacy(cls, legacy: Any) -> Box:
+        """Convert from an `lsst.geom.Box2I` instance."""
+        return cls(Interval.from_legacy(legacy.y), Interval.from_legacy(legacy.x))
+
+    def to_legacy(self) -> Any:
+        """Convert to an `lsst.geom.BoxI` instance."""
+        from lsst.geom import Box2I
+
+        return Box2I(x=self.x.to_legacy(), y=self.y.to_legacy())
 
     @classmethod
     def __get_pydantic_core_schema__(
