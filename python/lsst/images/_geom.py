@@ -13,11 +13,13 @@ from __future__ import annotations
 
 __all__ = (
     "Box",
+    "Domain",
     "Interval",
+    "SerializableDomain",
 )
 
 from collections.abc import Iterator, Sequence
-from typing import Any, ClassVar, TypedDict, final, overload
+from typing import Any, ClassVar, Protocol, Self, TypedDict, final, overload
 
 import numpy as np
 import pydantic
@@ -149,9 +151,31 @@ class Interval:
     def __contains__(self, x: int) -> bool:
         return x >= self.start and x < self.stop
 
-    def contains(self, other: Interval) -> bool:
-        """Test whether this interval fully contains another."""
-        return self.start <= other.start and self.stop >= other.stop
+    @overload
+    def contains(self, other: Interval | int) -> bool: ...
+
+    @overload
+    def contains(self, other: np.ndarray) -> np.ndarray: ...
+
+    def contains(self, other: Interval | int | float | np.ndarray) -> bool | np.ndarray:
+        """Test whether this interval fully contains another or one or more
+        points.
+
+        Notes
+        -----
+        In order to yield the desired behavior for floating-point arguments,
+        points are actually tested against an interval that is 0.5 larger on
+        both sides: this makes positions within the outer boundary of pixels
+        (but beyond the centers of those pixels, which have integer positions)
+        appear "on the image".
+        """
+        if isinstance(other, Interval):
+            return self.start <= other.start and self.stop >= other.stop
+        else:
+            result = np.logical_and(self.start - 0.5 <= other, other < self.stop + 0.5)
+            if not result.shape:
+                return bool(result)
+            return result
 
     def intersection(self, other: Interval) -> Interval | None:
         """Return an interval that is contained by both ``self`` and ``other``.
@@ -249,8 +273,16 @@ class Box(Sequence[Interval]):
         Intervals for each dimension.
     """
 
-    def __init__(self, *args: Interval):
-        self._intervals = tuple(args)
+    def __init__(self, *args: Interval, x: Interval | None = None, y: Interval | None = None):
+        self._intervals = args
+        if y is not None:
+            self._intervals += (y,)
+        if x is not None:
+            self._intervals += (x,)
+        if len(self._intervals) < 2:
+            raise TypeError("Boxes must be 2-d; only one interval provided.")
+        elif len(self._intervals) > 2:
+            raise TypeError("Boxes must be 2-d; too many intervals provided.")
 
     __slots__ = ("_intervals",)
 
@@ -317,9 +349,60 @@ class Box(Sequence[Interval]):
     def __repr__(self) -> str:
         return f"Box({', '.join([repr(i) for i in self._intervals])})"
 
-    def contains(self, other: Box) -> bool:
-        """Test whether this box fully contains another."""
-        return all(a.contains(b) for a, b in zip(self, other, strict=True))
+    @overload
+    def contains(self, other: Box, /) -> bool: ...
+
+    @overload
+    def contains(self, *, x: int, y: int) -> bool: ...
+
+    @overload
+    def contains(self, *, x: np.ndarray, y: np.ndarray) -> np.ndarray: ...
+
+    def contains(
+        self,
+        other: Box | None = None,
+        *,
+        x: int | np.ndarray | None = None,
+        y: int | np.ndarray | None = None,
+    ) -> bool | np.ndarray:
+        """Test whether this box fully contains another or one or more points.
+
+        Parameters
+        ----------
+        other, optional
+            Another box to compare to.  Not compatible with the ``x`` and ``y``
+            arguments.
+        x, optional
+            One or more integer X coordinates to test for containment.
+            If an array, an array of results will be returned.
+        y, optional
+            One or more integer Y coordinates to test for containment.
+            If an array, an array of results will be returned.
+
+        Returns
+        -------
+        contained
+            A `bool` or array of `bool`.
+
+        Notes
+        -----
+        In order to yield the desired behavior for floating-point arguments,
+        points are actually tested against an interval that is 0.5 larger on
+        both sides: this makes positions within the outer boundary of pixels
+        (but beyond the centers of those pixels, which have integer positions)
+        appear "on the image".
+        """
+        if other is not None:
+            if x is not None or y is not None:
+                raise TypeError("Too many arguments to 'Box.contain'.")
+            return all(a.contains(b) for a, b in zip(self, other, strict=True))
+        elif x is None or y is None:
+            raise TypeError("Not enough arguments to 'Box.contain'.")
+        else:
+            result = np.logical_and(self.x.contains(x), self.y.contains(y))
+            if not result.shape:
+                return bool(result)
+            return result
 
     def intersection(self, other: Box) -> Box | None:
         """Return a box that is contained by both ``self`` and ``other``.
@@ -345,6 +428,15 @@ class Box(Sequence[Interval]):
         This assumes ``other.contains(self)``.
         """
         return tuple([a.slice_within(b) for a, b in zip(self, other, strict=True)])
+
+    def boundary(self) -> Iterator[tuple[int, int]]:
+        """Iterate over the corners of the box as ``(y, x)`` tuples."""
+        if len(self._intervals) != 2:
+            raise TypeError("Box is not 2-d.")
+        yield (self.y.min, self.x.min)
+        yield (self.y.min, self.x.max)
+        yield (self.y.max, self.x.max)
+        yield (self.y.max, self.x.min)
 
     def __reduce__(self) -> tuple[type[Box], tuple[Interval, ...]]:
         return (Box, self._intervals)
@@ -383,6 +475,26 @@ class Box(Sequence[Interval]):
     def _serialize(self) -> list[_SerializedInterval]:
         return [i._serialize() for i in self]
 
+    def serialize(self) -> Box:
+        """Return a Pydantic-friendly representation of this object.
+
+        This method just returns the `Box` itself, since that already provides
+        Pydantic serialization hooks.  It exists for compatibility with the
+        `Domain` protocol.
+        """
+        return self
+
+    @classmethod
+    def deserialize(cls, serialized: SerializableDomain) -> Box:
+        """Deserialize a domain object on the assumption it is a `Box`
+
+        This method just returns the `Box` itself, since that already provides
+        Pydantic serialization hooks.  It exists for compatibility with the
+        `Domain` protocol.
+        """
+        assert isinstance(serialized, Box)
+        return serialized
+
 
 class BoxSliceFactory:
     """A factory for `Box` objects using array-slice syntax.
@@ -408,3 +520,43 @@ class BoxSliceFactory:
 
 
 Box.factory = BoxSliceFactory()
+
+
+# This is expected to become a union of concrete Domain types that we can
+# serialize via pydantic.  Right now that's only Box.
+type SerializableDomain = Box
+
+
+class Domain(Protocol):
+    """A protocol for objects that represent the validity region for a function
+    defined in 2-d pixel coordinates.
+
+    Notes
+    -----
+    Most objects natively have a simple 2-d bounding box as their domain
+    (typically the boundary of a sensor).  But sometimes a large chunk of that
+    box may be missing due to vignetting or bad amplifiers, and we may want to
+    transform from one coordinate system to another.
+    """
+
+    def boundary(self) -> Iterator[tuple[int, int]]:
+        """Iterate over points on the boundary as ``(y, x)`` tuples."""
+        ...
+
+    @overload
+    def contains(self, *, x: int, y: int) -> bool: ...
+
+    @overload
+    def contains(self, *, x: np.ndarray, y: np.ndarray) -> np.ndarray: ...
+
+    def serialize(self) -> SerializableDomain:
+        """Convert a domain instance into a serializable object."""
+        ...
+
+    @classmethod
+    def deserialize(cls, serialized: SerializableDomain) -> Self:
+        """Convert a serialized domain object into its in-memory form."""
+        match serialized:
+            case Box():
+                return serialized
+        raise RuntimeError(f"Cannot deserialize {serialized!r}.")
