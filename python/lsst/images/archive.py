@@ -50,12 +50,11 @@ __all__ = (
     "InputArchive",
     "OpaqueArchiveMetadata",
     "OutputArchive",
-    "TableCellReferenceModel",
 )
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Iterable
-from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, Self
+from typing import TYPE_CHECKING, Protocol, Self
 
 import astropy.table
 import pydantic
@@ -64,37 +63,10 @@ from ._coordinate_transform import CoordinateTransform
 from ._geom import Box
 from ._image import Image, ImageModel
 from ._mask import Mask, MaskModel
+from .tables import TableModel
 
 if TYPE_CHECKING:
     import astropy.io.fits
-
-
-class TableModel(pydantic.BaseModel):
-    """Placeholder for an ASDF-like model for referencing binary tabular
-    data.
-    """
-
-
-class TableCellReferenceModel(pydantic.BaseModel):
-    """A model that acts as a pointer to data in a table cell."""
-
-    model_config = pydantic.ConfigDict(frozen=True)
-
-    source: str | int
-    """Identifier for the table as a whole.
-
-    This is analogous to the ASDF ``ndarray`` field of the same name, i.e
-    for a FITS binary table, use "fits:EXTNAME[,EXTVER]" or "fits:INDEX"
-    (zero-indexed) to identify the HDU.
-    """
-
-    column: str
-    """Name of the column."""
-
-    row: int
-    """Row of the cell (zero-indexed)."""
-
-    source_is_table: ClassVar[Literal[True]] = True
 
 
 class OpaqueArchiveMetadata(Protocol):
