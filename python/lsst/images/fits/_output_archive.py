@@ -29,7 +29,7 @@ from .._image import Image, ImageModel
 from .._mask import Mask, MaskModel
 from ..archive import NestedOutputArchive, OutputArchive, no_header_updates
 from ..asdf_utils import ArrayReferenceModel
-from ..tables import TableCellReferenceModel, TableModel
+from ..tables import ColumnDefinitionModel, TableCellReferenceModel, TableModel
 from ._common import ExtensionHDU, FitsCompressionOptions, FitsOpaqueMetadata
 
 
@@ -228,9 +228,44 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
     ) -> TableModel:
         extname = name.upper()
         hdu: astropy.io.fits.BinTableHDU = astropy.io.fits.table_to_hdu(table, name=extname)
+        columns = ColumnDefinitionModel.from_record_dtype(hdu.data.dtype)
+        for c in columns:
+            c.update_from_table(table)
+        return self._add_bintable_hdu(hdu, columns, update_header)
+
+    def add_structured_array(
+        self,
+        name: str,
+        array: np.ndarray,
+        *,
+        units: Mapping[str, astropy.units.Unit] | None = None,
+        descriptions: Mapping[str, str] | None = None,
+        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> TableModel:
+        extname = name.upper()
+        hdu = astropy.io.fits.BinTableHDU(array, name=extname)
+        columns = ColumnDefinitionModel.from_record_dtype(hdu.data.dtype)
+        if units is not None:
+            for c in columns:
+                c.unit = units.get(c.name)
+        if descriptions is not None:
+            for c in columns:
+                c.description = descriptions.get(c.name, "")
+        return self._add_bintable_hdu(hdu, columns, update_header)
+
+    def _add_bintable_hdu(
+        self,
+        hdu: astropy.io.fits.BinTableHDU,
+        columns: list[ColumnDefinitionModel],
+        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> TableModel:
+        extname = hdu.name
         update_header(hdu.header)
         if (opaque_headers := self._opaque_metadata.headers.get(extname)) is not None:
             hdu.header.extend(opaque_headers)
+        table_model = TableModel(source=f"fits:{extname}", columns=columns)
+        self._hdu_list.append(hdu)
+        return table_model
 
     def add_tree(self, tree: pydantic.BaseModel) -> None:
         """Write the JSON tree to the archive.
