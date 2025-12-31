@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("Image", "ImageModel")
 
 from collections.abc import Sequence
-from typing import final
+from typing import Any, final
 
 import astropy.io.fits
 import astropy.units
@@ -125,9 +125,32 @@ class Image:
     def __repr__(self) -> str:
         return f"Image(..., bbox={self.bbox!r}, dtype={self.array.dtype!r})"
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Image):
+            return NotImplemented
+        return (
+            self._bbox == other._bbox
+            and self._unit == other._unit
+            and np.array_equal(self._array, other._array, equal_nan=True)
+        )
+
     def copy(self) -> Image:
         """Deep-copy the image."""
         return Image(self._array.copy(), bbox=self._bbox, unit=self._unit)
+
+    @classmethod
+    def from_legacy(cls, legacy: Any, unit: astropy.units.Unit | None = None) -> Image:
+        """Convert from an `lsst.afw.image.Image` instance."""
+        return cls(legacy.array, start=(legacy.getY0(), legacy.getX0()), unit=unit)
+
+    def to_legacy(self) -> Any:
+        """Convert to an `lsst.afw.image.Image` instance."""
+        import lsst.afw.image
+        import lsst.geom
+
+        result = lsst.afw.image.Image(self._array, dtype=self._array.dtype)
+        result.setXY0(lsst.geom.Point2I(self._bbox.x.min, self._bbox.y.min))
+        return result
 
     @classmethod
     def read_legacy(cls, hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU) -> Image:
