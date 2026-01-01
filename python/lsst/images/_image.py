@@ -16,6 +16,7 @@ __all__ = ("Image", "ImageModel")
 from collections.abc import Sequence
 from typing import final
 
+import astropy.io.fits
 import astropy.units
 import numpy as np
 import numpy.typing as npt
@@ -123,6 +124,33 @@ class Image:
 
     def __repr__(self) -> str:
         return f"Image(..., bbox={self.bbox!r}, dtype={self.array.dtype!r})"
+
+    def copy(self) -> Image:
+        """Deep-copy the image."""
+        return Image(self._array.copy(), bbox=self._bbox, unit=self._unit)
+
+    @classmethod
+    def read_legacy(cls, hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU) -> Image:
+        """Read a FITS file written by `lsst.afw.image.Image.writeFits`.
+
+        Parameters
+        ----------
+        hdu
+            An astropy image object.
+
+        Returns
+        -------
+        image
+            A new `Image` object.
+        """
+        unit: astropy.units.BaseUnit | None = None
+        if (fits_unit := hdu.header.pop("BUNIT", None)) is not None:
+            unit = astropy.units.Unit(fits_unit, format="fits")
+        dx: int = hdu.header.pop("LTV1")
+        dy: int = hdu.header.pop("LTV2")
+        start = (-dy, -dx)
+        image = Image(hdu.data, start=start, unit=unit)
+        return image
 
 
 class ImageModel(pydantic.BaseModel):
