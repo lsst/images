@@ -132,7 +132,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
     def serialize_direct[T: pydantic.BaseModel](
         self, name: str, serializer: Callable[[OutputArchive[TableCellReferenceModel]], T]
     ) -> T:
-        nested = NestedOutputArchive[TableCellReferenceModel](f"/{name}", self)
+        nested = NestedOutputArchive[TableCellReferenceModel](name, self)
         return serializer(nested)
 
     def serialize_pointer[T: pydantic.BaseModel](
@@ -143,7 +143,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         pointer = TableCellReferenceModel(
             source="fits:JSON", column="JSON", row=len(self._pointer_targets) + 1
         )
-        model = self.serialize_direct("/", serializer)
+        model = self.serialize_direct("", serializer)
         self._pointer_targets.append(model.model_dump_json().encode())
         self._pointers_by_key[key] = pointer
         return pointer
