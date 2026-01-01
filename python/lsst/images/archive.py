@@ -47,6 +47,7 @@ best.
 from __future__ import annotations
 
 __all__ = (
+    "ArchiveReadError",
     "InputArchive",
     "OpaqueArchiveMetadata",
     "OutputArchive",
@@ -69,6 +70,10 @@ from .tables import TableModel
 
 if TYPE_CHECKING:
     import astropy.io.fits
+
+
+class ArchiveReadError(RuntimeError):
+    """Exception raised when the contents of an archive cannot be read."""
 
 
 class OpaqueArchiveMetadata(Protocol):
