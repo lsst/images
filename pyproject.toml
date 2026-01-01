@@ -200,3 +200,26 @@ exclude = [
     '^__init__$',
     '\._[a-zA-Z_]+$',  # Private methods.
 ]
+
+[tool.mypy]
+warn_unused_configs = true
+warn_redundant_casts = true
+plugins = "pydantic.mypy"
+
+[[tool.mypy.overrides]]
+module = ["numpy.*", "fsspec.*", "astropy.*", "lsst.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["lsst.images"]
+ignore_missing_imports = false
+ignore_errors = false
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+strict_equality = true
+warn_unreachable = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["lsst.images.version"]
+ignore_missing_imports = true
