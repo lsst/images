@@ -30,12 +30,12 @@ from lsst.geom import Box2I, Extent2I, Point2I
 VISIT_DETECTOR_DATA_ID = {"instrument": "HSC", "visit": 903334, "detector": 16}
 
 
-def extract_visit_image(butler: Butler, testdata_dir: str) -> None:
-    """Load a subimage of a PVI from the ci_hsc output repository and save it
-    to testdata_images.
+def extract_visit_image(butler: Butler, testdata_dir: str, dataset_type: str, filename: str) -> None:
+    """Load a subimage of a processed visit image from the ci_hsc output
+    repository and save it to testdata_images.
     """
     visit_image = butler.get(
-        "pvi", VISIT_DETECTOR_DATA_ID, parameters={"bbox": Box2I(Point2I(5, 4), Extent2I(256, 250))}
+        dataset_type, VISIT_DETECTOR_DATA_ID, parameters={"bbox": Box2I(Point2I(5, 4), Extent2I(256, 250))}
     )
     float_compression = CompressionOptions(
         algorithm=CompressionAlgorithm.RICE_1,
@@ -55,7 +55,7 @@ def extract_visit_image(butler: Butler, testdata_dir: str) -> None:
         quantization=None,
     )
     visit_image.writeFits(
-        os.path.join(testdata_dir, "extracted", "visit_image.fits"),
+        os.path.join(testdata_dir, "extracted", filename),
         imageOptions=float_compression,
         maskOptions=mask_compression,
         varianceOptions=float_compression,
@@ -77,7 +77,8 @@ def main(butler_repo: str | None, testdata_dir: str | None, collection: str) -> 
     if testdata_dir is None:
         testdata_dir = os.environ["TESTDATA_IMAGES_DIR"]
     butler = Butler.from_config(butler_repo, collections=[collection])
-    extract_visit_image(butler, testdata_dir)
+    extract_visit_image(butler, testdata_dir, "pvi", "visit_image.fits")
+    extract_visit_image(butler, testdata_dir, "calexp", "preliminary_visit_image.fits")
 
 
 if __name__ == "__main__":
