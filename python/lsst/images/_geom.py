@@ -264,25 +264,24 @@ class IntervalSliceFactory:
 Interval.factory = IntervalSliceFactory()
 
 
-class Box(Sequence[Interval]):
+class _SerializedBox(TypedDict):
+    y: _SerializedInterval
+    x: _SerializedInterval
+
+
+class Box:
     """An axis-aligned [hyper]rectangular region.
 
     Parameters
     ----------
-    *args
-        Intervals for each dimension.
+    y
+        Interval for the y dimension.
+    x
+        Interval for the x dimension.
     """
 
-    def __init__(self, *args: Interval, x: Interval | None = None, y: Interval | None = None):
-        self._intervals = args
-        if y is not None:
-            self._intervals += (y,)
-        if x is not None:
-            self._intervals += (x,)
-        if len(self._intervals) < 2:
-            raise TypeError("Boxes must be 2-d; only one interval provided.")
-        elif len(self._intervals) > 2:
-            raise TypeError("Boxes must be 2-d; too many intervals provided.")
+    def __init__(self, y: Interval, x: Interval):
+        self._intervals = (y, x)
 
     __slots__ = ("_intervals",)
 
@@ -298,9 +297,14 @@ class Box(Sequence[Interval]):
         )
 
     @property
-    def shape(self) -> tuple[int, ...]:
-        """Tuple holding the sizes of the intervals in all dimension."""
-        return tuple([i.size for i in self._intervals])
+    def start(self) -> tuple[int, int]:
+        """Tuple holding the starts of the intervals ordered ``(y, x)``."""
+        return (self.y.start, self.x.start)
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """Tuple holding the sizes of the intervals ordered ``(y, x)``."""
+        return (self.y.size, self.x.size)
 
     @property
     def x(self) -> Interval:
@@ -312,42 +316,16 @@ class Box(Sequence[Interval]):
         """Shortcut for the second-to-last dimension's interval."""
         return self._intervals[-2]
 
-    @property
-    def z(self) -> Interval:
-        """Shortcut for the third-to-last dimension's interval."""
-        return self._intervals[-3]
-
     def __eq__(self, other: object) -> bool:
         if type(other) is Box:
             return self._intervals == other._intervals
         return False
 
-    def __len__(self) -> int:
-        return len(self._intervals)
-
-    @overload
-    def __getitem__(self, key: int) -> Interval: ...
-
-    @overload
-    def __getitem__(self, key: slice) -> Box: ...
-
-    def __getitem__(self, key: object) -> Box | Interval:
-        match key:
-            case slice():
-                return Box(*self._intervals[key])
-            case int():
-                return self._intervals[key]
-            case _:
-                raise TypeError("Box can only be indexed with slices or integers.")
-
-    def __iter__(self) -> Iterator[Interval]:
-        return iter(self._intervals)
-
     def __str__(self) -> str:
-        return f"[{', '.join([str(i) for i in self._intervals])}]"
+        return f"[y={self.y}, x={self.x}]"
 
     def __repr__(self) -> str:
-        return f"Box({', '.join([repr(i) for i in self._intervals])})"
+        return f"Box(y={self.y!r}, x={self.x!r})"
 
     @overload
     def contains(self, other: Box, /) -> bool: ...
@@ -395,7 +373,7 @@ class Box(Sequence[Interval]):
         if other is not None:
             if x is not None or y is not None:
                 raise TypeError("Too many arguments to 'Box.contain'.")
-            return all(a.contains(b) for a, b in zip(self, other, strict=True))
+            return all(a.contains(b) for a, b in zip(self._intervals, other._intervals, strict=True))
         elif x is None or y is None:
             raise TypeError("Not enough arguments to 'Box.contain'.")
         else:
@@ -418,7 +396,7 @@ class Box(Sequence[Interval]):
 
     def dilated_by(self, padding: int) -> Box:
         """Return a new box padded by the given amount on all sides."""
-        return Box(*[i.dilated_by(padding) for i in self])
+        return Box(*[i.dilated_by(padding) for i in self._intervals])
 
     def slice_within(self, other: Box) -> tuple[slice, ...]:
         """Return a tuple of `slice` objects that corresponds to the values of
@@ -427,7 +405,7 @@ class Box(Sequence[Interval]):
 
         This assumes ``other.contains(self)``.
         """
-        return tuple([a.slice_within(b) for a, b in zip(self, other, strict=True)])
+        return tuple([a.slice_within(b) for a, b in zip(self._intervals, other._intervals, strict=True)])
 
     def boundary(self) -> Iterator[tuple[int, int]]:
         """Iterate over the corners of the box as ``(y, x)`` tuples."""
@@ -444,7 +422,7 @@ class Box(Sequence[Interval]):
     @classmethod
     def from_legacy(cls, legacy: Any) -> Box:
         """Convert from an `lsst.geom.Box2I` instance."""
-        return cls(Interval.from_legacy(legacy.y), Interval.from_legacy(legacy.x))
+        return cls(y=Interval.from_legacy(legacy.y), x=Interval.from_legacy(legacy.x))
 
     def to_legacy(self) -> Any:
         """Convert to an `lsst.geom.BoxI` instance."""
@@ -456,24 +434,24 @@ class Box(Sequence[Interval]):
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: pydantic.GetCoreSchemaHandler
     ) -> pcs.CoreSchema:
-        from_list_schema = pcs.chain_schema(
+        from_typed_dict = pcs.chain_schema(
             [
-                pcs.list_schema(handler(_SerializedInterval)),
+                handler(_SerializedBox),
                 pcs.no_info_plain_validator_function(cls._validate),
             ]
         )
         return pcs.json_or_python_schema(
-            json_schema=from_list_schema,
-            python_schema=pcs.union_schema([pcs.is_instance_schema(Box), from_list_schema]),
+            json_schema=from_typed_dict,
+            python_schema=pcs.union_schema([pcs.is_instance_schema(Box), from_typed_dict]),
             serialization=pcs.plain_serializer_function_ser_schema(cls._serialize, info_arg=False),
         )
 
     @classmethod
-    def _validate(cls, data: list[_SerializedInterval]) -> Box:
-        return cls(*[Interval._validate(i) for i in data])
+    def _validate(cls, data: _SerializedBox) -> Box:
+        return cls(y=Interval._validate(data["y"]), x=Interval._validate(data["x"]))
 
-    def _serialize(self) -> list[_SerializedInterval]:
-        return [i._serialize() for i in self]
+    def _serialize(self) -> _SerializedBox:
+        return {"y": self.y._serialize(), "x": self.x._serialize()}
 
     def serialize(self) -> Box:
         """Return a Pydantic-friendly representation of this object.
@@ -509,14 +487,12 @@ class BoxSliceFactory:
         )
     """
 
-    def __getitem__(self, key: slice | tuple[slice, ...]) -> Box:
+    def __getitem__(self, key: tuple[slice, slice]) -> Box:
         match key:
-            case slice():
-                return Box(Interval.factory[key])
-            case tuple():
-                return Box(*[Interval.factory[s] for s in key])
+            case tuple(y=y, x=x):
+                return Box(Interval.factory[y], Interval.factory[x])
             case _:
-                raise TypeError("Expected slice or tuple of slices.")
+                raise TypeError("Expected exactly two slices.")
 
 
 Box.factory = BoxSliceFactory()

@@ -185,7 +185,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
             datatype=NumberType.from_numpy(image.array.dtype),
         )
         self._hdu_list.append(hdu)
-        return ImageModel.pack(array_model, start=[i.start for i in image.bbox], unit=image.unit)
+        return ImageModel.pack(array_model, start=list(image.bbox.start), unit=image.unit)
 
     def add_mask(
         self,
@@ -220,7 +220,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         self._hdu_list.append(hdu)
         return MaskModel(
             data=array_model,
-            start=[i.start for i in mask.bbox],
+            start=list(mask.bbox.start),
             planes=list(mask.schema),
         )
 
