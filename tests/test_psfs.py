@@ -12,12 +12,15 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
+from typing import Any
 
 from lsst.images import Box, Image
+from lsst.images.fits import FitsInputArchive, FitsOutputArchive
 from lsst.images.psfs import PointSpreadFunction
 from lsst.images.psfs.legacy import LegacyPointSpreadFunction
-from lsst.images.psfs.piff import PiffWrapper
+from lsst.images.psfs.piff import PiffSerializationModel, PiffWrapper
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -27,9 +30,13 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_piff(self) -> None:
-        """Test that we can read a legacy Piff PSF with afw and convert it to
-        the new `PiffWrapper`, and then check that it behaves consistently with
-        the legacy PSF type.
+        """Test that we can:
+
+        - read a legacy Piff PSF with afw;
+        - convert it to the new `PiffWrapper` class;
+        - get consistent behavior from the two;
+        - round-trip the new PSF through a FITS archive;
+        - still get consistent behavior with the round-tripped PSF.
 
         This test is skipped if legacy modules cannot be imported.
         """
@@ -48,6 +55,16 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         self.assertIsInstance(psf, PiffWrapper)
         self.assertEqual(psf.domain, domain)
         self.assertIsInstance(psf.piff_psf, PSF)
+        self.compare_to_legacy(legacy_psf, psf)
+        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
+            tmp.close()
+            with FitsOutputArchive.open(tmp.name) as output_archive:
+                tree = output_archive.serialize_direct("psf", psf.serialize)
+                output_archive.add_tree(tree)
+            with FitsInputArchive.open(tmp.name) as input_archive:
+                tree = input_archive.get_tree(PiffSerializationModel)
+                roundtripped = PiffWrapper.deserialize(tree, input_archive)
+        self.compare_to_legacy(legacy_psf, roundtripped)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_psfex(self) -> None:
