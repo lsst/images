@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 __all__ = (
+    "XY",
+    "YX",
     "Box",
     "Domain",
     "Interval",
@@ -19,7 +21,7 @@ __all__ = (
 )
 
 from collections.abc import Iterator, Sequence
-from typing import Any, ClassVar, Protocol, Self, TypedDict, final, overload
+from typing import Any, ClassVar, NamedTuple, Protocol, Self, TypedDict, final, overload
 
 import numpy as np
 import pydantic
@@ -33,6 +35,28 @@ import pydantic_core.core_schema as pcs
 # points or extents (other than ``tuple[int, ...]`` for numpy-compatible
 # shapes) in order to leave room for more fully-featured types to be added
 # upstream of this package in the future.
+
+
+class YX[T](NamedTuple):
+    """A pair of per-dimension objects, ordered ``(y, x)``."""
+
+    y: T
+    x: T
+
+    @property
+    def xy(self) -> XY:
+        return XY(x=self.x, y=self.y)
+
+
+class XY[T](NamedTuple):
+    """A pair of per-dimension objects, ordered ``(x, y)``."""
+
+    x: T
+    y: T
+
+    @property
+    def yx(self) -> YX:
+        return YX(y=self.y, x=self.x)
 
 
 class _SerializedInterval(TypedDict):
@@ -281,7 +305,7 @@ class Box:
     """
 
     def __init__(self, y: Interval, x: Interval):
-        self._intervals = (y, x)
+        self._intervals = YX(y, x)
 
     __slots__ = ("_intervals",)
 
@@ -289,22 +313,47 @@ class Box:
 
     @classmethod
     def from_shape(cls, shape: Sequence[int], start: Sequence[int] | None = None) -> Box:
-        """Construct a box from its shape and optional start."""
+        """Construct a box from its shape and optional start.
+
+        Parameters
+        ----------
+        shape
+            Sequence of sizes, ordered ``(y, x)`` (except for `XY` instances).
+        start, optional
+            Sequence of starts, ordered ``(y, x)`` (except for `XY` instances).
+
+        Returns
+        -------
+        box
+            New box.
+        """
         if start is None:
             start = (0,) * len(shape)
-        return Box(
-            *[Interval.from_size(size, start=i_start) for size, i_start in zip(shape, start, strict=True)]
-        )
+        match shape:
+            case XY(x=x_size, y=y_size):
+                pass
+            case [y_size, x_size]:
+                pass
+            case _:
+                raise ValueError(f"Invalid sequence for shape: {shape!r}.")
+        match start:
+            case XY(x=x_start, y=y_start):
+                pass
+            case [y_start, x_start]:
+                pass
+            case _:
+                raise ValueError(f"Invalid sequence for shape: {shape!r}.")
+        return Box(y=Interval.from_size(y_size, start=y_start), x=Interval.from_size(x_size, start=x_start))
 
     @property
-    def start(self) -> tuple[int, int]:
+    def start(self) -> YX[int]:
         """Tuple holding the starts of the intervals ordered ``(y, x)``."""
-        return (self.y.start, self.x.start)
+        return YX(self.y.start, self.x.start)
 
     @property
-    def shape(self) -> tuple[int, int]:
+    def shape(self) -> YX[int]:
         """Tuple holding the sizes of the intervals ordered ``(y, x)``."""
-        return (self.y.size, self.x.size)
+        return YX(self.y.size, self.x.size)
 
     @property
     def x(self) -> Interval:
@@ -331,30 +380,31 @@ class Box:
     def contains(self, other: Box, /) -> bool: ...
 
     @overload
-    def contains(self, *, x: int, y: int) -> bool: ...
+    def contains(self, *, y: int, x: int) -> bool: ...
 
     @overload
-    def contains(self, *, x: np.ndarray, y: np.ndarray) -> np.ndarray: ...
+    def contains(self, *, y: np.ndarray, x: np.ndarray) -> np.ndarray: ...
 
     def contains(
         self,
         other: Box | None = None,
         *,
-        x: int | np.ndarray | None = None,
         y: int | np.ndarray | None = None,
+        x: int | np.ndarray | None = None,
     ) -> bool | np.ndarray:
         """Test whether this box fully contains another or one or more points.
 
         Parameters
         ----------
         other, optional
-            Another box to compare to.  Not compatible with the ``x`` and ``y``
+            Another box to compare to.  Not compatible with the ``y`` and ``x``
             arguments.
-        x, optional
-            One or more integer X coordinates to test for containment.
-            If an array, an array of results will be returned.
         y, optional
             One or more integer Y coordinates to test for containment.
+            If an array, an array of results will be returned.
+
+        x, optional
+            One or more integer X coordinates to test for containment.
             If an array, an array of results will be returned.
 
         Returns
@@ -398,23 +448,23 @@ class Box:
         """Return a new box padded by the given amount on all sides."""
         return Box(*[i.dilated_by(padding) for i in self._intervals])
 
-    def slice_within(self, other: Box) -> tuple[slice, ...]:
+    def slice_within(self, other: Box) -> YX[slice]:
         """Return a tuple of `slice` objects that corresponds to the values of
         this box when the items of the container being sliced correspond to
         ``other``.
 
         This assumes ``other.contains(self)``.
         """
-        return tuple([a.slice_within(b) for a, b in zip(self._intervals, other._intervals, strict=True)])
+        return YX(self.y.slice_within(other.y), self.x.slice_within(other.x))
 
-    def boundary(self) -> Iterator[tuple[int, int]]:
+    def boundary(self) -> Iterator[YX[int]]:
         """Iterate over the corners of the box as ``(y, x)`` tuples."""
         if len(self._intervals) != 2:
             raise TypeError("Box is not 2-d.")
-        yield (self.y.min, self.x.min)
-        yield (self.y.min, self.x.max)
-        yield (self.y.max, self.x.max)
-        yield (self.y.max, self.x.min)
+        yield YX(self.y.min, self.x.min)
+        yield YX(self.y.min, self.x.max)
+        yield YX(self.y.max, self.x.max)
+        yield YX(self.y.max, self.x.min)
 
     def __reduce__(self) -> tuple[type[Box], tuple[Interval, ...]]:
         return (Box, self._intervals)
@@ -489,7 +539,9 @@ class BoxSliceFactory:
 
     def __getitem__(self, key: tuple[slice, slice]) -> Box:
         match key:
-            case tuple(y=y, x=x):
+            case XY(x=x, y=y):
+                return Box(Interval.factory[y], Interval.factory[x])
+            case (y, x):
                 return Box(Interval.factory[y], Interval.factory[x])
             case _:
                 raise TypeError("Expected exactly two slices.")
@@ -515,7 +567,7 @@ class Domain(Protocol):
     transform from one coordinate system to another.
     """
 
-    def boundary(self) -> Iterator[tuple[int, int]]:
+    def boundary(self) -> Iterator[YX[int]]:
         """Iterate over points on the boundary as ``(y, x)`` tuples."""
         ...
 
@@ -534,5 +586,5 @@ class Domain(Protocol):
         """Convert a serialized domain object into its in-memory form."""
         match serialized:
             case Box():
-                return serialized
+                return serialized  # type: ignore[return-value]
         raise RuntimeError(f"Cannot deserialize {serialized!r}.")
