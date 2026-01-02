@@ -487,14 +487,12 @@ class BoxSliceFactory:
         )
     """
 
-    def __getitem__(self, key: slice | tuple[slice, ...]) -> Box:
+    def __getitem__(self, key: tuple[slice, slice]) -> Box:
         match key:
-            case slice():
-                return Box(Interval.factory[key])
-            case tuple():
-                return Box(*[Interval.factory[s] for s in key])
+            case tuple(y=y, x=x):
+                return Box(Interval.factory[y], Interval.factory[x])
             case _:
-                raise TypeError("Expected slice or tuple of slices.")
+                raise TypeError("Expected exactly two slices.")
 
 
 Box.factory = BoxSliceFactory()
