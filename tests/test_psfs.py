@@ -19,8 +19,8 @@ from typing import Any
 from lsst.images import Box, Image
 from lsst.images.fits import FitsInputArchive, FitsOutputArchive
 from lsst.images.psfs import PointSpreadFunction
-from lsst.images.psfs.legacy import LegacyPointSpreadFunction
 from lsst.images.psfs.piff import PiffSerializationModel, PiffWrapper
+from lsst.images.psfs.psfex import PSFExSerializationModel, PSFExWrapper
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -87,10 +87,19 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         legacy_psf = reader.readPsf()
         domain = Box.from_legacy(reader.readBBox())
         psf = PointSpreadFunction.from_legacy(legacy_psf, domain)
-        self.assertIsInstance(psf, LegacyPointSpreadFunction)
+        self.assertIsInstance(psf, PSFExWrapper)
         self.assertEqual(psf.domain, domain)
         self.assertIsInstance(psf.legacy_psf, PsfexPsf)
         self.compare_to_legacy(legacy_psf, psf)
+        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
+            tmp.close()
+            with FitsOutputArchive.open(tmp.name) as output_archive:
+                tree = output_archive.serialize_direct("psf", psf.serialize)
+                output_archive.add_tree(tree)
+            with FitsInputArchive.open(tmp.name) as input_archive:
+                tree = input_archive.get_tree(PSFExSerializationModel)
+                roundtripped = PSFExWrapper.deserialize(tree, input_archive)
+        self.compare_to_legacy(legacy_psf, roundtripped)
 
     def compare_to_legacy(self, legacy_psf: Any, psf: PointSpreadFunction) -> None:
         from lsst.geom import Point2D

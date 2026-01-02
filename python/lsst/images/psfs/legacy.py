@@ -74,4 +74,10 @@ class LegacyPointSpreadFunction(PointSpreadFunction):
 
     @classmethod
     def from_legacy(cls, legacy_psf: Any, domain: Domain) -> LegacyPointSpreadFunction:
+        from lsst.meas.extensions.psfex import PsfexPsf
+
+        if isinstance(legacy_psf, PsfexPsf):
+            from .psfex import PSFExWrapper
+
+            return PSFExWrapper(legacy_psf, domain)
         return cls(impl=legacy_psf, domain=domain)
