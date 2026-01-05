@@ -60,7 +60,7 @@ class ColumnDefinitionModel(pydantic.BaseModel):
     An empty `tuple` is used to represent a scalar column.
     """
 
-    is_variable_length: bool = pydantic.Field(default=(), exclude_if=operator.not_)
+    is_variable_length: bool = pydantic.Field(default=False, exclude_if=operator.not_)
     """Whether this column is a variable-length array."""
 
     @classmethod
