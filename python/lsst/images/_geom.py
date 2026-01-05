@@ -20,12 +20,17 @@ __all__ = (
     "SerializableBounds",
 )
 
-from collections.abc import Iterator, Sequence
-from typing import Any, ClassVar, NamedTuple, Protocol, Self, TypedDict, final, overload
+import math
+from collections.abc import Callable, Iterator, Sequence
+from typing import Any, ClassVar, NamedTuple, Protocol, Self, TypedDict, TypeVar, final, overload
 
 import numpy as np
 import pydantic
 import pydantic_core.core_schema as pcs
+
+# This pre-python-3.12 declaration is needed by Sphinx (probably the
+# autodoc-typehints plugin.
+T = TypeVar("T")
 
 # Interval and Box are defined as regular Python classes rather than
 # dataclasses or Pydantic models because we might want to implement them as
@@ -64,6 +69,10 @@ class YX[T](NamedTuple):
         """A tuple of the same objects in the opposite order."""
         return XY(x=self.x, y=self.y)
 
+    def map[U](self, func: Callable[[T], U]) -> YX[U]:
+        """Apply a function to both objects."""
+        return YX(y=func(self.y), x=func(self.x))
+
 
 class XY[T](NamedTuple):
     """A pair of per-dimension objects, ordered ``(x, y)``.
@@ -90,6 +99,10 @@ class XY[T](NamedTuple):
     def yx(self) -> YX:
         """A tuple of the same objects in the opposite order."""
         return YX(y=self.y, x=self.x)
+
+    def map[U](self, func: Callable[[T], U]) -> XY[U]:
+        """Apply a function to both objects."""
+        return XY(x=func(self.x), y=func(self.y))
 
 
 class _SerializedInterval(TypedDict):
@@ -192,8 +205,41 @@ class Interval:
 
     @property
     def arange(self) -> np.ndarray:
-        """An array of all the values in the interval (`numpy.ndarray`)."""
+        """An array of all the values in the interval (`numpy.ndarray`).
+
+        Array values are integers.
+        """
         return np.arange(self.start, self.stop)
+
+    def linspace(self, n: int | None = None, *, step: float | None = None) -> np.ndarray:
+        """Return an array of values that spans the interval.
+
+        Parameters
+        ----------
+        n
+            How many values to return.  The default (if ``step`` is also not
+            provided) is the size of the interval, i.e. equivalent to the
+            `arange` property (but converted to `float`).
+        step
+            Set ``n`` such that the distance between points is equal to or
+            just less than this.  Mutually exclusive with ``n``.
+
+        Returns
+        -------
+        numpy.ndarray
+            Array of `float` values.
+
+        See Also
+        --------
+        numpy.linspace
+        """
+        if n is None:
+            if step is None:
+                return self.arange.astype(np.float64)
+            n = math.ceil(self.size / step)
+        elif step is not None:
+            raise TypeError("'n' and 'step' cannot both be provided.")
+        return np.linspace(self.min, self.max, n, dtype=np.float64)
 
     @property
     def center(self) -> float:
@@ -338,7 +384,7 @@ class IntervalSliceFactory:
     def __getitem__(self, s: slice) -> Interval:
         if s.step is not None and s.step != 1:
             raise ValueError(f"Slice {s} has non-unit step.")
-        return Interval(start=s.start, stop=s.stop)
+        return Interval(start=s.start or 0, stop=s.stop)
 
 
 Interval.factory = IntervalSliceFactory()
@@ -431,6 +477,44 @@ class Box:
     def y(self) -> Interval:
         """Shortcut for the second-to-last dimension's interval (`int`)."""
         return self._intervals[-2]
+
+    def meshgrid(self, n: int | Sequence[int] | None = None, *, step: float | None = None) -> XY[np.ndarray]:
+        """Return a pair of 2-d arrays of the coordinate values of the box.
+
+        Parameters
+        ----------
+        n
+            Number of points in each dimension.  If a sequence, points are
+            assumed to be ordered ``(x, y)`` unless a `YX` instance is
+            provided.
+        step
+            Set ``n`` such that the distance between points is equal to or
+            just less than this in each dimension.  Mutually exclusive with
+            ``n``.
+
+        Returns
+        -------
+        `XY` [`numpy.ndarray`]
+            A pair of arrays, each of which is 2-d with floating-point values.
+
+        See Also
+        --------
+        numpy.meshgrid
+        """
+        match n:
+            case int():
+                ax = self.x.linspace(n)
+                ay = self.y.linspace(n)
+            case YX(y=ny, x=nx):
+                ax = self.x.linspace(nx)
+                ay = self.y.linspace(ny)
+            case [nx, ny]:
+                ax = self.x.linspace(nx)
+                ay = self.y.linspace(ny)
+            case None:
+                ax = self.x.linspace(step=step)
+                ay = self.y.linspace(step=step)
+        return XY(*np.meshgrid(ax, ay))
 
     def __eq__(self, other: object) -> bool:
         if type(other) is Box:

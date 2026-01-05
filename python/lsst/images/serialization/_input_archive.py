@@ -15,7 +15,7 @@ __all__ = ("InputArchive",)
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 import astropy.io.fits
 import astropy.table
@@ -23,13 +23,17 @@ import astropy.units
 import numpy as np
 import pydantic
 
-from .._geom import Box
-from .._image import Image
-from .._mask import Mask
 from ._common import OpaqueArchiveMetadata, no_header_updates
 from ._image import ImageModel
 from ._mask import MaskModel
 from ._tables import TableModel
+
+if TYPE_CHECKING:
+    from .._geom import Box
+    from .._image import Image
+    from .._mask import Mask
+    from .._transforms import FrameSet
+
 
 # This pre-python-3.12 declaration is needed by Sphinx (probably the
 # autodoc-typehints plugin.
@@ -83,6 +87,22 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         `~lsst.serialization.OutputArchive.serialize_direct`) because the
         caller can just call a deserializer function directly on a sub-model
         of its Pydantic tree.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def get_frame_set(self, ref: P) -> FrameSet:
+        """Return an alreday-deserialized frame set from the archive.
+
+        Parameters
+        ----------
+        ref
+            Implementation-specific reference to the frame set.
+
+        Returns
+        -------
+        FrameSet
+            Loaded frame set.
         """
         raise NotImplementedError()
 
