@@ -34,6 +34,7 @@ from lsst.resources import ResourcePath, ResourcePathExpression
 from .._geom import Box
 from .._image import Image
 from .._mask import Mask, MaskSchema
+from .._transforms import FrameSet
 from ..serialization import (
     ArrayReferenceModel,
     ImageModel,
@@ -166,6 +167,18 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
             ) from err
         result = deserializer(model_type.model_validate_json(json_bytes), self)
         self._deserialized_pointer_cache[pointer] = result
+        return result
+
+    def get_frame_set(self, ref: TableCellReferenceModel) -> FrameSet:
+        try:
+            result = self._deserialized_pointer_cache[ref]
+        except KeyError:
+            raise AssertionError(
+                f"Frame set at {ref.model_dump_json(indent=2)} must be deserialized "
+                "before any dependent transform can be."
+            ) from None
+        if not isinstance(result, FrameSet):
+            raise InvalidFitsArchiveError(f"Expected a FrameSet instance at {ref.model_dump_json(indent=2)}.")
         return result
 
     def get_image(

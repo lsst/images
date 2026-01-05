@@ -25,6 +25,7 @@ import pydantic
 
 from .._image import Image
 from .._mask import Mask
+from .._transforms import FrameSet
 from ..serialization import (
     ArrayReferenceModel,
     ColumnDefinitionModel,
@@ -74,6 +75,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
             self._primary_hdu.header.extend(opaque_primary_header)
         self._hdu_list.append(self._primary_hdu)
         self._json_hdu_added: bool = False
+        self._frame_sets: list[tuple[FrameSet, TableCellReferenceModel]] = []
 
     @classmethod
     @contextmanager
@@ -149,6 +151,17 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         self._pointer_targets.append(model.model_dump_json().encode())
         self._pointers_by_key[key] = pointer
         return pointer
+
+    def serialize_frame_set[T: pydantic.BaseModel](
+        self, name: str, frame_set: FrameSet, serializer: Callable[[OutputArchive], T], key: Hashable
+    ) -> TableCellReferenceModel:
+        # Docstring inherited.
+        pointer = self.serialize_pointer(name, serializer, key)
+        self._frame_sets.append((frame_set, pointer))
+        return pointer
+
+    def iter_frame_sets(self) -> Iterator[tuple[FrameSet, TableCellReferenceModel]]:
+        return iter(self._frame_sets)
 
     def add_image(
         self,
