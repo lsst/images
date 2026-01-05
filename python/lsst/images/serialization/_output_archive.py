@@ -17,8 +17,8 @@ __all__ = (
 )
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Hashable, Mapping
-from typing import TypeVar
+from collections.abc import Callable, Hashable, Iterator, Mapping
+from typing import TYPE_CHECKING, TypeVar
 
 import astropy.io.fits
 import astropy.table
@@ -26,12 +26,15 @@ import astropy.units
 import numpy as np
 import pydantic
 
-from .._image import Image
-from .._mask import Mask
 from ._common import no_header_updates
 from ._image import ImageModel
 from ._mask import MaskModel
 from ._tables import TableModel
+
+if TYPE_CHECKING:
+    from .._image import Image
+    from .._mask import Mask
+    from .._transforms import FrameSet
 
 # This pre-python-3.12 declaration is needed by Sphinx (probably the
 # autodoc-typehints plugin.
@@ -122,6 +125,56 @@ class OutputArchive[P](ABC):
         # serializations into a standard location outside the user-controlled
         # Pydantic model tree, and always returned a JSON pointer to that
         # standard location from this function.
+        raise NotImplementedError()
+
+    @abstractmethod
+    def serialize_frame_set[T: pydantic.BaseModel](
+        self, name: str, frame_set: FrameSet, serializer: Callable[[OutputArchive], T], key: Hashable
+    ) -> T | P:
+        """Serialize a frame set and make it available to objects saved later.
+
+        Parameters
+        ----------
+        name
+            Attribute of the paired Pydantic model that will be assigned the
+            result of this call.  If it will not be assigned to a direct
+            attribute, it may be a JSON Pointer path (relative to the paired
+            Pydantic model) to the location where it will be added.
+        frame_set
+            The frame set being saved.  This will be returned in later calls
+            to `iter_frame_sets`, along with the returned reference object.
+        serializer
+            Callable that takes an `~lsst.serialization.OutputArchive` and
+            returns a Pydantic model.  This will be passed a new
+            `~lsst.serialization.OutputArchive` that automatically prepends
+            ``{name}/`` (and any root path added by this archive) to names
+            passed to it, so the ``serializer`` does not need to know where it
+            appears in the overall tree.
+        key
+            A unique identifier for the in-memory object the serializer saves,
+            e.g. a call to the built-in `id` function.
+
+        Returns
+        -------
+        T | P
+            Either the result of the call to the serializer, or a Pydantic
+            model that can be considered a reference to it and added to a
+            larger model in its place.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def iter_frame_sets(self) -> Iterator[tuple[FrameSet, P]]:
+        """Iterate over the frame sets already serialized to this archive.
+
+        Yields
+        ------
+        frame_set
+            A frame set that has already been written to this archive.
+        reference
+            An implementation-specific reference model that points to the
+            frame set.
+        """
         raise NotImplementedError()
 
     @abstractmethod
@@ -321,6 +374,14 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         self, name: str, serializer: Callable[[OutputArchive[P]], T], key: Hashable
     ) -> T | P:
         return self._parent.serialize_pointer(self._join_path(name), serializer, key)
+
+    def serialize_frame_set[T: pydantic.BaseModel](
+        self, name: str, frame_set: FrameSet, serializer: Callable[[OutputArchive], T], key: Hashable
+    ) -> T | P:
+        return self._parent.serialize_frame_set(self._join_path(name), frame_set, serializer, key)
+
+    def iter_frame_sets(self) -> Iterator[tuple[FrameSet, P]]:
+        return self._parent.iter_frame_sets()
 
     def add_image(
         self,
