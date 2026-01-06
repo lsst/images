@@ -15,6 +15,7 @@ __all__ = ("MaskedImage",)
 
 from typing import Any
 
+import astropy.io.fits
 import astropy.units
 import numpy as np
 import pydantic
@@ -24,8 +25,16 @@ from lsst.resources import ResourcePathExpression
 from ._geom import Box
 from ._image import Image, ImageModel
 from ._mask import Mask, MaskModel, MaskSchema
-from .archive import InputArchive, OutputArchive
-from .fits import FitsCompressionOptions, FitsInputArchive, FitsOutputArchive
+from .archive import InputArchive, OpaqueArchiveMetadata, OutputArchive
+from .fits import (
+    ExtensionHDU,
+    FitsCompressionOptions,
+    FitsInputArchive,
+    FitsOpaqueMetadata,
+    FitsOutputArchive,
+    PrecompressedImage,
+    strip_wcs_cards,
+)
 
 
 class MaskedImage:
@@ -58,7 +67,7 @@ class MaskedImage:
         mask: Mask | None = None,
         variance: Image | None = None,
         mask_schema: MaskSchema | None = None,
-        opaque_metadata: Any = None,
+        opaque_metadata: OpaqueArchiveMetadata | None = None,
     ):
         if mask is None:
             if mask_schema is None:
@@ -109,13 +118,29 @@ class MaskedImage:
         return self._image.unit
 
     def __getitem__(self, bbox: Box) -> MaskedImage:
-        return MaskedImage(self.image[bbox], mask=self.mask[bbox], variance=self.variance[bbox])
+        return MaskedImage(
+            self.image[bbox],
+            mask=self.mask[bbox],
+            variance=self.variance[bbox],
+            opaque_metadata=(
+                self._opaque_metadata.subset(bbox) if self._opaque_metadata is not None else None
+            ),
+        )
 
     def __str__(self) -> str:
         return f"MaskedImage({self.image!s}, {list(self.mask.schema.names)})"
 
     def __repr__(self) -> str:
         return f"MaskedImage({self.image!r}, mask_schema={self.mask.schema!r})"
+
+    def copy(self) -> MaskedImage:
+        """Deep-copy the masked image."""
+        return MaskedImage(
+            image=self._image.copy(),
+            mask=self._mask.copy(),
+            variance=self._variance.copy(),
+            opaque_metadata=(self._opaque_metadata.copy() if self._opaque_metadata is not None else None),
+        )
 
     def serialize(self, archive: OutputArchive[Any]) -> MaskedImageModel:
         """Serialize the masked image to an output archive.
@@ -185,7 +210,14 @@ class MaskedImage:
         variance = archive.get_image(model.variance, bbox=bbox)
         return MaskedImage(image, mask=mask, variance=variance)
 
-    def write_fits(self, filename: str, compression: FitsCompressionOptions | None = None) -> None:
+    def write_fits(
+        self,
+        filename: str,
+        *,
+        image_compression: FitsCompressionOptions | None = FitsCompressionOptions.DEFAULT,
+        mask_compression: FitsCompressionOptions | None = FitsCompressionOptions.DEFAULT,
+        variance_compression: FitsCompressionOptions | None = FitsCompressionOptions.DEFAULT,
+    ) -> None:
         """Write the masked image to a FITS file.
 
         Parameters
@@ -195,8 +227,15 @@ class MaskedImage:
         compression, optional
             Compression options.
         """
+        compression_options = {}
+        if image_compression is not FitsCompressionOptions.DEFAULT:
+            compression_options["image"] = image_compression
+        if mask_compression is not FitsCompressionOptions.DEFAULT:
+            compression_options["mask"] = mask_compression
+        if variance_compression is not FitsCompressionOptions.DEFAULT:
+            compression_options["variance"] = variance_compression
         with FitsOutputArchive.open(
-            filename, opaque_metadata=self._opaque_metadata, compression_options=compression
+            filename, opaque_metadata=self._opaque_metadata, compression_options=compression_options
         ) as archive:
             archive.add_tree(self.serialize(archive))
 
@@ -228,6 +267,65 @@ class MaskedImage:
             # reworked, but I don't see a better approach right now.
             result._opaque_metadata = archive.get_opaque_metadata()
         return result
+
+    @classmethod
+    def read_legacy(cls, filename: str, preserve_quantization: bool = False) -> MaskedImage:
+        """Read a FITS file written by `lsst.afw.image.MaskedImage.writeFits`.
+
+        Parameters
+        ----------
+        filename
+            Full name of the file.
+        preserve_quantization
+            If `True`, ensure that writing the masked image back out again will
+            exactly preserve quantization-compressed pixel values.  This causes
+            the image and variance plane arrays to be marked as read-only and
+            stores the original binary table data for those planes in memory.
+            If the `MaskedImage` is copied, the precompressed pixel values are
+            not transferred to the copy.
+
+        Returns
+        -------
+        masked_image
+            A new `MaskedImage` object.
+        """
+        opaque_metadata = FitsOpaqueMetadata()
+        with astropy.io.fits.open(filename) as hdu_list:
+            image_hdu: ExtensionHDU = hdu_list[1]
+            image = Image.read_legacy(image_hdu)
+            strip_wcs_cards(image_hdu.header)
+            image_hdu.header.strip()
+            image_hdu.header.remove("EXTNAME", ignore_missing=True)
+            image_hdu.header.remove("EXTTYPE", ignore_missing=True)
+            image_hdu.header.remove("INHERIT", ignore_missing=True)
+            opaque_metadata.headers["IMAGE"] = image_hdu.header
+            mask_hdu: ExtensionHDU = hdu_list[2]
+            mask = Mask.read_legacy(mask_hdu)
+            strip_wcs_cards(mask_hdu.header)
+            mask_hdu.header.strip()
+            mask_hdu.header.remove("EXTNAME", ignore_missing=True)
+            mask_hdu.header.remove("EXTTYPE", ignore_missing=True)
+            mask_hdu.header.remove("INHERIT", ignore_missing=True)
+            # afw set BUNIT on masks because of limitations in how FITS
+            # metadata is handled there.
+            mask_hdu.header.remove("BUNIT", ignore_missing=True)
+            opaque_metadata.headers["MASK"] = mask_hdu.header
+            variance_hdu: ExtensionHDU = hdu_list[3]
+            variance = Image.read_legacy(variance_hdu)
+            strip_wcs_cards(variance_hdu.header)
+            variance_hdu.header.strip()
+            variance_hdu.header.remove("EXTNAME", ignore_missing=True)
+            variance_hdu.header.remove("EXTTYPE", ignore_missing=True)
+            variance_hdu.header.remove("INHERIT", ignore_missing=True)
+            opaque_metadata.headers["VARIANCE"] = variance_hdu.header
+        if preserve_quantization:
+            image._array.flags["WRITEABLE"] = False
+            mask._array.flags["WRITEABLE"] = False
+            variance._array.flags["WRITEABLE"] = False
+            with astropy.io.fits.open(filename, disable_image_compression=True) as hdu_list:
+                opaque_metadata.precompressed["IMAGE"] = PrecompressedImage.from_bintable(hdu_list[1])
+                opaque_metadata.precompressed["VARIANCE"] = PrecompressedImage.from_bintable(hdu_list[3])
+        return cls(image, mask=mask, variance=variance, opaque_metadata=opaque_metadata)
 
 
 class MaskedImageModel(pydantic.BaseModel):

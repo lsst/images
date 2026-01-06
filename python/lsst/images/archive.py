@@ -48,13 +48,14 @@ from __future__ import annotations
 
 __all__ = (
     "InputArchive",
+    "OpaqueArchiveMetadata",
     "OutputArchive",
     "TableCellReferenceModel",
 )
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Iterable
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, Self
 
 import astropy.table
 import pydantic
@@ -94,6 +95,26 @@ class TableCellReferenceModel(pydantic.BaseModel):
     """Row of the cell (zero-indexed)."""
 
     source_is_table: ClassVar[Literal[True]] = True
+
+
+class OpaqueArchiveMetadata(Protocol):
+    """Interface for opaque archive metadata.
+
+    In addition to implementing the methods defined here, all implementations
+    must be pickleable.
+    """
+
+    def copy(self) -> Self | None:
+        """Copy, reference, or discard metadata when its holding object is
+        copied.
+        """
+        ...
+
+    def subset(self, bbox: Box) -> Self | None:
+        """Copy, reference, or discard metadata when a subset of its its
+        holding object is extracted.
+        """
+        ...
 
 
 def no_header_updates(header: astropy.io.fits.Header) -> None:
@@ -599,15 +620,14 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def get_opaque_metadata(self) -> Any:
+    def get_opaque_metadata(self) -> OpaqueArchiveMetadata:
         """Return opaque metadata loaded from the file that should be saved if
         another version of the object is saved to the same file format.
 
         Returns
         -------
         metadata
-            The type of this data is unspecified, but it is guaranteed to be
-            pickleable; this lets a deserialized object hold it without
-            breaking its ability to be used in e.g. multiprocessing.
+            Opaque metadata specific to this archive type that should be
+            round-tripped if it is saved in the same format.
         """
         raise NotImplementedError()
