@@ -11,10 +11,9 @@
 
 from __future__ import annotations
 
-__all__ = ("FrameSet",)
+__all__ = ("CameraFrameSet", "FrameSet", "ObservationFrameSet", "SkyFrameSet", "TractFrameSet")
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
 from typing import Any, cast, overload
 
 import astropy.units as u
@@ -30,10 +29,6 @@ class FrameLookupError(LookupError):
 
 
 class FrameSet(ABC):
-    @abstractmethod
-    def __iter__(self) -> Iterator[_frames.Frame]:
-        raise NotImplementedError()
-
     @abstractmethod
     def __contains__(self, frame: _frames.Frame) -> bool:
         raise NotImplementedError()
@@ -107,12 +102,6 @@ class CameraFrameSet(FrameSet):
         ]
         return _frames.DetectorFrame(instrument=self.instrument, detector=detector, visit=visit, bbox=bbox)
 
-    def __iter__(self) -> Iterator[_frames.CameraGeometryFrame]:
-        yield self._focal_plane_frame
-        yield self._field_angle_frame
-        for detector_id in self._detector_frame_ids:
-            yield self.detector(detector_id)
-
     def __contains__(self, frame: _frames.Frame) -> bool:
         try:
             self._parse_frame_arg(frame)
@@ -152,7 +141,7 @@ class CameraFrameSet(FrameSet):
         return frame_id, domain
 
 
-class ProjectionFrameSet(FrameSet):
+class _ProjectionFrameSet(FrameSet):
     def __getitem__[I: _frames.Frame, O: _frames.Frame](self, key: tuple[I, O]) -> Transform[I, O]:
         in_frame, out_frame = key
         if in_frame is _frames.SkyFrame.ICRS:
@@ -166,7 +155,8 @@ class ProjectionFrameSet(FrameSet):
                 return cast(Transform[I, O], self._get_projection(in_frame).pixel_to_sky_transform)
             else:
                 return self._get_projection(in_frame).pixel_to_sky_transform.then(
-                    self._get_projection(out_frame).sky_to_pixel_transform
+                    self._get_projection(out_frame).sky_to_pixel_transform,
+                    remember_components=False,
                 )
 
     def __contains__(self, frame: _frames.Frame) -> bool:
@@ -181,7 +171,7 @@ class ProjectionFrameSet(FrameSet):
         raise NotImplementedError()
 
 
-class TractFrameSet(ProjectionFrameSet):
+class TractFrameSet(_ProjectionFrameSet):
     def __init__(self, skymap: str, projections: dict[int, Projection[_frames.TractFrame]]):
         self._skymap = skymap
         self._projections = projections
@@ -189,10 +179,6 @@ class TractFrameSet(ProjectionFrameSet):
     @property
     def skymap(self) -> str:
         return self._skymap
-
-    def __iter__(self) -> Iterator[_frames.TractFrame]:
-        for proj in self._projections.values():
-            yield proj.pixel_frame
 
     def tract(self, tract: int) -> _frames.TractFrame:
         try:
@@ -216,7 +202,7 @@ class TractFrameSet(ProjectionFrameSet):
         return self.projection(frame)  # type: ignore
 
 
-class ObservationFrameSet(ProjectionFrameSet):
+class ObservationFrameSet(_ProjectionFrameSet):
     def __init__(self, instrument: str, projections: dict[int, dict[int, Projection[_frames.DetectorFrame]]]):
         self._instrument = instrument
         self._projections = projections
@@ -224,11 +210,6 @@ class ObservationFrameSet(ProjectionFrameSet):
     @property
     def instrument(self) -> str:
         return self._instrument
-
-    def __iter__(self) -> Iterator[_frames.TractFrame]:
-        for visit_projections in self._projections.values():
-            for proj in visit_projections.values():
-                yield proj.pixel_frame
 
     def detector(self, *, detector: int, visit: int) -> _frames.DetectorFrame:
         try:
@@ -267,7 +248,7 @@ class ObservationFrameSet(ProjectionFrameSet):
         return self.projection(frame)  # type: ignore
 
 
-class SkyFrameSet(ProjectionFrameSet):
+class SkyFrameSet(_ProjectionFrameSet):
     def __init__(
         self,
         *,
@@ -294,12 +275,6 @@ class SkyFrameSet(ProjectionFrameSet):
         except ValueError:
             raise ValueError(f"FrameSet does not have a single unique skymap: {self.skymaps}.") from None
         return skymap
-
-    def __iter__(self) -> Iterator[_frames.TractFrame | _frames.DetectorFrame]:
-        for observations in self.instruments.values():
-            yield from observations
-        for tracts in self.skymaps.values():
-            yield from tracts
 
     def detector(self, *, detector: int, visit: int, instrument: str | None = None) -> _frames.DetectorFrame:
         if instrument is None:

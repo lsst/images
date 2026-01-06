@@ -31,10 +31,10 @@ import pydantic
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
-from .._coordinate_transform import CoordinateTransform
 from .._geom import Box
 from .._image import Image, ImageModel
 from .._mask import Mask, MaskModel, MaskSchema
+from .._transforms import FrameSet, Transform, TransformModel
 from ..archive import InputArchive, no_header_updates
 from ..asdf_utils import ArrayReferenceModel
 from ..tables import TableCellReferenceModel, TableModel
@@ -142,10 +142,6 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         json_bytes = self._readers["JSON"].data[0]["JSON"].tobytes()
         return model_type.model_validate_json(json_bytes)
 
-    def get_coordinate_transform(self, from_frame: str, to_frame: str = "sky") -> CoordinateTransform:
-        # Docstring inherited.
-        raise NotImplementedError("TODO")
-
     def deserialize_pointer[U: pydantic.BaseModel, V](
         self,
         pointer: TableCellReferenceModel,
@@ -165,6 +161,19 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         result = deserializer(model_type.model_validate_json(json_bytes), self)
         self._deserialized_pointer_cache[pointer] = result
         return result
+
+    def deserialize_frame_set[U: pydantic.BaseModel, V: FrameSet](
+        self,
+        pointer: TableCellReferenceModel,
+        model_type: type[U],
+        deserializer: Callable[[U, InputArchive[TableCellReferenceModel]], V],
+    ) -> V:
+        # Docstring inherited.
+        return self.deserialize_pointer(pointer, model_type, deserializer)
+
+    def get_transform(self, model: TransformModel[TableCellReferenceModel]) -> Transform[Any, Any]:
+        # Docstring inherited.
+        return Transform.deserialize(model, self._get_frame_set)
 
     def get_image(
         self,
@@ -283,6 +292,20 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
                 f"Extension with EXTNAME={name!r} was expected to be be an image, not a binary table."
             )
         return name, reader
+
+    def _get_frame_set(self, pointer: TableCellReferenceModel) -> FrameSet:
+        try:
+            result = self._deserialized_pointer_cache[pointer]
+        except KeyError:
+            raise AssertionError(
+                f"Frame set at {pointer.model_dump_json(indent=2)} must be deserialized "
+                "before any dependent transform can be."
+            ) from None
+        if not isinstance(result, FrameSet):
+            raise InvalidFitsArchiveError(
+                f"Expected a FrameSet instance at {pointer.model_dump_json(indent=2)}."
+            )
+        return result
 
 
 class _ExtensionReader:

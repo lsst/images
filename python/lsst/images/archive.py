@@ -55,17 +55,17 @@ __all__ = (
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Iterable, Mapping
-from typing import TYPE_CHECKING, Protocol, Self
+from typing import TYPE_CHECKING, Any, Protocol, Self
 
 import astropy.table
 import astropy.units
 import numpy as np
 import pydantic
 
-from ._coordinate_transform import CoordinateTransform
 from ._geom import Box
 from ._image import Image, ImageModel
 from ._mask import Mask, MaskModel
+from ._transforms import FrameSet, Transform, TransformModel
 from .tables import TableModel
 
 if TYPE_CHECKING:
@@ -116,32 +116,6 @@ class OutputArchive[P: pydantic.BaseModel](ABC):
     sort of finalization method in order to write it into the file, but this is
     not part of the base class interface.
     """
-
-    @abstractmethod
-    def add_coordinate_transform(
-        self, transform: CoordinateTransform, from_frame: str, to_frame: str = "sky"
-    ) -> P:
-        """Add a coordinate transform between two frames to the archive.
-
-        Parameters
-        ----------
-        transform
-            Mapping between the frames.
-        from_frame
-            Frame for the input coordinates to the transform.
-        to_frame
-            Frame for the output coordinates returned by the transform.
-
-        Returns
-        -------
-        pointer
-            JSON Pointer to the serialized coordinate transform.
-        """
-        # This interface assumes coordinate transforms are stored in in
-        # JSON/YAML somewhere outside the user-controlled tree (i.e. a
-        # centralized sibling tree controlled by the archive).  We can adjust
-        # it as needed for consistency with ASDF/gwcs conventions.
-        raise NotImplementedError()
 
     @abstractmethod
     def serialize_direct[T: pydantic.BaseModel](
@@ -208,6 +182,33 @@ class OutputArchive[P: pydantic.BaseModel](ABC):
         # standard location outside the user-controlled Pydantic model tree,
         # and always returned a JSON pointer to that standard location from
         # this function.
+        raise NotImplementedError()
+
+    @abstractmethod
+    def serialize_frame_set[T: pydantic.BaseModel](
+        self, name: str, frame_set: FrameSet, serializer: Callable[[OutputArchive], T], key: Hashable
+    ) -> T | P:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def add_transform(self, name: str, transform: Transform) -> TransformModel[P]:
+        """Add a coordinate transform to the archive.
+
+        Parameters
+        ----------
+        name
+            Attribute of the paired Pydantic model that will be assigned the
+            result of this call.  If it will not be assigned to a direct
+            attribute, it may be a JSON Pointer path (relative to the paired
+            Pydantic model) to the location where it will be added.
+        transform
+            Transform to add.
+
+        Returns
+        -------
+        reference
+            A reference that can be passed to `InputArchive.get_transform`.
+        """
         raise NotImplementedError()
 
     @abstractmethod
@@ -433,11 +434,6 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         self._root = root
         self._parent = parent
 
-    def add_coordinate_transform(
-        self, transform: CoordinateTransform, from_frame: str, to_frame: str = "sky"
-    ) -> P:
-        return self._parent.add_coordinate_transform(transform, from_frame, to_frame)
-
     def serialize_direct[T: pydantic.BaseModel](
         self, name: str, serializer: Callable[[OutputArchive[P]], T]
     ) -> T:
@@ -447,6 +443,14 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         self, name: str, serializer: Callable[[OutputArchive[P]], T], key: Hashable
     ) -> T | P:
         return self._parent.serialize_pointer(self._join_path(name), serializer, key)
+
+    def serialize_frame_set[T: pydantic.BaseModel](
+        self, name: str, frame_set: FrameSet, serializer: Callable[[OutputArchive], T], key: Hashable
+    ) -> T | P:
+        return self._parent.serialize_frame_set(self._join_path(name), frame_set, serializer, key)
+
+    def add_transform(self, name: str, transform: Transform) -> TransformModel[P]:
+        return self._parent.add_transform(self._join_path(name), transform)
 
     def add_image(
         self,
@@ -516,34 +520,6 @@ class InputArchive[P: pydantic.BaseModel](ABC):
     """
 
     @abstractmethod
-    def get_coordinate_transform(self, from_frame: str, to_frame: str = "sky") -> CoordinateTransform:
-        """Return the coordinate transform that maps the two given frames.
-
-        Parameters
-        ----------
-        from_frame
-            Frame for coordinates passed into the transform.
-        to_frame
-            Frame for coordinates returned by the transform.
-
-        Returns
-        -------
-        transform
-            Coordinate transform
-
-        Notes
-        -----
-        Implementations are expected to cache returned values, and may need to
-        assemble composite transforms from serialized individual transforms as
-        well, depending on how composite transforms are saved by the
-        corresponding output archive.
-        """
-        raise NotImplementedError()
-
-    # TODO: we probably need a way to get a coordinate transform from a P model
-    # pointer, too.
-
-    @abstractmethod
     def deserialize_pointer[U: pydantic.BaseModel, V](
         self, pointer: P, model_type: type[U], deserializer: Callable[[U, InputArchive[P]], V]
     ) -> V:
@@ -574,6 +550,28 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         There is no ``deserialize_direct`` (to pair with
         `OutputArchive.serialize_direct`) because the caller can just call a
         deserializer function directly on a sub-model of its Pydantic tree.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def deserialize_frame_set[U: pydantic.BaseModel, V: FrameSet](
+        self, pointer: P, model_type: type[U], deserializer: Callable[[U, InputArchive[P]], V]
+    ) -> V:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def get_transform(self, model: TransformModel[P]) -> Transform[Any, Any]:
+        """Load a transform from the archive.
+
+        Parameters
+        ----------
+        model
+            Serialized model.
+
+        Returns
+        -------
+        transform
+            Loaded transform.
         """
         raise NotImplementedError()
 

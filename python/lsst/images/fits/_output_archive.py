@@ -57,10 +57,10 @@ import astropy.table
 import numpy as np
 import pydantic
 
-from .._coordinate_transform import CoordinateTransform
 from .._dtypes import NumberType
 from .._image import Image, ImageModel
 from .._mask import Mask, MaskModel
+from .._transforms import FrameSet, Transform, TransformModel
 from ..archive import NestedOutputArchive, OutputArchive, no_header_updates
 from ..asdf_utils import ArrayReferenceModel
 from ..tables import ColumnDefinitionModel, TableCellReferenceModel, TableModel
@@ -101,6 +101,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
             self._primary_hdu.header.extend(opaque_primary_header)
         self._hdu_list.append(self._primary_hdu)
         self._json_hdu_added: bool = False
+        self._frame_sets: list[tuple[FrameSet, TableCellReferenceModel]] = []
 
     @classmethod
     @contextmanager
@@ -158,11 +159,6 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         with open(filename, "r+b") as stream:
             stream.write(archive._primary_hdu.header.tostring().encode())
 
-    def add_coordinate_transform(
-        self, transform: CoordinateTransform, from_frame: str, to_frame: str = "sky"
-    ) -> TableCellReferenceModel:
-        raise NotImplementedError("TODO")
-
     def serialize_direct[T: pydantic.BaseModel](
         self, name: str, serializer: Callable[[OutputArchive[TableCellReferenceModel]], T]
     ) -> T:
@@ -181,6 +177,18 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         self._pointer_targets.append(model.model_dump_json().encode())
         self._pointers_by_key[key] = pointer
         return pointer
+
+    def serialize_frame_set[T: pydantic.BaseModel](
+        self, name: str, frame_set: FrameSet, serializer: Callable[[OutputArchive], T], key: Hashable
+    ) -> TableCellReferenceModel:
+        # Docstring inherited.
+        pointer = self.serialize_pointer(name, serializer, key)
+        self._frame_sets.append((frame_set, pointer))
+        return pointer
+
+    def add_transform(self, name: str, transform: Transform) -> TransformModel[TableCellReferenceModel]:
+        # Docstring inherited.
+        return transform.serialize(self._frame_sets)
 
     def add_image(
         self,
