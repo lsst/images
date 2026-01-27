@@ -30,6 +30,7 @@ import numpy.typing as npt
 class NumberType(enum.StrEnum):
     """Enumeration of array values types supported by the library."""
 
+    bool = enum.auto()
     uint8 = enum.auto()
     uint16 = enum.auto()
     uint32 = enum.auto()
@@ -69,7 +70,34 @@ class NumberType(enum.StrEnum):
         member
             Enumeration member.
         """
-        return cls(np.dtype(dtype).name)
+        datatype, shape = cls.from_numpy_with_shape(dtype)
+        if shape:
+            raise TypeError(f"{dtype} is not a scalar type.")
+        return datatype
+
+    @classmethod
+    def from_numpy_with_shape(cls, dtype: npt.DTypeLike) -> tuple[NumberType, tuple[int, ...]]:
+        """Construct an enumeration member and extract a shape from anything
+        that can be coerced to `numpy.dtype`.
+
+        Parameters
+        ----------
+        dtype
+            Object convertible to `numpy.dtype`.
+
+        Returns
+        -------
+        member
+            Enumeration member.
+        shape
+            Shape as a `tuple` of `int`.
+        """
+        dtype = np.dtype(dtype)
+        shape = ()
+        if dtype.shape:
+            shape = dtype.shape
+            dtype = dtype.base
+        return cls(dtype.name), shape
 
     def require_unsigned(self) -> UnsignedIntegerType:
         """Raise `TypeError` if this enumeration does not represent an
@@ -81,7 +109,8 @@ class NumberType(enum.StrEnum):
 
 
 type UnsignedIntegerType = (
-    Literal[NumberType.uint8]
+    Literal[NumberType.bool]
+    | Literal[NumberType.uint8]
     | Literal[NumberType.uint16]
     | Literal[NumberType.uint32]
     | Literal[NumberType.uint64]

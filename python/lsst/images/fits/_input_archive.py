@@ -35,13 +35,9 @@ from .._coordinate_transform import CoordinateTransform
 from .._geom import Box
 from .._image import Image, ImageModel
 from .._mask import Mask, MaskModel, MaskSchema
-from ..archive import (
-    InputArchive,
-    TableCellReferenceModel,
-    TableModel,
-    no_header_updates,
-)
+from ..archive import InputArchive, no_header_updates
 from ..asdf_utils import ArrayReferenceModel
+from ..tables import TableCellReferenceModel, TableModel
 from ._common import (
     ExtensionHDU,
     FitsOpaqueMetadata,
@@ -224,14 +220,31 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> astropy.table.Table:
         # Docstring inherited.
-        raise NotImplementedError("TODO")
+        array = self.get_structured_array(ref, strip_header)
+        table = astropy.table.Table(array)
+        for c in ref.columns:
+            c.update_table(table)
+        return table
+
+    def get_structured_array(
+        self,
+        ref: TableModel,
+        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> np.ndarray:
+        # Docstring inherited.
+        name, reader = self._get_source_reader(ref)
+        if name not in self._opaque_metadata.headers:
+            opaque_header = reader.header.copy(strip=True)
+            strip_header(opaque_header)
+            self._opaque_metadata.headers[name] = opaque_header
+        return reader.hdu.data
 
     def get_opaque_metadata(self) -> FitsOpaqueMetadata:
         # Docstring inherited.
         return self._opaque_metadata
 
     def _get_source_reader(
-        self, ref: ArrayReferenceModel | TableCellReferenceModel
+        self, ref: ArrayReferenceModel | TableCellReferenceModel | TableModel
     ) -> tuple[str, _ExtensionReader]:
         """Get a reader for the extension referenced by a model.
 

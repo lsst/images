@@ -27,14 +27,9 @@ from .._coordinate_transform import CoordinateTransform
 from .._dtypes import NumberType
 from .._image import Image, ImageModel
 from .._mask import Mask, MaskModel
-from ..archive import (
-    NestedOutputArchive,
-    OutputArchive,
-    TableCellReferenceModel,
-    TableModel,
-    no_header_updates,
-)
+from ..archive import NestedOutputArchive, OutputArchive, no_header_updates
 from ..asdf_utils import ArrayReferenceModel
+from ..tables import ColumnDefinitionModel, TableCellReferenceModel, TableModel
 from ._common import ExtensionHDU, FitsCompressionOptions, FitsOpaqueMetadata
 
 
@@ -137,7 +132,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
     def serialize_direct[T: pydantic.BaseModel](
         self, name: str, serializer: Callable[[OutputArchive[TableCellReferenceModel]], T]
     ) -> T:
-        nested = NestedOutputArchive[TableCellReferenceModel](f"/{name}", self)
+        nested = NestedOutputArchive[TableCellReferenceModel](name, self)
         return serializer(nested)
 
     def serialize_pointer[T: pydantic.BaseModel](
@@ -148,7 +143,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         pointer = TableCellReferenceModel(
             source="fits:JSON", column="JSON", row=len(self._pointer_targets) + 1
         )
-        model = self.serialize_direct("/", serializer)
+        model = self.serialize_direct("", serializer)
         self._pointer_targets.append(model.model_dump_json().encode())
         self._pointers_by_key[key] = pointer
         return pointer
@@ -185,7 +180,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
             datatype=NumberType.from_numpy(image.array.dtype),
         )
         self._hdu_list.append(hdu)
-        return ImageModel.pack(array_model, start=[i.start for i in image.bbox], unit=image.unit)
+        return ImageModel.pack(array_model, start=list(image.bbox.start), unit=image.unit)
 
     def add_mask(
         self,
@@ -220,7 +215,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         self._hdu_list.append(hdu)
         return MaskModel(
             data=array_model,
-            start=[i.start for i in mask.bbox],
+            start=list(mask.bbox.start),
             planes=list(mask.schema),
         )
 
@@ -231,7 +226,46 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         *,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> TableModel:
-        raise NotImplementedError("TODO")
+        extname = name.upper()
+        hdu: astropy.io.fits.BinTableHDU = astropy.io.fits.table_to_hdu(table, name=extname)
+        columns = ColumnDefinitionModel.from_record_dtype(hdu.data.dtype)
+        for c in columns:
+            c.update_from_table(table)
+        return self._add_bintable_hdu(hdu, columns, update_header)
+
+    def add_structured_array(
+        self,
+        name: str,
+        array: np.ndarray,
+        *,
+        units: Mapping[str, astropy.units.Unit] | None = None,
+        descriptions: Mapping[str, str] | None = None,
+        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> TableModel:
+        extname = name.upper()
+        hdu = astropy.io.fits.BinTableHDU(array, name=extname)
+        columns = ColumnDefinitionModel.from_record_dtype(hdu.data.dtype)
+        if units is not None:
+            for c in columns:
+                c.unit = units.get(c.name)
+        if descriptions is not None:
+            for c in columns:
+                c.description = descriptions.get(c.name, "")
+        return self._add_bintable_hdu(hdu, columns, update_header)
+
+    def _add_bintable_hdu(
+        self,
+        hdu: astropy.io.fits.BinTableHDU,
+        columns: list[ColumnDefinitionModel],
+        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> TableModel:
+        extname = hdu.name
+        update_header(hdu.header)
+        if (opaque_headers := self._opaque_metadata.headers.get(extname)) is not None:
+            hdu.header.extend(opaque_headers)
+        table_model = TableModel(source=f"fits:{extname}", columns=columns)
+        self._hdu_list.append(hdu)
+        return table_model
 
     def add_tree(self, tree: pydantic.BaseModel) -> None:
         """Write the JSON tree to the archive.

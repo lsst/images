@@ -47,54 +47,33 @@ best.
 from __future__ import annotations
 
 __all__ = (
+    "ArchiveReadError",
     "InputArchive",
     "OpaqueArchiveMetadata",
     "OutputArchive",
-    "TableCellReferenceModel",
 )
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Hashable, Iterable
-from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, Self
+from collections.abc import Callable, Hashable, Iterable, Mapping
+from typing import TYPE_CHECKING, Protocol, Self
 
 import astropy.table
+import astropy.units
+import numpy as np
 import pydantic
 
 from ._coordinate_transform import CoordinateTransform
 from ._geom import Box
 from ._image import Image, ImageModel
 from ._mask import Mask, MaskModel
+from .tables import TableModel
 
 if TYPE_CHECKING:
     import astropy.io.fits
 
 
-class TableModel(pydantic.BaseModel):
-    """Placeholder for an ASDF-like model for referencing binary tabular
-    data.
-    """
-
-
-class TableCellReferenceModel(pydantic.BaseModel):
-    """A model that acts as a pointer to data in a table cell."""
-
-    model_config = pydantic.ConfigDict(frozen=True)
-
-    source: str | int
-    """Identifier for the table as a whole.
-
-    This is analogous to the ASDF ``ndarray`` field of the same name, i.e
-    for a FITS binary table, use "fits:EXTNAME[,EXTVER]" or "fits:INDEX"
-    (zero-indexed) to identify the HDU.
-    """
-
-    column: str
-    """Name of the column."""
-
-    row: int
-    """Row of the cell (zero-indexed)."""
-
-    source_is_table: ClassVar[Literal[True]] = True
+class ArchiveReadError(RuntimeError):
+    """Exception raised when the contents of an archive cannot be read."""
 
 
 class OpaqueArchiveMetadata(Protocol):
@@ -384,6 +363,54 @@ class OutputArchive[P: pydantic.BaseModel](ABC):
         # we'll be using, too.
         raise NotImplementedError()
 
+    @abstractmethod
+    def add_structured_array(
+        self,
+        name: str,
+        array: np.ndarray,
+        *,
+        units: Mapping[str, astropy.units.Unit] | None = None,
+        descriptions: Mapping[str, str] | None = None,
+        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> TableModel:
+        """Add a table to the archive.
+
+        Parameters
+        ----------
+        name
+            Attribute of the paired Pydantic model that will be assigned the
+            result of this call.  If it will not be assigned to a direct
+            attribute, it may be a JSON Pointer path (relative to the paired
+            Pydantic model) to the location where it will be added.
+        array
+            A structured numpy array.
+        units, optional
+            A mapping of units for columns.  Need not be complete.
+        descriptions, optional
+            A mapping of descriptions for columns.  Need not be complete.
+        update_header, optional
+            A callback that will be given the FITS header for the HDU
+            containing this table in order to add keys to it.  This call back
+            may be provided but will not be called if the output format is not
+            FITS.
+
+        Returns
+        -------
+        table_model
+            A Pydantic model that represents the table.  Column definitions
+            are included directly in the model while the actual data is
+            stored elsewhere and referenced by the model.
+        """
+        # TODO: ASDF has schemas for tables and columns that we should probably
+        # adopt [a subset of].  While that can reference external per-column
+        # data (which would Just Work for a true ASDF archive), I'm not sure
+        # there's a way to reference external data in a FITS binary table
+        # column.  We could of course invent one, and since ASDF-in-FITS isn't
+        # even referenced on the ASDF standard page our existing approach for
+        # referencing FITS data in an image extension may be something only
+        # we'll be using, too.
+        raise NotImplementedError()
+
 
 class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
     """A proxy output archive that joins a root path into all names before
@@ -455,6 +482,19 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> TableModel:
         return self._parent.add_table(self._join_path(name), table, update_header=update_header)
+
+    def add_structured_array(
+        self,
+        name: str,
+        array: np.ndarray,
+        *,
+        units: Mapping[str, astropy.units.Unit] | None = None,
+        descriptions: Mapping[str, str] | None = None,
+        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> TableModel:
+        return self._parent.add_structured_array(
+            self._join_path(name), array, units=units, descriptions=descriptions, update_header=update_header
+        )
 
     def _join_path(self, name: str) -> str:
         return f"{self._root}/{name}"
@@ -616,6 +656,30 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         -------
         table
             The loaded table.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def get_structured_array(
+        self,
+        ref: TableModel,
+        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> np.ndarray:
+        """Load a table from the archive as a structured array.
+
+        Parameters
+        ----------
+        ref
+            A Pydantic model that references the table.
+        strip_header, optional
+            A callable that strips out any FITS header cards added by the
+            ``update_header`` argument in the corresponding call to
+            `FitsOutputArchive.add_table`.
+
+        Returns
+        -------
+        array
+            The loaded table as a structured array.
         """
         raise NotImplementedError()
 

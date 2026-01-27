@@ -40,6 +40,8 @@ test = [
 s3 = ["lsst-resources[s3]"]
 https = ["lsst-resources[https]"]
 gs = ["lsst-resources[gs]"]
+# Add feature for Piff PSF support.
+piff = ["piff >= 1.6", "galsim >= 2.7"]
 
 [tool.setuptools.packages.find]
 where = ["python"]
@@ -200,3 +202,26 @@ exclude = [
     '^__init__$',
     '\._[a-zA-Z_]+$',  # Private methods.
 ]
+
+[tool.mypy]
+warn_unused_configs = true
+warn_redundant_casts = true
+plugins = "pydantic.mypy"
+
+[[tool.mypy.overrides]]
+module = ["numpy.*", "fsspec.*", "astropy.*", "galsim.*", "piff.*", "lsst.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["lsst.images"]
+ignore_missing_imports = false
+ignore_errors = false
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+strict_equality = true
+warn_unreachable = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["lsst.images.version"]
+ignore_missing_imports = true
