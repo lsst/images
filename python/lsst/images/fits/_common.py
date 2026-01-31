@@ -34,7 +34,7 @@ import astropy.io.fits
 import numpy as np
 
 from .._geom import Box
-from ..archive import OpaqueArchiveMetadata
+from ..serialization import OpaqueArchiveMetadata
 
 type ExtensionHDU = astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU
 

@@ -19,11 +19,9 @@ from typing import Any
 import numpy as np
 import pydantic
 
+from .. import serialization
 from .._geom import Box, Domain, SerializableDomain
 from .._image import Image
-from ..archive import InputArchive, OutputArchive
-from ..asdf_utils import InlineArray
-from ..tables import TableModel
 from ._base import PointSpreadFunction
 
 
@@ -91,8 +89,6 @@ class LegacyPointSpreadFunction(PointSpreadFunction):
         from lsst.meas.extensions.psfex import PsfexPsf
 
         if isinstance(legacy_psf, PsfexPsf):
-            from .psfex import PSFExWrapper
-
             return PSFExWrapper(legacy_psf, domain)
         return cls(impl=legacy_psf, domain=domain)
 
@@ -107,7 +103,7 @@ class PSFExWrapper(LegacyPointSpreadFunction):
             raise TypeError(f"{impl!r} is not a PSFEx object.")
         super().__init__(impl, domain)
 
-    def serialize(self, archive: OutputArchive[Any]) -> PSFExSerializationModel:
+    def serialize(self, archive: serialization.OutputArchive[Any]) -> PSFExSerializationModel:
         """Serialize the PSF to an archive.
 
         This method is intended to be usable as the callback function passed to
@@ -134,7 +130,9 @@ class PSFExWrapper(LegacyPointSpreadFunction):
         )
 
     @classmethod
-    def deserialize(cls, model: PSFExSerializationModel, archive: InputArchive[Any]) -> PSFExWrapper:
+    def deserialize(
+        cls, model: PSFExSerializationModel, archive: serialization.InputArchive[Any]
+    ) -> PSFExWrapper:
         """Deserialize the PSF from an archive.
 
         This method is intended to be usable as the callback function passed to
@@ -160,7 +158,7 @@ class PSFExWrapper(LegacyPointSpreadFunction):
 
 
 class PSFExSerializationModel(pydantic.BaseModel):
-    """Model used for serializing PSFEx PSF models."""
+    """Serialization model for PSFEx PSFs."""
 
     average_x: float = pydantic.Field(
         description="Average X position of the stars used to build this PSF model."
@@ -186,10 +184,10 @@ class PSFExSerializationModel(pydantic.BaseModel):
 
     coeff: list[float] = pydantic.Field(description="Polynomial coefficients.")
 
-    parameters: TableModel = pydantic.Field(
+    parameters: serialization.TableModel = pydantic.Field(
         description="Reference to a table with the complete model parameters."
     )
 
-    context: InlineArray = pydantic.Field(description="Internal PSFEx context array.")
+    context: serialization.InlineArray = pydantic.Field(description="Internal PSFEx context array.")
 
     domain: SerializableDomain = pydantic.Field(description="Validity range for this PSF model.")

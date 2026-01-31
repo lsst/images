@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("Mask", "MaskModel", "MaskPlane", "MaskSchema")
+__all__ = ("Mask", "MaskPlane", "MaskSchema")
 
 import dataclasses
 import math
@@ -21,10 +21,8 @@ from types import EllipsisType
 import astropy.io.fits
 import numpy as np
 import numpy.typing as npt
-import pydantic
 
-from . import asdf_utils
-from ._geom import Box, Interval
+from ._geom import Box
 
 
 @dataclasses.dataclass(frozen=True)
@@ -357,18 +355,3 @@ class Mask:
             bitmask2d = 1 << bit2d
             mask.set(name, array2d & bitmask2d)
         return mask
-
-
-class MaskModel(pydantic.BaseModel):
-    """Pydantic model used to represent the serialized form of a `Mask`."""
-
-    data: asdf_utils.ArrayReferenceModel
-    start: list[int]
-    planes: list[MaskPlane | None]
-
-    @property
-    def bbox(self) -> Box:
-        """The 2-d bounding box of the mask."""
-        return Box(
-            *[Interval.factory[begin : begin + size] for begin, size in zip(self.start, self.data.shape[:-1])]
-        )

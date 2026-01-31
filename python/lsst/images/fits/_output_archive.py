@@ -24,12 +24,20 @@ import numpy as np
 import pydantic
 
 from .._coordinate_transform import CoordinateTransform
-from .._dtypes import NumberType
-from .._image import Image, ImageModel
-from .._mask import Mask, MaskModel
-from ..archive import NestedOutputArchive, OutputArchive, no_header_updates
-from ..asdf_utils import ArrayReferenceModel
-from ..tables import ColumnDefinitionModel, TableCellReferenceModel, TableModel
+from .._image import Image
+from .._mask import Mask
+from ..serialization import (
+    ArrayReferenceModel,
+    ColumnDefinitionModel,
+    ImageModel,
+    MaskModel,
+    NestedOutputArchive,
+    NumberType,
+    OutputArchive,
+    TableCellReferenceModel,
+    TableModel,
+    no_header_updates,
+)
 from ._common import ExtensionHDU, FitsCompressionOptions, FitsOpaqueMetadata
 
 

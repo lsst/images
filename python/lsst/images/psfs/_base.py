@@ -122,11 +122,11 @@ class PointSpreadFunction(ABC):
 
         match legacy_psf:
             case PiffPsf():
-                from .piff import PiffWrapper
+                from ._piff import PiffWrapper
 
                 return PiffWrapper.from_legacy(legacy_psf, domain)
             case Psf():
-                from .legacy import LegacyPointSpreadFunction
+                from ._legacy import LegacyPointSpreadFunction
 
                 return LegacyPointSpreadFunction.from_legacy(legacy_psf, domain)
             case _:

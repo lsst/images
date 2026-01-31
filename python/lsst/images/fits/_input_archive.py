@@ -33,11 +33,17 @@ from lsst.resources import ResourcePath, ResourcePathExpression
 
 from .._coordinate_transform import CoordinateTransform
 from .._geom import Box
-from .._image import Image, ImageModel
-from .._mask import Mask, MaskModel, MaskSchema
-from ..archive import InputArchive, no_header_updates
-from ..asdf_utils import ArrayReferenceModel
-from ..tables import TableCellReferenceModel, TableModel
+from .._image import Image
+from .._mask import Mask, MaskSchema
+from ..serialization import (
+    ArrayReferenceModel,
+    ImageModel,
+    InputArchive,
+    MaskModel,
+    TableCellReferenceModel,
+    TableModel,
+    no_header_updates,
+)
 from ._common import (
     ExtensionHDU,
     FitsOpaqueMetadata,

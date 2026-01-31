@@ -18,21 +18,21 @@ __all__ = (
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Iterable, Mapping
-from typing import TYPE_CHECKING
 
+import astropy.io.fits
 import astropy.table
 import astropy.units
 import numpy as np
 import pydantic
 
 from .._coordinate_transform import CoordinateTransform
-from .._image import Image, ImageModel
-from .._mask import Mask, MaskModel
-from ..tables import TableModel
+from .._image import Image
+from .._mask import Mask
 from ._common import no_header_updates
+from ._image import ImageModel
+from ._mask import MaskModel
+from ._tables import TableModel
 
-if TYPE_CHECKING:
-    import astropy.io.fits
 
 
 class OutputArchive[P: pydantic.BaseModel](ABC):

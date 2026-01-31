@@ -26,8 +26,8 @@ import numpy as np
 import numpy.typing as npt
 import pydantic
 
+from ._asdf_utils import Unit
 from ._dtypes import NumberType
-from .asdf_utils import Unit
 
 if TYPE_CHECKING:
     import astropy.table

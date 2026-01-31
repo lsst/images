@@ -23,9 +23,8 @@ import pydantic
 from lsst.resources import ResourcePathExpression
 
 from ._geom import Box
-from ._image import Image, ImageModel
-from ._mask import Mask, MaskModel, MaskSchema
-from .archive import InputArchive, OpaqueArchiveMetadata, OutputArchive
+from ._image import Image
+from ._mask import Mask, MaskSchema
 from .fits import (
     ExtensionHDU,
     FitsCompressionOptions,
@@ -35,6 +34,7 @@ from .fits import (
     PrecompressedImage,
     strip_wcs_cards,
 )
+from .serialization import ImageModel, InputArchive, MaskModel, OpaqueArchiveMetadata, OutputArchive
 
 
 class MaskedImage:
