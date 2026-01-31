@@ -39,9 +39,17 @@ _LOG = getLogger(__name__)
 
 
 class PiffWrapper(PointSpreadFunction):
-    """A PSF backed by the Piff library."""
+    """A PSF model backed by the Piff library.
 
-    def __init__(self, impl: Any, domain: Domain, stamp_size: int):
+    Parameters
+    ----------
+    impl
+        The Piff PSF object to wrap.
+    domain
+        The pixel-coordinate region where the model can safely be evaluated.
+    """
+
+    def __init__(self, impl: piff.PSF, domain: Domain, stamp_size: int):
         self._impl = impl
         self._domain = domain
         self._stamp_size = stamp_size
@@ -136,7 +144,7 @@ class PiffWrapper(PointSpreadFunction):
         ``stars`` attribute has been deleted and serializes everything else.
 
         Unfortunately, to date, Rubin's pickle-based Piff serialization instead
-        just deleted the postage stamp image attributes from inside Piff
+        just deletes the postage stamp image attributes from inside the Piff
         ``stars`` list, which is not a state the Piff serialization code
         handles gracefully.  So for now we have to drop the full stars list
         during serialization if it is present.

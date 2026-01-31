@@ -11,18 +11,90 @@
 
 from __future__ import annotations
 
-__all__ = ("PSFExWrapper",)
+__all__ = ("LegacyPointSpreadFunction", "PSFExSerializationModel", "PSFExWrapper")
 
+from functools import cached_property
 from typing import Any
 
 import numpy as np
 import pydantic
 
-from .._geom import Domain, SerializableDomain
+from .._geom import Box, Domain, SerializableDomain
+from .._image import Image
 from ..archive import InputArchive, OutputArchive
 from ..asdf_utils import InlineArray
 from ..tables import TableModel
-from .legacy import LegacyPointSpreadFunction
+from ._base import PointSpreadFunction
+
+
+class LegacyPointSpreadFunction(PointSpreadFunction):
+    """A PSF model backed by a legacy `lsst.afw.detection.Psf` object.
+
+    Parameters
+    ----------
+    impl
+        An `lsst.afw.detection.Psf` instance.
+    domain
+        The pixel-coordinate region where the model can safely be evaluated.
+
+    Notes
+    -----
+    This wrapper is usable as-is on any `lsst.afw.detection.Psf` instance,
+    but subclasses (e.g. `PSFExWrapper`) must be used for serialization.
+    """
+
+    def __init__(self, impl: Any, domain: Domain):
+        self._impl = impl
+        self._domain = domain
+
+    @property
+    def domain(self) -> Domain:
+        return self._domain
+
+    @cached_property
+    def kernel_bbox(self) -> Box:
+        from lsst.geom import Box2I, Point2D
+
+        biggest = Box2I()
+        for y, x in self._domain.boundary():
+            biggest.include(self._impl.computeKernelBBox(Point2D(x, y)))
+        return Box.from_legacy(biggest)
+
+    def compute_kernel_image(self, *, x: float, y: float) -> Image:
+        from lsst.geom import Point2D
+
+        result = Image.from_legacy(self._impl.computeKernelImage(Point2D(x, y)))
+        if result.bbox != self.kernel_bbox:
+            # afw does not guarantee a consistent kernel_bbox, but we do now.
+            padded = Image(0.0, bbox=self.kernel_bbox, dtype=np.float64)
+            padded[self.kernel_bbox] = result[self.kernel_bbox]
+            result = padded
+        return result
+
+    def compute_stellar_image(self, *, x: float, y: float) -> Image:
+        from lsst.geom import Point2D
+
+        return Image.from_legacy(self._impl.computeImage(Point2D(x, y)))
+
+    def compute_stellar_bbox(self, *, x: float, y: float) -> Box:
+        from lsst.geom import Point2D
+
+        return Box.from_legacy(self._impl.computeImageBBox(Point2D(x, y)))
+
+    @property
+    def legacy_psf(self) -> Any:
+        """The backing `lsst.afw.detection.Psf` object."""
+        return self._impl
+
+    @classmethod
+    def from_legacy(cls, legacy_psf: Any, domain: Domain) -> LegacyPointSpreadFunction:
+        from lsst.meas.extensions.psfex import PsfexPsf
+
+        if isinstance(legacy_psf, PsfexPsf):
+            from .psfex import PSFExWrapper
+
+            return PSFExWrapper(legacy_psf, domain)
+        return cls(impl=legacy_psf, domain=domain)
 
 
 class PSFExWrapper(LegacyPointSpreadFunction):
