@@ -38,4 +38,4 @@ jobs:
 
       - name: Build documentation
         working-directory: ./doc
-        run: package-docs build -W
+        run: package-docs build -W -n
