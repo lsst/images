@@ -23,7 +23,7 @@ mind:
 The base classes make some concessions to both FITS and ASDF in order to make
 the representations in those formats conform to their respective expectations.
 
-For ASDF, this is simple: we use ASDF schemas whenever possible to represent
+For ASDF, this is simple: use ASDF schemas whenever possible to represent
 primitive types, from units and times to multidimensional arrays. While the
 archive interfaces use Pydantic, which maps to JSON, not YAML, the expectation
 is that by encoding YAML tag information in the JSON Schema (which Pydantic
@@ -38,10 +38,10 @@ archive interfaces accept `update_header` and `strip_header` callback arguments
 that are only called by FITS implementations.
 
 An implementation that writes HDF5 while embedding JSON should also be possible
-with these interfaces, but is not something we've designed around. A more
-natural HDF5 implementation might be possible by translating the JSON tree into
-a binary HDF5 hierarchy as well, but this would be considerably more effort at
-best.
+with these interfaces, but is not something the interfaces have been designed
+around. A more natural HDF5 implementation might be possible by translating
+the JSON tree into a binary HDF5 hierarchy as well, but this would be
+considerably more effort at best.
 """
 
 from ._asdf_utils import *

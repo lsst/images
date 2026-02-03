@@ -109,17 +109,17 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         ----------
         path
             File to read; convertible to `lsst.resources.ResourcePath`.
-        page_size, optional
+        page_size
             Minimum number of bytes to read at at once.  Making this a multiple
             of the FITS block size (2880) is recommended.
-        partial, optional
+        partial
             Whether we will be reading only some of the archive, or if memory
             pressure forces us to read it only a little at a time..  If `False`
             (default), the entire raw file may be read into memory up front.
 
         Returns
         -------
-        context
+        `contextlib.AbstractContextManager` [`FitsInputArchive`]
             A context manager that returns a `FitsInputArchive` when entered.
         """
         path = ResourcePath(path)
@@ -143,7 +143,7 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
 
         Returns
         -------
-        model
+        T
             The validated Pydantic model.
         """
         json_bytes = self._readers["JSON"].data[0]["JSON"].tobytes()

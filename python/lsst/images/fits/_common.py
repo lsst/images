@@ -201,7 +201,7 @@ class PrecompressedImage:
 
         Returns
         -------
-        precompressed
+        PrecompressedImage
             A `PrecompressedImage` instance.
         """
         header = astropy.io.fits.Header(
@@ -255,7 +255,7 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
 
         Returns
         -------
-        hdu
+        `astropy.io.fits.BinTableHDU` | `None`
             An already-compressed HDU, in binary table form, or `None` if there
             is no precompressed HDU for this EXTNAME.
         """
@@ -263,11 +263,11 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
             return None
         return astropy.io.fits.BinTableHDU(precompressed.data, header=precompressed.header.copy(), name=name)
 
-    def copy(self) -> Self:
+    def copy(self) -> FitsOpaqueMetadata:
         # Docstring inherited.
         return FitsOpaqueMetadata(headers=self.headers)
 
-    def subset(self, bbox: Box) -> Self:
+    def subset(self, bbox: Box) -> FitsOpaqueMetadata:
         # Docstring inherited.
         return FitsOpaqueMetadata(headers=self.headers)
 

@@ -90,17 +90,17 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         ----------
         filename
             Name of the file to write to.  Must not already exist.
-        compression_options, optional
+        compression_options
             Options for how to compress the FITS file, keyed by the name of
             the attribute (with JSON pointer ``/`` separators for nested
             attributes).
-        opaque_metadata, optional
+        opaque_metadata
             Metadata read from an input archive along with the object being
             written now.  Ignored if the metadata is not from a FITS archive.
 
         Returns
         -------
-        context
+        `contextlib.AbstractContextManager` [`FitsOutputArchive`]
             A context manager that returns a `FitsOutputArchive` when entered.
         """
         with astropy.io.fits.open(filename, mode="append") as hdu_list:

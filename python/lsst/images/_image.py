@@ -31,20 +31,23 @@ class Image:
 
     Parameters
     ----------
-    array_or_fill, optional
+    array_or_fill
         Array or fill value for the image.  If a fill value, ``bbox`` or
         ``shape`` must be provided.
-    bbox, optional
+    bbox
         Bounding box for the image.
-    start, optional
-        Logical coordinates of the first pixel in the array.  Ignored if
+    start
+        Logical coordinates of the first pixel in the array, ordered ``y``,
+        ``x`` (unless an `XY` instance is passed).  Ignored if
         ``bbox`` is provided.  Defaults to zeros.
-    shape, optional
-        Dimensions of the array.  Only needed if ``array_or_fill` is not an
-        array and ``bbox`` is not provided.
-    unit, optional
+    shape
+        Leading dimensions of the array, ordered ``y``, ``x`` (unless an `XY`
+        instance is passed).   Only needed if ``array_or_fill`` is not an
+        array and ``bbox`` is not provided.  Like the bbox, this does not
+        include the last dimension of the array.
+    unit
         Units for the image's pixel values.
-    dtype, optional
+    dtype
         Pixel data type override.
 
     Notes
@@ -93,7 +96,6 @@ class Image:
                 )
             if shape is not None and shape != array.shape:
                 raise ValueError(f"Explicit shape {shape} does not match array with shape {array.shape}.")
-
         else:
             if bbox is None:
                 if shape is None:
@@ -108,7 +110,7 @@ class Image:
 
     @property
     def array(self) -> np.ndarray:
-        """The low-level array.
+        """The low-level array (`numpy.ndarray`).
 
         Assigning to this attribute modifies the existing array in place; the
         bounding box and underlying data pointer are never changed.
@@ -121,7 +123,7 @@ class Image:
 
     @property
     def quantity(self) -> astropy.units.Quantity:
-        """The low-level array with units.
+        """The low-level array with units (`astropy.units.Quantity`).
 
         Assigning to this attribute modifies the existing array in place; the
         bounding box and underlying data pointer are never changed.
@@ -134,12 +136,14 @@ class Image:
 
     @property
     def unit(self) -> astropy.units.Unit | None:
-        """Units for the image's pixel values."""
+        """Units for the image's pixel values (`astropy.units.Unit` or
+        `None`).
+        """
         return self._unit
 
     @property
     def bbox(self) -> Box:
-        """Bounding box for the image."""
+        """Bounding box for the image (`Box`)."""
         return self._bbox
 
     def __getitem__(self, bbox: Box | EllipsisType) -> Image:
@@ -180,7 +184,15 @@ class Image:
 
     @classmethod
     def from_legacy(cls, legacy: Any, unit: astropy.units.Unit | None = None) -> Image:
-        """Convert from an `lsst.afw.image.Image` instance."""
+        """Convert from an `lsst.afw.image.Image` instance.
+
+        Parameters
+        ----------
+        legacy
+            An `lsst.afw.image.Image` instance.
+        unit
+            Units of the image.
+        """
         return cls(legacy.array, start=(legacy.getY0(), legacy.getX0()), unit=unit)
 
     def to_legacy(self) -> Any:
@@ -199,12 +211,7 @@ class Image:
         Parameters
         ----------
         hdu
-            An astropy image object.
-
-        Returns
-        -------
-        image
-            A new `Image` object.
+            An Astropy image HDU.
         """
         unit: astropy.units.BaseUnit | None = None
         if (fits_unit := hdu.header.pop("BUNIT", None)) is not None:

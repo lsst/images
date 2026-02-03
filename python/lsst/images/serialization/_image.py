@@ -52,7 +52,7 @@ class ImageModel(pydantic.BaseModel):
             Serialized form of the underlying array.
         start
             Logical coordinates of the first pixel in the array.
-        unit, optional
+        unit : `astropy.units.UnitBase` or `None`
             Units for the image's pixel values.
         """
         if unit is None:

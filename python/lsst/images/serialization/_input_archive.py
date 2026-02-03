@@ -15,6 +15,7 @@ __all__ = ("InputArchive",)
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from typing import TypeVar
 
 import astropy.io.fits
 import astropy.table
@@ -31,6 +32,9 @@ from ._image import ImageModel
 from ._mask import MaskModel
 from ._tables import TableModel
 
+# This pre-python-3.12 declaration is needed by Sphinx (probably the
+# autodoc-typehints plugin.
+P = TypeVar("P", bound=pydantic.BaseModel)
 
 class InputArchive[P: pydantic.BaseModel](ABC):
     """Abstract interface for reading from a file format.
@@ -60,7 +64,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
 
         Returns
         -------
-        transform
+        CoordinateTransform
             Coordinate transform
 
         Notes
@@ -94,7 +98,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
 
         Returns
         -------
-        deserialized
+        V
             The deserialized object.
 
         Notes
@@ -123,17 +127,17 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         ----------
         ref
             A Pydantic model that references the image.
-        bbox, optional
+        bbox
             A bounding box that specifies a subset of the original image to
             read.
-        strip_header, optional
+        strip_header
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
             `FitsOutputArchive.add_image`.
 
         Returns
         -------
-        image
+        Image
             The loaded image.
         """
         raise NotImplementedError()
@@ -152,17 +156,17 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         ----------
         ref
             A Pydantic model that references the mask.
-        bbox, optional
+        bbox
             A bounding box that specifies a subset of the original mask to
             read.
-        strip_header, optional
+        strip_header
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
             `FitsOutputArchive.add_mask`.
 
         Returns
         -------
-        mask
+        Mask
             The loaded mask.
         """
         raise NotImplementedError()
@@ -179,14 +183,14 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         ----------
         ref
             A Pydantic model that references the table.
-        strip_header, optional
+        strip_header
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
             `FitsOutputArchive.add_table`.
 
         Returns
         -------
-        table
+        astropy.table.Table
             The loaded table.
         """
         raise NotImplementedError()
@@ -203,14 +207,14 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         ----------
         ref
             A Pydantic model that references the table.
-        strip_header, optional
+        strip_header
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
             `FitsOutputArchive.add_table`.
 
         Returns
         -------
-        array
+        numpy.ndarray
             The loaded table as a structured array.
         """
         raise NotImplementedError()
@@ -222,7 +226,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
 
         Returns
         -------
-        metadata
+        OpaqueArchiveMetadata
             Opaque metadata specific to this archive type that should be
             round-tripped if it is saved in the same format.
         """

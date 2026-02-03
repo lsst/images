@@ -18,6 +18,7 @@ __all__ = (
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Iterable, Mapping
+from typing import TypeVar
 
 import astropy.io.fits
 import astropy.table
@@ -33,9 +34,12 @@ from ._image import ImageModel
 from ._mask import MaskModel
 from ._tables import TableModel
 
+# This pre-python-3.12 declaration is needed by Sphinx (probably the
+# autodoc-typehints plugin.
+P = TypeVar("P", bound=pydantic.BaseModel)
 
 
-class OutputArchive[P: pydantic.BaseModel](ABC):
+class OutputArchive[P](ABC):
     """Abstract interface for writing to a file format.
 
     Notes
@@ -69,8 +73,8 @@ class OutputArchive[P: pydantic.BaseModel](ABC):
 
         Returns
         -------
-        pointer
-            JSON Pointer to the serialized coordinate transform.
+        P
+            Pointer to the serialized coordinate transform.
         """
         # This interface assumes coordinate transforms are stored in in
         # JSON/YAML somewhere outside the user-controlled tree (i.e. a
@@ -100,7 +104,7 @@ class OutputArchive[P: pydantic.BaseModel](ABC):
 
         Returns
         -------
-        serialized
+        T
             Result of the call to the serializer.
         """
         raise NotImplementedError()
@@ -131,7 +135,7 @@ class OutputArchive[P: pydantic.BaseModel](ABC):
 
         Returns
         -------
-        serialized_or_pointer
+        T | P
             Either the result of the call to the serializer, or a Pydantic
             model that can be considered a reference to it and added to a
             larger model in its place.
@@ -168,12 +172,12 @@ class OutputArchive[P: pydantic.BaseModel](ABC):
             Image to save.
         pixel_frame
             String identifying the frame of this image's pixels.
-        wcs_frames, optional
+        wcs_frames
             Strings identifying additional frames whose transforms to
             ``pixel_frame`` should be saved along with the image (for archive
             formats such as FITS that associate coordinate transforms with
             images).  The special ``sky`` frame is included implicitly.
-        update_header, optional
+        update_header
             A callback that will be given the FITS header for the HDU
             containing this image in order to add keys to it.  This call back
             may be provided but will not be called if the output format is not
@@ -181,7 +185,7 @@ class OutputArchive[P: pydantic.BaseModel](ABC):
 
         Returns
         -------
-        image_model
+        ImageModel
             A Pydantic model that represents the image, including its bounding
             box, units (if any), and array data (via a reference to binary data
             stored elsewhere by the archive).
@@ -224,12 +228,12 @@ class OutputArchive[P: pydantic.BaseModel](ABC):
             Mask to save.
         pixel_frame
             String identifying the frame of this image's pixels.
-        wcs_frames, optional
+        wcs_frames
             Strings identifying additional frames whose transforms to
             ``pixel_frame`` should be saved along with the image (for archive
             formats such as FITS that associate coordinate transforms with
             images).  The special ``sky`` frame is included implicitly.
-        update_header, optional
+        update_header
             A callback that will be given the FITS header for the HDU
             containing this mask in order to add keys to it.  This call back
             may be provided but will not be called if the output format is not
@@ -237,7 +241,7 @@ class OutputArchive[P: pydantic.BaseModel](ABC):
 
         Returns
         -------
-        mask_model
+        MaskModel
             A Pydantic model that represents the mask, including its bounding
             box, schema, and array data (via a reference to binary data stored
             elsewhere by the archive).
@@ -275,7 +279,7 @@ class OutputArchive[P: pydantic.BaseModel](ABC):
             Pydantic model) to the location where it will be added.
         table
             Table to save.
-        update_header, optional
+        update_header
             A callback that will be given the FITS header for the HDU
             containing this table in order to add keys to it.  This call back
             may be provided but will not be called if the output format is not
@@ -283,7 +287,7 @@ class OutputArchive[P: pydantic.BaseModel](ABC):
 
         Returns
         -------
-        table_model
+        TableModel
             A Pydantic model that represents the table.  Column definitions
             are included directly in the model while the actual data is
             stored elsewhere and referenced by the model.
@@ -319,11 +323,11 @@ class OutputArchive[P: pydantic.BaseModel](ABC):
             Pydantic model) to the location where it will be added.
         array
             A structured numpy array.
-        units, optional
+        units
             A mapping of units for columns.  Need not be complete.
-        descriptions, optional
+        descriptions
             A mapping of descriptions for columns.  Need not be complete.
-        update_header, optional
+        update_header
             A callback that will be given the FITS header for the HDU
             containing this table in order to add keys to it.  This call back
             may be provided but will not be called if the output format is not
@@ -331,7 +335,7 @@ class OutputArchive[P: pydantic.BaseModel](ABC):
 
         Returns
         -------
-        table_model
+        TableModel
             A Pydantic model that represents the table.  Column definitions
             are included directly in the model while the actual data is
             stored elsewhere and referenced by the model.

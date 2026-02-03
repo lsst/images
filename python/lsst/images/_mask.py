@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("Mask", "MaskPlane", "MaskSchema")
+__all__ = ("Mask", "MaskPlane", "MaskPlaneBit", "MaskSchema")
 
 import dataclasses
 import math
@@ -30,10 +30,10 @@ class MaskPlane:
     """Name and description of a single plane in a mask array."""
 
     name: str
-    """Unique name for the mask plane."""
+    """Unique name for the mask plane (`str`)."""
 
     description: str
-    """Human-readable documentation for the mask plane."""
+    """Human-readable documentation for the mask plane (`description`)."""
 
     @classmethod
     def read_legacy(cls, header: astropy.io.fits.Header) -> dict[str, int]:
@@ -47,7 +47,7 @@ class MaskPlane:
 
         Returns
         -------
-        planes
+        `dict` [`str`, `int`]
             A dictionary mapping mask plane name to integer bit index.
         """
         result: dict[str, int] = {}
@@ -70,13 +70,14 @@ class MaskPlaneBit:
     """
 
     mask: np.unsignedinteger
-    """Bitmask that select just this plane's bit from a mask array value.
+    """Bitmask that selects just this plane's bit from a mask array value
+    (`numpy.unsignedinteger`).
     """
 
     @classmethod
     def compute(cls, overall_index: int, stride: int, mask_type: type[np.unsignedinteger]) -> MaskPlaneBit:
-        """Construct from the overall index of a plane in a `MaskSchema` and
-        the stride (number of bits per mask array element).
+        """Construct a `MaskPlaneBit` from the overall index of a plane in a
+        `MaskSchema` and the stride (number of bits per mask array element).
         """
         index, bit = divmod(overall_index, stride)
         return cls(index, mask_type(1 << bit))
@@ -90,7 +91,7 @@ class MaskSchema:
     planes
         Iterable of `MaskPlane` instances that define the schema.  `None`
         values may be included to reserve bits for future use.
-    dtype, optional
+    dtype
         The numpy data type of the mask arrays that use this schema.
 
     Notes
@@ -198,21 +199,23 @@ class Mask:
 
     Parameters
     ----------
-    array_or_fill, optional
+    array_or_fill
         Array or fill value for the mask.  If a fill value, ``bbox`` or
         ``shape`` must be provided.
     schema
         Schema that defines the planes and their bit assignments.
-    bbox, optional
-        Bounding box for the mask.  This sets the shape of all but the last
-        dimension of the array.
-    start, optional
-        Logical coordinates of the first pixel in the array.  Ignored if
+    bbox
+        Bounding box for the mask.  This sets the shape of the first two
+        dimensions of the array.
+    start
+        Logical coordinates of the first pixel in the array, ordered ``y``,
+        ``x`` (unless an `XY` instance is passed).  Ignored if
         ``bbox`` is provided.  Defaults to zeros.
-    shape, optional
-        Leading dimensions of the array.  Only needed if ``array_or_fill` is
-        not an array and ``bbox`` is not provided.  Like the bbox, this does
-        not include the last dimension of the array.
+    shape
+        Leading dimensions of the array, ordered ``y``, ``x`` (unless an `XY`
+        instance is passed).   Only needed if ``array_or_fill`` is not an
+        array and ``bbox`` is not provided.  Like the bbox, this does not
+        include the last dimension of the array.
 
     Notes
     -----
@@ -270,7 +273,7 @@ class Mask:
 
     @property
     def array(self) -> np.ndarray:
-        """The low-level array.
+        """The low-level array (`numpy.ndarray`).
 
         Assigning to this attribute modifies the existing array in place; the
         bounding box and underlying data pointer are never changed.
@@ -283,14 +286,16 @@ class Mask:
 
     @property
     def schema(self) -> MaskSchema:
-        """Schema that defines the planes and their bit assignments."""
+        """Schema that defines the planes and their bit assignments
+        (`MaskSchema`).
+        """
         return self._schema
 
     @property
     def bbox(self) -> Box:
-        """2-d bounding box of the mask.
+        """2-d bounding box of the mask (`Box`).
 
-        This sets the shape of all but the last dimension of the array.
+        This sets the shape of the first two dimensions of the array.
         """
         return self._bbox
 
@@ -306,19 +311,53 @@ class Mask:
         return Mask(self._array.copy(), bbox=self._bbox, schema=self._schema)
 
     def get(self, plane: str) -> np.ndarray:
-        """Return a 2-d boolean array for the given mask plane."""
+        """Return a 2-d boolean array for the given mask plane.
+
+        Parameters
+        ----------
+        plane
+            Name of the mask plane.
+
+        Returns
+        -------
+        numpy.ndarray
+            A 2-d boolean array with the same shape as `bbox` that is `True`
+            where the bit for ``plane`` is set and `False` elsewhere.
+        """
         bit = self.schema.bit(plane)
         return (self._array[..., bit.index] & bit.mask).astype(bool)
 
     def set(self, plane: str, boolean_mask: np.ndarray | EllipsisType = ...) -> None:
-        """Set a mask plane from a 2-d boolean array or ``...```."""
+        """Set a mask plane.
+
+        Parameters
+        ----------
+        plane
+            Name of the mask plane to set
+        boolean_mask
+            A 2-d boolean array with the same shape as `bbox` that is `True`
+            where the bit for ``plane`` should be set and `False` where it
+            should be left unchanged (*not* set to zero).  May be ``...`` to
+            set the bit everywhere.
+        """
         bit = self.schema.bit(plane)
         if boolean_mask is not ...:
             boolean_mask = boolean_mask.astype(bool)
         self._array[boolean_mask, bit.index] |= bit.mask
 
     def clear(self, plane: str, boolean_mask: np.ndarray | EllipsisType = ...) -> None:
-        """Clear a mask plane from a 2-d boolean array or ``...```."""
+        """Clear a mask plane.
+
+        Parameters
+        ----------
+        plane
+            Name of the mask plane to set
+        boolean_mask
+            A 2-d boolean array with the same shape as `bbox` that is `True`
+            where the bit for ``plane`` should be cleared and `False` where it
+            should be left unchanged.  May be ``...`` to clear the bit
+            everywhere.
+        """
         bit = self.schema.bit(plane)
         if boolean_mask is not ...:
             boolean_mask = boolean_mask.astype(bool)
@@ -337,12 +376,7 @@ class Mask:
         Parameters
         ----------
         hdu
-            An astropy image object.
-
-        Returns
-        -------
-        image
-            A new `Image` object.
+            An astropy image HDU.
         """
         dx: int = hdu.header.pop("LTV1")
         dy: int = hdu.header.pop("LTV2")
