@@ -30,7 +30,7 @@ nitpick_ignore_regex = [
 [sphinx.intersphinx.projects]
 astropy = "https://docs.astropy.org/en/stable"
 lsst = "https://pipelines.lsst.io/v/daily"
-numpy = "https://numpy.org/doc/stable"
+numpy = "https://numpy.org/doc/stable/"
 python = "https://docs.python.org/3"
 pydantic = "https://docs.pydantic.dev/latest/"
 piff = "https://rmjarvis.github.io/Piff/_build/html"
