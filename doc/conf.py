@@ -7,3 +7,9 @@ This configuration only affects single-package Sphinx documenation builds.
 from documenteer.conf.guide import *
 
 exclude_patterns.append("changes/*")
+extensions.append("sphinxcontrib.autodoc_pydantic")
+
+autodoc_pydantic_model_show_config_summary = False
+autodoc_pydantic_settings_show_config_summary = False
+autodoc_pydantic_settings_show_json = False
+autodoc_pydantic_model_show_json = False
