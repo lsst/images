@@ -36,6 +36,7 @@ from ._tables import TableModel
 # autodoc-typehints plugin.
 P = TypeVar("P", bound=pydantic.BaseModel)
 
+
 class InputArchive[P: pydantic.BaseModel](ABC):
     """Abstract interface for reading from a file format.
 
@@ -84,7 +85,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         self, pointer: P, model_type: type[U], deserializer: Callable[[U, InputArchive[P]], V]
     ) -> V:
         """Deserialize an object that was saved by
-        `OutputArchive.serialize_pointer`.
+        `~lsst.serialization.OutputArchive.serialize_pointer`.
 
         Parameters
         ----------
@@ -108,8 +109,9 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         times.
 
         There is no ``deserialize_direct`` (to pair with
-        `OutputArchive.serialize_direct`) because the caller can just call a
-        deserializer function directly on a sub-model of its Pydantic tree.
+        `~lsst.serialization.OutputArchive.serialize_direct`) because the
+        caller can just call a deserializer function directly on a sub-model
+        of its Pydantic tree.
         """
         raise NotImplementedError()
 
@@ -133,7 +135,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         strip_header
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
-            `FitsOutputArchive.add_image`.
+            `~lsst.images.serialization.OutputArchive.add_image`.
 
         Returns
         -------
@@ -162,7 +164,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         strip_header
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
-            `FitsOutputArchive.add_mask`.
+            `~lsst.serialization.OutputArchive.add_mask`.
 
         Returns
         -------
@@ -186,7 +188,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         strip_header
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
-            `FitsOutputArchive.add_table`.
+            `~lsst.serialization.OutputArchive.add_table`.
 
         Returns
         -------
@@ -210,7 +212,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         strip_header
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
-            `FitsOutputArchive.add_table`.
+            `~lsst.serialization.OutputArchive.add_table`.
 
         Returns
         -------

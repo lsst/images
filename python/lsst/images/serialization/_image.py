@@ -22,7 +22,7 @@ from ._asdf_utils import ArrayReferenceModel, ArrayReferenceQuantityModel, Unit
 
 
 class ImageModel(pydantic.BaseModel):
-    """Pydantic model used to represent the serialized form of an `Image`."""
+    """Pydantic model used to represent the serialized form of an `.Image`."""
 
     data: ArrayReferenceQuantityModel | ArrayReferenceModel
     start: list[int]
@@ -43,7 +43,7 @@ class ImageModel(pydantic.BaseModel):
         start: Sequence[int],
         unit: Unit | None,
     ) -> ImageModel:
-        """Construct an `ImageReference` from the components of a serialized
+        """Construct an `ImageModel` from the components of a serialized
         image.
 
         Parameters

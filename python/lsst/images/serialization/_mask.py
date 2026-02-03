@@ -22,7 +22,7 @@ from ._asdf_utils import ArrayReferenceModel
 
 
 class MaskModel(pydantic.BaseModel):
-    """Pydantic model used to represent the serialized form of a `Mask`."""
+    """Pydantic model used to represent the serialized form of a `.Mask`."""
 
     data: ArrayReferenceModel
     start: list[int]

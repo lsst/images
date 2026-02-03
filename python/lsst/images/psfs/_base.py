@@ -98,8 +98,8 @@ class PointSpreadFunction(ABC):
     def from_legacy(cls, legacy_psf: Any, domain: Domain) -> PointSpreadFunction:
         """Make a PSF object from a legacy `lsst.afw.detection.Psf` instance.
 
-        Parameter
-        ---------
+        Parameters
+        ----------
         legacy_psf
             Legacy PSF object.
         domain

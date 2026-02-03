@@ -96,11 +96,12 @@ class OutputArchive[P](ABC):
             attribute, it may be a JSON Pointer path (relative to the paired
             Pydantic model) to the location where it will be added.
         serializer
-            Callable that takes an `OutputArchive` and returns a Pydantic
-            model.  This will be passed a new `OutputArchive` that
-            automatically prepends ``{name}/`` (and any root path added by this
-            archive) to names passed to it, so the ``serializer`` does not need
-            to know where it appears in the overall tree.
+            Callable that takes an `~lsst.serialization.OutputArchive` and
+            returns a Pydantic model.  This will be passed a new
+            `~lsst.serialization.OutputArchive` that automatically prepends
+            ``{name}/`` (and any root path added by this archive) to names
+            passed to it, so the ``serializer`` does not need to know where it
+            appears in the overall tree.
 
         Returns
         -------
@@ -124,11 +125,12 @@ class OutputArchive[P](ABC):
             attribute, it may be a JSON Pointer path (relative to the paired
             Pydantic model) to the location where it will be added.
         serializer
-            Callable that takes an `OutputArchive` and returns a Pydantic
-            model.  This will be passed a new `OutputArchive` that
-            automatically prepends ``{name}/`` (and any root path added by this
-            archive) to names passed to it, so the ``serializer`` does not need
-            to know where it appears in the overall tree.
+            Callable that takes an `~lsst.serialization.OutputArchive` and
+            returns a Pydantic model.  This will be passed a new
+            `~lsst.serialization.OutputArchive` that automatically prepends
+            ``{name}/`` (and any root path added by this archive) to names
+            passed to it, so the ``serializer`` does not need to know where it
+            appears in the overall tree.
         key
             A unique identifier for the in-memory object the serializer saves,
             e.g. a call to the built-in `id` function.
@@ -143,10 +145,10 @@ class OutputArchive[P](ABC):
         # Since Pydantic doesn't provide us a good way to "dereference" a JSON
         # Pointer (i.e. traversing the tree to extract the original model), it
         # is probably easier to implement an `InputArchive` for the case where
-        # the `OutputArchive` opts to stuff all pointer serializations into a
-        # standard location outside the user-controlled Pydantic model tree,
-        # and always returned a JSON pointer to that standard location from
-        # this function.
+        # the `~lsst.serialization.OutputArchive` opts to stuff all pointer
+        # serializations into a standard location outside the user-controlled
+        # Pydantic model tree, and always returned a JSON pointer to that
+        # standard location from this function.
         raise NotImplementedError()
 
     @abstractmethod
@@ -356,8 +358,8 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
     delegating back to its parent archive.
 
     This is intended to be used in the implementation of most
-    `OutputArchive.serialize_direct` and `OutputArchive.serialize_pointer`
-    implementations.
+    `~lsst.serialization.OutputArchive.serialize_direct` and
+    `~lsst.serialization.OutputArchive.serialize_pointer` implementations.
 
     Parameters
     ----------

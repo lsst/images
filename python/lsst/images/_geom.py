@@ -469,7 +469,6 @@ class Box:
         y
             One or more integer Y coordinates to test for containment.
             If an array, an array of results will be returned.
-
         x
             One or more integer X coordinates to test for containment.
             If an array, an array of results will be returned.

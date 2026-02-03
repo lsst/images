@@ -107,8 +107,8 @@ class PSFExWrapper(LegacyPointSpreadFunction):
         """Serialize the PSF to an archive.
 
         This method is intended to be usable as the callback function passed to
-        `..archives.OutputArchive.serialize_direct` or
-        `..archives.OutputArchive.serialize_pointer`.
+        `.serialization.OutputArchive.serialize_direct` or
+        `.serialization.OutputArchive.serialize_pointer`.
         """
         data = self._impl.getSerializationData()
         shape = tuple(reversed(data.size))
@@ -136,7 +136,7 @@ class PSFExWrapper(LegacyPointSpreadFunction):
         """Deserialize the PSF from an archive.
 
         This method is intended to be usable as the callback function passed to
-        `..archives.InputArchive.deserialize_pointer`.
+        `.serialization.InputArchive.deserialize_pointer`.
         """
         from lsst.meas.extensions.psfex import PsfexPsf, PsfexPsfSerializationData
 

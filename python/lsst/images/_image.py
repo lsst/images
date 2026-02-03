@@ -53,7 +53,7 @@ class Image:
     Notes
     -----
     Indexing the `array` attribute of an `Image` does not take into account its
-    `start` offset, but accessing a subimage by indexing an `Image` with a
+    ``start`` offset, but accessing a subimage by indexing an `Image` with a
     `Box` does, and the `bbox` of the subimage is set to match its location
     within the original image.
 

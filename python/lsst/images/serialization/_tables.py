@@ -71,11 +71,6 @@ class ColumnDefinitionModel(pydantic.BaseModel):
         ----------
         dtype
             Object convertible to `numpy.dtype`.
-
-        Returns
-        -------
-        columns
-            A `list` of `ColumnDefinitionModel` objects.
         """
         dtype = np.dtype(dtype)
         result: list[ColumnDefinitionModel] = []

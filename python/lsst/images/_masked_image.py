@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("MaskedImage",)
+__all__ = ("MaskedImage", "MaskedImageSerializationModel")
 
 from typing import Any
 
@@ -149,7 +149,7 @@ class MaskedImage:
         Parameters
         ----------
         archive
-            `~archive.OutputArchive` instance to write to.
+            `~serialization.OutputArchive` instance to write to.
 
         Returns
         -------
@@ -160,9 +160,9 @@ class MaskedImage:
         Notes
         -----
         This method has the signature expected by
-        `archive.OutputArchive.serialize_direct` and
-        `archive.OutputArchive.serialize_pointer`, in order to allow objects
-        holding a `MaskedImage` to delegate its serialization.
+        `~serialization.OutputArchive.serialize_direct` and
+        `~serialization.OutputArchive.serialize_pointer`, in order to allow
+        objects holding a `MaskedImage` to delegate its serialization.
 
         This method does not initialize the opaque metadata of the returned
         masked image from the archive, as it does not assume that the masked
@@ -185,17 +185,17 @@ class MaskedImage:
             A Pydantic model representation of the masked image, holding
             references to data stored in the archive.
         archive
-            `~archive.InputArchive` instance to read from.
+            `~serialization.InputArchive` instance to read from.
         bbox
             Bounding box of a subimage to read instead.
 
         Notes
         -----
         When there is no ``bbox`` argument, this method has the signature
-        expected by `archive.InputArchive.deserialize_pointer`, in order to
-        allow objects holding a `MaskedImage` to delegate its deserialization.
-        A ``lambda`` or `functools.partial` can be used to pass ``bbox`` in
-        this case.
+        expected by `~serialization.InputArchive.deserialize_pointer`, in
+        order to allow objects holding a `MaskedImage` to delegate its
+        deserialization.  A ``lambda`` or `functools.partial` can be used to
+        pass ``bbox`` in this case.
 
         This method does not pass the opaque metadata of the masked image to
         the archive, as it does not assume that the masked image is the

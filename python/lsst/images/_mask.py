@@ -33,7 +33,7 @@ class MaskPlane:
     """Unique name for the mask plane (`str`)."""
 
     description: str
-    """Human-readable documentation for the mask plane (`description`)."""
+    """Human-readable documentation for the mask plane (`str`)."""
 
     @classmethod
     def read_legacy(cls, header: astropy.io.fits.Header) -> dict[str, int]:
@@ -184,7 +184,7 @@ class MaskSchema:
 
         Returns
         -------
-        array
+        numpy.ndarray
             A 1-d array with shape ``(mask_size,)``.
         """
         result = np.zeros(self.mask_size, dtype=self._dtype)
@@ -220,8 +220,8 @@ class Mask:
     Notes
     -----
     Indexing the `array` attribute of a `Mask` does not take into account its
-    `start` offset, but accessing a subimage mask by indexing a `Mask` with a
-    `Box` does, and the `bbox` of the subimage is set to match its location
+    ``start`` offset, but accessing a subimage mask by indexing a `Mask` with
+    a `Box` does, and the `bbox` of the subimage is set to match its location
     within the original mask.
 
     A mask's ``bbox`` corresponds to the leading dimensions of its backing

@@ -102,8 +102,8 @@ class PiffWrapper(PointSpreadFunction):
         """Serialize the PSF to an archive.
 
         This method is intended to be usable as the callback function passed to
-        `..archives.OutputArchive.serialize_direct` or
-        `..archives.OutputArchive.serialize_pointer`.
+        `.serialization.OutputArchive.serialize_direct` or
+        `.serialization.OutputArchive.serialize_pointer`.
         """
         from piff.config import LoggerWrapper
 
@@ -124,7 +124,7 @@ class PiffWrapper(PointSpreadFunction):
         """Deserialize the PSF from an archive.
 
         This method is intended to be usable as the callback function passed to
-        `..archives.InputArchive.deserialize_pointer`.
+        `.serialization.InputArchive.deserialize_pointer`.
         """
         from piff import PSF
         from piff.config import LoggerWrapper
@@ -230,7 +230,7 @@ class PiffSerializationModel(pydantic.BaseModel):
 
 class _ArchivePiffWriter:
     """An adapter from the Piff serialization interface to the
-    `..archives.OutputArchive` class.
+    `.serialization.OutputArchive` class.
 
     Notes
     -----
@@ -283,9 +283,9 @@ class _ArchivePiffWriter:
         """Serialize to an archive.
 
         This method is intended to be used as the callable passed to
-        `..archives.OutputArchive.serialize_direct` and
-        `..archives.OutputArchive.serialize_pointer`, after first passing this
-        writer to a Piff object's ``write`` or ``_write`` method.
+        `.serialization.OutputArchive.serialize_direct` and
+        `.serialization.OutputArchive.serialize_pointer`, after first passing
+        this writer to a Piff object's ``write`` or ``_write`` method.
         """
         model = PiffObjectModel()
         for name, struct in self.structs.items():
@@ -317,7 +317,7 @@ class _ArchivePiffWriter:
 
 class _ArchivePiffReader:
     """An adapter from the Piff serialization interface to the
-    `..archives.InputArchive` class.
+    `.serialization.InputArchive` class.
 
     See `ArchivePiffWriter` for additional notes.
     """
