@@ -14,3 +14,4 @@ Modern image types and serialization for Rubin Observatory data products.
    core-api.rst
    psfs.rst
    serialization.rst
+   fits.rst

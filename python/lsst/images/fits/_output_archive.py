@@ -42,8 +42,8 @@ from ._common import ExtensionHDU, FitsCompressionOptions, FitsOpaqueMetadata
 
 
 class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
-    """An implementation of the `OutputArchive` interface that writes to FITS
-    files.
+    """An implementation of the `.serialization.OutputArchive` interface that
+    writes to FITS files.
 
     Instances of this class should only be constructed via the `open`
     context manager.

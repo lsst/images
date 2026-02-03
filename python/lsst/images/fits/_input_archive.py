@@ -53,8 +53,8 @@ from ._common import (
 
 
 class FitsInputArchive(InputArchive[TableCellReferenceModel]):
-    """An implementation of the `InputArchive` interface that reads from FITS
-    files.
+    """An implementation of the `.serialization.InputArchive` interface that
+    reads from FITS files.
 
     Instances of this class should only be constructed via the `open`
     context manager.
