@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("MaskedImage",)
+__all__ = ("MaskedImage", "MaskedImageSerializationModel")
 
 from typing import Any
 
@@ -23,9 +23,8 @@ import pydantic
 from lsst.resources import ResourcePathExpression
 
 from ._geom import Box
-from ._image import Image, ImageModel
-from ._mask import Mask, MaskModel, MaskSchema
-from .archive import InputArchive, OpaqueArchiveMetadata, OutputArchive
+from ._image import Image
+from ._mask import Mask, MaskSchema
 from .fits import (
     ExtensionHDU,
     FitsCompressionOptions,
@@ -35,6 +34,7 @@ from .fits import (
     PrecompressedImage,
     strip_wcs_cards,
 )
+from .serialization import ImageModel, InputArchive, MaskModel, OpaqueArchiveMetadata, OutputArchive
 
 
 class MaskedImage:
@@ -44,17 +44,18 @@ class MaskedImage:
     ----------
     image
         The main image plane.
-    mask, optional
+    mask
         A bitmask image that annotates the main image plane.  Must have the
         same bounding box as ``image`` if provided.
-    variance, optional
+    variance
         The per-pixel uncertainty of the main image as an image of variance
         values.  Must have the same bounding box as ``image`` if provided, and
         its units must be the square of ``image.unit`` unless both are `None`.
-    mask_schema, optional
+        Values default to ``1.0``.
+    mask_schema
         Schema for the mask plane.  Must be provided if and only if ``mask`` is
         not provided.
-    opaque_metadata, optional
+    opaque_metadata
         Opaque metadata obtained from reading this object from storage.  It may
         be provided when writing to storage to propagate that metadata and/or
         preserve file-format-specific options (e.g. compression parameters).
@@ -94,27 +95,27 @@ class MaskedImage:
 
     @property
     def image(self) -> Image:
-        """The main image plane."""
+        """The main image plane (`Image`)."""
         return self._image
 
     @property
     def mask(self) -> Mask:
-        """The mask plane."""
+        """The mask plane (`Mask`)."""
         return self._mask
 
     @property
     def variance(self) -> Image:
-        """The variance plane."""
+        """The variance plane (`Image`)."""
         return self._variance
 
     @property
     def bbox(self) -> Box:
-        """The bounding box shared by all three image planes."""
+        """The bounding box shared by all three image planes (`Box`)."""
         return self._image.bbox
 
     @property
     def unit(self) -> astropy.units.Unit | None:
-        """The units of the image plane."""
+        """The units of the image plane (`astropy.units.Unit` | `None`)."""
         return self._image.unit
 
     def __getitem__(self, bbox: Box) -> MaskedImage:
@@ -142,26 +143,26 @@ class MaskedImage:
             opaque_metadata=(self._opaque_metadata.copy() if self._opaque_metadata is not None else None),
         )
 
-    def serialize(self, archive: OutputArchive[Any]) -> MaskedImageModel:
+    def serialize(self, archive: OutputArchive[Any]) -> MaskedImageSerializationModel:
         """Serialize the masked image to an output archive.
 
         Parameters
         ----------
         archive
-            `~archive.OutputArchive` instance to write to.
+            `~serialization.OutputArchive` instance to write to.
 
         Returns
         -------
-        model
+        MaskedImageSerializationModel
             A Pydantic model representation of the masked image, holding
             references to data stored in the archive.
 
         Notes
         -----
         This method has the signature expected by
-        `archive.OutputArchive.serialize_direct` and
-        `archive.OutputArchive.serialize_pointer`, in order to allow objects
-        holding a `MaskedImage` to delegate its serialization.
+        `~serialization.OutputArchive.serialize_direct` and
+        `~serialization.OutputArchive.serialize_pointer`, in order to allow
+        objects holding a `MaskedImage` to delegate its serialization.
 
         This method does not initialize the opaque metadata of the returned
         masked image from the archive, as it does not assume that the masked
@@ -170,11 +171,11 @@ class MaskedImage:
         image_model = archive.add_image("image", self.image)
         mask_model = archive.add_mask("mask", self.mask)
         variance_model = archive.add_image("variance", self.variance)
-        return MaskedImageModel(image=image_model, mask=mask_model, variance=variance_model)
+        return MaskedImageSerializationModel(image=image_model, mask=mask_model, variance=variance_model)
 
     @classmethod
     def deserialize(
-        cls, model: MaskedImageModel, archive: InputArchive[Any], *, bbox: Box | None = None
+        cls, model: MaskedImageSerializationModel, archive: InputArchive[Any], *, bbox: Box | None = None
     ) -> MaskedImage:
         """Deserialize a masked image from an input archive.
 
@@ -184,22 +185,17 @@ class MaskedImage:
             A Pydantic model representation of the masked image, holding
             references to data stored in the archive.
         archive
-            `~archive.InputArchive` instance to read from.
-        bbox, optional
+            `~serialization.InputArchive` instance to read from.
+        bbox
             Bounding box of a subimage to read instead.
-
-        Returns
-        -------
-        masked_image
-            The deserialized masked image.
 
         Notes
         -----
         When there is no ``bbox`` argument, this method has the signature
-        expected by `archive.InputArchive.deserialize_pointer`, in order to
-        allow objects holding a `MaskedImage` to delegate its deserialization.
-        A ``lambda`` or `functools.partial` can be used to pass ``bbox`` in
-        this case.
+        expected by `~serialization.InputArchive.deserialize_pointer`, in
+        order to allow objects holding a `MaskedImage` to delegate its
+        deserialization.  A ``lambda`` or `functools.partial` can be used to
+        pass ``bbox`` in this case.
 
         This method does not pass the opaque metadata of the masked image to
         the archive, as it does not assume that the masked image is the
@@ -224,8 +220,12 @@ class MaskedImage:
         ----------
         filename
             Name of the file to write to.  Must be a local file.
-        compression, optional
-            Compression options.
+        image_compression
+            Compression options for the `image` plane.
+        mask_compression
+            Compression options for the `mask` plane.
+        variance_compression
+            Compression options for the `variance` plane.
         """
         compression_options = {}
         if image_compression is not FitsCompressionOptions.DEFAULT:
@@ -248,16 +248,11 @@ class MaskedImage:
         url
             URL of the file to read; may be any type supported by
             `lsst.resources.ResourcePath`.
-        bbox, optional
+        bbox
             Bounding box of a subimage to read instead.
-
-        Returns
-        -------
-        masked_image
-            The loaded masked image.
         """
         with FitsInputArchive.open(url, partial=(bbox is not None)) as archive:
-            model = archive.get_tree(MaskedImageModel)
+            model = archive.get_tree(MaskedImageSerializationModel)
             result = cls.deserialize(model, archive, bbox=bbox)
             # We only want to save opaque archive metadata on the outermost
             # object, and `deserialize` is designed to be usable if the
@@ -283,11 +278,6 @@ class MaskedImage:
             stores the original binary table data for those planes in memory.
             If the `MaskedImage` is copied, the precompressed pixel values are
             not transferred to the copy.
-
-        Returns
-        -------
-        masked_image
-            A new `MaskedImage` object.
         """
         opaque_metadata = FitsOpaqueMetadata()
         with astropy.io.fits.open(filename) as hdu_list:
@@ -328,7 +318,7 @@ class MaskedImage:
         return cls(image, mask=mask, variance=variance, opaque_metadata=opaque_metadata)
 
 
-class MaskedImageModel(pydantic.BaseModel):
+class MaskedImageSerializationModel(pydantic.BaseModel):
     """A Pydantic model used to represent a serialized `MaskedImage`."""
 
     image: ImageModel

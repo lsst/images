@@ -18,9 +18,13 @@ from typing import Any
 
 from lsst.images import Box, Image
 from lsst.images.fits import FitsInputArchive, FitsOutputArchive
-from lsst.images.psfs import PointSpreadFunction
-from lsst.images.psfs.piff import PiffSerializationModel, PiffWrapper
-from lsst.images.psfs.psfex import PSFExSerializationModel, PSFExWrapper
+from lsst.images.psfs import (
+    PiffSerializationModel,
+    PiffWrapper,
+    PointSpreadFunction,
+    PSFExSerializationModel,
+    PSFExWrapper,
+)
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 

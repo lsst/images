@@ -33,11 +33,17 @@ from lsst.resources import ResourcePath, ResourcePathExpression
 
 from .._coordinate_transform import CoordinateTransform
 from .._geom import Box
-from .._image import Image, ImageModel
-from .._mask import Mask, MaskModel, MaskSchema
-from ..archive import InputArchive, no_header_updates
-from ..asdf_utils import ArrayReferenceModel
-from ..tables import TableCellReferenceModel, TableModel
+from .._image import Image
+from .._mask import Mask, MaskSchema
+from ..serialization import (
+    ArrayReferenceModel,
+    ImageModel,
+    InputArchive,
+    MaskModel,
+    TableCellReferenceModel,
+    TableModel,
+    no_header_updates,
+)
 from ._common import (
     ExtensionHDU,
     FitsOpaqueMetadata,
@@ -47,8 +53,8 @@ from ._common import (
 
 
 class FitsInputArchive(InputArchive[TableCellReferenceModel]):
-    """An implementation of the `InputArchive` interface that reads from FITS
-    files.
+    """An implementation of the `.serialization.InputArchive` interface that
+    reads from FITS files.
 
     Instances of this class should only be constructed via the `open`
     context manager.
@@ -103,17 +109,17 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         ----------
         path
             File to read; convertible to `lsst.resources.ResourcePath`.
-        page_size, optional
+        page_size
             Minimum number of bytes to read at at once.  Making this a multiple
             of the FITS block size (2880) is recommended.
-        partial, optional
+        partial
             Whether we will be reading only some of the archive, or if memory
             pressure forces us to read it only a little at a time..  If `False`
             (default), the entire raw file may be read into memory up front.
 
         Returns
         -------
-        context
+        `contextlib.AbstractContextManager` [`FitsInputArchive`]
             A context manager that returns a `FitsInputArchive` when entered.
         """
         path = ResourcePath(path)
@@ -137,7 +143,7 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
 
         Returns
         -------
-        model
+        T
             The validated Pydantic model.
         """
         json_bytes = self._readers["JSON"].data[0]["JSON"].tobytes()

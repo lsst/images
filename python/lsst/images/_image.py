@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("Image", "ImageModel")
+__all__ = ("Image",)
 
 from collections.abc import Sequence
 from types import EllipsisType
@@ -21,10 +21,8 @@ import astropy.io.fits
 import astropy.units
 import numpy as np
 import numpy.typing as npt
-import pydantic
 
-from . import asdf_utils
-from ._geom import Box, Interval
+from ._geom import Box
 
 
 @final
@@ -33,26 +31,29 @@ class Image:
 
     Parameters
     ----------
-    array_or_fill, optional
+    array_or_fill
         Array or fill value for the image.  If a fill value, ``bbox`` or
         ``shape`` must be provided.
-    bbox, optional
+    bbox
         Bounding box for the image.
-    start, optional
-        Logical coordinates of the first pixel in the array.  Ignored if
+    start
+        Logical coordinates of the first pixel in the array, ordered ``y``,
+        ``x`` (unless an `XY` instance is passed).  Ignored if
         ``bbox`` is provided.  Defaults to zeros.
-    shape, optional
-        Dimensions of the array.  Only needed if ``array_or_fill` is not an
-        array and ``bbox`` is not provided.
-    unit, optional
+    shape
+        Leading dimensions of the array, ordered ``y``, ``x`` (unless an `XY`
+        instance is passed).   Only needed if ``array_or_fill`` is not an
+        array and ``bbox`` is not provided.  Like the bbox, this does not
+        include the last dimension of the array.
+    unit
         Units for the image's pixel values.
-    dtype, optional
+    dtype
         Pixel data type override.
 
     Notes
     -----
     Indexing the `array` attribute of an `Image` does not take into account its
-    `start` offset, but accessing a subimage by indexing an `Image` with a
+    ``start`` offset, but accessing a subimage by indexing an `Image` with a
     `Box` does, and the `bbox` of the subimage is set to match its location
     within the original image.
 
@@ -95,7 +96,6 @@ class Image:
                 )
             if shape is not None and shape != array.shape:
                 raise ValueError(f"Explicit shape {shape} does not match array with shape {array.shape}.")
-
         else:
             if bbox is None:
                 if shape is None:
@@ -110,7 +110,7 @@ class Image:
 
     @property
     def array(self) -> np.ndarray:
-        """The low-level array.
+        """The low-level array (`numpy.ndarray`).
 
         Assigning to this attribute modifies the existing array in place; the
         bounding box and underlying data pointer are never changed.
@@ -123,7 +123,7 @@ class Image:
 
     @property
     def quantity(self) -> astropy.units.Quantity:
-        """The low-level array with units.
+        """The low-level array with units (`astropy.units.Quantity`).
 
         Assigning to this attribute modifies the existing array in place; the
         bounding box and underlying data pointer are never changed.
@@ -136,12 +136,14 @@ class Image:
 
     @property
     def unit(self) -> astropy.units.Unit | None:
-        """Units for the image's pixel values."""
+        """Units for the image's pixel values (`astropy.units.Unit` or
+        `None`).
+        """
         return self._unit
 
     @property
     def bbox(self) -> Box:
-        """Bounding box for the image."""
+        """Bounding box for the image (`Box`)."""
         return self._bbox
 
     def __getitem__(self, bbox: Box | EllipsisType) -> Image:
@@ -182,7 +184,15 @@ class Image:
 
     @classmethod
     def from_legacy(cls, legacy: Any, unit: astropy.units.Unit | None = None) -> Image:
-        """Convert from an `lsst.afw.image.Image` instance."""
+        """Convert from an `lsst.afw.image.Image` instance.
+
+        Parameters
+        ----------
+        legacy
+            An `lsst.afw.image.Image` instance.
+        unit
+            Units of the image.
+        """
         return cls(legacy.array, start=(legacy.getY0(), legacy.getX0()), unit=unit)
 
     def to_legacy(self) -> Any:
@@ -201,12 +211,7 @@ class Image:
         Parameters
         ----------
         hdu
-            An astropy image object.
-
-        Returns
-        -------
-        image
-            A new `Image` object.
+            An Astropy image HDU.
         """
         unit: astropy.units.BaseUnit | None = None
         if (fits_unit := hdu.header.pop("BUNIT", None)) is not None:
@@ -216,62 +221,3 @@ class Image:
         start = (-dy, -dx)
         image = Image(hdu.data, start=start, unit=unit)
         return image
-
-
-class ImageModel(pydantic.BaseModel):
-    """Pydantic model used to represent the serialized form of an `Image`."""
-
-    data: asdf_utils.ArrayReferenceQuantityModel | asdf_utils.ArrayReferenceModel
-    start: list[int]
-
-    @property
-    def bbox(self) -> Box:
-        """The bounding box of the image."""
-        if isinstance(self.data, asdf_utils.ArrayReferenceQuantityModel):
-            shape = self.data.value.shape
-        else:
-            shape = self.data.shape
-        return Box(*[Interval.factory[begin : begin + size] for begin, size in zip(self.start, shape)])
-
-    @classmethod
-    def pack(
-        cls, array_model: asdf_utils.ArrayReferenceModel, start: Sequence[int], unit: asdf_utils.Unit | None
-    ) -> ImageModel:
-        """Construct an `ImageReference` from the components of a serialized
-        image.
-
-        Parameters
-        ----------
-        array_model
-            Serialized form of the underlying array.
-        start
-            Logical coordinates of the first pixel in the array.
-        unit, optional
-            Units for the image's pixel values.
-        """
-        if unit is None:
-            return cls.model_construct(data=array_model, start=list(start))
-        return cls.model_construct(
-            data=asdf_utils.ArrayReferenceQuantityModel.model_construct(value=array_model, unit=unit),
-            start=list(start),
-        )
-
-    def unpack(self) -> tuple[asdf_utils.ArrayReferenceModel, asdf_utils.Unit | None]:
-        """Return the components of a serialized image from this model.
-
-        Returns
-        -------
-        array_model
-            Serialized form of the underlying array.
-        unit
-            Units for the image's pixel values.
-
-        Notes
-        -----
-        The ``start`` attribute is not included in the results because it is
-        directly accessible, rather than possibly nested under `data` as with
-        the other attributes.
-        """
-        if isinstance(self.data, asdf_utils.ArrayReferenceQuantityModel):
-            return self.data.value, self.data.unit
-        return self.data, None

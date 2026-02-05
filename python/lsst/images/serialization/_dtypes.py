@@ -48,7 +48,7 @@ class NumberType(enum.StrEnum):
 
         Returns
         -------
-        scalar_type
+        type
             Numpy scalar type, e.g. `numpy.int16`.  Note that this inherits
             from `type`, not `numpy.dtype` (though a `numpy.dtype` instance
             can always be constructed from it).
@@ -64,11 +64,6 @@ class NumberType(enum.StrEnum):
         ----------
         dtype
             Object convertible to `numpy.dtype`.
-
-        Returns
-        -------
-        member
-            Enumeration member.
         """
         datatype, shape = cls.from_numpy_with_shape(dtype)
         if shape:
@@ -87,9 +82,9 @@ class NumberType(enum.StrEnum):
 
         Returns
         -------
-        member
+        `NumberType`
             Enumeration member.
-        shape
+        `tuple` [`int`, ...]
             Shape as a `tuple` of `int`.
         """
         dtype = np.dtype(dtype)

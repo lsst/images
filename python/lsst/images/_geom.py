@@ -38,24 +38,57 @@ import pydantic_core.core_schema as pcs
 
 
 class YX[T](NamedTuple):
-    """A pair of per-dimension objects, ordered ``(y, x)``."""
+    """A pair of per-dimension objects, ordered ``(y, x)``.
+
+    Notes
+    -----
+    `YX` is used for slices, shapes, and other 2-d pairs when the most
+    natural ordering is ``(y, x)``.  Because it is a `tuple`, however,
+    arithmetic operations behave as they would on a
+    `collections.abc.Sequence`, not a mathematical vector (e.g. adding
+    concatenates).
+
+    See Also
+    --------
+    XY
+    """
 
     y: T
+    """The y / row object."""
+
     x: T
+    """The x / column object."""
 
     @property
     def xy(self) -> XY:
+        """A tuple of the same objects in the opposite order."""
         return XY(x=self.x, y=self.y)
 
 
 class XY[T](NamedTuple):
-    """A pair of per-dimension objects, ordered ``(x, y)``."""
+    """A pair of per-dimension objects, ordered ``(x, y)``.
+
+    Notes
+    -----
+    `XY` is used for points and other 2-d pairs when the most natural ordering
+    is ``(x, y)``.  Because it is a `tuple`, however, arithmetic operations
+    behave as they would on a `collections.abc.Sequence`, not a mathematical
+    vector (e.g. adding concatenates).
+
+    See Also
+    --------
+    YX
+    """
 
     x: T
+    """The x / column object."""
+
     y: T
+    """The y / row object."""
 
     @property
     def yx(self) -> YX:
+        """A tuple of the same objects in the opposite order."""
         return YX(y=self.y, x=self.x)
 
 
@@ -78,6 +111,10 @@ class Interval:
     Notes
     -----
     Adding or subtracting an `int` from an interval returns a shifted interval.
+
+    `Interval` implements the necessary hooks to be included directly in a
+    `pydantic.BaseModel`, even though it is neither a built-in type nor a
+    Pydantic model itself.
     """
 
     def __init__(self, start: int, stop: int):
@@ -90,6 +127,12 @@ class Interval:
     __slots__ = ("_start", "_stop")
 
     factory: ClassVar[IntervalSliceFactory]
+    """A factory for creating intervals using slice syntax.
+
+    For example::
+
+        interval = Interval.factory[2:5]
+    """
 
     @classmethod
     def hull(cls, first: int | Interval, *args: int | Interval) -> Interval:
@@ -117,42 +160,44 @@ class Interval:
 
     @property
     def start(self) -> int:
-        """Inclusive minimum point in the interval."""
+        """Inclusive minimum point in the interval (`int`)."""
         return self._start
 
     @property
     def stop(self) -> int:
-        """One past the maximum point in the interval."""
+        """One past the maximum point in the interval (`int`)."""
         return self._stop
 
     @property
     def min(self) -> int:
-        """Inclusive minimum point in the interval."""
+        """Inclusive minimum point in the interval (`int`)."""
         return self.start
 
     @property
     def max(self) -> int:
-        """Inclusive maximum point in the interval."""
+        """Inclusive maximum point in the interval (`int`)."""
         return self.stop - 1
 
     @property
     def size(self) -> int:
-        """Size of the interval."""
+        """Size of the interval (`int`)."""
         return self.stop - self.start
 
     @property
-    def range(self) -> range:
-        """A `range` object that iterates over all values in the interval."""
+    def range(self) -> __builtins__.range:
+        """An iterable over all values in the interval
+        (`__builtins__.range`).
+        """
         return range(self.start, self.stop)
 
     @property
     def arange(self) -> np.ndarray:
-        """A `numpy.ndarray` of all the values in the interval."""
+        """An array of all the values in the interval (`numpy.ndarray`)."""
         return np.arange(self.start, self.stop)
 
     @property
     def center(self) -> float:
-        """The center of the interval."""
+        """The center of the interval (`float`)."""
         return 0.5 * (self.min + self.max)
 
     def __str__(self) -> str:
@@ -184,6 +229,17 @@ class Interval:
     def contains(self, other: Interval | int | float | np.ndarray) -> bool | np.ndarray:
         """Test whether this interval fully contains another or one or more
         points.
+
+        Parameters
+        ----------
+        other
+            Another interval to compare to, or one or more position values.
+
+        Returns
+        -------
+        `bool` | `numpy.ndarray`
+            If a single interval or value was passed, a single `bool`.  If an
+            array was passed, an array with the same shape.
 
         Notes
         -----
@@ -294,7 +350,7 @@ class _SerializedBox(TypedDict):
 
 
 class Box:
-    """An axis-aligned [hyper]rectangular region.
+    """An axis-aligned 2-d rectangular region.
 
     Parameters
     ----------
@@ -302,6 +358,12 @@ class Box:
         Interval for the y dimension.
     x
         Interval for the x dimension.
+
+    Notes
+    -----
+    `Box` implements the necessary hooks to be included directly in a
+    `pydantic.BaseModel`, even though it is neither a built-in type nor a
+    Pydantic model itself.
     """
 
     def __init__(self, y: Interval, x: Interval):
@@ -310,6 +372,12 @@ class Box:
     __slots__ = ("_intervals",)
 
     factory: ClassVar[BoxSliceFactory]
+    """A factory for creating boxes using slice syntax.
+
+    For example::
+
+        box = Box.factory[2:5, 3:9]
+    """
 
     @classmethod
     def from_shape(cls, shape: Sequence[int], start: Sequence[int] | None = None) -> Box:
@@ -319,13 +387,8 @@ class Box:
         ----------
         shape
             Sequence of sizes, ordered ``(y, x)`` (except for `XY` instances).
-        start, optional
+        start
             Sequence of starts, ordered ``(y, x)`` (except for `XY` instances).
-
-        Returns
-        -------
-        box
-            New box.
         """
         if start is None:
             start = (0,) * len(shape)
@@ -347,22 +410,26 @@ class Box:
 
     @property
     def start(self) -> YX[int]:
-        """Tuple holding the starts of the intervals ordered ``(y, x)``."""
+        """Tuple holding the starts of the intervals ordered ``(y, x)``
+        (`YX` [`int`]).
+        """
         return YX(self.y.start, self.x.start)
 
     @property
     def shape(self) -> YX[int]:
-        """Tuple holding the sizes of the intervals ordered ``(y, x)``."""
+        """Tuple holding the sizes of the intervals ordered ``(y, x)``
+        (`YX` [`int`]).
+        """
         return YX(self.y.size, self.x.size)
 
     @property
     def x(self) -> Interval:
-        """Shortcut for the last dimension's interval."""
+        """Shortcut for the last dimension's interval (`int`)."""
         return self._intervals[-1]
 
     @property
     def y(self) -> Interval:
-        """Shortcut for the second-to-last dimension's interval."""
+        """Shortcut for the second-to-last dimension's interval (`int`)."""
         return self._intervals[-2]
 
     def __eq__(self, other: object) -> bool:
@@ -396,21 +463,22 @@ class Box:
 
         Parameters
         ----------
-        other, optional
+        other
             Another box to compare to.  Not compatible with the ``y`` and ``x``
             arguments.
-        y, optional
+        y
             One or more integer Y coordinates to test for containment.
             If an array, an array of results will be returned.
-
-        x, optional
+        x
             One or more integer X coordinates to test for containment.
             If an array, an array of results will be returned.
 
         Returns
         -------
-        contained
-            A `bool` or array of `bool`.
+        `bool` | `numpy.ndarray`
+            If ``other`` was passed or ``x`` and ``y`` are both scalars, a
+            single `bool` value.  If ``x`` and ``y`` are arrays, a boolean
+            array with their broadcasted shape.
 
         Notes
         -----
@@ -435,7 +503,7 @@ class Box:
     def intersection(self, other: Box) -> Box | None:
         """Return a box that is contained by both ``self`` and ``other``.
 
-        When there is no overlap between the box, `None` is returned.
+        When there is no overlap between the boxes, `None` is returned.
         """
         intervals = []
         for a, b in zip(self._intervals, other._intervals, strict=True):
@@ -449,9 +517,9 @@ class Box:
         return Box(*[i.dilated_by(padding) for i in self._intervals])
 
     def slice_within(self, other: Box) -> YX[slice]:
-        """Return a tuple of `slice` objects that corresponds to the values of
-        this box when the items of the container being sliced correspond to
-        ``other``.
+        """Return a `tuple` of `slice` objects that correspond to the
+        positions in this box this box when the items of the container being
+        sliced correspond to ``other``.
 
         This assumes ``other.contains(self)``.
         """
@@ -514,7 +582,7 @@ class Box:
 
     @classmethod
     def deserialize(cls, serialized: SerializableDomain) -> Box:
-        """Deserialize a domain object on the assumption it is a `Box`
+        """Deserialize a domain object on the assumption it is a `Box`.
 
         This method just returns the `Box` itself, since that already provides
         Pydantic serialization hooks.  It exists for compatibility with the
@@ -562,9 +630,11 @@ class Domain(Protocol):
     Notes
     -----
     Most objects natively have a simple 2-d bounding box as their domain
-    (typically the boundary of a sensor).  But sometimes a large chunk of that
+    (typically the boundary of a sensor), and the `Box` class is hence the
+    most common domain implementation.  But sometimes a large chunk of that
     box may be missing due to vignetting or bad amplifiers, and we may want to
-    transform from one coordinate system to another.
+    transform from one coordinate system to another.  The Domain interface is
+    intended to handle both of these cases as well.
     """
 
     def boundary(self) -> Iterator[YX[int]]:
@@ -576,6 +646,27 @@ class Domain(Protocol):
 
     @overload
     def contains(self, *, x: np.ndarray, y: np.ndarray) -> np.ndarray: ...
+
+    def contains(self, *, x: int | np.ndarray, y: int | np.ndarray) -> bool | np.ndarray:
+        """Test whether this box fully contains another or one or more points.
+
+        Parameters
+        ----------
+        x
+            One or more integer X coordinates to test for containment.
+            If an array, an array of results will be returned.
+        y
+            One or more integer Y coordinates to test for containment.
+            If an array, an array of results will be returned.
+
+        Returns
+        -------
+        `bool` | `numpy.ndarray`
+            If ``x`` and ``y`` are both scalars, a single `bool` value.  If
+            ``x`` and ``y`` are arrays, a boolean array with their broadcasted
+            shape.
+        """
+        ...
 
     def serialize(self) -> SerializableDomain:
         """Convert a domain instance into a serializable object."""

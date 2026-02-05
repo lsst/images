@@ -24,10 +24,9 @@ import astropy.io.fits
 import numpy as np
 import pydantic
 
+from .. import serialization
 from .._geom import Box, Domain, SerializableDomain
 from .._image import Image
-from ..archive import ArchiveReadError, InputArchive, OutputArchive
-from ..tables import TableModel
 from ._base import PointSpreadFunction
 
 if TYPE_CHECKING:
@@ -39,9 +38,17 @@ _LOG = getLogger(__name__)
 
 
 class PiffWrapper(PointSpreadFunction):
-    """A PSF backed by the Piff library."""
+    """A PSF model backed by the Piff library.
 
-    def __init__(self, impl: Any, domain: Domain, stamp_size: int):
+    Parameters
+    ----------
+    impl
+        The Piff PSF object to wrap.
+    domain
+        The pixel-coordinate region where the model can safely be evaluated.
+    """
+
+    def __init__(self, impl: piff.PSF, domain: Domain, stamp_size: int):
         self._impl = impl
         self._domain = domain
         self._stamp_size = stamp_size
@@ -91,16 +98,16 @@ class PiffWrapper(PointSpreadFunction):
     def from_legacy(cls, legacy_psf: Any, domain: Domain) -> PiffWrapper:
         return cls(impl=legacy_psf._piffResult, domain=domain, stamp_size=legacy_psf.width)
 
-    def serialize(self, archive: OutputArchive[Any]) -> PiffSerializationModel:
+    def serialize(self, archive: serialization.OutputArchive[Any]) -> PiffSerializationModel:
         """Serialize the PSF to an archive.
 
         This method is intended to be usable as the callback function passed to
-        `..archives.OutputArchive.serialize_direct` or
-        `..archives.OutputArchive.serialize_pointer`.
+        `.serialization.OutputArchive.serialize_direct` or
+        `.serialization.OutputArchive.serialize_pointer`.
         """
         from piff.config import LoggerWrapper
 
-        writer = ArchivePiffWriter()
+        writer = _ArchivePiffWriter()
         with self._without_stars():
             self._impl._write(writer, "piff", LoggerWrapper(_LOG))
         piff_model = writer.serialize(archive)
@@ -111,16 +118,18 @@ class PiffWrapper(PointSpreadFunction):
         )
 
     @classmethod
-    def deserialize(cls, model: PiffSerializationModel, archive: InputArchive[Any]) -> PiffWrapper:
+    def deserialize(
+        cls, model: PiffSerializationModel, archive: serialization.InputArchive[Any]
+    ) -> PiffWrapper:
         """Deserialize the PSF from an archive.
 
         This method is intended to be usable as the callback function passed to
-        `..archives.InputArchive.deserialize_pointer`.
+        `.serialization.InputArchive.deserialize_pointer`.
         """
         from piff import PSF
         from piff.config import LoggerWrapper
 
-        reader = ArchivePiffReader(model.piff, archive)
+        reader = _ArchivePiffReader(model.piff, archive)
         impl = PSF._read(reader, "piff", LoggerWrapper(_LOG))
         return cls(impl, domain=Domain.deserialize(model.domain), stamp_size=model.stamp_size)
 
@@ -136,7 +145,7 @@ class PiffWrapper(PointSpreadFunction):
         ``stars`` attribute has been deleted and serializes everything else.
 
         Unfortunately, to date, Rubin's pickle-based Piff serialization instead
-        just deleted the postage stamp image attributes from inside Piff
+        just deletes the postage stamp image attributes from inside the Piff
         ``stars`` list, which is not a state the Piff serialization code
         handles gracefully.  So for now we have to drop the full stars list
         during serialization if it is present.
@@ -150,6 +159,19 @@ class PiffWrapper(PointSpreadFunction):
                 self._impl.stars = stars
         else:
             yield
+
+
+# Conventions on public visibility of the serialization types:
+#
+# - We lift and document the outermost Pydantic model type, since that needs to
+#   be included directly in the Pydantic models of types that hold a PSF. This
+#   type needs to be very clearly documented and named as a *serialization*
+#   model, since there are many other kinds of models in play in this package.
+#
+# - We do not lift or document types used in that outermost model, but we do
+#   not give them leading underscores, since they aren't really private.
+#
+# - Other utility types do get leading underscores.
 
 
 # Piff serialization uses a lot of dictionaries and lists restricted to these
@@ -175,16 +197,16 @@ type GalSimLocalWcsModel = Annotated[GalSimPixelScaleModel, pydantic.Field(discr
 
 
 class PiffTableModel(pydantic.BaseModel):
-    """Model used to embed a reference to a binary-data table in a Piff
-    serialization's JSON-like data.
+    """Serialization model used to embed a reference to a binary-data table in
+    a Piff serialization's JSON-like data.
     """
 
     metadata: PiffDict
-    table: TableModel
+    table: serialization.TableModel
 
 
 class PiffObjectModel(pydantic.BaseModel):
-    """General-purpose model used to serialize various Piff objects."""
+    """General-purpose serialization model used for various Piff objects."""
 
     structs: dict[str, PiffDict] = pydantic.Field(default_factory=dict, exclude_if=operator.not_)
     tables: dict[str, PiffTableModel] = pydantic.Field(default_factory=dict, exclude_if=operator.not_)
@@ -193,7 +215,7 @@ class PiffObjectModel(pydantic.BaseModel):
 
 
 class PiffSerializationModel(pydantic.BaseModel):
-    """Model that represents a serialized Piff PSF."""
+    """Serialization model for a Piff PSF."""
 
     piff: PiffObjectModel = pydantic.Field(description="The Piff PSF object itself.")
 
@@ -206,9 +228,9 @@ class PiffSerializationModel(pydantic.BaseModel):
     )
 
 
-class ArchivePiffWriter:
+class _ArchivePiffWriter:
     """An adapter from the Piff serialization interface to the
-    `..archives.OutputArchive` class.
+    `.serialization.OutputArchive` class.
 
     Notes
     -----
@@ -229,7 +251,7 @@ class ArchivePiffWriter:
         self.structs: dict[str, PiffDict] = {}
         self.tables: dict[str, tuple[np.ndarray, PiffDict]] = {}
         self.wcs_models: dict[str, GalSimLocalWcsModel] = {}
-        self.writers: dict[str, ArchivePiffWriter] = {}
+        self.writers: dict[str, _ArchivePiffWriter] = {}
 
     def write_struct(self, name: str, struct: PiffDict) -> None:
         self.structs[name] = {k: self._to_builtin(v) for k, v in struct.items()}
@@ -249,21 +271,21 @@ class ArchivePiffWriter:
                 raise NotImplementedError("PSFs with complex embedded WCSs are not supported.")
 
     @contextmanager
-    def nested(self, name: str) -> Iterator[ArchivePiffWriter]:
-        nested = ArchivePiffWriter(self.get_full_name(name))
+    def nested(self, name: str) -> Iterator[_ArchivePiffWriter]:
+        nested = _ArchivePiffWriter(self.get_full_name(name))
         yield nested
         self.writers[name] = nested
 
     def get_full_name(self, name: str) -> str:
         return f"{self._base_name}/{name}"
 
-    def serialize(self, archive: OutputArchive[Any]) -> PiffObjectModel:
+    def serialize(self, archive: serialization.OutputArchive[Any]) -> PiffObjectModel:
         """Serialize to an archive.
 
         This method is intended to be used as the callable passed to
-        `..archives.OutputArchive.serialize_direct` and
-        `..archives.OutputArchive.serialize_pointer`, after first passing this
-        writer to a Piff object's ``write`` or ``_write`` method.
+        `.serialization.OutputArchive.serialize_direct` and
+        `.serialization.OutputArchive.serialize_pointer`, after first passing
+        this writer to a Piff object's ``write`` or ``_write`` method.
         """
         model = PiffObjectModel()
         for name, struct in self.structs.items():
@@ -293,14 +315,16 @@ class ArchivePiffWriter:
         return val
 
 
-class ArchivePiffReader:
+class _ArchivePiffReader:
     """An adapter from the Piff serialization interface to the
-    `..archives.InputArchive` class.
+    `.serialization.InputArchive` class.
 
     See `ArchivePiffWriter` for additional notes.
     """
 
-    def __init__(self, object_model: PiffObjectModel, archive: InputArchive[Any], base_name: str = ""):
+    def __init__(
+        self, object_model: PiffObjectModel, archive: serialization.InputArchive[Any], base_name: str = ""
+    ):
         self._model = object_model
         self._archive = archive
         self._base_name = base_name
@@ -329,14 +353,14 @@ class ArchivePiffReader:
             case None:
                 return None, None
             case unexpected:
-                raise ArchiveReadError(
+                raise serialization.ArchiveReadError(
                     f"{self.get_full_name(name)} should be a WCS or WCS map, not {unexpected!r}."
                 )
 
     @contextmanager
-    def nested(self, name: str) -> Iterator[ArchivePiffReader]:
+    def nested(self, name: str) -> Iterator[_ArchivePiffReader]:
         nested_model = self._model.objects[name]
-        yield ArchivePiffReader(nested_model, self._archive, self.get_full_name(name))
+        yield _ArchivePiffReader(nested_model, self._archive, self.get_full_name(name))
 
     def get_full_name(self, name: str) -> str:
         return f"{self._base_name}/{name}"

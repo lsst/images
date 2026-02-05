@@ -11,18 +11,86 @@
 
 from __future__ import annotations
 
-__all__ = ("PSFExWrapper",)
+__all__ = ("LegacyPointSpreadFunction", "PSFExSerializationModel", "PSFExWrapper")
 
+from functools import cached_property
 from typing import Any
 
 import numpy as np
 import pydantic
 
-from .._geom import Domain, SerializableDomain
-from ..archive import InputArchive, OutputArchive
-from ..asdf_utils import InlineArray
-from ..tables import TableModel
-from .legacy import LegacyPointSpreadFunction
+from .. import serialization
+from .._geom import Box, Domain, SerializableDomain
+from .._image import Image
+from ._base import PointSpreadFunction
+
+
+class LegacyPointSpreadFunction(PointSpreadFunction):
+    """A PSF model backed by a legacy `lsst.afw.detection.Psf` object.
+
+    Parameters
+    ----------
+    impl
+        An `lsst.afw.detection.Psf` instance.
+    domain
+        The pixel-coordinate region where the model can safely be evaluated.
+
+    Notes
+    -----
+    This wrapper is usable as-is on any `lsst.afw.detection.Psf` instance,
+    but subclasses (e.g. `PSFExWrapper`) must be used for serialization.
+    """
+
+    def __init__(self, impl: Any, domain: Domain):
+        self._impl = impl
+        self._domain = domain
+
+    @property
+    def domain(self) -> Domain:
+        return self._domain
+
+    @cached_property
+    def kernel_bbox(self) -> Box:
+        from lsst.geom import Box2I, Point2D
+
+        biggest = Box2I()
+        for y, x in self._domain.boundary():
+            biggest.include(self._impl.computeKernelBBox(Point2D(x, y)))
+        return Box.from_legacy(biggest)
+
+    def compute_kernel_image(self, *, x: float, y: float) -> Image:
+        from lsst.geom import Point2D
+
+        result = Image.from_legacy(self._impl.computeKernelImage(Point2D(x, y)))
+        if result.bbox != self.kernel_bbox:
+            # afw does not guarantee a consistent kernel_bbox, but we do now.
+            padded = Image(0.0, bbox=self.kernel_bbox, dtype=np.float64)
+            padded[self.kernel_bbox] = result[self.kernel_bbox]
+            result = padded
+        return result
+
+    def compute_stellar_image(self, *, x: float, y: float) -> Image:
+        from lsst.geom import Point2D
+
+        return Image.from_legacy(self._impl.computeImage(Point2D(x, y)))
+
+    def compute_stellar_bbox(self, *, x: float, y: float) -> Box:
+        from lsst.geom import Point2D
+
+        return Box.from_legacy(self._impl.computeImageBBox(Point2D(x, y)))
+
+    @property
+    def legacy_psf(self) -> Any:
+        """The backing `lsst.afw.detection.Psf` object."""
+        return self._impl
+
+    @classmethod
+    def from_legacy(cls, legacy_psf: Any, domain: Domain) -> LegacyPointSpreadFunction:
+        from lsst.meas.extensions.psfex import PsfexPsf
+
+        if isinstance(legacy_psf, PsfexPsf):
+            return PSFExWrapper(legacy_psf, domain)
+        return cls(impl=legacy_psf, domain=domain)
 
 
 class PSFExWrapper(LegacyPointSpreadFunction):
@@ -35,12 +103,12 @@ class PSFExWrapper(LegacyPointSpreadFunction):
             raise TypeError(f"{impl!r} is not a PSFEx object.")
         super().__init__(impl, domain)
 
-    def serialize(self, archive: OutputArchive[Any]) -> PSFExSerializationModel:
+    def serialize(self, archive: serialization.OutputArchive[Any]) -> PSFExSerializationModel:
         """Serialize the PSF to an archive.
 
         This method is intended to be usable as the callback function passed to
-        `..archives.OutputArchive.serialize_direct` or
-        `..archives.OutputArchive.serialize_pointer`.
+        `.serialization.OutputArchive.serialize_direct` or
+        `.serialization.OutputArchive.serialize_pointer`.
         """
         data = self._impl.getSerializationData()
         shape = tuple(reversed(data.size))
@@ -62,11 +130,13 @@ class PSFExWrapper(LegacyPointSpreadFunction):
         )
 
     @classmethod
-    def deserialize(cls, model: PSFExSerializationModel, archive: InputArchive[Any]) -> PSFExWrapper:
+    def deserialize(
+        cls, model: PSFExSerializationModel, archive: serialization.InputArchive[Any]
+    ) -> PSFExWrapper:
         """Deserialize the PSF from an archive.
 
         This method is intended to be usable as the callback function passed to
-        `..archives.InputArchive.deserialize_pointer`.
+        `.serialization.InputArchive.deserialize_pointer`.
         """
         from lsst.meas.extensions.psfex import PsfexPsf, PsfexPsfSerializationData
 
@@ -88,7 +158,7 @@ class PSFExWrapper(LegacyPointSpreadFunction):
 
 
 class PSFExSerializationModel(pydantic.BaseModel):
-    """Model used for serializing PSFEx PSF models."""
+    """Serialization model for PSFEx PSFs."""
 
     average_x: float = pydantic.Field(
         description="Average X position of the stars used to build this PSF model."
@@ -114,10 +184,10 @@ class PSFExSerializationModel(pydantic.BaseModel):
 
     coeff: list[float] = pydantic.Field(description="Polynomial coefficients.")
 
-    parameters: TableModel = pydantic.Field(
+    parameters: serialization.TableModel = pydantic.Field(
         description="Reference to a table with the complete model parameters."
     )
 
-    context: InlineArray = pydantic.Field(description="Internal PSFEx context array.")
+    context: serialization.InlineArray = pydantic.Field(description="Internal PSFEx context array.")
 
     domain: SerializableDomain = pydantic.Field(description="Validity range for this PSF model.")

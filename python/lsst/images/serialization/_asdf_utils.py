@@ -9,10 +9,6 @@
 # Use of this source code is governed by a 3-clause BSD-style
 # license that can be found in the LICENSE file.
 
-"""Pydantic models, validators, and serialization for components of the ASDF
-schema that are used in this package.
-"""
-
 from __future__ import annotations
 
 __all__ = (
@@ -160,12 +156,10 @@ class _InlineArraySerialization:
 type InlineArray = Annotated[np.ndarray, _InlineArraySerialization]
 
 
-class _GenericQuantityModel[T: InlineArrayModel | ArrayReferenceModel | pydantic.StrictFloat](
-    pydantic.BaseModel
-):
-    """Model for a subset of the ASDF 'quantity' schema."""
+class QuantityModel(pydantic.BaseModel):
+    """Model for a subset of the ASDF 'quantity' schema for scalars."""
 
-    value: T
+    value: pydantic.StrictFloat
     unit: Unit
 
     model_config = pydantic.ConfigDict(
@@ -177,16 +171,34 @@ class _GenericQuantityModel[T: InlineArrayModel | ArrayReferenceModel | pydantic
     )
 
 
-class QuantityModel(_GenericQuantityModel[pydantic.StrictFloat]):
-    """Model for a subset of the ASDF 'quantity' schema for scalars."""
-
-
-class InlineArrayQuantityModel(_GenericQuantityModel[InlineArrayModel]):
+class InlineArrayQuantityModel(pydantic.BaseModel):
     """Model for a subset of the ASDF 'quantity' schema for inline arrays."""
 
+    value: InlineArrayModel
+    unit: Unit
 
-class ArrayReferenceQuantityModel(_GenericQuantityModel[ArrayReferenceModel]):
+    model_config = pydantic.ConfigDict(
+        json_schema_extra={
+            "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+            "id": "http://stsci.edu/schemas/asdf/unit/quantity-1.2.0",
+            "tag": "!unit/quantity-1.2.0",
+        }
+    )
+
+
+class ArrayReferenceQuantityModel(pydantic.BaseModel):
     """Model for a subset of the ASDF 'quantity' schema for external arrays."""
+
+    value: ArrayReferenceModel
+    unit: Unit
+
+    model_config = pydantic.ConfigDict(
+        json_schema_extra={
+            "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+            "id": "http://stsci.edu/schemas/asdf/unit/quantity-1.2.0",
+            "tag": "!unit/quantity-1.2.0",
+        }
+    )
 
 
 class _QuantitySerialization:

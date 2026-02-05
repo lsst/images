@@ -48,7 +48,7 @@ class PointSpreadFunction(ABC):
 
         Returns
         -------
-        image
+        Image
             An image of the PSF, centered on the center of the center pixel,
             which is defined to be ``(0, 0)`` by the image's origin.
         """
@@ -68,7 +68,7 @@ class PointSpreadFunction(ABC):
 
         Returns
         -------
-        image
+        Image
             An image of the PSF, centered on the given coordinates, just like
             the postage stamp of a star would be.
         """
@@ -88,7 +88,7 @@ class PointSpreadFunction(ABC):
 
         Returns
         -------
-        bbox
+        Box
             The bounding box of the image that would be returned by
             `compute_stellar_image` at the given point.
         """
@@ -98,8 +98,8 @@ class PointSpreadFunction(ABC):
     def from_legacy(cls, legacy_psf: Any, domain: Domain) -> PointSpreadFunction:
         """Make a PSF object from a legacy `lsst.afw.detection.Psf` instance.
 
-        Parameter
-        ---------
+        Parameters
+        ----------
         legacy_psf
             Legacy PSF object.
         domain
@@ -107,13 +107,13 @@ class PointSpreadFunction(ABC):
 
         Returns
         -------
-        psf
+        PointSpreadFunction
             A `PointSpreadFunction` instance.
 
         Notes
         -----
         This base class method is a factory dispatch function that
-        automatically selects right right `PointSpreadFunction` subclass to
+        automatically selects the right `PointSpreadFunction` subclass to
         use.  When that is already known, a subclass `from_legacy` method can
         be called instead.
         """
@@ -122,11 +122,11 @@ class PointSpreadFunction(ABC):
 
         match legacy_psf:
             case PiffPsf():
-                from .piff import PiffWrapper
+                from ._piff import PiffWrapper
 
                 return PiffWrapper.from_legacy(legacy_psf, domain)
             case Psf():
-                from .legacy import LegacyPointSpreadFunction
+                from ._legacy import LegacyPointSpreadFunction
 
                 return LegacyPointSpreadFunction.from_legacy(legacy_psf, domain)
             case _:

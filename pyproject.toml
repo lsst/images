@@ -29,8 +29,11 @@ dependencies = [
     "lsst-resources",
 ]
 dynamic = ["version"]
+
 [project.urls]
 "Homepage" = "https://github.com/lsst/images"
+"Source" = "https://github.com/lsst/images"
+
 [project.optional-dependencies]
 test = [
     "pytest >= 3.2",

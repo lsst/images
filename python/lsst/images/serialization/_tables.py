@@ -26,8 +26,8 @@ import numpy as np
 import numpy.typing as npt
 import pydantic
 
+from ._asdf_utils import Unit
 from ._dtypes import NumberType
-from .asdf_utils import Unit
 
 if TYPE_CHECKING:
     import astropy.table
@@ -71,11 +71,6 @@ class ColumnDefinitionModel(pydantic.BaseModel):
         ----------
         dtype
             Object convertible to `numpy.dtype`.
-
-        Returns
-        -------
-        columns
-            A `list` of `ColumnDefinitionModel` objects.
         """
         dtype = np.dtype(dtype)
         result: list[ColumnDefinitionModel] = []

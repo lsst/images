@@ -19,9 +19,8 @@ import astropy.io.fits
 import astropy.units as u
 import numpy as np
 
-from lsst.images import Box, Image, MaskPlane, MaskSchema
+from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
 from lsst.images.fits import FitsCompressionOptions
-from lsst.images.masked_image import MaskedImage
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 

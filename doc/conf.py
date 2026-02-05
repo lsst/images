@@ -1,13 +1,14 @@
 """Sphinx configuration file for an LSST stack package.
 
-This configuration only affects single-package Sphinx documentation builds.
-For more information, see:
-https://developer.lsst.io/stack/building-single-package-docs.html
+This configuration only affects single-package Sphinx documenation builds.
 """
+# ruff: noqa: F403, F405
 
-from documenteer.conf.pipelinespkg import *  # noqa: F403
+from documenteer.conf.guide import *
 
-project = "images"
-html_theme_options["logotext"] = project  # noqa: F405
-html_title = project
-html_short_title = project
+exclude_patterns.append("changes/*")
+
+autodoc_pydantic_model_show_config_summary = False
+autodoc_pydantic_settings_show_config_summary = False
+autodoc_pydantic_settings_show_json = False
+autodoc_pydantic_model_show_json = False

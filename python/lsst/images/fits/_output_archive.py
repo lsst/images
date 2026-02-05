@@ -24,18 +24,26 @@ import numpy as np
 import pydantic
 
 from .._coordinate_transform import CoordinateTransform
-from .._dtypes import NumberType
-from .._image import Image, ImageModel
-from .._mask import Mask, MaskModel
-from ..archive import NestedOutputArchive, OutputArchive, no_header_updates
-from ..asdf_utils import ArrayReferenceModel
-from ..tables import ColumnDefinitionModel, TableCellReferenceModel, TableModel
+from .._image import Image
+from .._mask import Mask
+from ..serialization import (
+    ArrayReferenceModel,
+    ColumnDefinitionModel,
+    ImageModel,
+    MaskModel,
+    NestedOutputArchive,
+    NumberType,
+    OutputArchive,
+    TableCellReferenceModel,
+    TableModel,
+    no_header_updates,
+)
 from ._common import ExtensionHDU, FitsCompressionOptions, FitsOpaqueMetadata
 
 
 class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
-    """An implementation of the `OutputArchive` interface that writes to FITS
-    files.
+    """An implementation of the `.serialization.OutputArchive` interface that
+    writes to FITS files.
 
     Instances of this class should only be constructed via the `open`
     context manager.
@@ -82,17 +90,17 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         ----------
         filename
             Name of the file to write to.  Must not already exist.
-        compression_options, optional
+        compression_options
             Options for how to compress the FITS file, keyed by the name of
             the attribute (with JSON pointer ``/`` separators for nested
             attributes).
-        opaque_metadata, optional
+        opaque_metadata
             Metadata read from an input archive along with the object being
             written now.  Ignored if the metadata is not from a FITS archive.
 
         Returns
         -------
-        context
+        `contextlib.AbstractContextManager` [`FitsOutputArchive`]
             A context manager that returns a `FitsOutputArchive` when entered.
         """
         with astropy.io.fits.open(filename, mode="append") as hdu_list:
