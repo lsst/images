@@ -23,7 +23,6 @@ import astropy.units
 import numpy as np
 import pydantic
 
-from .._coordinate_transform import CoordinateTransform
 from .._geom import Box
 from .._image import Image
 from .._mask import Mask
@@ -51,34 +50,6 @@ class InputArchive[P: pydantic.BaseModel](ABC):
     archive implementations will provide a method to load the paired model from
     a file, but this is not part of the base class interface.
     """
-
-    @abstractmethod
-    def get_coordinate_transform(self, from_frame: str, to_frame: str = "sky") -> CoordinateTransform:
-        """Return the coordinate transform that maps the two given frames.
-
-        Parameters
-        ----------
-        from_frame
-            Frame for coordinates passed into the transform.
-        to_frame
-            Frame for coordinates returned by the transform.
-
-        Returns
-        -------
-        CoordinateTransform
-            Coordinate transform
-
-        Notes
-        -----
-        Implementations are expected to cache returned values, and may need to
-        assemble composite transforms from serialized individual transforms as
-        well, depending on how composite transforms are saved by the
-        corresponding output archive.
-        """
-        raise NotImplementedError()
-
-    # TODO: we probably need a way to get a coordinate transform from a P model
-    # pointer, too.
 
     @abstractmethod
     def deserialize_pointer[U: pydantic.BaseModel, V](

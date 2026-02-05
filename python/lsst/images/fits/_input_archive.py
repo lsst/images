@@ -31,7 +31,6 @@ import pydantic
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
-from .._coordinate_transform import CoordinateTransform
 from .._geom import Box
 from .._image import Image
 from .._mask import Mask, MaskSchema
@@ -148,10 +147,6 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         """
         json_bytes = self._readers["JSON"].data[0]["JSON"].tobytes()
         return model_type.model_validate_json(json_bytes)
-
-    def get_coordinate_transform(self, from_frame: str, to_frame: str = "sky") -> CoordinateTransform:
-        # Docstring inherited.
-        raise NotImplementedError("TODO")
 
     def deserialize_pointer[U: pydantic.BaseModel, V](
         self,

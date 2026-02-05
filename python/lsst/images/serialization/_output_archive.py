@@ -17,7 +17,7 @@ __all__ = (
 )
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Hashable, Iterable, Mapping
+from collections.abc import Callable, Hashable, Mapping
 from typing import TypeVar
 
 import astropy.io.fits
@@ -26,7 +26,6 @@ import astropy.units
 import numpy as np
 import pydantic
 
-from .._coordinate_transform import CoordinateTransform
 from .._image import Image
 from .._mask import Mask
 from ._common import no_header_updates
@@ -55,32 +54,6 @@ class OutputArchive[P](ABC):
     sort of finalization method in order to write it into the file, but this is
     not part of the base class interface.
     """
-
-    @abstractmethod
-    def add_coordinate_transform(
-        self, transform: CoordinateTransform, from_frame: str, to_frame: str = "sky"
-    ) -> P:
-        """Add a coordinate transform between two frames to the archive.
-
-        Parameters
-        ----------
-        transform
-            Mapping between the frames.
-        from_frame
-            Frame for the input coordinates to the transform.
-        to_frame
-            Frame for the output coordinates returned by the transform.
-
-        Returns
-        -------
-        P
-            Pointer to the serialized coordinate transform.
-        """
-        # This interface assumes coordinate transforms are stored in in
-        # JSON/YAML somewhere outside the user-controlled tree (i.e. a
-        # centralized sibling tree controlled by the archive).  We can adjust
-        # it as needed for consistency with ASDF/gwcs conventions.
-        raise NotImplementedError()
 
     @abstractmethod
     def serialize_direct[T: pydantic.BaseModel](
@@ -157,8 +130,6 @@ class OutputArchive[P](ABC):
         name: str,
         image: Image,
         *,
-        pixel_frame: str | None = None,
-        wcs_frames: Iterable[str] = (),
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> ImageModel:
         """Add an image to the archive.
@@ -172,13 +143,6 @@ class OutputArchive[P](ABC):
             Pydantic model) to the location where it will be added.
         image
             Image to save.
-        pixel_frame
-            String identifying the frame of this image's pixels.
-        wcs_frames
-            Strings identifying additional frames whose transforms to
-            ``pixel_frame`` should be saved along with the image (for archive
-            formats such as FITS that associate coordinate transforms with
-            images).  The special ``sky`` frame is included implicitly.
         update_header
             A callback that will be given the FITS header for the HDU
             containing this image in order to add keys to it.  This call back
@@ -191,20 +155,7 @@ class OutputArchive[P](ABC):
             A Pydantic model that represents the image, including its bounding
             box, units (if any), and array data (via a reference to binary data
             stored elsewhere by the archive).
-
-        Notes
-        -----
-        Frames and coordinate transforms may be ignored by archive
-        implementations that do not have a standard way of associating them
-        with individual images.  Images should generally be associated with
-        frames and coordinate transforms manually in the paired Pydantic model
-        as well, in a user-defined way.
         """
-        # TODO: this method needs some way for the user to export FITS header
-        # keys, which would be ignored for non-FITS archives; the goal is to
-        # support writing standard FITS headers that belong with an image HDU
-        # (rather than the primary HDU) while still letting the paired Pydantic
-        # tree hold the same information (and for that to be all we read).
         raise NotImplementedError()
 
     @abstractmethod
@@ -213,8 +164,6 @@ class OutputArchive[P](ABC):
         name: str,
         mask: Mask,
         *,
-        pixel_frame: str | None = None,
-        wcs_frames: Iterable[str] = (),
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> MaskModel:
         """Add a mask to the archive.
@@ -228,13 +177,6 @@ class OutputArchive[P](ABC):
             Pydantic model) to the location where it will be added.
         mask
             Mask to save.
-        pixel_frame
-            String identifying the frame of this image's pixels.
-        wcs_frames
-            Strings identifying additional frames whose transforms to
-            ``pixel_frame`` should be saved along with the image (for archive
-            formats such as FITS that associate coordinate transforms with
-            images).  The special ``sky`` frame is included implicitly.
         update_header
             A callback that will be given the FITS header for the HDU
             containing this mask in order to add keys to it.  This call back
@@ -256,10 +198,6 @@ class OutputArchive[P](ABC):
         frames and coordinate transforms manually in the paired Pydantic model
         as well, in a user-defined way.
         """
-        # TODO: this method needs FITS header export support (see comment on
-        # add_image).
-        # TODO: we should have a way of saving a mask schema once per file even
-        # if there are multiple masks that use it.
         raise NotImplementedError()
 
     @abstractmethod
@@ -374,11 +312,6 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         self._root = root
         self._parent = parent
 
-    def add_coordinate_transform(
-        self, transform: CoordinateTransform, from_frame: str, to_frame: str = "sky"
-    ) -> P:
-        return self._parent.add_coordinate_transform(transform, from_frame, to_frame)
-
     def serialize_direct[T: pydantic.BaseModel](
         self, name: str, serializer: Callable[[OutputArchive[P]], T]
     ) -> T:
@@ -394,26 +327,18 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         name: str,
         image: Image,
         *,
-        pixel_frame: str | None = None,
-        wcs_frames: Iterable[str] = (),
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> ImageModel:
-        return self._parent.add_image(
-            self._join_path(name), image, pixel_frame=pixel_frame, update_header=update_header
-        )
+        return self._parent.add_image(self._join_path(name), image, update_header=update_header)
 
     def add_mask(
         self,
         name: str,
         mask: Mask,
         *,
-        pixel_frame: str | None = None,
-        wcs_frames: Iterable[str] = (),
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> MaskModel:
-        return self._parent.add_mask(
-            self._join_path(name), mask, pixel_frame=pixel_frame, update_header=update_header
-        )
+        return self._parent.add_mask(self._join_path(name), mask, update_header=update_header)
 
     def add_table(
         self,

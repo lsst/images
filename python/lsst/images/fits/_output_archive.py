@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("FitsOutputArchive",)
 
 import dataclasses
-from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Hashable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, Self
 
@@ -23,7 +23,6 @@ import astropy.table
 import numpy as np
 import pydantic
 
-from .._coordinate_transform import CoordinateTransform
 from .._image import Image
 from .._mask import Mask
 from ..serialization import (
@@ -132,11 +131,6 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         with open(filename, "r+b") as stream:
             stream.write(archive._primary_hdu.header.tostring().encode())
 
-    def add_coordinate_transform(
-        self, transform: CoordinateTransform, from_frame: str, to_frame: str = "sky"
-    ) -> TableCellReferenceModel:
-        raise NotImplementedError("TODO")
-
     def serialize_direct[T: pydantic.BaseModel](
         self, name: str, serializer: Callable[[OutputArchive[TableCellReferenceModel]], T]
     ) -> T:
@@ -161,8 +155,6 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         name: str,
         image: Image,
         *,
-        pixel_frame: str | None = None,
-        wcs_frames: Iterable[str] = (),
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> ImageModel:
         extname = name.upper()
@@ -174,11 +166,9 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
                 hdu = astropy.io.fits.ImageHDU(image.array, name=extname)
         if image.unit:
             hdu.header["BUNIT"] = image.unit.to_string(format="fits")
-        # TODO: add a default WCS from pixel_frame to 'sky', if pixel_frame
-        # is provided and 'sky' is known to the archive; use the 'A'-suffix
-        # WCS to transform from 1-indexed FITS to the image's bounding box
-        # (or the default WCS otherwise); use B-Z for mappings from
-        # pixel_frame to each entry in wcs_frames.
+        # TODO: use the 'A'-suffix WCS to transform from 1-indexed FITS to the
+        # image's bounding box (or the default WCS otherwise); use B-Z for
+        # mappings from pixel_frame to each entry in wcs_frames.
         update_header(hdu.header)
         if (opaque_headers := self._opaque_metadata.headers.get(extname)) is not None:
             hdu.header.extend(opaque_headers)
@@ -195,8 +185,6 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         name: str,
         mask: Mask,
         *,
-        pixel_frame: str | None = None,
-        wcs_frames: Iterable[str] = (),
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> MaskModel:
         extname = name.upper()
@@ -206,11 +194,10 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
                 hdu = compression_options.make_hdu(mask.array, name=extname)
             else:
                 hdu = astropy.io.fits.ImageHDU(mask.array, name=extname)
-        # TODO: add a default WCS from pixel_frame to 'sky', if pixel_frame
-        # is provided and 'sky' is known to the archive; use the 'A'-suffix
-        # WCS to transform from 1-indexed FITS to the image's bounding box
-        # (or the default WCS otherwise); use B-Z for mappings from
-        # pixel_frame to each entry in wcs_frames.
+        # TODO: use the 'A'-suffix WCS to transform from 1-indexed FITS to the
+        # image's bounding box (or the default WCS otherwise); use B-Z for
+        # mappings from pixel_frame to each entry in wcs_frames.
+        #
         # TODO: write mask schema to FITS header.
         update_header(hdu.header)
         if (opaque_headers := self._opaque_metadata.headers.get(extname)) is not None:
