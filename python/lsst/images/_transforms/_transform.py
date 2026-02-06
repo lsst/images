@@ -61,6 +61,10 @@ class Transform[I: Frame, O: Frame]:
 
     When applied to celestial coordinate systems, ``x=ra`` and ``y=dec``.
     `Projection` provides a more natural interface for pixel-to-sky transforms.
+
+    `Transform` is conceptually immutable (the internal AST Mapping should
+    never be modified in-place after construction), and hence does not need to
+    be copied when any object that holds it is copied.
     """
 
     def __init__(

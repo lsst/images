@@ -47,6 +47,12 @@ class Projection[F: Frame]:
         `~Transform.as_fits_wcs` method that does not return `None`.  This
         should not be provided if ``pixel_to_sky`` is itself representable
         as a FITS WCS.
+
+    Notes
+    -----
+    `Transform` is conceptually immutable (the internal AST Mapping should
+    never be modified in-place after construction), and hence does not need to
+    be copied when any object that holds it is copied.
     """
 
     def __init__(
