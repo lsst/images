@@ -21,6 +21,7 @@ import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import cached_property
+from types import EllipsisType
 from typing import IO, Any, Self
 
 import astropy.io.fits
@@ -31,15 +32,10 @@ import pydantic
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
-from .._geom import Box
-from .._image import Image
-from .._mask import Mask, MaskSchema
 from .._transforms import FrameSet
 from ..serialization import (
     ArrayReferenceModel,
-    ImageModel,
     InputArchive,
-    MaskModel,
     TableCellReferenceModel,
     TableModel,
     no_header_updates,
@@ -48,7 +44,6 @@ from ._common import (
     ExtensionHDU,
     FitsOpaqueMetadata,
     InvalidFitsArchiveError,
-    strip_wcs_cards,
 )
 
 
@@ -181,52 +176,23 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
             raise InvalidFitsArchiveError(f"Expected a FrameSet instance at {ref.model_dump_json(indent=2)}.")
         return result
 
-    def get_image(
+    def get_array(
         self,
-        ref: ImageModel,
+        ref: ArrayReferenceModel,
         *,
-        bbox: Box | None = None,
+        slices: tuple[slice, ...] | EllipsisType = ...,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> Image:
-        # Docstring inherited.
-        array_model, unit = ref.unpack()
-        name, reader = self._get_source_reader(array_model)
-        if bbox is not None:
-            array = reader.section[bbox.slice_within(ref.bbox)]
+    ) -> np.ndarray:
+        name, reader = self._get_source_reader(ref)
+        if slices is not ...:
+            array = reader.section[slices]
         else:
             array = reader.data
-            bbox = ref.bbox
         if name not in self._opaque_metadata.headers:
             opaque_header = reader.header.copy(strip=True)
-            if unit is not None:
-                opaque_header.pop("BUINT", None)
-            strip_wcs_cards(opaque_header)
             strip_header(opaque_header)
             self._opaque_metadata.headers[name] = opaque_header
-        return Image(array, bbox=bbox, unit=unit)
-
-    def get_mask(
-        self,
-        ref: MaskModel,
-        *,
-        bbox: Box | None = None,
-        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> Mask:
-        # Docstring inherited.
-        name, reader = self._get_source_reader(ref.data)
-        if bbox is not None:
-            array = reader.section[bbox.slice_within(ref.bbox) + (slice(None),)]
-        else:
-            array = reader.data
-            bbox = ref.bbox
-        schema = MaskSchema(ref.planes, dtype=array.dtype)
-        if name not in self._opaque_metadata.headers:
-            opaque_header = reader.header.copy(strip=True)
-            # TODO: strip mask plane information from headers.
-            strip_wcs_cards(opaque_header)
-            strip_header(opaque_header)
-            self._opaque_metadata.headers[name] = opaque_header
-        return Mask(array, schema=schema, bbox=bbox)
+        return array
 
     def get_table(
         self,

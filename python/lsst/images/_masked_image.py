@@ -23,8 +23,8 @@ import pydantic
 from lsst.resources import ResourcePathExpression
 
 from ._geom import Box
-from ._image import Image
-from ._mask import Mask, MaskSchema
+from ._image import Image, ImageSerializationModel
+from ._mask import Mask, MaskSchema, MaskSerializationModel
 from .fits import (
     ExtensionHDU,
     FitsCompressionOptions,
@@ -34,7 +34,7 @@ from .fits import (
     PrecompressedImage,
     strip_wcs_cards,
 )
-from .serialization import ImageModel, InputArchive, MaskModel, OpaqueArchiveMetadata, OutputArchive
+from .serialization import InputArchive, OpaqueArchiveMetadata, OutputArchive
 
 
 class MaskedImage:
@@ -168,9 +168,9 @@ class MaskedImage:
         masked image from the archive, as it does not assume that the masked
         image is the top-level entry in the archive.
         """
-        image_model = archive.add_image("image", self.image)
-        mask_model = archive.add_mask("mask", self.mask)
-        variance_model = archive.add_image("variance", self.variance)
+        image_model = archive.serialize_direct("image", self.image.serialize)
+        mask_model = archive.serialize_direct("mask", self.mask.serialize)
+        variance_model = archive.serialize_direct("variance", self.variance.serialize)
         return MaskedImageSerializationModel(image=image_model, mask=mask_model, variance=variance_model)
 
     @classmethod
@@ -201,9 +201,9 @@ class MaskedImage:
         the archive, as it does not assume that the masked image is the
         top-level entry in the archive.
         """
-        image = archive.get_image(model.image, bbox=bbox)
-        mask = archive.get_mask(model.mask, bbox=bbox)
-        variance = archive.get_image(model.variance, bbox=bbox)
+        image = Image.deserialize(model.image, archive, bbox=bbox)
+        mask = Mask.deserialize(model.mask, archive, bbox=bbox)
+        variance = Image.deserialize(model.variance, archive, bbox=bbox)
         return MaskedImage(image, mask=mask, variance=variance)
 
     def write_fits(
@@ -321,6 +321,6 @@ class MaskedImage:
 class MaskedImageSerializationModel(pydantic.BaseModel):
     """A Pydantic model used to represent a serialized `MaskedImage`."""
 
-    image: ImageModel
-    mask: MaskModel
-    variance: ImageModel
+    image: ImageSerializationModel
+    mask: MaskSerializationModel
+    variance: ImageSerializationModel

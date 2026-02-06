@@ -23,14 +23,10 @@ import astropy.table
 import numpy as np
 import pydantic
 
-from .._image import Image
-from .._mask import Mask
 from .._transforms import FrameSet
 from ..serialization import (
     ArrayReferenceModel,
     ColumnDefinitionModel,
-    ImageModel,
-    MaskModel,
     NestedOutputArchive,
     NumberType,
     OutputArchive,
@@ -163,93 +159,59 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
     def iter_frame_sets(self) -> Iterator[tuple[FrameSet, TableCellReferenceModel]]:
         return iter(self._frame_sets)
 
-    def add_image(
+    def add_array(
         self,
-        name: str,
-        image: Image,
+        array: np.ndarray,
         *,
+        name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> ImageModel:
+    ) -> ArrayReferenceModel:
+        if name is None:
+            raise RuntimeError("Cannot save array with name=None unless it is nested.")
         extname = name.upper()
         hdu = self._opaque_metadata.maybe_use_precompressed(extname)
         if hdu is None:
             if (compression_options := self._get_compression_options(name)) is not None:
-                hdu = compression_options.make_hdu(image.array, name=extname)
+                hdu = compression_options.make_hdu(array, name=extname)
             else:
-                hdu = astropy.io.fits.ImageHDU(image.array, name=extname)
-        if image.unit:
-            hdu.header["BUNIT"] = image.unit.to_string(format="fits")
-        # TODO: use the 'A'-suffix WCS to transform from 1-indexed FITS to the
-        # image's bounding box (or the default WCS otherwise); use B-Z for
-        # mappings from pixel_frame to each entry in wcs_frames.
-        update_header(hdu.header)
-        if (opaque_headers := self._opaque_metadata.headers.get(extname)) is not None:
-            hdu.header.extend(opaque_headers)
-        array_model = ArrayReferenceModel(
-            source=f"fits:{name.upper()}",
-            shape=list(image.array.shape),
-            datatype=NumberType.from_numpy(image.array.dtype),
-        )
-        self._hdu_list.append(hdu)
-        return ImageModel.pack(array_model, start=list(image.bbox.start), unit=image.unit)
-
-    def add_mask(
-        self,
-        name: str,
-        mask: Mask,
-        *,
-        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> MaskModel:
-        extname = name.upper()
-        hdu = self._opaque_metadata.maybe_use_precompressed(extname)
-        if hdu is None:
-            if (compression_options := self._get_compression_options(name)) is not None:
-                hdu = compression_options.make_hdu(mask.array, name=extname)
-            else:
-                hdu = astropy.io.fits.ImageHDU(mask.array, name=extname)
-        # TODO: use the 'A'-suffix WCS to transform from 1-indexed FITS to the
-        # image's bounding box (or the default WCS otherwise); use B-Z for
-        # mappings from pixel_frame to each entry in wcs_frames.
-        #
-        # TODO: write mask schema to FITS header.
-        update_header(hdu.header)
-        if (opaque_headers := self._opaque_metadata.headers.get(extname)) is not None:
-            hdu.header.extend(opaque_headers)
+                hdu = astropy.io.fits.ImageHDU(array, name=extname)
         array_model = ArrayReferenceModel(
             source=f"fits:{extname}",
-            shape=list(mask.array.shape),
-            datatype=NumberType.from_numpy(mask.array.dtype),
+            shape=list(array.shape),
+            datatype=NumberType.from_numpy(array.dtype),
         )
-        self._hdu_list.append(hdu)
-        return MaskModel(
-            data=array_model,
-            start=list(mask.bbox.start),
-            planes=list(mask.schema),
-        )
+        self._add_hdu(hdu, update_header)
+        return array_model
 
     def add_table(
         self,
-        name: str,
         table: astropy.table.Table,
         *,
+        name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> TableModel:
+        if name is None:
+            raise RuntimeError("Cannot save table with name=None unless it is nested.")
         extname = name.upper()
         hdu: astropy.io.fits.BinTableHDU = astropy.io.fits.table_to_hdu(table, name=extname)
         columns = ColumnDefinitionModel.from_record_dtype(hdu.data.dtype)
         for c in columns:
             c.update_from_table(table)
-        return self._add_bintable_hdu(hdu, columns, update_header)
+        table_model = TableModel(source=f"fits:{extname}", columns=columns)
+        self._add_hdu(hdu, update_header)
+        return table_model
 
     def add_structured_array(
         self,
-        name: str,
         array: np.ndarray,
         *,
+        name: str | None = None,
         units: Mapping[str, astropy.units.Unit] | None = None,
         descriptions: Mapping[str, str] | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> TableModel:
+        if name is None:
+            raise RuntimeError("Cannot save structured array with name=None unless it is nested.")
         extname = name.upper()
         hdu = astropy.io.fits.BinTableHDU(array, name=extname)
         columns = ColumnDefinitionModel.from_record_dtype(hdu.data.dtype)
@@ -259,21 +221,25 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         if descriptions is not None:
             for c in columns:
                 c.description = descriptions.get(c.name, "")
-        return self._add_bintable_hdu(hdu, columns, update_header)
-
-    def _add_bintable_hdu(
-        self,
-        hdu: astropy.io.fits.BinTableHDU,
-        columns: list[ColumnDefinitionModel],
-        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> TableModel:
-        extname = hdu.name
-        update_header(hdu.header)
-        if (opaque_headers := self._opaque_metadata.headers.get(extname)) is not None:
-            hdu.header.extend(opaque_headers)
         table_model = TableModel(source=f"fits:{extname}", columns=columns)
-        self._hdu_list.append(hdu)
+        self._add_hdu(hdu, update_header)
         return table_model
+
+    def _add_hdu(
+        self,
+        hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU,
+        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> None:
+        try:
+            self._hdu_list.index_of(hdu.name)
+        except KeyError:
+            pass
+        else:
+            raise RuntimeError(f"EXTNAME {hdu.name} is not unique.")
+        update_header(hdu.header)
+        if (opaque_headers := self._opaque_metadata.headers.get(hdu.name)) is not None:
+            hdu.header.extend(opaque_headers)
+        self._hdu_list.append(hdu)
 
     def add_tree(self, tree: pydantic.BaseModel) -> None:
         """Write the JSON tree to the archive.

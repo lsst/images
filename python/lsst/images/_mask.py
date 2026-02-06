@@ -15,14 +15,16 @@ __all__ = ("Mask", "MaskPlane", "MaskPlaneBit", "MaskSchema")
 
 import dataclasses
 import math
-from collections.abc import Iterable, Iterator, Mapping, Sequence, Set
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
 from types import EllipsisType
 
 import astropy.io.fits
 import numpy as np
 import numpy.typing as npt
+import pydantic
 
-from ._geom import Box
+from ._geom import Box, Interval
+from .serialization import ArrayReferenceModel, InputArchive, OutputArchive, no_header_updates
 
 
 @dataclasses.dataclass(frozen=True)
@@ -369,6 +371,78 @@ class Mask:
     def __repr__(self) -> str:
         return f"Mask(..., bbox={self.bbox!r}, schema={self.schema!r})"
 
+    def serialize(
+        self,
+        archive: OutputArchive[Any],
+        *,
+        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> MaskSerializationModel:
+        """Serialize the mask to an output archive.
+
+        Parameters
+        ----------
+        archive
+            `~serialization.OutputArchive` instance to write to.
+        update_header
+            A callback that will be given the FITS header for the HDU
+            containing this image in order to add keys to it.  This callback
+            may be provided but will not be called if the output format is not
+            FITS.
+
+        Returns
+        -------
+        MaskSerializationModel
+            A Pydantic model representation of the mask, holding references
+            to data stored in the archive.
+        """
+
+        def _update_header(header: astropy.io.fits.Header) -> None:
+            update_header(header)
+            # TODO: save mask plane information.
+            # TODO: save projection as a FITS WCS if possible.
+            # TODO: add an A-suffix WCS with the bbox start (sometimes?).
+
+        ref = archive.add_array(self.array, update_header=_update_header)
+        return MaskSerializationModel.model_construct(
+            data=ref, start=list(self.bbox.start), planes=list(self.schema)
+        )
+
+    @classmethod
+    def deserialize(
+        cls,
+        model: MaskSerializationModel,
+        archive: InputArchive[Any],
+        *,
+        bbox: Box | None = None,
+        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> Mask:
+        """Deserialize a mask from an input archive.
+
+        Parameters
+        ----------
+        model
+            A Pydantic model representation of the mask, holding references
+            to data stored in the archive.
+        archive
+            `~serialization.InputArchive` instance to read from.
+        bbox
+            Bounding box of a subimage to read instead.
+        strip_header
+            A callable that strips out any FITS header cards added by the
+            ``update_header`` argument in the corresponding call to
+            `serialize`.
+        """
+
+        def _strip_header(header: astropy.io.fits.Header) -> None:
+            strip_header(header)
+            # TODO: strip FITS WCS keys
+            # TODO: strip mask plane information.
+
+        slices = bbox.slice_within(model.bbox) if bbox is not None else ...
+        array = archive.get_array(model.data, strip_header=_strip_header, slices=slices)
+        schema = MaskSchema(model.planes, dtype=array.dtype)
+        return cls(array, schema=schema, start=model.start if bbox is None else bbox.start)
+
     @classmethod
     def read_legacy(cls, hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU) -> Mask:
         """Read a FITS file written by `lsst.afw.image.Mask.writeFits`.
@@ -389,3 +463,18 @@ class Mask:
             bitmask2d = 1 << bit2d
             mask.set(name, array2d & bitmask2d)
         return mask
+
+
+class MaskSerializationModel(pydantic.BaseModel):
+    """Pydantic model used to represent the serialized form of a `.Mask`."""
+
+    data: ArrayReferenceModel
+    start: list[int]
+    planes: list[MaskPlane | None]
+
+    @property
+    def bbox(self) -> Box:
+        """The 2-d bounding box of the mask."""
+        return Box(
+            *[Interval.factory[begin : begin + size] for begin, size in zip(self.start, self.data.shape[:-1])]
+        )

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 __all__ = ("Image",)
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from types import EllipsisType
 from typing import Any, final
 
@@ -21,8 +21,16 @@ import astropy.io.fits
 import astropy.units
 import numpy as np
 import numpy.typing as npt
+import pydantic
 
 from ._geom import Box
+from .serialization import (
+    ArrayReferenceModel,
+    ArrayReferenceQuantityModel,
+    InputArchive,
+    OutputArchive,
+    no_header_updates,
+)
 
 
 @final
@@ -80,7 +88,7 @@ class Image:
         bbox: Box | None = None,
         start: Sequence[int] | None = None,
         shape: Sequence[int] | None = None,
-        unit: astropy.units.Unit | None = None,
+        unit: astropy.units.UnitBase | None = None,
         dtype: npt.DTypeLike | None = None,
     ):
         if isinstance(array_or_fill, np.ndarray):
@@ -135,7 +143,7 @@ class Image:
         self.quantity[...] = value
 
     @property
-    def unit(self) -> astropy.units.Unit | None:
+    def unit(self) -> astropy.units.UnitBase | None:
         """Units for the image's pixel values (`astropy.units.Unit` or
         `None`).
         """
@@ -182,6 +190,90 @@ class Image:
         """Deep-copy the image."""
         return Image(self._array.copy(), bbox=self._bbox, unit=self._unit)
 
+    def serialize(
+        self,
+        archive: OutputArchive[Any],
+        *,
+        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> ImageSerializationModel:
+        """Serialize the image to an output archive.
+
+        Parameters
+        ----------
+        archive
+            `~serialization.OutputArchive` instance to write to.
+        update_header
+            A callback that will be given the FITS header for the HDU
+            containing this image in order to add keys to it.  This callback
+            may be provided but will not be called if the output format is not
+            FITS.
+
+        Returns
+        -------
+        ImageSerializationModel
+            A Pydantic model representation of the image, holding references
+            to data stored in the archive.
+        """
+
+        def _update_header(header: astropy.io.fits.Header) -> None:
+            update_header(header)
+            if self.unit is not None:
+                header["BUNIT"] = self.unit.to_string(format="fits")
+            # TODO: save projection as a FITS WCS if possible.
+            # TODO: add an A-suffix WCS with the bbox start (sometimes?).
+
+        ref = archive.add_array(self.array, update_header=_update_header)
+        if self.unit is None:
+            return ImageSerializationModel.model_construct(data=ref, start=list(self.bbox.start))
+        else:
+            return ImageSerializationModel.model_construct(
+                data=ArrayReferenceQuantityModel.model_construct(value=ref, unit=self.unit),
+                start=list(self.bbox.start),
+            )
+
+    @classmethod
+    def deserialize(
+        cls,
+        model: ImageSerializationModel,
+        archive: InputArchive[Any],
+        *,
+        bbox: Box | None = None,
+        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> Image:
+        """Deserialize an image from an input archive.
+
+        Parameters
+        ----------
+        model
+            A Pydantic model representation of the image, holding references
+            to data stored in the archive.
+        archive
+            `~serialization.InputArchive` instance to read from.
+        bbox
+            Bounding box of a subimage to read instead.
+        strip_header
+            A callable that strips out any FITS header cards added by the
+            ``update_header`` argument in the corresponding call to
+            `serialize`.
+        """
+        ref: ArrayReferenceModel
+        unit: astropy.units.UnitBase | None = None
+        if isinstance(model.data, ArrayReferenceQuantityModel):
+            ref = model.data.value
+            unit = model.data.unit
+        else:
+            ref = model.data
+
+        def _strip_header(header: astropy.io.fits.Header) -> None:
+            if unit is not None:
+                header.pop("BUNIT", None)
+            strip_header(header)
+            # TODO: strip FITS WCS keys
+
+        slices = bbox.slice_within(model.bbox) if bbox is not None else ...
+        array = archive.get_array(ref, strip_header=_strip_header, slices=slices)
+        return cls(array, start=model.start if bbox is None else bbox.start, unit=unit)
+
     @classmethod
     def from_legacy(cls, legacy: Any, unit: astropy.units.Unit | None = None) -> Image:
         """Convert from an `lsst.afw.image.Image` instance.
@@ -221,3 +313,19 @@ class Image:
         start = (-dy, -dx)
         image = Image(hdu.data, start=start, unit=unit)
         return image
+
+
+class ImageSerializationModel(pydantic.BaseModel):
+    """Pydantic model used to represent the serialized form of an `.Image`."""
+
+    data: ArrayReferenceQuantityModel | ArrayReferenceModel
+    start: list[int]
+
+    @property
+    def bbox(self) -> Box:
+        """The bounding box of the image."""
+        if isinstance(self.data, ArrayReferenceQuantityModel):
+            shape = self.data.value.shape
+        else:
+            shape = self.data.shape
+        return Box.from_shape(shape, self.start)

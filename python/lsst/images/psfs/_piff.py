@@ -294,7 +294,7 @@ class _ArchivePiffWriter:
             model.tables[name] = PiffTableModel(
                 metadata=metadata,
                 table=archive.add_structured_array(
-                    name, array, update_header=lambda header: header.update(metadata)
+                    array, name=name, update_header=lambda header: header.update(metadata)
                 ),
             )
         for name, wcs_model in self.wcs_models.items():
