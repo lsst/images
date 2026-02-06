@@ -13,6 +13,9 @@ from __future__ import annotations
 
 __all__ = ("MaskedImage", "MaskedImageSerializationModel")
 
+import functools
+from collections.abc import Sequence
+from types import EllipsisType
 from typing import Any
 
 import astropy.io.fits
@@ -25,6 +28,7 @@ from lsst.resources import ResourcePathExpression
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskSchema, MaskSerializationModel
+from ._transforms import Projection, ProjectionSerializationModel
 from .fits import (
     ExtensionHDU,
     FitsCompressionOptions,
@@ -35,6 +39,7 @@ from .fits import (
     strip_wcs_cards,
 )
 from .serialization import InputArchive, OpaqueArchiveMetadata, OutputArchive
+from .utils import is_none
 
 
 class MaskedImage:
@@ -43,15 +48,18 @@ class MaskedImage:
     Parameters
     ----------
     image
-        The main image plane.
+        The main image plane.  If this has a `Projection`, it will be used
+        for all planes unless a ``projection`` is passed separately.
     mask
         A bitmask image that annotates the main image plane.  Must have the
-        same bounding box as ``image`` if provided.
+        same bounding box as ``image`` if provided.  Any attached projection
+        is replaced (possibly by `None`).
     variance
         The per-pixel uncertainty of the main image as an image of variance
         values.  Must have the same bounding box as ``image`` if provided, and
-        its units must be the square of ``image.unit`` unless both are `None`.
-        Values default to ``1.0``.
+        its units must be the square of ``image.unit`` or `None`.
+        Values default to ``1.0``.  Any attached projection is replaced
+        (possibly by `None`).
     mask_schema
         Schema for the mask plane.  Must be provided if and only if ``mask`` is
         not provided.
@@ -59,6 +67,8 @@ class MaskedImage:
         Opaque metadata obtained from reading this object from storage.  It may
         be provided when writing to storage to propagate that metadata and/or
         preserve file-format-specific options (e.g. compression parameters).
+    projection
+        Projection that maps the pixel grid to the sky.
     """
 
     def __init__(
@@ -69,25 +79,43 @@ class MaskedImage:
         variance: Image | None = None,
         mask_schema: MaskSchema | None = None,
         opaque_metadata: OpaqueArchiveMetadata | None = None,
+        projection: Projection | None = None,
     ):
+        if projection is None:
+            projection = image.projection
+        else:
+            image = image.view(projection=projection)
         if mask is None:
             if mask_schema is None:
                 raise TypeError("'mask_schema' must be provided if 'mask' is not.")
-            mask = Mask(schema=mask_schema, bbox=image.bbox)
+            mask = Mask(schema=mask_schema, bbox=image.bbox, projection=projection)
         elif mask_schema is not None:
             raise TypeError("'mask_schema' may not be provided if 'mask' is.")
+        else:
+            if image.bbox != mask.bbox:
+                raise ValueError(f"Image ({image.bbox}) and mask ({mask.bbox}) bboxes do not agree.")
+            mask = mask.view(projection=projection)
         if variance is None:
             variance = Image(
-                1.0, dtype=np.float32, bbox=image.bbox, unit=None if image.unit is None else image.unit**2
+                1.0,
+                dtype=np.float32,
+                bbox=image.bbox,
+                unit=None if image.unit is None else image.unit**2,
+                projection=projection,
             )
-        assert image.bbox == mask.bbox, "Image and mask bboxes must agree."
-        assert image.bbox == variance.bbox, "Image and variance bboxes must agree."
-        if image.unit is None:
-            assert variance.unit is None, "Image and variance must have units consistently."
         else:
-            assert variance.unit is not None and variance.unit == image.unit**2, (
-                "Image and variance must have consistent units."
-            )
+            if image.bbox != variance.bbox:
+                raise ValueError(f"Image ({image.bbox}) and variance ({variance.bbox}) bboxes do not agree.")
+            variance = variance.view(projection=projection)
+            if image.unit is None:
+                if variance.unit is not None:
+                    raise ValueError(f"Image has no units but variance does ({variance.unit}).")
+            elif variance.unit is None:
+                variance = variance.view(unit=image.unit**2)
+            elif variance.unit != image.unit**2:
+                raise ValueError(
+                    f"Variance unit ({variance.unit}) should be the square of the image unit ({image.unit})."
+                )
         self._image = image
         self._mask = mask
         self._variance = variance
@@ -114,9 +142,16 @@ class MaskedImage:
         return self._image.bbox
 
     @property
-    def unit(self) -> astropy.units.Unit | None:
+    def unit(self) -> astropy.units.UnitBase | None:
         """The units of the image plane (`astropy.units.Unit` | `None`)."""
         return self._image.unit
+
+    @property
+    def projection(self) -> Projection | None:
+        """The projection that maps the pixel grid to the sky
+        (`Projection` | `None`).
+        """
+        return self._image.projection
 
     def __getitem__(self, bbox: Box) -> MaskedImage:
         return MaskedImage(
@@ -134,12 +169,51 @@ class MaskedImage:
     def __repr__(self) -> str:
         return f"MaskedImage({self.image!r}, mask_schema={self.mask.schema!r})"
 
-    def copy(self) -> MaskedImage:
-        """Deep-copy the masked image."""
+    def copy(
+        self,
+        *,
+        unit: astropy.units.UnitBase | None | EllipsisType = ...,
+        mask_schema: MaskSchema | EllipsisType = ...,
+        projection: Projection | None | EllipsisType = ...,
+        start: Sequence[int] | EllipsisType = ...,
+    ) -> MaskedImage:
+        """Deep-copy the masked image, with optional updates.
+
+        Notes
+        -----
+        This can only be used to make changes to schema descriptions; plane
+        names must remain the same (in the same order).
+        """
         return MaskedImage(
-            image=self._image.copy(),
-            mask=self._mask.copy(),
-            variance=self._variance.copy(),
+            image=self._image.copy(unit=unit, projection=projection, start=start),
+            # We let the constructor take care of propagating projection and
+            # unit updates.
+            mask=self._mask.copy(schema=mask_schema, projection=None, start=start),
+            variance=self._variance.copy(unit=None, projection=None, start=start),
+            opaque_metadata=(self._opaque_metadata.copy() if self._opaque_metadata is not None else None),
+        )
+
+    def view(
+        self,
+        *,
+        unit: astropy.units.UnitBase | None | EllipsisType = ...,
+        mask_schema: MaskSchema | EllipsisType = ...,
+        projection: Projection | None | EllipsisType = ...,
+        start: Sequence[int] | EllipsisType = ...,
+    ) -> MaskedImage:
+        """Deep-copy the masked image, with optional updates.
+
+        Notes
+        -----
+        This can only be used to make changes to schema descriptions; plane
+        names must remain the same (in the same order).
+        """
+        return MaskedImage(
+            image=self._image.view(unit=unit, projection=projection, start=start),
+            # We let the constructor take care of propagating projection and
+            # unit updates.
+            mask=self._mask.view(schema=mask_schema, projection=None, start=start),
+            variance=self._variance.view(unit=None, projection=None, start=start),
             opaque_metadata=(self._opaque_metadata.copy() if self._opaque_metadata is not None else None),
         )
 
@@ -168,10 +242,26 @@ class MaskedImage:
         masked image from the archive, as it does not assume that the masked
         image is the top-level entry in the archive.
         """
-        image_model = archive.serialize_direct("image", self.image.serialize)
-        mask_model = archive.serialize_direct("mask", self.mask.serialize)
-        variance_model = archive.serialize_direct("variance", self.variance.serialize)
-        return MaskedImageSerializationModel(image=image_model, mask=mask_model, variance=variance_model)
+        serialized_image = archive.serialize_direct(
+            "image", functools.partial(self.image.serialize, save_projection=False)
+        )
+        serialized_mask = archive.serialize_direct(
+            "mask", functools.partial(self.mask.serialize, save_projection=False)
+        )
+        serialized_variance = archive.serialize_direct(
+            "variance", functools.partial(self.variance.serialize, save_projection=False)
+        )
+        serialized_projection = (
+            archive.serialize_direct("projection", self.projection.serialize)
+            if self.projection is not None
+            else None
+        )
+        return MaskedImageSerializationModel(
+            image=serialized_image,
+            mask=serialized_mask,
+            variance=serialized_variance,
+            projection=serialized_projection,
+        )
 
     @classmethod
     def deserialize(
@@ -318,9 +408,18 @@ class MaskedImage:
         return cls(image, mask=mask, variance=variance, opaque_metadata=opaque_metadata)
 
 
-class MaskedImageSerializationModel(pydantic.BaseModel):
+class MaskedImageSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
     """A Pydantic model used to represent a serialized `MaskedImage`."""
 
-    image: ImageSerializationModel
-    mask: MaskSerializationModel
-    variance: ImageSerializationModel
+    image: ImageSerializationModel = pydantic.Field(description="The main data image.")
+    mask: MaskSerializationModel = pydantic.Field(
+        description="Bitmask that annotates the main image's pixels."
+    )
+    variance: ImageSerializationModel = pydantic.Field(
+        description="Per-pixel variance estimages for the main image."
+    )
+    projection: ProjectionSerializationModel[P] | None = pydantic.Field(
+        default=None,
+        exclude_if=is_none,
+        description="Projection that maps the pixel grid to the sky.",
+    )
