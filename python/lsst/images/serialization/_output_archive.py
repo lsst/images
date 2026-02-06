@@ -26,14 +26,11 @@ import astropy.units
 import numpy as np
 import pydantic
 
+from ._asdf_utils import ArrayReferenceModel
 from ._common import no_header_updates
-from ._image import ImageModel
-from ._mask import MaskModel
 from ._tables import TableModel
 
 if TYPE_CHECKING:
-    from .._image import Image
-    from .._mask import Mask
     from .._transforms import FrameSet
 
 # This pre-python-3.12 declaration is needed by Sphinx (probably the
@@ -178,103 +175,59 @@ class OutputArchive[P](ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def add_image(
+    def add_array(
         self,
-        name: str,
-        image: Image,
+        array: np.ndarray,
         *,
+        name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> ImageModel:
-        """Add an image to the archive.
+    ) -> ArrayReferenceModel:
+        """Add an array to the archive.
 
         Parameters
         ----------
+        array
+            Array to save.
         name
-            Attribute of the paired Pydantic model that will be assigned the
-            result of this call.  If it will not be assigned to a direct
-            attribute, it may be a JSON Pointer path (relative to the paired
-            Pydantic model) to the location where it will be added.
-        image
-            Image to save.
+            Name of the array.  This should generally be the name of the
+            Pydantic model attribute to which the result will be assigned.  It
+            may be left `None` if there is only one [structured] array or
+            table in a nested object that is being saved.
         update_header
             A callback that will be given the FITS header for the HDU
-            containing this image in order to add keys to it.  This call back
+            containing this image in order to add keys to it.  This callback
             may be provided but will not be called if the output format is not
             FITS.
 
         Returns
         -------
-        ImageModel
-            A Pydantic model that represents the image, including its bounding
-            box, units (if any), and array data (via a reference to binary data
-            stored elsewhere by the archive).
-        """
-        raise NotImplementedError()
-
-    @abstractmethod
-    def add_mask(
-        self,
-        name: str,
-        mask: Mask,
-        *,
-        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> MaskModel:
-        """Add a mask to the archive.
-
-        Parameters
-        ----------
-        name
-            Attribute of the paired Pydantic model that will be assigned the
-            result of this call.  If it will not be assigned to a direct
-            attribute, it may be a JSON Pointer path (relative to the paired
-            Pydantic model) to the location where it will be added.
-        mask
-            Mask to save.
-        update_header
-            A callback that will be given the FITS header for the HDU
-            containing this mask in order to add keys to it.  This call back
-            may be provided but will not be called if the output format is not
-            FITS.
-
-        Returns
-        -------
-        MaskModel
-            A Pydantic model that represents the mask, including its bounding
-            box, schema, and array data (via a reference to binary data stored
-            elsewhere by the archive).
-
-        Notes
-        -----
-        Frames and coordinate transforms may be ignored by archive
-        implementations that do not have a standard way of associating them
-        with individual images.  Images should generally be associated with
-        frames and coordinate transforms manually in the paired Pydantic model
-        as well, in a user-defined way.
+        ArrayReferenceModel
+            A Pydantic model that references the stored array.
         """
         raise NotImplementedError()
 
     @abstractmethod
     def add_table(
         self,
-        name: str,
         table: astropy.table.Table,
         *,
+        name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> TableModel:
         """Add a table to the archive.
 
         Parameters
         ----------
-        name
-            Attribute of the paired Pydantic model that will be assigned the
-            result of this call.  If it will not be assigned to a direct
-            attribute, it may be a JSON Pointer path (relative to the paired
-            Pydantic model) to the location where it will be added.
         table
             Table to save.
+        name
+            Name of the table.  This should generally be the name of the
+            Pydantic model attribute to which the result will be assigned.  It
+            may be left `None` if there is only one [structured] array or
+            table in a nested object that is being saved.
         update_header
             A callback that will be given the FITS header for the HDU
-            containing this table in order to add keys to it.  This call back
+            containing this table in order to add keys to it.  This callback
             may be provided but will not be called if the output format is not
             FITS.
 
@@ -298,9 +251,9 @@ class OutputArchive[P](ABC):
     @abstractmethod
     def add_structured_array(
         self,
-        name: str,
         array: np.ndarray,
         *,
+        name: str | None = None,
         units: Mapping[str, astropy.units.Unit] | None = None,
         descriptions: Mapping[str, str] | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
@@ -316,13 +269,18 @@ class OutputArchive[P](ABC):
             Pydantic model) to the location where it will be added.
         array
             A structured numpy array.
+        name
+            Name of the array.  This should generally be the name of the
+            Pydantic model attribute to which the result will be assigned.  It
+            may be left `None` if there is only one [structured] array or
+            table in a nested object that is being saved.
         units
             A mapping of units for columns.  Need not be complete.
         descriptions
             A mapping of descriptions for columns.  Need not be complete.
         update_header
             A callback that will be given the FITS header for the HDU
-            containing this table in order to add keys to it.  This call back
+            containing this table in order to add keys to it.  This callback
             may be provided but will not be called if the output format is not
             FITS.
 
@@ -383,45 +341,40 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
     def iter_frame_sets(self) -> Iterator[tuple[FrameSet, P]]:
         return self._parent.iter_frame_sets()
 
-    def add_image(
+    def add_array(
         self,
-        name: str,
-        image: Image,
+        array: np.ndarray,
         *,
+        name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> ImageModel:
-        return self._parent.add_image(self._join_path(name), image, update_header=update_header)
-
-    def add_mask(
-        self,
-        name: str,
-        mask: Mask,
-        *,
-        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> MaskModel:
-        return self._parent.add_mask(self._join_path(name), mask, update_header=update_header)
+    ) -> ArrayReferenceModel:
+        return self._parent.add_array(array, name=self._join_path(name), update_header=update_header)
 
     def add_table(
         self,
-        name: str,
         table: astropy.table.Table,
         *,
+        name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> TableModel:
-        return self._parent.add_table(self._join_path(name), table, update_header=update_header)
+        return self._parent.add_table(table, name=self._join_path(name), update_header=update_header)
 
     def add_structured_array(
         self,
-        name: str,
         array: np.ndarray,
         *,
+        name: str | None = None,
         units: Mapping[str, astropy.units.Unit] | None = None,
         descriptions: Mapping[str, str] | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> TableModel:
         return self._parent.add_structured_array(
-            self._join_path(name), array, units=units, descriptions=descriptions, update_header=update_header
+            array,
+            name=self._join_path(name),
+            units=units,
+            descriptions=descriptions,
+            update_header=update_header,
         )
 
-    def _join_path(self, name: str) -> str:
-        return f"{self._root}/{name}"
+    def _join_path(self, name: str | None) -> str:
+        return f"{self._root}/{name}" if name is not None else self._root

@@ -112,10 +112,7 @@ class PSFExWrapper(LegacyPointSpreadFunction):
         """
         data = self._impl.getSerializationData()
         shape = tuple(reversed(data.size))
-        dtype = np.dtype([("parameters", data.comp.dtype, shape[1:])])
-        structured_array = np.empty(shape[:1], dtype=dtype)
-        structured_array["parameters"] = data.comp.reshape(*shape)
-        table_ref = archive.add_structured_array("parameters", structured_array)
+        array_ref = archive.add_array(data.comp.reshape(*shape), name="parameters")
         return PSFExSerializationModel(
             average_x=data.average_x,
             average_y=data.average_y,
@@ -124,7 +121,7 @@ class PSFExWrapper(LegacyPointSpreadFunction):
             degree=data.degree,
             basis=data.basis,
             coeff=data.coeff,
-            parameters=table_ref,
+            parameters=array_ref,
             context=data.context,
             bounds=self.bounds.serialize(),
         )
@@ -140,8 +137,7 @@ class PSFExWrapper(LegacyPointSpreadFunction):
         """
         from lsst.meas.extensions.psfex import PsfexPsf, PsfexPsfSerializationData
 
-        structured_array = archive.get_structured_array(model.parameters)
-        parameters = structured_array["parameters"].astype(np.float32)
+        parameters = archive.get_array(model.parameters).astype(np.float32)
         data = PsfexPsfSerializationData()
         data.average_x = model.average_x
         data.average_y = model.average_y
@@ -184,8 +180,8 @@ class PSFExSerializationModel(pydantic.BaseModel):
 
     coeff: list[float] = pydantic.Field(description="Polynomial coefficients.")
 
-    parameters: serialization.TableModel = pydantic.Field(
-        description="Reference to a table with the complete model parameters."
+    parameters: serialization.ArrayReferenceModel = pydantic.Field(
+        description="Reference to an array with the complete model parameters."
     )
 
     context: serialization.InlineArray = pydantic.Field(description="Internal PSFEx context array.")
