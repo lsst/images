@@ -213,7 +213,7 @@ class Image:
         hdu
             An Astropy image HDU.
         """
-        unit: astropy.units.BaseUnit | None = None
+        unit: astropy.units.UnitBase | None = None
         if (fits_unit := hdu.header.pop("BUNIT", None)) is not None:
             unit = astropy.units.Unit(fits_unit, format="fits")
         dx: int = hdu.header.pop("LTV1")
