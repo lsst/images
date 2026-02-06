@@ -518,8 +518,8 @@ class Box:
 
     def slice_within(self, other: Box) -> YX[slice]:
         """Return a `tuple` of `slice` objects that correspond to the
-        positions in this box this box when the items of the container being
-        sliced correspond to ``other``.
+        positions in this box when the items of the container being sliced
+        correspond to ``other``.
 
         This assumes ``other.contains(self)``.
         """
