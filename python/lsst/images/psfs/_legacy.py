@@ -20,7 +20,7 @@ import numpy as np
 import pydantic
 
 from .. import serialization
-from .._geom import Box, Domain, SerializableDomain
+from .._geom import Bounds, Box, SerializableBounds
 from .._image import Image
 from ._base import PointSpreadFunction
 
@@ -32,7 +32,7 @@ class LegacyPointSpreadFunction(PointSpreadFunction):
     ----------
     impl
         An `lsst.afw.detection.Psf` instance.
-    domain
+    bounds
         The pixel-coordinate region where the model can safely be evaluated.
 
     Notes
@@ -41,20 +41,20 @@ class LegacyPointSpreadFunction(PointSpreadFunction):
     but subclasses (e.g. `PSFExWrapper`) must be used for serialization.
     """
 
-    def __init__(self, impl: Any, domain: Domain):
+    def __init__(self, impl: Any, bounds: Bounds):
         self._impl = impl
-        self._domain = domain
+        self._bounds = bounds
 
     @property
-    def domain(self) -> Domain:
-        return self._domain
+    def bounds(self) -> Bounds:
+        return self._bounds
 
     @cached_property
     def kernel_bbox(self) -> Box:
         from lsst.geom import Box2I, Point2D
 
         biggest = Box2I()
-        for y, x in self._domain.boundary():
+        for y, x in self._bounds.boundary():
             biggest.include(self._impl.computeKernelBBox(Point2D(x, y)))
         return Box.from_legacy(biggest)
 
@@ -85,23 +85,23 @@ class LegacyPointSpreadFunction(PointSpreadFunction):
         return self._impl
 
     @classmethod
-    def from_legacy(cls, legacy_psf: Any, domain: Domain) -> LegacyPointSpreadFunction:
+    def from_legacy(cls, legacy_psf: Any, bounds: Bounds) -> LegacyPointSpreadFunction:
         from lsst.meas.extensions.psfex import PsfexPsf
 
         if isinstance(legacy_psf, PsfexPsf):
-            return PSFExWrapper(legacy_psf, domain)
-        return cls(impl=legacy_psf, domain=domain)
+            return PSFExWrapper(legacy_psf, bounds)
+        return cls(impl=legacy_psf, bounds=bounds)
 
 
 class PSFExWrapper(LegacyPointSpreadFunction):
     """A specialization of LegacyPointSpreadFunction for the PSFEx backend."""
 
-    def __init__(self, impl: Any, domain: Domain):
+    def __init__(self, impl: Any, bounds: Bounds):
         from lsst.meas.extensions.psfex import PsfexPsf
 
         if not isinstance(impl, PsfexPsf):
             raise TypeError(f"{impl!r} is not a PSFEx object.")
-        super().__init__(impl, domain)
+        super().__init__(impl, bounds)
 
     def serialize(self, archive: serialization.OutputArchive[Any]) -> PSFExSerializationModel:
         """Serialize the PSF to an archive.
@@ -126,7 +126,7 @@ class PSFExWrapper(LegacyPointSpreadFunction):
             coeff=data.coeff,
             parameters=table_ref,
             context=data.context,
-            domain=self.domain.serialize(),
+            bounds=self.bounds.serialize(),
         )
 
     @classmethod
@@ -154,7 +154,7 @@ class PSFExWrapper(LegacyPointSpreadFunction):
         data.comp = parameters.flatten()
         data.context = model.context
         legacy_psf = PsfexPsf.fromSerializationData(data)
-        return cls(legacy_psf, Domain.deserialize(model.domain))
+        return cls(legacy_psf, Bounds.deserialize(model.bounds))
 
 
 class PSFExSerializationModel(pydantic.BaseModel):
@@ -190,4 +190,4 @@ class PSFExSerializationModel(pydantic.BaseModel):
 
     context: serialization.InlineArray = pydantic.Field(description="Internal PSFEx context array.")
 
-    domain: SerializableDomain = pydantic.Field(description="Validity range for this PSF model.")
+    bounds: SerializableBounds = pydantic.Field(description="Validity range for this PSF model.")

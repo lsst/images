@@ -25,7 +25,7 @@ import numpy as np
 import pydantic
 
 from .. import serialization
-from .._geom import Box, Domain, SerializableDomain
+from .._geom import Bounds, Box, SerializableBounds
 from .._image import Image
 from ._base import PointSpreadFunction
 
@@ -44,18 +44,18 @@ class PiffWrapper(PointSpreadFunction):
     ----------
     impl
         The Piff PSF object to wrap.
-    domain
+    bounds
         The pixel-coordinate region where the model can safely be evaluated.
     """
 
-    def __init__(self, impl: piff.PSF, domain: Domain, stamp_size: int):
+    def __init__(self, impl: piff.PSF, bounds: Bounds, stamp_size: int):
         self._impl = impl
-        self._domain = domain
+        self._bounds = bounds
         self._stamp_size = stamp_size
 
     @property
-    def domain(self) -> Domain:
-        return self._domain
+    def bounds(self) -> Bounds:
+        return self._bounds
 
     @cached_property
     def kernel_bbox(self) -> Box:
@@ -95,8 +95,8 @@ class PiffWrapper(PointSpreadFunction):
         return self._impl
 
     @classmethod
-    def from_legacy(cls, legacy_psf: Any, domain: Domain) -> PiffWrapper:
-        return cls(impl=legacy_psf._piffResult, domain=domain, stamp_size=legacy_psf.width)
+    def from_legacy(cls, legacy_psf: Any, bounds: Bounds) -> PiffWrapper:
+        return cls(impl=legacy_psf._piffResult, bounds=bounds, stamp_size=legacy_psf.width)
 
     def serialize(self, archive: serialization.OutputArchive[Any]) -> PiffSerializationModel:
         """Serialize the PSF to an archive.
@@ -114,7 +114,7 @@ class PiffWrapper(PointSpreadFunction):
         return PiffSerializationModel(
             piff=piff_model,
             stamp_size=self._stamp_size,
-            domain=self._domain.serialize(),
+            bounds=self._bounds.serialize(),
         )
 
     @classmethod
@@ -131,7 +131,7 @@ class PiffWrapper(PointSpreadFunction):
 
         reader = _ArchivePiffReader(model.piff, archive)
         impl = PSF._read(reader, "piff", LoggerWrapper(_LOG))
-        return cls(impl, domain=Domain.deserialize(model.domain), stamp_size=model.stamp_size)
+        return cls(impl, bounds=Bounds.deserialize(model.bounds), stamp_size=model.stamp_size)
 
     @contextmanager
     def _without_stars(self) -> Iterator[None]:
@@ -223,8 +223,8 @@ class PiffSerializationModel(pydantic.BaseModel):
         description="Width of the (square) images returned by this PSF's methods."
     )
 
-    domain: SerializableDomain = pydantic.Field(
-        description="The domain object that represents the PSF's validity region."
+    bounds: SerializableBounds = pydantic.Field(
+        description="The bounds object that represents the PSF's validity region."
     )
 
 

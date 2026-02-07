@@ -16,7 +16,7 @@ __all__ = ("PointSpreadFunction",)
 from abc import ABC, abstractmethod
 from typing import Any
 
-from .._geom import Box, Domain
+from .._geom import Bounds, Box
 from .._image import Image
 
 
@@ -25,7 +25,7 @@ class PointSpreadFunction(ABC):
 
     @property
     @abstractmethod
-    def domain(self) -> Domain:
+    def bounds(self) -> Bounds:
         """The region where this PSF model is valid."""
         raise NotImplementedError()
 
@@ -95,14 +95,14 @@ class PointSpreadFunction(ABC):
         raise NotImplementedError()
 
     @classmethod
-    def from_legacy(cls, legacy_psf: Any, domain: Domain) -> PointSpreadFunction:
+    def from_legacy(cls, legacy_psf: Any, bounds: Bounds) -> PointSpreadFunction:
         """Make a PSF object from a legacy `lsst.afw.detection.Psf` instance.
 
         Parameters
         ----------
         legacy_psf
             Legacy PSF object.
-        domain
+        bounds
             The region where this PSF model is valid.
 
         Returns
@@ -124,10 +124,10 @@ class PointSpreadFunction(ABC):
             case PiffPsf():
                 from ._piff import PiffWrapper
 
-                return PiffWrapper.from_legacy(legacy_psf, domain)
+                return PiffWrapper.from_legacy(legacy_psf, bounds)
             case Psf():
                 from ._legacy import LegacyPointSpreadFunction
 
-                return LegacyPointSpreadFunction.from_legacy(legacy_psf, domain)
+                return LegacyPointSpreadFunction.from_legacy(legacy_psf, bounds)
             case _:
                 raise TypeError(f"{type(legacy_psf).__name__!r} is not a recognized legacy PSF type.")

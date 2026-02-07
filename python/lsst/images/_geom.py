@@ -14,10 +14,10 @@ from __future__ import annotations
 __all__ = (
     "XY",
     "YX",
+    "Bounds",
     "Box",
-    "Domain",
     "Interval",
-    "SerializableDomain",
+    "SerializableBounds",
 )
 
 from collections.abc import Iterator, Sequence
@@ -576,17 +576,17 @@ class Box:
 
         This method just returns the `Box` itself, since that already provides
         Pydantic serialization hooks.  It exists for compatibility with the
-        `Domain` protocol.
+        `Bounds` protocol.
         """
         return self
 
     @classmethod
-    def deserialize(cls, serialized: SerializableDomain) -> Box:
-        """Deserialize a domain object on the assumption it is a `Box`.
+    def deserialize(cls, serialized: SerializableBounds) -> Box:
+        """Deserialize a bounds object on the assumption it is a `Box`.
 
         This method just returns the `Box` itself, since that already provides
         Pydantic serialization hooks.  It exists for compatibility with the
-        `Domain` protocol.
+        `Bounds` protocol.
         """
         assert isinstance(serialized, Box)
         return serialized
@@ -618,22 +618,22 @@ class BoxSliceFactory:
 Box.factory = BoxSliceFactory()
 
 
-# This is expected to become a union of concrete Domain types that we can
+# This is expected to become a union of concrete Bounds types that we can
 # serialize via pydantic.  Right now that's only Box.
-type SerializableDomain = Box
+type SerializableBounds = Box
 
 
-class Domain(Protocol):
+class Bounds(Protocol):
     """A protocol for objects that represent the validity region for a function
     defined in 2-d pixel coordinates.
 
     Notes
     -----
-    Most objects natively have a simple 2-d bounding box as their domain
+    Most objects natively have a simple 2-d bounding box as their bounds
     (typically the boundary of a sensor), and the `Box` class is hence the
-    most common domain implementation.  But sometimes a large chunk of that
+    most common bounds implementation.  But sometimes a large chunk of that
     box may be missing due to vignetting or bad amplifiers, and we may want to
-    transform from one coordinate system to another.  The Domain interface is
+    transform from one coordinate system to another.  The Bounds interface is
     intended to handle both of these cases as well.
     """
 
@@ -668,13 +668,13 @@ class Domain(Protocol):
         """
         ...
 
-    def serialize(self) -> SerializableDomain:
-        """Convert a domain instance into a serializable object."""
+    def serialize(self) -> SerializableBounds:
+        """Convert a bounds instance into a serializable object."""
         ...
 
     @classmethod
-    def deserialize(cls, serialized: SerializableDomain) -> Self:
-        """Convert a serialized domain object into its in-memory form."""
+    def deserialize(cls, serialized: SerializableBounds) -> Self:
+        """Convert a serialized bounds object into its in-memory form."""
         match serialized:
             case Box():
                 return serialized  # type: ignore[return-value]
