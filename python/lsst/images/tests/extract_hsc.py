@@ -62,6 +62,13 @@ def extract_visit_image(butler: Butler, testdata_dir: str, dataset_type: str, fi
     )
 
 
+def extract_camera(
+    butler: Butler, testdata_dir: str, dataset_type: str = "camera", filename: str = "camera.fits"
+) -> None:
+    camera = butler.get(dataset_type, instrument=VISIT_DETECTOR_DATA_ID["instrument"])
+    camera.writeFits(os.path.join(testdata_dir, "extracted", filename))
+
+
 @click.command("extract_hsc")
 @click.option("-b", "--butler-repo", help="Path to the ci_hsc (or equivalent) butler repository.")
 @click.option("-d", "--testdata-dir", help="Path to the testdata_images directory.")
@@ -79,6 +86,7 @@ def main(butler_repo: str | None, testdata_dir: str | None, collection: str) -> 
     butler = Butler.from_config(butler_repo, collections=[collection])
     extract_visit_image(butler, testdata_dir, "pvi", "visit_image.fits")
     extract_visit_image(butler, testdata_dir, "calexp", "preliminary_visit_image.fits")
+    extract_camera(butler, testdata_dir)
 
 
 if __name__ == "__main__":

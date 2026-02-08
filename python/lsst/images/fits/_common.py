@@ -21,6 +21,7 @@ __all__ = (
     "FitsQuantizationOptions",
     "InvalidFitsArchiveError",
     "PrecompressedImage",
+    "add_offset_wcs",
     "strip_wcs_cards",
 )
 
@@ -270,6 +271,31 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
     def subset(self, bbox: Box) -> FitsOpaqueMetadata:
         # Docstring inherited.
         return FitsOpaqueMetadata(headers=self.headers)
+
+
+def add_offset_wcs(header: astropy.io.fits.Header, *, x: int, y: int, key: str = "A") -> None:
+    """Add a trivial FITS WCS to a header that applies the appropriate offset
+    to map FITS array coordinates to a logical pixel grid.
+
+    Parameters
+    ----------
+    header
+        Header to update in-place.
+    x
+        Logical coordinate of the first column.
+    y
+        Logical coordinate of the first row.
+    key
+        Single-character suffix for this WCS.
+    """
+    header.set(f"CTYPE1{key}", "LINEAR")
+    header.set(f"CTYPE2{key}", "LINEAR")
+    header.set(f"CRPIX1{key}", 1.0)
+    header.set(f"CRPIX2{key}", 1.0)
+    header.set(f"CRVAL1{key}", float(x))
+    header.set(f"CRVAL2{key}", float(y))
+    header.set(f"CUNIT1{key}", "PIXEL")
+    header.set(f"CUNIT2{key}", "PIXEL")
 
 
 _WCS_VECTOR_KEYS = ("CUNIT", "CRPIX", "CRPIX", "CRVAL", "CRDELT", "CROTA", "CRDER", "CSYER")

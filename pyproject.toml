@@ -97,15 +97,6 @@ version = { attr = "lsst_versions.get_lsst_version" }
         name = "An API Removal or Deprecation"
         showcontent = true
 
-[tool.black]
-line-length = 110
-target-version = ["py312"]
-
-[tool.isort]
-profile = "black"
-line_length = 110
-known_first_party = ["lsst"]
-
 [tool.lsst_versions]
 write_to = "python/lsst/images/version.py"
 
@@ -174,7 +165,7 @@ extend-select = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["lsst"]
+known-first-party = ["lsst", "astshim"]
 
 [tool.ruff.lint.pycodestyle]
 max-doc-length = 79
@@ -212,7 +203,7 @@ warn_redundant_casts = true
 plugins = "pydantic.mypy"
 
 [[tool.mypy.overrides]]
-module = ["numpy.*", "fsspec.*", "astropy.*", "galsim.*", "piff.*", "lsst.*"]
+module = ["numpy.*", "fsspec.*", "astropy.*", "galsim.*", "piff.*", "lsst.*", "astshim.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
