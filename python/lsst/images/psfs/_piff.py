@@ -33,7 +33,6 @@ if TYPE_CHECKING:
     import galsim.wcs
     import piff.config
 
-
 _LOG = getLogger(__name__)
 
 
@@ -105,11 +104,11 @@ class PiffWrapper(PointSpreadFunction):
         `.serialization.OutputArchive.serialize_direct` or
         `.serialization.OutputArchive.serialize_pointer`.
         """
-        from piff.config import LoggerWrapper
+        from piff.config import PiffLogger
 
         writer = _ArchivePiffWriter()
         with self._without_stars():
-            self._impl._write(writer, "piff", LoggerWrapper(_LOG))
+            self._impl._write(writer, "piff", PiffLogger(_LOG))
         piff_model = writer.serialize(archive)
         return PiffSerializationModel(
             piff=piff_model,
@@ -127,10 +126,10 @@ class PiffWrapper(PointSpreadFunction):
         `.serialization.InputArchive.deserialize_pointer`.
         """
         from piff import PSF
-        from piff.config import LoggerWrapper
+        from piff.config import PiffLogger
 
         reader = _ArchivePiffReader(model.piff, archive)
-        impl = PSF._read(reader, "piff", LoggerWrapper(_LOG))
+        impl = PSF._read(reader, "piff", PiffLogger(_LOG))
         return cls(impl, bounds=Bounds.deserialize(model.bounds), stamp_size=model.stamp_size)
 
     @contextmanager
