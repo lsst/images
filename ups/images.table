@@ -1,2 +1,8 @@
 setupRequired(resources)
+
+setupOptional(testdata_images)
+setupOptional(afw)
+setupOptional(meas_extensions_piff)
+setupOptional(meas_extensions_psfex)
+
 envPrepend(PYTHONPATH, ${PRODUCT_DIR}/python)
