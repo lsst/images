@@ -51,7 +51,7 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         except ImportError:
             raise unittest.SkipTest("'lsst.afw.image' could not be imported.") from None
         assert DATA_DIR is not None, "Guaranteed by decorator."
-        filename = os.path.join(DATA_DIR, "extracted", "visit_image.fits")
+        filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
         reader = ExposureFitsReader(filename)
         legacy_psf = reader.readPsf()
         bounds = Box.from_legacy(reader.readBBox())
@@ -86,7 +86,7 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         except ImportError:
             raise unittest.SkipTest("'lsst.afw.image' could not be imported.") from None
         assert DATA_DIR is not None, "Guaranteed by decorator."
-        filename = os.path.join(DATA_DIR, "extracted", "preliminary_visit_image.fits")
+        filename = os.path.join(DATA_DIR, "dp2", "legacy", "preliminary_visit_image.fits")
         reader = ExposureFitsReader(filename)
         legacy_psf = reader.readPsf()
         bounds = Box.from_legacy(reader.readBBox())

@@ -147,7 +147,7 @@ class MaskedImageTestCase(unittest.TestCase):
         lossy-compressed pixel values exactly.
         """
         assert DATA_DIR is not None, "Guaranteed by decorator."
-        filename = os.path.join(DATA_DIR, "extracted", "visit_image.fits")
+        filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
         from_afw = MaskedImage.read_legacy(filename, preserve_quantization=True)
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
             tmp.close()

@@ -38,6 +38,7 @@ from lsst.images import (
 )
 from lsst.images.fits import FitsInputArchive, FitsOutputArchive
 from lsst.images.serialization import TableCellReferenceModel
+from lsst.images.tests.data_ids import DP2_VISIT_DETECTOR_DATA_ID
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -51,7 +52,7 @@ class TransformTestCase(unittest.TestCase):
             import astshim  # noqa: F401
         except ImportError:
             raise unittest.SkipTest("astshim could not be imported.") from None
-        frame = DetectorFrame(instrument="HSC", detector=16, bbox=Box.factory[:5, :4])
+        frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=Box.factory[:5, :4])
         xy = frame.bbox.meshgrid().map(np.ravel)
         identity = Transform.identity(frame)
         self.check_transform(identity, xy, xy, frame, frame)
@@ -75,9 +76,10 @@ class TransformTestCase(unittest.TestCase):
         except ImportError:
             raise unittest.SkipTest("'lsst.afw.cameraGeom' could not be imported.") from None
         assert DATA_DIR is not None, "Guaranteed by decorator."
-        filename = os.path.join(DATA_DIR, "extracted", "camera.fits")
+        filename = os.path.join(DATA_DIR, "dp2", "legacy", "camera.fits")
         legacy_camera = Camera.readFits(filename)
         frame_set = CameraFrameSet.from_legacy(legacy_camera)
+        detector_id: int = DP2_VISIT_DETECTOR_DATA_ID["detector"]
         self.compare_to_legacy_camera(legacy_camera, frame_set)
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
             tmp.close()
@@ -85,7 +87,7 @@ class TransformTestCase(unittest.TestCase):
                 frame_set_ptr = output_archive.serialize_frame_set(
                     "frames", frame_set, frame_set.serialize, key=id(frame_set)
                 )
-                pixels_to_fp = frame_set[frame_set.detector(16), frame_set.focal_plane()]
+                pixels_to_fp = frame_set[frame_set.detector(detector_id), frame_set.focal_plane()]
                 pixels_to_fp_ser = output_archive.serialize_direct(
                     "pixels_to_fp", functools.partial(pixels_to_fp.serialize, use_frame_sets=True)
                 )
@@ -105,7 +107,7 @@ class TransformTestCase(unittest.TestCase):
                 )
                 rt_pixels_to_fp = Transform.deserialize(tree.pixels_to_fp, input_archive)
         self.compare_to_legacy_camera(legacy_camera, rt_frame_set)
-        self.assertEqual(rt_pixels_to_fp.in_frame, frame_set.detector(16))
+        self.assertEqual(rt_pixels_to_fp.in_frame, frame_set.detector(detector_id))
         self.assertEqual(rt_pixels_to_fp.out_frame, frame_set.focal_plane())
         self.assertEqual(
             rt_pixels_to_fp._ast_mapping.simplified().show(), pixels_to_fp._ast_mapping.simplified().show()
@@ -165,12 +167,12 @@ class TransformTestCase(unittest.TestCase):
         except ImportError:
             raise unittest.SkipTest("'lsst.afw.image' could not be imported.") from None
         assert DATA_DIR is not None, "Guaranteed by decorator."
-        filename = os.path.join(DATA_DIR, "extracted", "visit_image.fits")
+        filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
         reader = ExposureFitsReader(filename)
         legacy_wcs = reader.readWcs()
         wcs_bbox = Box.from_legacy(reader.readDetector().getBBox())
         subimage_bbox = Box.from_legacy(reader.readBBox())
-        detector_frame = DetectorFrame(instrument="HSC", visit=903334, detector=16, bbox=wcs_bbox)
+        detector_frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=wcs_bbox)
         projection = Projection.from_legacy(legacy_wcs, detector_frame)
         self.compare_to_legacy_wcs(legacy_wcs, projection, detector_frame, subimage_bbox)
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
