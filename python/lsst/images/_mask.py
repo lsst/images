@@ -17,7 +17,7 @@ import dataclasses
 import math
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
 from types import EllipsisType
-from typing import Any
+from typing import Any, cast
 
 import astropy.io.fits
 import astropy.wcs
@@ -76,13 +76,13 @@ class MaskPlaneBit:
     is stored.
     """
 
-    mask: np.unsignedinteger
+    mask: np.integer
     """Bitmask that selects just this plane's bit from a mask array value
-    (`numpy.unsignedinteger`).
+    (`numpy.integer`).
     """
 
     @classmethod
-    def compute(cls, overall_index: int, stride: int, mask_type: type[np.unsignedinteger]) -> MaskPlaneBit:
+    def compute(cls, overall_index: int, stride: int, mask_type: type[np.integer]) -> MaskPlaneBit:
         """Construct a `MaskPlaneBit` from the overall index of a plane in a
         `MaskSchema` and the stride (number of bits per mask array element).
         """
@@ -116,18 +116,30 @@ class MaskSchema:
     """
 
     def __init__(self, planes: Iterable[MaskPlane | None], dtype: npt.DTypeLike = np.uint8):
-        self._planes = tuple(planes)
-        self._dtype = np.dtype(dtype)
-        if not issubclass(self._dtype.type, np.unsignedinteger):
-            raise TypeError("dtype for masks must be an unsigned integer.")
+        self._planes: tuple[MaskPlane | None, ...] = tuple(planes)
+        self._dtype = cast(np.dtype[np.integer], np.dtype(dtype))
+        stride = self.bits_per_element(self._dtype)
         self._descriptions = {plane.name: plane.description for plane in self._planes if plane is not None}
-        stride = self._dtype.itemsize * 8
         self._mask_size = math.ceil(len(self._planes) / stride)
         self._bits: dict[str, MaskPlaneBit] = {
             plane.name: MaskPlaneBit.compute(n, stride, self._dtype.type)
             for n, plane in enumerate(self._planes)
             if plane is not None
         }
+
+    @staticmethod
+    def bits_per_element(dtype: npt.DTypeLike) -> int:
+        """Return the number of mask bits per array element for the given
+        data type.
+        """
+        dtype = np.dtype(dtype)
+        match dtype.kind:
+            case "u":
+                return dtype.itemsize * 8
+            case "i":
+                return dtype.itemsize * 8 - 1
+            case _:
+                raise TypeError(f"dtype for masks must be an integer; got {dtype} with kind={dtype.kind}.")
 
     def __iter__(self) -> Iterator[MaskPlane | None]:
         return iter(self._planes)
