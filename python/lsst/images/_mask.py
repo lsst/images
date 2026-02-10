@@ -25,6 +25,8 @@ import numpy as np
 import numpy.typing as npt
 import pydantic
 
+from lsst.resources import ResourcePathExpression
+
 from . import fits
 from ._geom import Box
 from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
@@ -34,6 +36,7 @@ from .serialization import (
     InputArchive,
     IntegerType,
     NumberType,
+    OpaqueArchiveMetadata,
     OutputArchive,
     is_integer,
     no_header_updates,
@@ -175,7 +178,7 @@ class MaskSchema:
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, MaskSchema):
-            return self._planes == other._planes
+            return self._planes == other._planes and self._dtype == other._dtype
         return False
 
     @property
@@ -226,7 +229,7 @@ class MaskSchema:
 
     def split(self, dtype: npt.DTypeLike) -> list[MaskSchema]:
         """Split the schema into an equivalent series of schemas that each
-        have a `mask_size` of ``1``.
+        have a `mask_size` of ``1``, dropping all `None` placeholders.
 
         Parameters
         ----------
@@ -283,6 +286,10 @@ class Mask:
         include the last dimension of the array.
     projection
         Projection that maps the pixel grid to the sky.
+    opaque_metadata
+        Opaque metadata obtained from reading this object from storage.  It may
+        be provided when writing to storage to propagate that metadata and/or
+        preserve file-format-specific options (e.g. compression parameters).
 
     Notes
     -----
@@ -307,6 +314,7 @@ class Mask:
         start: Sequence[int] | None = None,
         shape: Sequence[int] | None = None,
         projection: Projection | None = None,
+        opaque_metadata: OpaqueArchiveMetadata | None = None,
     ):
         if shape is not None:
             shape = tuple(shape)
@@ -339,6 +347,7 @@ class Mask:
         self._bbox: Box = bbox
         self._schema: MaskSchema = schema
         self._projection = projection
+        self._opaque_metadata = opaque_metadata
 
     @property
     def array(self) -> np.ndarray:
@@ -687,6 +696,48 @@ class Mask:
 
         array_2d = archive.get_array(ref, strip_header=_strip_header, slices=slices)
         return Mask(array_2d[:, :, np.newaxis], schema=schema_2d, start=start)
+
+    def write_fits(
+        self,
+        filename: str,
+        *,
+        compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
+    ) -> None:
+        """Write the mask to a FITS file.
+
+        Parameters
+        ----------
+        filename
+            Name of the file to write to.  Must be a local file.
+        compression
+            Compression options.
+        """
+        compression_options = {}
+        if compression is not fits.FitsCompressionOptions.DEFAULT:
+            compression_options["mask"] = compression
+        with fits.FitsOutputArchive.open(
+            filename, opaque_metadata=self._opaque_metadata, compression_options=compression_options
+        ) as archive:
+            tree = archive.serialize_direct("mask", self.serialize)
+            archive.add_tree(tree)
+
+    @classmethod
+    def read_fits(cls, url: ResourcePathExpression, *, bbox: Box | None = None) -> Mask:
+        """Read an image from a FITS file.
+
+        Parameters
+        ----------
+        url
+            URL of the file to read; may be any type supported by
+            `lsst.resources.ResourcePath`.
+        bbox
+            Bounding box of a subimage to read instead.
+        """
+        with fits.FitsInputArchive.open(url, partial=(bbox is not None)) as archive:
+            model = archive.get_tree(MaskSerializationModel)
+            result = cls.deserialize(model, archive, bbox=bbox)
+            result._opaque_metadata = archive.get_opaque_metadata()
+        return result
 
     @classmethod
     def read_legacy(cls, hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU) -> Mask:

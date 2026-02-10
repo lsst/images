@@ -24,6 +24,8 @@ import numpy as np
 import numpy.typing as npt
 import pydantic
 
+from lsst.resources import ResourcePathExpression
+
 from . import fits
 from ._geom import Box
 from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
@@ -31,6 +33,7 @@ from .serialization import (
     ArrayReferenceModel,
     ArrayReferenceQuantityModel,
     InputArchive,
+    OpaqueArchiveMetadata,
     OutputArchive,
     no_header_updates,
 )
@@ -63,6 +66,10 @@ class Image:
         Units for the image's pixel values.
     projection
         Projection that maps the pixel grid to the sky.
+    opaque_metadata
+        Opaque metadata obtained from reading this object from storage.  It may
+        be provided when writing to storage to propagate that metadata and/or
+        preserve file-format-specific options (e.g. compression parameters).
 
     Notes
     -----
@@ -97,6 +104,7 @@ class Image:
         dtype: npt.DTypeLike | None = None,
         unit: astropy.units.UnitBase | None = None,
         projection: Projection[Any] | None = None,
+        opaque_metadata: OpaqueArchiveMetadata | None = None,
     ):
         if isinstance(array_or_fill, np.ndarray):
             if dtype is not None:
@@ -123,6 +131,7 @@ class Image:
         self._bbox: Box = bbox
         self._unit = unit
         self._projection = projection
+        self._opaque_metadata = opaque_metadata
 
     @property
     def array(self) -> np.ndarray:
@@ -376,6 +385,48 @@ class Image:
             Projection.deserialize(model.projection, archive) if model.projection is not None else None
         )
         return cls(array, start=model.start if bbox is None else bbox.start, unit=unit, projection=projection)
+
+    def write_fits(
+        self,
+        filename: str,
+        *,
+        compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
+    ) -> None:
+        """Write the image to a FITS file.
+
+        Parameters
+        ----------
+        filename
+            Name of the file to write to.  Must be a local file.
+        compression
+            Compression options.
+        """
+        compression_options = {}
+        if compression is not fits.FitsCompressionOptions.DEFAULT:
+            compression_options["image"] = compression
+        with fits.FitsOutputArchive.open(
+            filename, opaque_metadata=self._opaque_metadata, compression_options=compression_options
+        ) as archive:
+            tree = archive.serialize_direct("image", self.serialize)
+            archive.add_tree(tree)
+
+    @classmethod
+    def read_fits(cls, url: ResourcePathExpression, *, bbox: Box | None = None) -> Image:
+        """Read an image from a FITS file.
+
+        Parameters
+        ----------
+        url
+            URL of the file to read; may be any type supported by
+            `lsst.resources.ResourcePath`.
+        bbox
+            Bounding box of a subimage to read instead.
+        """
+        with fits.FitsInputArchive.open(url, partial=(bbox is not None)) as archive:
+            model = archive.get_tree(ImageSerializationModel)
+            result = cls.deserialize(model, archive, bbox=bbox)
+            result._opaque_metadata = archive.get_opaque_metadata()
+        return result
 
     @classmethod
     def from_legacy(cls, legacy: Any, unit: astropy.units.Unit | None = None) -> Image:
