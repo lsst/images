@@ -261,6 +261,30 @@ class MaskSchema:
             schemas.append(MaskSchema([None], dtype=dtype))
         return schemas
 
+    def update_header(self, header: astropy.io.fits.Header) -> None:
+        """Add a description of this mask schema to a FITS header."""
+        for n, plane in enumerate(self):
+            if plane is not None:
+                bit = self.bit(plane.name)
+                if bit.index != 0:
+                    raise TypeError("Only mask schemas with mask_size==1 can be described in FITS.")
+                header.set(f"MSKN{n + 1:04d}", plane.name, f"Name for mask plane {n + 1}.")
+                header.set(f"MSKM{n + 1:04d}", bit.mask, f"Bitmask for plane n={n + 1}; always 1<<(n-1).")
+                # We don't add a comment to the description card, because it's
+                # likely to overrun a single card and get the CONTINUE
+                # treatment . That will cause Astropy to warn about the comment
+                # being truncated and that's worse than just leaving it
+                # unexplained; it's pretty obvious from context what it is.
+                header.set(f"MSKD{n + 1:04d}", plane.description)
+
+    def strip_header(self, header: astropy.io.fits.Header) -> None:
+        """Remove all header cards added by `update_header`."""
+        for n, plane in enumerate(self):
+            if plane is not None:
+                header.remove(f"MSKN{n + 1:04d}", ignore_missing=True)
+                header.remove(f"MSKM{n + 1:04d}", ignore_missing=True)
+                header.remove(f"MSKD{n + 1:04d}", ignore_missing=True)
+
 
 class Mask:
     """A 2-d bitmask image backed by a 3-d byte array.
@@ -618,7 +642,7 @@ class Mask:
     ) -> ArrayReferenceModel:
         def _update_header(header: astropy.io.fits.Header) -> None:
             update_header(header)
-            # TODO: save mask plane information.
+            self.schema.update_header(header)
             if self.projection is not None:
                 fits_wcs = self.projection.as_fits_wcs(self.bbox)
                 if fits_wcs:
@@ -691,6 +715,7 @@ class Mask:
     ) -> Mask:
         def _strip_header(header: astropy.io.fits.Header) -> None:
             strip_header(header)
+            schema_2d.strip_header(header)
             fits.strip_wcs_cards(header)
             # TODO: strip mask plane information.
 

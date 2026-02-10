@@ -16,9 +16,7 @@ import tempfile
 import unittest
 
 import astropy.io.fits
-import astropy.units as u
 import numpy as np
-import numpy.typing as npt
 
 from lsst.images import Box, Mask, MaskPlane, MaskSchema
 
@@ -105,6 +103,14 @@ class MaskTestCase(unittest.TestCase):
                 self.assertEqual(fits[2].header["EXTNAME"], "MASK")
                 self.assertEqual(fits[2].header["EXTVER"], 2)
                 self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
+                n = 0
+                for plane in planes:
+                    if plane is not None:
+                        hdu = fits[1] if n < 31 else fits[2]
+                        self.assertEqual(hdu.header[f"MSKN{(n % 31) + 1:04d}"], plane.name)
+                        self.assertEqual(hdu.header[f"MSKM{(n % 31) + 1:04d}"], 1 << (n % 31))
+                        self.assertEqual(hdu.header[f"MSKD{(n % 31) + 1:04d}"], plane.description)
+                        n += 1
         self.assertEqual(roundtripped.bbox, mask.bbox)
         self.assertEqual(roundtripped.schema, mask.schema)
         np.testing.assert_array_equal(roundtripped.array, mask.array)
