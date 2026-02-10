@@ -17,7 +17,7 @@ __all__ = (
     "NumberType",
     "SignedIntegerType",
     "UnsignedIntegerType",
-    "is_unsigned",
+    "is_integer",
 )
 
 import enum
@@ -94,13 +94,13 @@ class NumberType(enum.StrEnum):
             dtype = dtype.base
         return cls(dtype.name), shape
 
-    def require_unsigned(self) -> UnsignedIntegerType:
+    def require_integer(self) -> IntegerType:
         """Raise `TypeError` if this enumeration does not represent an
-        unsigned integer type, and return it if it does.
+        integer type, and return it if it does.
         """
-        if is_unsigned(self):
+        if is_integer(self):
             return self
-        raise TypeError(f"{self} is not an unsigned integer type.")
+        raise TypeError(f"{self} is not an integer type.")
 
 
 type UnsignedIntegerType = (
@@ -124,6 +124,12 @@ type IntegerType = SignedIntegerType | UnsignedIntegerType
 type FloatType = Literal[NumberType.float32] | Literal[NumberType.float64]
 
 
-def is_unsigned(t: NumberType) -> TypeGuard[UnsignedIntegerType]:
-    """Test whether a `NumberType` corresponds to an unsigned integer type."""
-    return np.dtype(t.to_numpy()).kind == "u"
+def is_integer(t: NumberType) -> TypeGuard[IntegerType]:
+    """Test whether a `NumberType` corresponds to an integer type."""
+    match np.dtype(t.to_numpy()).kind:
+        case "i":
+            return True
+        case "u":
+            return True
+        case _:
+            return False
