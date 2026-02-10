@@ -25,10 +25,22 @@ import numpy as np
 import numpy.typing as npt
 import pydantic
 
+from lsst.resources import ResourcePathExpression
+
 from . import fits
-from ._geom import Box, Interval
+from ._geom import Box
 from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
-from .serialization import ArrayReferenceModel, InputArchive, OutputArchive, no_header_updates
+from .serialization import (
+    ArchiveReadError,
+    ArrayReferenceModel,
+    InputArchive,
+    IntegerType,
+    NumberType,
+    OpaqueArchiveMetadata,
+    OutputArchive,
+    is_integer,
+    no_header_updates,
+)
 from .utils import is_none
 
 
@@ -113,10 +125,13 @@ class MaskSchema:
     the description for that plane, and the `bitmask` method can be used to
     obtain an array that can be used to select one or more planes by name in
     a mask array that uses this schema.
+
+    If no mask planes are provided, a `None` placeholder is automatically
+    added.
     """
 
     def __init__(self, planes: Iterable[MaskPlane | None], dtype: npt.DTypeLike = np.uint8):
-        self._planes: tuple[MaskPlane | None, ...] = tuple(planes)
+        self._planes: tuple[MaskPlane | None, ...] = tuple(planes) or (None,)
         self._dtype = cast(np.dtype[np.integer], np.dtype(dtype))
         stride = self.bits_per_element(self._dtype)
         self._descriptions = {plane.name: plane.description for plane in self._planes if plane is not None}
@@ -163,7 +178,7 @@ class MaskSchema:
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, MaskSchema):
-            return self._planes == other._planes
+            return self._planes == other._planes and self._dtype == other._dtype
         return False
 
     @property
@@ -212,6 +227,64 @@ class MaskSchema:
             result[bit.index] |= bit.mask
         return result
 
+    def split(self, dtype: npt.DTypeLike) -> list[MaskSchema]:
+        """Split the schema into an equivalent series of schemas that each
+        have a `mask_size` of ``1``, dropping all `None` placeholders.
+
+        Parameters
+        ----------
+        dtype
+            Data type of the new mask pixels.
+
+        Returns
+        -------
+        `list` [`MaskSchema`]
+            A list of mask schemas that together include all planes in
+            ``self`` and have `mask_size` equal to ``1``.  If there are no
+            mask planes (only `None` placeholders) in ``self``, a single mask
+            schema with a `None` placeholder is returned; otherwise `None`
+            placeholders are returned.
+        """
+        dtype = np.dtype(dtype)
+        planes: list[MaskPlane] = []
+        schemas: list[MaskSchema] = []
+        n_planes_per_schema = self.bits_per_element(dtype)
+        for plane in self._planes:
+            if plane is not None:
+                planes.append(plane)
+                if len(planes) == n_planes_per_schema:
+                    schemas.append(MaskSchema(planes, dtype=dtype))
+                    planes.clear()
+        if planes:
+            schemas.append(MaskSchema(planes, dtype=dtype))
+        if not schemas:
+            schemas.append(MaskSchema([None], dtype=dtype))
+        return schemas
+
+    def update_header(self, header: astropy.io.fits.Header) -> None:
+        """Add a description of this mask schema to a FITS header."""
+        for n, plane in enumerate(self):
+            if plane is not None:
+                bit = self.bit(plane.name)
+                if bit.index != 0:
+                    raise TypeError("Only mask schemas with mask_size==1 can be described in FITS.")
+                header.set(f"MSKN{n + 1:04d}", plane.name, f"Name for mask plane {n + 1}.")
+                header.set(f"MSKM{n + 1:04d}", bit.mask, f"Bitmask for plane n={n + 1}; always 1<<(n-1).")
+                # We don't add a comment to the description card, because it's
+                # likely to overrun a single card and get the CONTINUE
+                # treatment . That will cause Astropy to warn about the comment
+                # being truncated and that's worse than just leaving it
+                # unexplained; it's pretty obvious from context what it is.
+                header.set(f"MSKD{n + 1:04d}", plane.description)
+
+    def strip_header(self, header: astropy.io.fits.Header) -> None:
+        """Remove all header cards added by `update_header`."""
+        for n, plane in enumerate(self):
+            if plane is not None:
+                header.remove(f"MSKN{n + 1:04d}", ignore_missing=True)
+                header.remove(f"MSKM{n + 1:04d}", ignore_missing=True)
+                header.remove(f"MSKD{n + 1:04d}", ignore_missing=True)
+
 
 class Mask:
     """A 2-d bitmask image backed by a 3-d byte array.
@@ -237,6 +310,10 @@ class Mask:
         include the last dimension of the array.
     projection
         Projection that maps the pixel grid to the sky.
+    opaque_metadata
+        Opaque metadata obtained from reading this object from storage.  It may
+        be provided when writing to storage to propagate that metadata and/or
+        preserve file-format-specific options (e.g. compression parameters).
 
     Notes
     -----
@@ -261,6 +338,7 @@ class Mask:
         start: Sequence[int] | None = None,
         shape: Sequence[int] | None = None,
         projection: Projection | None = None,
+        opaque_metadata: OpaqueArchiveMetadata | None = None,
     ):
         if shape is not None:
             shape = tuple(shape)
@@ -293,6 +371,7 @@ class Mask:
         self._bbox: Box = bbox
         self._schema: MaskSchema = schema
         self._projection = projection
+        self._opaque_metadata = opaque_metadata
 
     @property
     def array(self) -> np.ndarray:
@@ -527,9 +606,10 @@ class Mask:
             `~serialization.OutputArchive` instance to write to.
         update_header
             A callback that will be given the FITS header for the HDU
-            containing this image in order to add keys to it.  This callback
+            containing this mask in order to add keys to it.  This callback
             may be provided but will not be called if the output format is not
-            FITS.
+            FITS.  As multiple HDUs may be added, this function may be called
+            multiple times.
         save_projection
             If `True`, save the `Projection` attached to the mask, if there
             is one.
@@ -544,10 +624,34 @@ class Mask:
             A Pydantic model representation of the mask, holding references
             to data stored in the archive.
         """
+        data: list[ArrayReferenceModel] = []
+        for schema_2d in self.schema.split(np.int32):
+            mask_2d = self.copy(schema=schema_2d)
+            data.append(mask_2d._serialize_2d(archive, update_header=update_header))
+        serialized_projection: ProjectionSerializationModel[P] | None = None
+        if save_projection and self.projection is not None:
+            serialized_projection = archive.serialize_direct("projection", self.projection.serialize)
+        serialized_dtype = NumberType.from_numpy(self.schema.dtype)
+        assert is_integer(serialized_dtype), "Mask dtypes should always be integers."
+        return MaskSerializationModel.model_construct(
+            data=data,
+            start=list(self.bbox.start),
+            planes=list(self.schema),
+            dtype=serialized_dtype,
+            projection=serialized_projection,
+        )
 
+    def _serialize_2d[P: pydantic.BaseModel](
+        self,
+        archive: OutputArchive[P],
+        *,
+        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        save_projection: bool = True,
+        add_offset_wcs: str | None = "A",
+    ) -> ArrayReferenceModel:
         def _update_header(header: astropy.io.fits.Header) -> None:
             update_header(header)
-            # TODO: save mask plane information.
+            self.schema.update_header(header)
             if self.projection is not None:
                 fits_wcs = self.projection.as_fits_wcs(self.bbox)
                 if fits_wcs:
@@ -555,13 +659,8 @@ class Mask:
             if add_offset_wcs is not None:
                 fits.add_offset_wcs(header, x=self.bbox.x.start, y=self.bbox.y.start, key=add_offset_wcs)
 
-        ref = archive.add_array(self.array, update_header=_update_header)
-        serialized_projection: ProjectionSerializationModel[P] | None = None
-        if save_projection and self.projection is not None:
-            serialized_projection = archive.serialize_direct("projection", self.projection.serialize)
-        return MaskSerializationModel.model_construct(
-            data=ref, start=list(self.bbox.start), planes=list(self.schema), projection=serialized_projection
-        )
+        assert self.array.shape[2] == 1, "Mask should be split before calling this method."
+        return archive.add_array(self._array[:, :, 0], update_header=_update_header)
 
     @classmethod
     def deserialize(
@@ -588,21 +687,90 @@ class Mask:
             ``update_header`` argument in the corresponding call to
             `serialize`.
         """
-
-        def _strip_header(header: astropy.io.fits.Header) -> None:
-            strip_header(header)
-            fits.strip_wcs_cards(header)
-            # TODO: strip mask plane information.
-
-        slices = bbox.slice_within(model.bbox) if bbox is not None else ...
-        array = archive.get_array(model.data, strip_header=_strip_header, slices=slices)
-        schema = MaskSchema(model.planes, dtype=array.dtype)
+        slices: tuple[slice, ...] | EllipsisType = ...
+        if bbox is not None:
+            slices = bbox.slice_within(model.bbox)
+        else:
+            bbox = model.bbox
+        if not is_integer(model.dtype):
+            raise ArchiveReadError(f"Mask array has a non-integer dtype: {model.dtype}.")
+        schema = MaskSchema(model.planes, dtype=model.dtype.to_numpy())
         projection = (
             Projection.deserialize(model.projection, archive) if model.projection is not None else None
         )
-        return cls(
-            array, schema=schema, start=model.start if bbox is None else bbox.start, projection=projection
-        )
+        result = Mask(0, schema=schema, bbox=bbox, projection=projection)
+        schemas_2d = schema.split(np.int32)
+        if len(schemas_2d) != len(model.data):
+            raise ArchiveReadError(
+                f"Number of mask arrays ({len(model.data)}) does not match expectation ({len(schemas_2d)})."
+            )
+        for ref, schema_2d in zip(model.data, schemas_2d):
+            mask_2d = cls._deserialize_2d(
+                ref, schema_2d, bbox.start, archive, strip_header=strip_header, slices=slices
+            )
+            result.update(mask_2d)
+        return result
+
+    @classmethod
+    def _deserialize_2d(
+        cls,
+        ref: ArrayReferenceModel,
+        schema_2d: MaskSchema,
+        start: Sequence[int],
+        archive: InputArchive[Any],
+        *,
+        slices: tuple[slice, ...] | EllipsisType = ...,
+        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> Mask:
+        def _strip_header(header: astropy.io.fits.Header) -> None:
+            strip_header(header)
+            schema_2d.strip_header(header)
+            fits.strip_wcs_cards(header)
+
+        array_2d = archive.get_array(ref, strip_header=_strip_header, slices=slices)
+        return Mask(array_2d[:, :, np.newaxis], schema=schema_2d, start=start)
+
+    def write_fits(
+        self,
+        filename: str,
+        *,
+        compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
+    ) -> None:
+        """Write the mask to a FITS file.
+
+        Parameters
+        ----------
+        filename
+            Name of the file to write to.  Must be a local file.
+        compression
+            Compression options.
+        """
+        compression_options = {}
+        if compression is not fits.FitsCompressionOptions.DEFAULT:
+            compression_options["mask"] = compression
+        with fits.FitsOutputArchive.open(
+            filename, opaque_metadata=self._opaque_metadata, compression_options=compression_options
+        ) as archive:
+            tree = archive.serialize_direct("mask", self.serialize)
+            archive.add_tree(tree)
+
+    @staticmethod
+    def read_fits(url: ResourcePathExpression, *, bbox: Box | None = None) -> Mask:
+        """Read an image from a FITS file.
+
+        Parameters
+        ----------
+        url
+            URL of the file to read; may be any type supported by
+            `lsst.resources.ResourcePath`.
+        bbox
+            Bounding box of a subimage to read instead.
+        """
+        with fits.FitsInputArchive.open(url, partial=(bbox is not None)) as archive:
+            model = archive.get_tree(MaskSerializationModel)
+            result = Mask.deserialize(model, archive, bbox=bbox)
+            result._opaque_metadata = archive.get_opaque_metadata()
+        return result
 
     @classmethod
     def read_legacy(cls, hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU) -> Mask:
@@ -629,11 +797,12 @@ class Mask:
 class MaskSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
     """Pydantic model used to represent the serialized form of a `.Mask`."""
 
-    data: ArrayReferenceModel = pydantic.Field(description="Reference to pixel data.")
+    data: list[ArrayReferenceModel] = pydantic.Field(description="References to pixel data.")
     start: list[int] = pydantic.Field(
         description="Coordinate of the first pixels in the array, ordered (y, x)."
     )
     planes: list[MaskPlane | None] = pydantic.Field(description="Definitions of the bitplanes in the mask.")
+    dtype: IntegerType = pydantic.Field(description="Data type of the in-memory mask.")
     projection: ProjectionSerializationModel[P] | None = pydantic.Field(
         default=None,
         exclude_if=is_none,
@@ -643,6 +812,4 @@ class MaskSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
     @property
     def bbox(self) -> Box:
         """The 2-d bounding box of the mask."""
-        return Box(
-            *[Interval.factory[begin : begin + size] for begin, size in zip(self.start, self.data.shape[:-1])]
-        )
+        return Box.from_shape(self.data[0].shape, start=self.start)
