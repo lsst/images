@@ -40,11 +40,7 @@ from ..serialization import (
     TableModel,
     no_header_updates,
 )
-from ._common import (
-    ExtensionHDU,
-    FitsOpaqueMetadata,
-    InvalidFitsArchiveError,
-)
+from ._common import ExtensionHDU, ExtensionKey, FitsOpaqueMetadata, InvalidFitsArchiveError
 
 
 class FitsInputArchive(InputArchive[TableCellReferenceModel]):
@@ -74,16 +70,17 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         # Save the remaining primary header keys so we can propagate them on
         # rewrite.
         self._opaque_metadata = FitsOpaqueMetadata()
-        self._opaque_metadata.headers[""] = self._primary_hdu.header.copy(strip=True)
+        self._opaque_metadata.headers[ExtensionKey()] = self._primary_hdu.header.copy(strip=True)
         # Read the JSON and index HDUs from the end.
         stream.seek(json_address)
         tail_data = stream.read(json_size + index_size)
         index_hdu = astropy.io.fits.BinTableHDU.fromstring(tail_data[json_size:])
         # Initialize lazy readers for all of the regular HDUs and the JSON HDU.
         self._readers = {
-            str(row["EXTNAME"]): _ExtensionReader.from_index_row(row, stream) for row in index_hdu.data
+            ExtensionKey.from_index_row(row): _ExtensionReader.from_index_row(row, stream)
+            for row in index_hdu.data
         }
-        self._readers["JSON"] = _ExtensionReader.from_bytes(
+        self._readers[ExtensionKey("JSON")] = _ExtensionReader.from_bytes(
             astropy.io.fits.BinTableHDU, tail_data[:json_size]
         )
         # Make any empty dictionary to cache deserialized objects.
@@ -141,7 +138,7 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         T
             The validated Pydantic model.
         """
-        json_bytes = self._readers["JSON"].data[0]["JSON"].tobytes()
+        json_bytes = self._readers[ExtensionKey("JSON")].data[0]["JSON"].tobytes()
         return model_type.model_validate_json(json_bytes)
 
     def deserialize_pointer[U: pydantic.BaseModel, V](
@@ -183,15 +180,15 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         slices: tuple[slice, ...] | EllipsisType = ...,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> np.ndarray:
-        name, reader = self._get_source_reader(ref)
+        key, reader = self._get_source_reader(ref)
         if slices is not ...:
             array = reader.section[slices]
         else:
             array = reader.data
-        if name not in self._opaque_metadata.headers:
+        if key not in self._opaque_metadata.headers:
             opaque_header = reader.header.copy(strip=True)
             strip_header(opaque_header)
-            self._opaque_metadata.headers[name] = opaque_header
+            self._opaque_metadata.headers[key] = opaque_header
         return array
 
     def get_table(
@@ -212,11 +209,11 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> np.ndarray:
         # Docstring inherited.
-        name, reader = self._get_source_reader(ref)
-        if name not in self._opaque_metadata.headers:
+        key, reader = self._get_source_reader(ref)
+        if key not in self._opaque_metadata.headers:
             opaque_header = reader.header.copy(strip=True)
             strip_header(opaque_header)
-            self._opaque_metadata.headers[name] = opaque_header
+            self._opaque_metadata.headers[key] = opaque_header
         return reader.hdu.data
 
     def get_opaque_metadata(self) -> FitsOpaqueMetadata:
@@ -225,7 +222,7 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
 
     def _get_source_reader(
         self, ref: ArrayReferenceModel | TableCellReferenceModel | TableModel
-    ) -> tuple[str, _ExtensionReader]:
+    ) -> tuple[ExtensionKey, _ExtensionReader]:
         """Get a reader for the extension referenced by a model.
 
         Parameters
@@ -235,8 +232,8 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
 
         Returns
         -------
-        name
-            EXTNAME of the HDU.
+        key
+            Identifier pair for the HDU (EXTNAME, EXTVER).
         reader
             A reader object for the extension.
         """
@@ -246,24 +243,20 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
             raise InvalidFitsArchiveError(
                 f"Reference with source={ref.source!r} does not start with 'fits:'."
             )
-        name = ref.source.removeprefix("fits:")
+        key = ExtensionKey.from_str(ref.source)
         try:
-            reader = self._readers[name]
+            reader = self._readers[key]
         except KeyError:
-            if name.isnumeric():
-                msg = f"Extension index {name!r} in source={ref.source!r} is not supported."
-            else:
-                msg = f"Unrecognized EXTNAME {name!r} in source={ref.source!r}"
-            raise InvalidFitsArchiveError(msg) from None
+            raise InvalidFitsArchiveError(f"Unrecognized source value {key}.") from None
         if ref.source_is_table and not reader.is_table:
             raise InvalidFitsArchiveError(
-                f"Extension with EXTNAME={name!r} was expected to be be a binary table, not an image."
+                f"Extension with source={key} was expected to be be a binary table, not an image."
             )
         elif not ref.source_is_table and reader.is_table:
             raise InvalidFitsArchiveError(
-                f"Extension with EXTNAME={name!r} was expected to be be an image, not a binary table."
+                f"Extension with source={key} was expected to be be an image, not a binary table."
             )
-        return name, reader
+        return key, reader
 
 
 class _ExtensionReader:

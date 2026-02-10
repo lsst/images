@@ -14,6 +14,7 @@ from __future__ import annotations
 
 __all__ = (
     "ExtensionHDU",
+    "ExtensionKey",
     "FitsCompressionAlgorithm",
     "FitsCompressionOptions",
     "FitsDitherAlgorithm",
@@ -38,6 +39,42 @@ from .._geom import Box
 from ..serialization import OpaqueArchiveMetadata
 
 type ExtensionHDU = astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU
+
+
+@dataclasses.dataclass(frozen=True)
+class ExtensionKey:
+    """The identifiers for a FITS extension."""
+
+    name: str = ""
+    """Value of the EXTNAME keyword, or an empty string for the primary HDU."""
+
+    ver: int = 1
+    """Value of the EXTVER keyword (which may be absent if it is ``1``)."""
+
+    @classmethod
+    def from_index_row(cls, row: np.ndarray) -> ExtensionKey:
+        """Construct from a row of the index binary table appended to the
+        FITS files written by the package.
+        """
+        return cls(str(row["EXTNAME"]).upper(), int(row["EXTVER"]))
+
+    @classmethod
+    def from_str(cls, source: str) -> ExtensionKey:
+        """Construct from the `str` coercion of this type, which is used
+        as the 'source' filed in various Pydantic models that serve as
+        references to other HDUs.
+        """
+        name, comma, ver = source.removeprefix("fits:").partition(",")
+        if not comma:
+            return cls(name)
+        else:
+            return cls(name, int(ver))
+
+    def __str__(self) -> str:
+        if self.ver > 1:
+            return f"fits:{self.name},{self.ver}"
+        else:
+            return f"fits:{self.name}"
 
 
 class InvalidFitsArchiveError(RuntimeError):
@@ -228,21 +265,22 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
     knowing how it was serialized.
     """
 
-    headers: dict[str, astropy.io.fits.Header] = dataclasses.field(default_factory=dict)
+    headers: dict[ExtensionKey, astropy.io.fits.Header] = dataclasses.field(default_factory=dict)
     """FITS headers found (but not interpreted and stripped) when reading, to
     be propagated on write.
 
-    Keys are EXTNAME values, or "" for the primary header.  Header information
-    in opaque metadata is considered immutable, allowing it to be transferred
-    by reference to copies and subsets of the object it is attached to.
+    Keys are EXTNAME/EXTVER combinations, or ("", 1) for the primary header.
+    Header information in opaque metadata is considered immutable, allowing it
+    to be transferred by reference to copies and subsets of the object it is
+    attached to.
     """
 
     precompressed: dict[str, PrecompressedImage] = dataclasses.field(default_factory=dict)
     """FITS tile-compressed HDUs that should be written out directly instead
     of the in-memory data provided.
 
-    Keys are EXTNAME values.  Precompressed pixel values are never copied or
-    transferred to subsets.
+    Keys are EXTNAME values, which must be unique (no EXTVER disambiguation).
+    Precompressed pixel values are never copied or transferred to subsets.
     """
 
     def maybe_use_precompressed(self, name: str) -> astropy.io.fits.BinTableHDU | None:
