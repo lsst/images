@@ -371,19 +371,21 @@ class Mask:
 
         Notes
         -----
-        This can only be used to make changes to schema descriptions; plane
-        names must remain the same (in the same order).
+        This can also be used to rewrite the mask with a new related schema
+        (e.g. adding or dropping mask planes, or changing ``dtype``; all
+        planes with names in both schemas will be copied.).
         """
-        if schema is ...:
-            schema = self._schema
-        else:
-            if list(schema.names) != list(self.schema.names):
-                raise ValueError("Cannot create a mask view with a schema with different names.")
         if projection is ...:
             projection = self._projection
         if start is ...:
             start = self._bbox.start
-        return Mask(self._array.copy(), bbox=self._bbox, schema=self._schema, projection=self._projection)
+        if schema is ...:
+            schema = self._schema
+            return Mask(self._array.copy(), start=start, schema=self._schema, projection=self._projection)
+        else:
+            result = Mask(0, schema=schema, shape=self.bbox.shape, start=start, projection=self._projection)
+            result.update(self)
+        return result
 
     def view(
         self,
@@ -409,6 +411,25 @@ class Mask:
         if start is ...:
             start = self._bbox.start
         return Mask(self._array, start=start, schema=schema, projection=projection)
+
+    def update(self, other: Mask) -> None:
+        """Update ``self`` to include all common mask values set in ``other``.
+
+        Notes
+        -----
+        This only operates on the intersection of the two mask bounding boxes
+        and the mask planes that are present in both.  Mask bits are only set,
+        not cleared (i.e. this uses ``|=`` updates, not ``=`` assignments).
+        """
+        lhs = self
+        rhs = other
+        if other.bbox != self.bbox:
+            if (bbox := self.bbox.intersection(other.bbox)) is None:
+                return
+            lhs = self[bbox]
+            rhs = other[bbox]
+        for name in self.schema.names & other.schema.names:
+            lhs.set(name, rhs.get(name))
 
     def get(self, plane: str) -> np.ndarray:
         """Return a 2-d boolean array for the given mask plane.
