@@ -217,8 +217,9 @@ class MaskedImage:
 
         Notes
         -----
-        This can only be used to make changes to schema descriptions; plane
-        names must remain the same (in the same order).
+        This can also be used to rewrite the mask with a new related schema
+        (e.g. adding or dropping mask planes, or changing ``dtype``; all
+        planes with names in both schemas will be copied.).
         """
         return MaskedImage(
             image=self._image.copy(unit=unit, projection=projection, start=start),
