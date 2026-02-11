@@ -21,7 +21,7 @@ import numpy as np
 
 from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
 from lsst.images.fits import ExtensionKey, FitsCompressionOptions
-from lsst.images.tests.data_ids import DP2_VISIT_DETECTOR_DATA_ID
+from lsst.images.tests import DP2_VISIT_DETECTOR_DATA_ID
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
