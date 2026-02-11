@@ -14,9 +14,8 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
-from typing import Any
 
-from lsst.images import Box, Image
+from lsst.images import Box
 from lsst.images.fits import FitsInputArchive, FitsOutputArchive
 from lsst.images.psfs import (
     PiffSerializationModel,
@@ -25,6 +24,7 @@ from lsst.images.psfs import (
     PSFExSerializationModel,
     PSFExWrapper,
 )
+from lsst.images.tests import compare_psf_to_legacy
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -59,7 +59,7 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         self.assertIsInstance(psf, PiffWrapper)
         self.assertEqual(psf.bounds, bounds)
         self.assertIsInstance(psf.piff_psf, PSF)
-        self.compare_to_legacy(legacy_psf, psf)
+        compare_psf_to_legacy(self, psf, legacy_psf)
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
             tmp.close()
             with FitsOutputArchive.open(tmp.name) as output_archive:
@@ -68,7 +68,7 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
             with FitsInputArchive.open(tmp.name) as input_archive:
                 tree = input_archive.get_tree(PiffSerializationModel)
                 roundtripped = PiffWrapper.deserialize(tree, input_archive)
-        self.compare_to_legacy(legacy_psf, roundtripped)
+        compare_psf_to_legacy(self, roundtripped, legacy_psf)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_psfex(self) -> None:
@@ -94,7 +94,7 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         self.assertIsInstance(psf, PSFExWrapper)
         self.assertEqual(psf.bounds, bounds)
         self.assertIsInstance(psf.legacy_psf, PsfexPsf)
-        self.compare_to_legacy(legacy_psf, psf)
+        compare_psf_to_legacy(self, psf, legacy_psf)
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
             tmp.close()
             with FitsOutputArchive.open(tmp.name) as output_archive:
@@ -103,22 +103,7 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
             with FitsInputArchive.open(tmp.name) as input_archive:
                 tree = input_archive.get_tree(PSFExSerializationModel)
                 roundtripped = PSFExWrapper.deserialize(tree, input_archive)
-        self.compare_to_legacy(legacy_psf, roundtripped)
-
-    def compare_to_legacy(self, legacy_psf: Any, psf: PointSpreadFunction) -> None:
-        from lsst.geom import Point2D
-
-        for p in [Point2D(50.0, 60.0), Point2D(801.2, 322.8), Point2D(33.5, 22.1)]:
-            self.assertEqual(psf.kernel_bbox, Box.from_legacy(legacy_psf.computeKernelBBox(p)))
-            self.assertEqual(
-                psf.compute_kernel_image(x=p.x, y=p.y), Image.from_legacy(legacy_psf.computeKernelImage(p))
-            )
-            self.assertEqual(
-                psf.compute_stellar_bbox(x=p.x, y=p.y), Box.from_legacy(legacy_psf.computeImageBBox(p))
-            )
-            self.assertEqual(
-                psf.compute_stellar_image(x=p.x, y=p.y), Image.from_legacy(legacy_psf.computeImage(p))
-            )
+        compare_psf_to_legacy(self, roundtripped, legacy_psf)
 
 
 if __name__ == "__main__":

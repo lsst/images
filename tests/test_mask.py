@@ -19,6 +19,7 @@ import astropy.io.fits
 import numpy as np
 
 from lsst.images import Box, Mask, MaskPlane, MaskSchema
+from lsst.images.tests import assert_masks_equal
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -111,9 +112,7 @@ class MaskTestCase(unittest.TestCase):
                         self.assertEqual(hdu.header[f"MSKM{(n % 31) + 1:04d}"], 1 << (n % 31))
                         self.assertEqual(hdu.header[f"MSKD{(n % 31) + 1:04d}"], plane.description)
                         n += 1
-        self.assertEqual(roundtripped.bbox, mask.bbox)
-        self.assertEqual(roundtripped.schema, mask.schema)
-        np.testing.assert_array_equal(roundtripped.array, mask.array)
+        assert_masks_equal(self, mask, roundtripped)
 
 
 if __name__ == "__main__":

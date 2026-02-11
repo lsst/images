@@ -21,6 +21,7 @@ import numpy as np
 
 from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
 from lsst.images.fits import FitsCompressionOptions
+from lsst.images.tests import assert_masked_images_equal
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -92,18 +93,8 @@ class MaskedImageTestCase(unittest.TestCase):
                 self.assertEqual(fits[1].header["ZCMPTYPE"], "GZIP_2")
                 self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
                 self.assertEqual(fits[3].header["ZCMPTYPE"], "GZIP_2")
-        self.assertEqual(roundtripped.bbox, self.masked_image.bbox)
-        self.assertEqual(roundtripped.unit, self.masked_image.unit)
-        self.assertEqual(roundtripped.mask.schema, self.masked_image.mask.schema)
-        np.testing.assert_array_equal(roundtripped.image.array, self.masked_image.image.array)
-        np.testing.assert_array_equal(roundtripped.mask.array, self.masked_image.mask.array)
-        np.testing.assert_array_equal(roundtripped.variance.array, self.masked_image.variance.array)
-        self.assertEqual(subimage.bbox, subbox)
-        self.assertEqual(subimage.unit, self.masked_image.unit)
-        self.assertEqual(subimage.mask.schema, self.masked_image.mask.schema)
-        np.testing.assert_array_equal(subimage.image.array, self.masked_image.image.array[subslices])
-        np.testing.assert_array_equal(subimage.mask.array, self.masked_image.mask.array[subslices])
-        np.testing.assert_array_equal(subimage.variance.array, self.masked_image.variance.array[subslices])
+        assert_masked_images_equal(self, roundtripped, self.masked_image, expect_view=False)
+        assert_masked_images_equal(self, subimage, roundtripped[subbox], expect_view=False)
 
     def test_fits_roundtrip_lossy(self) -> None:
         """Test that we can round-trip the MaskedImage through FITS, including
@@ -127,18 +118,8 @@ class MaskedImageTestCase(unittest.TestCase):
                 self.assertEqual(fits[1].header["ZCMPTYPE"], "RICE_1")
                 self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
                 self.assertEqual(fits[3].header["ZCMPTYPE"], "RICE_1")
-        self.assertEqual(roundtripped.bbox, self.masked_image.bbox)
-        self.assertEqual(roundtripped.unit, self.masked_image.unit)
-        self.assertEqual(roundtripped.mask.schema, self.masked_image.mask.schema)
-        np.testing.assert_allclose(roundtripped.image.array, self.masked_image.image.array, rtol=0.01)
-        np.testing.assert_array_equal(roundtripped.mask.array, self.masked_image.mask.array)
-        np.testing.assert_allclose(roundtripped.variance.array, self.masked_image.variance.array, rtol=0.01)
-        self.assertEqual(subimage.bbox, subbox)
-        self.assertEqual(subimage.unit, self.masked_image.unit)
-        self.assertEqual(subimage.mask.schema, self.masked_image.mask.schema)
-        np.testing.assert_array_equal(subimage.image.array, roundtripped.image.array[subslices])
-        np.testing.assert_array_equal(subimage.mask.array, roundtripped.mask.array[subslices])
-        np.testing.assert_array_equal(subimage.variance.array, roundtripped.variance.array[subslices])
+        assert_masked_images_equal(self, roundtripped, self.masked_image, expect_view=False, rtol=0.01)
+        assert_masked_images_equal(self, subimage, roundtripped[subbox], expect_view=False)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_legacy_rewrite(self) -> None:
