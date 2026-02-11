@@ -291,7 +291,7 @@ class Image:
         Parameters
         ----------
         archive
-            `~serialization.OutputArchive` instance to write to.
+            Archive to write to.
         update_header
             A callback that will be given the FITS header for the HDU
             containing this image in order to add keys to it.  This callback
@@ -304,12 +304,6 @@ class Image:
             A FITS WCS single-character suffix to use when adding a linear
             WCS that maps the FITS array to the logical pixel coordinates
             defined by ``bbox.start``.  Set to `None` to not write this WCS.
-
-        Returns
-        -------
-        ImageSerializationModel
-            A Pydantic model representation of the image, holding references
-            to data stored in the archive.
         """
         if save_projection and add_offset_wcs == "":
             raise TypeError("save_projection=True is not compatible with add_offset_wcs=''.")
@@ -357,7 +351,7 @@ class Image:
             A Pydantic model representation of the image, holding references
             to data stored in the archive.
         archive
-            `~serialization.InputArchive` instance to read from.
+            Archive to read from.
         bbox
             Bounding box of a subimage to read instead.
         strip_header

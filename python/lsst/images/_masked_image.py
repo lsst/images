@@ -260,24 +260,7 @@ class MaskedImage:
         Parameters
         ----------
         archive
-            `~serialization.OutputArchive` instance to write to.
-
-        Returns
-        -------
-        MaskedImageSerializationModel
-            A Pydantic model representation of the masked image, holding
-            references to data stored in the archive.
-
-        Notes
-        -----
-        This method has the signature expected by
-        `~serialization.OutputArchive.serialize_direct` and
-        `~serialization.OutputArchive.serialize_pointer`, in order to allow
-        objects holding a `MaskedImage` to delegate its serialization.
-
-        This method does not initialize the opaque metadata of the returned
-        masked image from the archive, as it does not assume that the masked
-        image is the top-level entry in the archive.
+            Archive to write to.
         """
         serialized_image = archive.serialize_direct(
             "image", functools.partial(self.image.serialize, save_projection=False)
@@ -304,29 +287,17 @@ class MaskedImage:
     def deserialize(
         cls, model: MaskedImageSerializationModel[Any], archive: InputArchive[Any], *, bbox: Box | None = None
     ) -> MaskedImage:
-        """Deserialize a masked image from an input archive.
+        """Deserialize a image from an input archive.
 
         Parameters
         ----------
         model
-            A Pydantic model representation of the masked image, holding
-            references to data stored in the archive.
+            A Pydantic model representation of the image, holding references
+            to data stored in the archive.
         archive
-            `~serialization.InputArchive` instance to read from.
+            Archive to read from.
         bbox
             Bounding box of a subimage to read instead.
-
-        Notes
-        -----
-        When there is no ``bbox`` argument, this method has the signature
-        expected by `~serialization.InputArchive.deserialize_pointer`, in
-        order to allow objects holding a `MaskedImage` to delegate its
-        deserialization.  A ``lambda`` or `functools.partial` can be used to
-        pass ``bbox`` in this case.
-
-        This method does not pass the opaque metadata of the masked image to
-        the archive, as it does not assume that the masked image is the
-        top-level entry in the archive.
         """
         image = Image.deserialize(model.image, archive, bbox=bbox)
         mask = Mask.deserialize(model.mask, archive, bbox=bbox)
@@ -341,7 +312,7 @@ class MaskedImage:
         mask_compression: FitsCompressionOptions | None = FitsCompressionOptions.DEFAULT,
         variance_compression: FitsCompressionOptions | None = FitsCompressionOptions.DEFAULT,
     ) -> None:
-        """Write the masked image to a FITS file.
+        """Write the image to a FITS file.
 
         Parameters
         ----------
@@ -368,7 +339,7 @@ class MaskedImage:
 
     @classmethod
     def read_fits(cls, url: ResourcePathExpression, *, bbox: Box | None = None) -> MaskedImage:
-        """Read a masked image from a FITS file.
+        """Read an image from a FITS file.
 
         Parameters
         ----------
@@ -459,7 +430,7 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
         description="Bitmask that annotates the main image's pixels."
     )
     variance: ImageSerializationModel[P] = pydantic.Field(
-        description="Per-pixel variance estimages for the main image."
+        description="Per-pixel variance estimates for the main image."
     )
     projection: ProjectionSerializationModel[P] | None = pydantic.Field(
         default=None,

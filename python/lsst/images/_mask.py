@@ -594,7 +594,7 @@ class Mask:
         Parameters
         ----------
         archive
-            `~serialization.OutputArchive` instance to write to.
+            Archive to write to.
         update_header
             A callback that will be given the FITS header for the HDU
             containing this mask in order to add keys to it.  This callback
@@ -608,12 +608,6 @@ class Mask:
             A FITS WCS single-character suffix to use when adding a linear
             WCS that maps the FITS array to the logical pixel coordinates
             defined by ``bbox.start``.  Set to `None` to not write this WCS.
-
-        Returns
-        -------
-        MaskSerializationModel
-            A Pydantic model representation of the mask, holding references
-            to data stored in the archive.
         """
         data: list[ArrayReferenceModel] = []
         for schema_2d in self.schema.split(np.int32):
@@ -670,7 +664,7 @@ class Mask:
             A Pydantic model representation of the mask, holding references
             to data stored in the archive.
         archive
-            `~serialization.InputArchive` instance to read from.
+            Archive to read from.
         bbox
             Bounding box of a subimage to read instead.
         strip_header
