@@ -42,7 +42,13 @@ from .fits import (
     strip_legacy_exposure_cards,
     strip_wcs_cards,
 )
-from .serialization import InputArchive, OpaqueArchiveMetadata, OutputArchive, TableCellReferenceModel
+from .serialization import (
+    ArchiveTree,
+    InputArchive,
+    OpaqueArchiveMetadata,
+    OutputArchive,
+    TableCellReferenceModel,
+)
 from .utils import is_none
 
 
@@ -434,7 +440,7 @@ class MaskedImage:
         return cls(image, mask=mask, variance=variance, opaque_metadata=opaque_metadata)
 
 
-class MaskedImageSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
+class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """A Pydantic model used to represent a serialized `MaskedImage`."""
 
     image: ImageSerializationModel[P] = pydantic.Field(description="The main data image.")

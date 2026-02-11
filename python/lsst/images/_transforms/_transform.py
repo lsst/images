@@ -27,7 +27,7 @@ import numpy as np
 import pydantic
 
 from .._geom import XY, Bounds, Box, SerializableBounds
-from ..serialization import ArchiveReadError, InputArchive, OutputArchive
+from ..serialization import ArchiveReadError, ArchiveTree, InputArchive, OutputArchive
 from ._frames import Frame, SerializableFrame, SkyFrame
 
 if TYPE_CHECKING:
@@ -524,13 +524,13 @@ def _normalize_xy[T: np.ndarray | float](xy: XY[T], frame: Frame) -> XY[T]:
     return XY(x=frame.normalize_x(xy.x), y=frame.normalize_y(xy.y))
 
 
-class MappingSerializationModel(pydantic.BaseModel):
+class MappingSerializationModel(ArchiveTree):
     """Serialization model for an AST Mapping."""
 
     ast: str = pydantic.Field(description="A serialized Starlink AST Mapping, using the AST native encoding.")
 
 
-class TransformSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
+class TransformSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """Serialization model for coordinate transforms."""
 
     frames: list[SerializableFrame] = pydantic.Field(

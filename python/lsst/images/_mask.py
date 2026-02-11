@@ -32,6 +32,7 @@ from ._geom import Box
 from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .serialization import (
     ArchiveReadError,
+    ArchiveTree,
     ArrayReferenceModel,
     InputArchive,
     IntegerType,
@@ -780,7 +781,7 @@ class Mask:
         return mask
 
 
-class MaskSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
+class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """Pydantic model used to represent the serialized form of a `.Mask`."""
 
     data: list[ArrayReferenceModel] = pydantic.Field(description="References to pixel data.")

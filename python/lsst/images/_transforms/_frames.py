@@ -30,7 +30,7 @@ import numpy as np
 import pydantic
 
 from .._geom import Box
-from ..serialization import Unit
+from ..serialization import ArchiveTree, Unit
 from ..utils import is_none
 
 
@@ -72,7 +72,7 @@ class Frame(Protocol):
 
 
 @final
-class DetectorFrame(pydantic.BaseModel):
+class DetectorFrame(ArchiveTree, frozen=True):
     """A coordinate frame for a particular detector's pixels.
 
     Notes
@@ -95,8 +95,6 @@ class DetectorFrame(pydantic.BaseModel):
     frame_type: Literal["DETECTOR"] = pydantic.Field(
         default="DETECTOR", description="Descriminator for the frame type."
     )
-
-    model_config = pydantic.ConfigDict(frozen=True)
 
     @property
     def unit(self) -> u.UnitBase:
@@ -128,7 +126,7 @@ class DetectorFrame(pydantic.BaseModel):
 
 
 @final
-class FocalPlaneFrame(pydantic.BaseModel):
+class FocalPlaneFrame(ArchiveTree, frozen=True):
     """A Euclidian coordinate frame for the focal plane of a camera."""
 
     instrument: str = pydantic.Field(description="Name of the instrument.")
@@ -145,8 +143,6 @@ class FocalPlaneFrame(pydantic.BaseModel):
     frame_type: Literal["FOCAL_PLANE"] = pydantic.Field(
         default="FOCAL_PLANE", description="Descriminator for the frame type."
     )
-
-    model_config = pydantic.ConfigDict(frozen=True)
 
     def normalize_x[T: float | np.ndarray](self, x: T) -> T:
         """Normalize ``x`` coordinates into their standard range."""
@@ -171,7 +167,7 @@ class FocalPlaneFrame(pydantic.BaseModel):
 
 
 @final
-class FieldAngleFrame(pydantic.BaseModel):
+class FieldAngleFrame(ArchiveTree, frozen=True):
     """An angular coordinate frame that maps a camera onto the sky about its
     boresight.
 
@@ -193,8 +189,6 @@ class FieldAngleFrame(pydantic.BaseModel):
     frame_type: Literal["FIELD_ANGLE"] = pydantic.Field(
         default="FIELD_ANGLE", description="Descriminator for the frame type."
     )
-
-    model_config = pydantic.ConfigDict(frozen=True)
 
     @property
     def unit(self) -> u.UnitBase:
@@ -226,7 +220,7 @@ class FieldAngleFrame(pydantic.BaseModel):
 
 
 @final
-class TractFrame(pydantic.BaseModel):
+class TractFrame(ArchiveTree, frozen=True):
     """The pixel coordinates of a tract: a region on the sky used for
     coaddition, defined by a 'skymap' and split into 'patches' that share
     a common pixel grid.
@@ -238,8 +232,6 @@ class TractFrame(pydantic.BaseModel):
     frame_type: Literal["TRACT"] = pydantic.Field(
         default="TRACT", description="Descriminator for the frame type."
     )
-
-    model_config = pydantic.ConfigDict(frozen=True)
 
     @property
     def unit(self) -> u.UnitBase:

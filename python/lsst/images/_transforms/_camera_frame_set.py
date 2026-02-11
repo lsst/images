@@ -19,7 +19,7 @@ import astropy.units as u
 import pydantic
 
 from .._geom import Bounds, Box
-from ..serialization import InputArchive, OutputArchive
+from ..serialization import ArchiveTree, InputArchive, OutputArchive
 from . import _frames  # use this import style to facilitate pattern matching
 from ._frame_set import FrameLookupError, FrameSet
 from ._transform import Transform
@@ -207,7 +207,7 @@ class CameraFrameSet(FrameSet):
         return CameraFrameSet("HSC", ast_frame_set)
 
 
-class CameraFrameSetSerializationModel(pydantic.BaseModel):
+class CameraFrameSetSerializationModel(ArchiveTree):
     """Serialization model for `CameraFrameSet`."""
 
     instrument: str = pydantic.Field(description="Name of the instrument.")

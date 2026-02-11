@@ -13,6 +13,7 @@ from __future__ import annotations
 
 __all__ = (
     "ArchiveReadError",
+    "ArchiveTree",
     "OpaqueArchiveMetadata",
     "no_header_updates",
 )
@@ -21,11 +22,21 @@ from typing import TYPE_CHECKING, Protocol, Self
 
 import astropy.table
 import astropy.units
+import pydantic
 
 from .._geom import Box
 
 if TYPE_CHECKING:
     import astropy.io.fits
+
+
+class ArchiveTree(
+    pydantic.BaseModel, ser_json_inf_nan="constants", ser_json_bytes="base64", val_json_bytes="base64"
+):
+    """An intermediate base class of `pydantic.BaseModel` that should be used
+    for all objects that may be used as the top-level tree models written to
+    archives.
+    """
 
 
 class ArchiveReadError(RuntimeError):

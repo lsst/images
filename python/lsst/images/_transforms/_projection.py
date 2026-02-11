@@ -24,7 +24,7 @@ from astropy.coordinates import ICRS, Latitude, Longitude, SkyCoord
 from astropy.wcs.wcsapi import BaseLowLevelWCS, HighLevelWCSMixin
 
 from .._geom import XY, YX, Bounds, Box
-from ..serialization import InputArchive, OutputArchive
+from ..serialization import ArchiveTree, InputArchive, OutputArchive
 from ..utils import is_none
 from ._frames import Frame, SkyFrame
 from ._transform import Transform, TransformSerializationModel, _ast_apply
@@ -374,7 +374,7 @@ class ProjectionAstropyView(BaseLowLevelWCS, HighLevelWCSMixin):
         return _ast_apply(self._ast_pixel_to_sky.applyInverse, x=ra, y=dec)
 
 
-class ProjectionSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
+class ProjectionSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """Serialization model for projetions."""
 
     pixel_to_sky: TransformSerializationModel[P] = pydantic.Field(

@@ -30,6 +30,7 @@ from . import fits
 from ._geom import Box
 from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .serialization import (
+    ArchiveTree,
     ArrayReferenceModel,
     ArrayReferenceQuantityModel,
     InputArchive,
@@ -463,7 +464,7 @@ class Image:
         return image
 
 
-class ImageSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
+class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """Pydantic model used to represent the serialized form of an `.Image`."""
 
     data: ArrayReferenceQuantityModel | ArrayReferenceModel = pydantic.Field(

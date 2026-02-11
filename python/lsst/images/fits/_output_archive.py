@@ -26,6 +26,7 @@ import pydantic
 
 from .._transforms import FrameSet
 from ..serialization import (
+    ArchiveTree,
     ArrayReferenceModel,
     ColumnDefinitionModel,
     NestedOutputArchive,
@@ -240,7 +241,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         self._hdu_list.append(hdu)
         return key
 
-    def add_tree(self, tree: pydantic.BaseModel) -> None:
+    def add_tree(self, tree: ArchiveTree) -> None:
         """Write the JSON tree to the archive.
 
         This method must be called exactly once, just before the `open` context

@@ -156,7 +156,7 @@ class PSFExWrapper(LegacyPointSpreadFunction):
         return cls(legacy_psf, Bounds.deserialize(model.bounds))
 
 
-class PSFExSerializationModel(pydantic.BaseModel):
+class PSFExSerializationModel(serialization.ArchiveTree):
     """Serialization model for PSFEx PSFs."""
 
     average_x: float = pydantic.Field(
@@ -190,3 +190,5 @@ class PSFExSerializationModel(pydantic.BaseModel):
     context: serialization.InlineArray = pydantic.Field(description="Internal PSFEx context array.")
 
     bounds: SerializableBounds = pydantic.Field(description="Validity range for this PSF model.")
+
+    model_config = pydantic.ConfigDict(ser_json_inf_nan="constants")
