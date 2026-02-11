@@ -135,7 +135,10 @@ class PSFExWrapper(LegacyPointSpreadFunction):
         This method is intended to be usable as the callback function passed to
         `.serialization.InputArchive.deserialize_pointer`.
         """
-        from lsst.meas.extensions.psfex import PsfexPsf, PsfexPsfSerializationData
+        try:
+            from lsst.meas.extensions.psfex import PsfexPsf, PsfexPsfSerializationData
+        except ImportError:
+            raise serialization.ArchiveReadError("Failed to import lsst.meas.extensions.psfex.") from None
 
         parameters = archive.get_array(model.parameters).astype(np.float32)
         data = PsfexPsfSerializationData()

@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+from lsst.images.serialization import ArchiveReadError
+
 __all__ = ("PiffSerializationModel", "PiffWrapper")
 
 import operator
@@ -125,8 +127,11 @@ class PiffWrapper(PointSpreadFunction):
         This method is intended to be usable as the callback function passed to
         `.serialization.InputArchive.deserialize_pointer`.
         """
-        from piff import PSF
-        from piff.config import PiffLogger
+        try:
+            from piff import PSF
+            from piff.config import PiffLogger
+        except ImportError:
+            raise ArchiveReadError("Failed to import piff.") from None
 
         reader = _ArchivePiffReader(model.piff, archive)
         impl = PSF._read(reader, "piff", PiffLogger(_LOG))
