@@ -15,7 +15,8 @@ __all__ = ("InputArchive",)
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import TypeVar
+from types import EllipsisType
+from typing import TYPE_CHECKING, TypeVar
 
 import astropy.io.fits
 import astropy.table
@@ -23,14 +24,13 @@ import astropy.units
 import numpy as np
 import pydantic
 
-from .._coordinate_transform import CoordinateTransform
-from .._geom import Box
-from .._image import Image
-from .._mask import Mask
+from ._asdf_utils import ArrayReferenceModel
 from ._common import OpaqueArchiveMetadata, no_header_updates
-from ._image import ImageModel
-from ._mask import MaskModel
 from ._tables import TableModel
+
+if TYPE_CHECKING:
+    from .._transforms import FrameSet
+
 
 # This pre-python-3.12 declaration is needed by Sphinx (probably the
 # autodoc-typehints plugin.
@@ -51,34 +51,6 @@ class InputArchive[P: pydantic.BaseModel](ABC):
     archive implementations will provide a method to load the paired model from
     a file, but this is not part of the base class interface.
     """
-
-    @abstractmethod
-    def get_coordinate_transform(self, from_frame: str, to_frame: str = "sky") -> CoordinateTransform:
-        """Return the coordinate transform that maps the two given frames.
-
-        Parameters
-        ----------
-        from_frame
-            Frame for coordinates passed into the transform.
-        to_frame
-            Frame for coordinates returned by the transform.
-
-        Returns
-        -------
-        CoordinateTransform
-            Coordinate transform
-
-        Notes
-        -----
-        Implementations are expected to cache returned values, and may need to
-        assemble composite transforms from serialized individual transforms as
-        well, depending on how composite transforms are saved by the
-        corresponding output archive.
-        """
-        raise NotImplementedError()
-
-    # TODO: we probably need a way to get a coordinate transform from a P model
-    # pointer, too.
 
     @abstractmethod
     def deserialize_pointer[U: pydantic.BaseModel, V](
@@ -116,60 +88,41 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def get_image(
-        self,
-        ref: ImageModel,
-        *,
-        bbox: Box | None = None,
-        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> Image:
-        """Load an image from the archive.
+    def get_frame_set(self, ref: P) -> FrameSet:
+        """Return an alreday-deserialized frame set from the archive.
 
         Parameters
         ----------
         ref
-            A Pydantic model that references the image.
-        bbox
-            A bounding box that specifies a subset of the original image to
-            read.
-        strip_header
-            A callable that strips out any FITS header cards added by the
-            ``update_header`` argument in the corresponding call to
-            `~lsst.images.serialization.OutputArchive.add_image`.
+            Implementation-specific reference to the frame set.
 
         Returns
         -------
-        Image
-            The loaded image.
+        FrameSet
+            Loaded frame set.
         """
         raise NotImplementedError()
 
     @abstractmethod
-    def get_mask(
+    def get_array(
         self,
-        ref: MaskModel,
+        ref: ArrayReferenceModel,
         *,
-        bbox: Box | None = None,
+        slices: tuple[slice, ...] | EllipsisType = ...,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> Mask:
-        """Load a mask from the archive.
+    ) -> np.ndarray:
+        """Load an array from the archive.
 
         Parameters
         ----------
         ref
-            A Pydantic model that references the mask.
-        bbox
-            A bounding box that specifies a subset of the original mask to
-            read.
+            A Pydantic model that references the array.
+        slices
+            Slices that specify a subset of the original array to read.
         strip_header
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
-            `~lsst.serialization.OutputArchive.add_mask`.
-
-        Returns
-        -------
-        Mask
-            The loaded mask.
+            `~lsst.images.serialization.OutputArchive.add_array`.
         """
         raise NotImplementedError()
 
@@ -212,7 +165,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         strip_header
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
-            `~lsst.serialization.OutputArchive.add_table`.
+            `~lsst.serialization.OutputArchive.add_structured_array`.
 
         Returns
         -------

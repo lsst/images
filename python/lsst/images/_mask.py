@@ -11,18 +11,25 @@
 
 from __future__ import annotations
 
-__all__ = ("Mask", "MaskPlane", "MaskPlaneBit", "MaskSchema")
+__all__ = ("Mask", "MaskPlane", "MaskPlaneBit", "MaskSchema", "MaskSerializationModel")
 
 import dataclasses
 import math
-from collections.abc import Iterable, Iterator, Mapping, Sequence, Set
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
 from types import EllipsisType
+from typing import Any
 
 import astropy.io.fits
+import astropy.wcs
 import numpy as np
 import numpy.typing as npt
+import pydantic
 
-from ._geom import Box
+from . import fits
+from ._geom import Box, Interval
+from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
+from .serialization import ArrayReferenceModel, InputArchive, OutputArchive, no_header_updates
+from .utils import is_none
 
 
 @dataclasses.dataclass(frozen=True)
@@ -216,6 +223,8 @@ class Mask:
         instance is passed).   Only needed if ``array_or_fill`` is not an
         array and ``bbox`` is not provided.  Like the bbox, this does not
         include the last dimension of the array.
+    projection
+        Projection that maps the pixel grid to the sky.
 
     Notes
     -----
@@ -239,6 +248,7 @@ class Mask:
         bbox: Box | None = None,
         start: Sequence[int] | None = None,
         shape: Sequence[int] | None = None,
+        projection: Projection | None = None,
     ):
         if shape is not None:
             shape = tuple(shape)
@@ -268,8 +278,9 @@ class Mask:
                 bbox = Box.from_shape(shape, start=start)
             array = np.full(bbox.shape + (schema.mask_size,), array_or_fill, dtype=schema.dtype)
         self._array = array
-        self._bbox = bbox
-        self._schema = schema
+        self._bbox: Box = bbox
+        self._schema: MaskSchema = schema
+        self._projection = projection
 
     @property
     def array(self) -> np.ndarray:
@@ -299,6 +310,49 @@ class Mask:
         """
         return self._bbox
 
+    @property
+    def projection(self) -> Projection[Any] | None:
+        """The projection that maps this mask's pixel grid to the sky
+        (`Projection` | `None`).
+
+        Notes
+        -----
+        The pixel coordinates used by this projection account for the bounding
+        box ``start``; they are not just array indices.
+        """
+        return self._projection
+
+    @property
+    def astropy_wcs(self) -> ProjectionAstropyView | None:
+        """An Astropy WCS for this mask's pixel array.
+
+        Notes
+        -----
+        As expected for Astropy WCS objects, this defines pixel coordinates
+        such that the first row and column in `array` are ``(0, 0)``, not
+        ``bbox.start``, as is the case for `projection`.
+
+        This object satisfies the `astropy.wcs.wcsapi.BaseHighLevelWCS` and
+        `astropy.wcs.wcsapi.BaseLowLevelWCS` interfaces, but it is not an
+        `astropy.wcs.WCS` (use `fits_wcs` for that).
+        """
+        return self._projection.as_astropy(self.bbox) if self._projection is not None else None
+
+    @property
+    def fits_wcs(self) -> astropy.wcs.WCS | None:
+        """An Astropy FITS WCS for this mask's pixel array.
+
+        Notes
+        -----
+        As expected for Astropy WCS objects, this defines pixel coordinates
+        such that the first row and column in `array` are ``(0, 0)``, not
+        ``bbox.start``, as is the case for `projection`.
+
+        This may be an approximation or absent if `projection` is not
+        naturally representable as a FITS WCS.
+        """
+        return self._projection.as_fits_wcs(self.bbox) if self._projection is not None else None
+
     def __getitem__(self, bbox: Box) -> Mask:
         return Mask(
             self.array[bbox.y.slice_within(self._bbox.y), bbox.x.slice_within(self._bbox.x), :],
@@ -306,9 +360,55 @@ class Mask:
             schema=self.schema,
         )
 
-    def copy(self) -> Mask:
-        """Deep-copy the mask."""
-        return Mask(self._array.copy(), bbox=self._bbox, schema=self._schema)
+    def copy(
+        self,
+        *,
+        schema: MaskSchema | EllipsisType = ...,
+        projection: Projection | None | EllipsisType = ...,
+        start: Sequence[int] | EllipsisType = ...,
+    ) -> Mask:
+        """Deep-copy the mask, with optional updates.
+
+        Notes
+        -----
+        This can only be used to make changes to schema descriptions; plane
+        names must remain the same (in the same order).
+        """
+        if schema is ...:
+            schema = self._schema
+        else:
+            if list(schema.names) != list(self.schema.names):
+                raise ValueError("Cannot create a mask view with a schema with different names.")
+        if projection is ...:
+            projection = self._projection
+        if start is ...:
+            start = self._bbox.start
+        return Mask(self._array.copy(), bbox=self._bbox, schema=self._schema, projection=self._projection)
+
+    def view(
+        self,
+        *,
+        schema: MaskSchema | EllipsisType = ...,
+        projection: Projection | None | EllipsisType = ...,
+        start: Sequence[int] | EllipsisType = ...,
+    ) -> Mask:
+        """Make a view of the mask, with optional updates.
+
+        Notes
+        -----
+        This can only be used to make changes to schema descriptions; plane
+        names must remain the same (in the same order).
+        """
+        if schema is ...:
+            schema = self._schema
+        else:
+            if list(schema.names) != list(self.schema.names):
+                raise ValueError("Cannot create a mask view with a schema with different names.")
+        if projection is ...:
+            projection = self._projection
+        if start is ...:
+            start = self._bbox.start
+        return Mask(self._array, start=start, schema=schema, projection=projection)
 
     def get(self, plane: str) -> np.ndarray:
         """Return a 2-d boolean array for the given mask plane.
@@ -369,6 +469,99 @@ class Mask:
     def __repr__(self) -> str:
         return f"Mask(..., bbox={self.bbox!r}, schema={self.schema!r})"
 
+    def serialize[P: pydantic.BaseModel](
+        self,
+        archive: OutputArchive[P],
+        *,
+        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        save_projection: bool = True,
+        add_offset_wcs: str | None = "A",
+    ) -> MaskSerializationModel[P]:
+        """Serialize the mask to an output archive.
+
+        Parameters
+        ----------
+        archive
+            `~serialization.OutputArchive` instance to write to.
+        update_header
+            A callback that will be given the FITS header for the HDU
+            containing this image in order to add keys to it.  This callback
+            may be provided but will not be called if the output format is not
+            FITS.
+        save_projection
+            If `True`, save the `Projection` attached to the mask, if there
+            is one.
+        add_offset_wcs
+            A FITS WCS single-character suffix to use when adding a linear
+            WCS that maps the FITS array to the logical pixel coordinates
+            defined by ``bbox.start``.  Set to `None` to not write this WCS.
+
+        Returns
+        -------
+        MaskSerializationModel
+            A Pydantic model representation of the mask, holding references
+            to data stored in the archive.
+        """
+
+        def _update_header(header: astropy.io.fits.Header) -> None:
+            update_header(header)
+            # TODO: save mask plane information.
+            if self.projection is not None:
+                fits_wcs = self.projection.as_fits_wcs(self.bbox)
+                if fits_wcs:
+                    header.update(fits_wcs.to_header(relax=True))
+            if add_offset_wcs is not None:
+                fits.add_offset_wcs(header, x=self.bbox.x.start, y=self.bbox.y.start, key=add_offset_wcs)
+
+        ref = archive.add_array(self.array, update_header=_update_header)
+        serialized_projection: ProjectionSerializationModel[P] | None = None
+        if save_projection and self.projection is not None:
+            serialized_projection = archive.serialize_direct("projection", self.projection.serialize)
+        return MaskSerializationModel.model_construct(
+            data=ref, start=list(self.bbox.start), planes=list(self.schema), projection=serialized_projection
+        )
+
+    @classmethod
+    def deserialize(
+        cls,
+        model: MaskSerializationModel[Any],
+        archive: InputArchive[Any],
+        *,
+        bbox: Box | None = None,
+        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> Mask:
+        """Deserialize a mask from an input archive.
+
+        Parameters
+        ----------
+        model
+            A Pydantic model representation of the mask, holding references
+            to data stored in the archive.
+        archive
+            `~serialization.InputArchive` instance to read from.
+        bbox
+            Bounding box of a subimage to read instead.
+        strip_header
+            A callable that strips out any FITS header cards added by the
+            ``update_header`` argument in the corresponding call to
+            `serialize`.
+        """
+
+        def _strip_header(header: astropy.io.fits.Header) -> None:
+            strip_header(header)
+            fits.strip_wcs_cards(header)
+            # TODO: strip mask plane information.
+
+        slices = bbox.slice_within(model.bbox) if bbox is not None else ...
+        array = archive.get_array(model.data, strip_header=_strip_header, slices=slices)
+        schema = MaskSchema(model.planes, dtype=array.dtype)
+        projection = (
+            Projection.deserialize(model.projection, archive) if model.projection is not None else None
+        )
+        return cls(
+            array, schema=schema, start=model.start if bbox is None else bbox.start, projection=projection
+        )
+
     @classmethod
     def read_legacy(cls, hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU) -> Mask:
         """Read a FITS file written by `lsst.afw.image.Mask.writeFits`.
@@ -389,3 +582,25 @@ class Mask:
             bitmask2d = 1 << bit2d
             mask.set(name, array2d & bitmask2d)
         return mask
+
+
+class MaskSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
+    """Pydantic model used to represent the serialized form of a `.Mask`."""
+
+    data: ArrayReferenceModel = pydantic.Field(description="Reference to pixel data.")
+    start: list[int] = pydantic.Field(
+        description="Coordinate of the first pixels in the array, ordered (y, x)."
+    )
+    planes: list[MaskPlane | None] = pydantic.Field(description="Definitions of the bitplanes in the mask.")
+    projection: ProjectionSerializationModel[P] | None = pydantic.Field(
+        default=None,
+        exclude_if=is_none,
+        description="Projection that maps the logical pixel grid onto the sky.",
+    )
+
+    @property
+    def bbox(self) -> Box:
+        """The 2-d bounding box of the mask."""
+        return Box(
+            *[Interval.factory[begin : begin + size] for begin, size in zip(self.start, self.data.shape[:-1])]
+        )
