@@ -40,7 +40,7 @@ from .fits import (
     PrecompressedImage,
     strip_wcs_cards,
 )
-from .serialization import InputArchive, OpaqueArchiveMetadata, OutputArchive
+from .serialization import InputArchive, OpaqueArchiveMetadata, OutputArchive, TableCellReferenceModel
 from .utils import is_none
 
 
@@ -350,7 +350,7 @@ class MaskedImage:
             Bounding box of a subimage to read instead.
         """
         with FitsInputArchive.open(url, partial=(bbox is not None)) as archive:
-            model = archive.get_tree(MaskedImageSerializationModel)
+            model = archive.get_tree(MaskedImageSerializationModel[TableCellReferenceModel])
             result = cls.deserialize(model, archive, bbox=bbox)
             # We only want to save opaque archive metadata on the outermost
             # object, and `deserialize` is designed to be usable if the
