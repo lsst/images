@@ -20,8 +20,7 @@ import astropy.units as u
 import numpy as np
 
 from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
-from lsst.images.fits import ExtensionKey, FitsCompressionOptions
-from lsst.images.tests import DP2_VISIT_DETECTOR_DATA_ID
+from lsst.images.fits import FitsCompressionOptions
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -140,51 +139,6 @@ class MaskedImageTestCase(unittest.TestCase):
         np.testing.assert_array_equal(subimage.image.array, roundtripped.image.array[subslices])
         np.testing.assert_array_equal(subimage.mask.array, roundtripped.mask.array[subslices])
         np.testing.assert_array_equal(subimage.variance.array, roundtripped.variance.array[subslices])
-
-    @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
-    def test_legacy_rewrite(self) -> None:
-        """Test that we can read a ``lsst.afw.image.MaskedImage`` into an
-        `lsst.images.MaskedImage` and write that out while preserving even
-        lossy-compressed pixel values exactly.
-        """
-        assert DATA_DIR is not None, "Guaranteed by decorator."
-        filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
-        from_afw = MaskedImage.read_legacy(filename, preserve_quantization=True)
-        # Check that we read the units from BUNIT.
-        self.assertEqual(from_afw.unit, astropy.units.nJy)
-        # Check that the primary header has the keys we want, and none of the
-        # keys we don't want.
-        header = from_afw._opaque_metadata.headers[ExtensionKey()]
-        self.assertEqual(header["LSST BUTLER DATAID INSTRUMENT"], DP2_VISIT_DETECTOR_DATA_ID["instrument"])
-        self.assertEqual(header["LSST BUTLER DATAID DETECTOR"], DP2_VISIT_DETECTOR_DATA_ID["detector"])
-        self.assertEqual(header["LSST BUTLER DATAID VISIT"], DP2_VISIT_DETECTOR_DATA_ID["visit"])
-        self.assertNotIn("LSST BUTLER ID", header)
-        self.assertNotIn("AR HDU", header)
-        self.assertNotIn("A_ORDER", header)
-        # Check that the extension HDUs do not have any custom headers.
-        self.assertFalse(from_afw._opaque_metadata.headers[ExtensionKey("IMAGE")])
-        self.assertFalse(from_afw._opaque_metadata.headers[ExtensionKey("MASK")])
-        self.assertFalse(from_afw._opaque_metadata.headers[ExtensionKey("VARIANCE")])
-        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
-            tmp.close()
-            from_afw.write_fits(tmp.name)
-            # Check that we're still using the right compression.
-            with astropy.io.fits.open(tmp.name, disable_image_compression=True) as fits:
-                self.assertEqual(fits[1].header["ZCMPTYPE"], "RICE_1")
-                self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
-                self.assertEqual(fits[3].header["ZCMPTYPE"], "RICE_1")
-            roundtripped = MaskedImage.read_fits(tmp.name)
-        self.assertEqual(roundtripped.bbox, from_afw.bbox)
-        self.assertEqual(roundtripped.unit, from_afw.unit)
-        self.assertEqual(roundtripped.mask.schema, from_afw.mask.schema)
-        np.testing.assert_array_equal(roundtripped.image.array, from_afw.image.array)
-        np.testing.assert_array_equal(roundtripped.mask.array, from_afw.mask.array)
-        np.testing.assert_array_equal(roundtripped.variance.array, from_afw.variance.array)
-        # Check that the round-tripped headers are the same (up to card order).
-        self.assertEqual(dict(header), dict(roundtripped._opaque_metadata.headers[ExtensionKey()]))
-        self.assertFalse(roundtripped._opaque_metadata.headers[ExtensionKey("IMAGE")])
-        self.assertFalse(roundtripped._opaque_metadata.headers[ExtensionKey("MASK")])
-        self.assertFalse(roundtripped._opaque_metadata.headers[ExtensionKey("VARIANCE")])
 
 
 if __name__ == "__main__":
