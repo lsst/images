@@ -25,6 +25,7 @@ __all__ = (
     "compare_masked_image_to_legacy",
     "compare_projection_to_legacy_wcs",
     "compare_psf_to_legacy",
+    "compare_visit_image_to_legacy",
     "legacy_coords_to_astropy",
     "legacy_points_to_xy_array",
 )
@@ -42,7 +43,8 @@ from .._geom import XY, Box
 from .._image import Image
 from .._mask import Mask, MaskPlane
 from .._masked_image import MaskedImage
-from .._transforms import Frame, Projection, SkyFrame, Transform
+from .._transforms import DetectorFrame, Frame, Projection, SkyFrame, Transform
+from .._visit_image import VisitImage
 from ..psfs import PointSpreadFunction
 
 
@@ -163,6 +165,36 @@ def compare_masked_image_to_legacy(
     compare_image_to_legacy(
         tc, masked_image.variance, legacy_masked_image.getVariance(), expect_view=expect_view
     )
+
+
+def compare_visit_image_to_legacy(
+    tc: unittest.TestCase,
+    visit_image: VisitImage,
+    legacy_exposure: Any,
+    *,
+    plane_map: Mapping[str, MaskPlane] | None = None,
+    expect_view: bool | None = None,
+    instrument: str,
+    visit: int,
+    detector: int,
+) -> None:
+    """Compare a `.VisitImage` object to a legacy `lsst.afw.image.Exposure`
+    object.
+    """
+    compare_masked_image_to_legacy(
+        tc, visit_image, legacy_exposure.getMaskedImage(), plane_map=plane_map, expect_view=expect_view
+    )
+    detector_bbox = Box.from_legacy(legacy_exposure.getDetector().getBBox())
+    compare_projection_to_legacy_wcs(
+        tc,
+        visit_image.projection,
+        legacy_exposure.getWcs(),
+        DetectorFrame(instrument=instrument, visit=visit, detector=detector, bbox=detector_bbox),
+        visit_image.bbox,
+    )
+    tc.assertIs(visit_image.projection, visit_image.mask.projection)
+    tc.assertIs(visit_image.projection, visit_image.variance.projection)
+    compare_psf_to_legacy(tc, visit_image.psf, legacy_exposure.getPsf())
 
 
 def compare_psf_to_legacy(tc: unittest.TestCase, psf: PointSpreadFunction, legacy_psf: Any) -> None:

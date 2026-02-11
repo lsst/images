@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("GenericFormatter", "ImageFormatter", "MaskedImageFormatter")
+__all__ = ("GenericFormatter", "ImageFormatter", "MaskedImageFormatter", "VisitImageFormatter")
 
 import enum
 import hashlib
@@ -28,6 +28,7 @@ from .._image import Image
 from .._mask import Mask
 from .._masked_image import MaskedImageSerializationModel
 from .._transforms import Projection, ProjectionSerializationModel
+from .._visit_image import VisitImageSerializationModel
 from ..serialization import TableCellReferenceModel
 from ._common import FitsCompressionOptions
 from ._input_archive import FitsInputArchive, read
@@ -231,7 +232,7 @@ class MaskedImageFormatter(ImageFormatter):
 
 
 class VisitImageFormatter(MaskedImageFormatter):
-    """The a specialized butler interface to FITS archive serialization of
+    """A specialized butler interface to FITS archive serialization of
     the `..VisitImage` class.
     """
 

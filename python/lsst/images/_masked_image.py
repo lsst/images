@@ -437,12 +437,24 @@ class MaskedImage:
         if the legacy file is actually an `lsst.afw.image.Exposure` with a
         WCS attached.
         """
+        with astropy.io.fits.open(filename) as hdu_list:
+            return MaskedImage._read_legacy_hdus(
+                hdu_list, filename, preserve_quantization=preserve_quantization, plane_map=plane_map
+            )
+
+    @staticmethod
+    def _read_legacy_hdus(
+        hdu_list: astropy.io.fits.HDUList,
+        filename: str,
+        *,
+        preserve_quantization: bool = False,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+    ) -> MaskedImage:
         opaque_metadata = fits.FitsOpaqueMetadata()
+        opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
+        image_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
+        variance_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
         with ExitStack() as exit_stack:
-            hdu_list = exit_stack.enter_context(astropy.io.fits.open(filename))
-            opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
-            image_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
-            variance_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
             if preserve_quantization:
                 bintable_hdu_list = exit_stack.enter_context(
                     astropy.io.fits.open(filename, disable_image_compression=True)
