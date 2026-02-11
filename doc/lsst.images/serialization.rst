@@ -4,6 +4,7 @@ Serialization
 .. automodapi:: lsst.images.serialization
    :no-inheritance-diagram:
    :include-all-objects:
+   :inherited-members:
    :skip: FloatType, InlineArray, InlineArrayQuantity, Quantity, Time, Unit
 
 ..
