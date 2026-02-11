@@ -291,9 +291,9 @@ class MaskedImage:
             projection=serialized_projection,
         )
 
-    @classmethod
+    @staticmethod
     def deserialize(
-        cls, model: MaskedImageSerializationModel[Any], archive: InputArchive[Any], *, bbox: Box | None = None
+        model: MaskedImageSerializationModel[Any], archive: InputArchive[Any], *, bbox: Box | None = None
     ) -> MaskedImage:
         """Deserialize a image from an input archive.
 
@@ -345,8 +345,8 @@ class MaskedImage:
         ) as archive:
             archive.add_tree(self.serialize(archive))
 
-    @classmethod
-    def read_fits(cls, url: ResourcePathExpression, *, bbox: Box | None = None) -> MaskedImage:
+    @staticmethod
+    def read_fits(url: ResourcePathExpression, *, bbox: Box | None = None) -> MaskedImage:
         """Read an image from a FITS file.
 
         Parameters
@@ -359,7 +359,7 @@ class MaskedImage:
         """
         with FitsInputArchive.open(url, partial=(bbox is not None)) as archive:
             model = archive.get_tree(MaskedImageSerializationModel[TableCellReferenceModel])
-            result = cls.deserialize(model, archive, bbox=bbox)
+            result = MaskedImage.deserialize(model, archive, bbox=bbox)
             # We only want to save opaque archive metadata on the outermost
             # object, and `deserialize` is designed to be usable if the
             # MaskedImage is nested within some other object, so we set it here
@@ -369,8 +369,8 @@ class MaskedImage:
             result._opaque_metadata = archive.get_opaque_metadata()
         return result
 
-    @classmethod
-    def read_legacy(cls, filename: str, *, preserve_quantization: bool = False) -> MaskedImage:
+    @staticmethod
+    def read_legacy(filename: str, *, preserve_quantization: bool = False) -> MaskedImage:
         """Read a FITS file written by `lsst.afw.image.MaskedImage.writeFits`.
 
         Parameters
@@ -437,7 +437,7 @@ class MaskedImage:
             with astropy.io.fits.open(filename, disable_image_compression=True) as hdu_list:
                 opaque_metadata.precompressed["IMAGE"] = PrecompressedImage.from_bintable(hdu_list[1])
                 opaque_metadata.precompressed["VARIANCE"] = PrecompressedImage.from_bintable(hdu_list[3])
-        return cls(image, mask=mask, variance=variance, opaque_metadata=opaque_metadata)
+        return MaskedImage(image, mask=mask, variance=variance, opaque_metadata=opaque_metadata)
 
 
 class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
