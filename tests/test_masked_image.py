@@ -19,9 +19,9 @@ import astropy.io.fits
 import astropy.units as u
 import numpy as np
 
-from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
+from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema, get_legacy_visit_image_mask_planes
 from lsst.images.fits import FitsCompressionOptions
-from lsst.images.tests import assert_masked_images_equal
+from lsst.images.tests import assert_masked_images_equal, compare_masked_image_to_legacy
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -122,29 +122,37 @@ class MaskedImageTestCase(unittest.TestCase):
         assert_masked_images_equal(self, subimage, roundtripped[subbox], expect_view=False)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
-    def test_legacy_rewrite(self) -> None:
-        """Test that we can read a ``lsst.afw.image.MaskedImage`` into an
-        `lsst.images.MaskedImage` and write that out while preserving even
-        lossy-compressed pixel values exactly.
+    def test_legacy(self) -> None:
+        """Test MaskedImage.read_legacy, MaskedImage.to_legacy, and
+        MaskedImage.from_legacy.
         """
         assert DATA_DIR is not None, "Guaranteed by decorator."
         filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
-        from_afw = MaskedImage.read_legacy(filename, preserve_quantization=True)
-        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
-            tmp.close()
-            from_afw.write_fits(tmp.name)
-            # Check that we're still using the right compression.
-            with astropy.io.fits.open(tmp.name, disable_image_compression=True) as fits:
-                self.assertEqual(fits[1].header["ZCMPTYPE"], "RICE_1")
-                self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
-                self.assertEqual(fits[3].header["ZCMPTYPE"], "RICE_1")
-            roundtripped = MaskedImage.read_fits(tmp.name)
-        self.assertEqual(roundtripped.bbox, from_afw.bbox)
-        self.assertEqual(roundtripped.unit, from_afw.unit)
-        self.assertEqual(roundtripped.mask.schema, from_afw.mask.schema)
-        np.testing.assert_array_equal(roundtripped.image.array, from_afw.image.array)
-        np.testing.assert_array_equal(roundtripped.mask.array, from_afw.mask.array)
-        np.testing.assert_array_equal(roundtripped.variance.array, from_afw.variance.array)
+        plane_map = get_legacy_visit_image_mask_planes()
+        masked_image = MaskedImage.read_legacy(filename, plane_map=plane_map)
+        try:
+            from lsst.afw.image import MaskedImageFitsReader
+        except ImportError:
+            raise unittest.SkipTest("'lsst.afw.image' could not be imported.") from None
+        reader = MaskedImageFitsReader(filename)
+        legacy_masked_image = reader.read()
+        compare_masked_image_to_legacy(
+            self, masked_image, legacy_masked_image, plane_map=plane_map, expect_view=False
+        )
+        compare_masked_image_to_legacy(
+            self,
+            masked_image,
+            masked_image.to_legacy(plane_map=plane_map),
+            plane_map=plane_map,
+            expect_view=True,
+        )
+        compare_masked_image_to_legacy(
+            self,
+            MaskedImage.from_legacy(legacy_masked_image, plane_map=plane_map),
+            legacy_masked_image,
+            expect_view=True,
+            plane_map=plane_map,
+        )
 
 
 if __name__ == "__main__":

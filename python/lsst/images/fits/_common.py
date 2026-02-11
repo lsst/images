@@ -23,6 +23,8 @@ __all__ = (
     "InvalidFitsArchiveError",
     "PrecompressedImage",
     "add_offset_wcs",
+    "strip_butler_cards",
+    "strip_legacy_exposure_cards",
     "strip_wcs_cards",
 )
 
@@ -302,6 +304,19 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
             return None
         return astropy.io.fits.BinTableHDU(precompressed.data, header=precompressed.header.copy(), name=name)
 
+    def extract_legacy_primary_header(self, header: astropy.io.fits.Header) -> None:
+        """Update the opaque metadata with the header of the primary HDU
+        of a legacy (`lsst.afw.image`) FITS file.
+        """
+        primary_header = header.copy(strip=True)
+        # No idea what these spare TAN-SIP headers are doing in the afw
+        # FITS files, but we'll strip them here:
+        primary_header.remove("A_ORDER", ignore_missing=True)
+        primary_header.remove("B_ORDER", ignore_missing=True)
+        strip_legacy_exposure_cards(primary_header)
+        strip_butler_cards(primary_header)
+        self.headers[ExtensionKey()] = primary_header
+
     def copy(self) -> FitsOpaqueMetadata:
         # Docstring inherited.
         return FitsOpaqueMetadata(headers=self.headers)
@@ -336,7 +351,7 @@ def add_offset_wcs(header: astropy.io.fits.Header, *, x: int | float, y: int | f
     header.set(f"CUNIT2{key}", "PIXEL")
 
 
-_WCS_VECTOR_KEYS = ("CUNIT", "CRPIX", "CRPIX", "CRVAL", "CRDELT", "CROTA", "CRDER", "CSYER")
+_WCS_VECTOR_KEYS = ("CUNIT", "CRPIX", "CRPIX", "CRVAL", "CRDELT", "CROTA", "CRDER", "CSYER", "CDELT")
 _WCS_MATRIX_KEYS = ("CD{0}_{1}", "PC{0}_{1}")
 
 
@@ -364,6 +379,9 @@ def strip_wcs_cards(header: astropy.io.fits.Header) -> None:
                 _strip_sip_poly(header, wcsname, "B")
                 _strip_sip_poly(header, wcsname, "AP")
                 _strip_sip_poly(header, wcsname, "BP")
+    header.remove("LONPOLE", ignore_missing=True)
+    header.remove("LATPOLE", ignore_missing=True)
+    header.remove("MJDREF", ignore_missing=True)
 
 
 def _strip_sip_poly(header: astropy.io.fits.Header, wcsname: str, which: str) -> None:
@@ -371,3 +389,29 @@ def _strip_sip_poly(header: astropy.io.fits.Header, wcsname: str, which: str) ->
     if order is not None:
         for i, j in itertools.product(range(order + 1), range(order + 1)):
             header.remove(f"{which}_{i}_{j}{wcsname}", ignore_missing=True)
+
+
+def strip_legacy_exposure_cards(header: astropy.io.fits.Header) -> None:
+    """Strip header keywords added by lsst.afw.image.Exposure."""
+    header.remove("AR_HDU", ignore_missing=True)
+    for name in (
+        "FILTER",
+        "DETECTOR",
+        "VALID_POLYGON",
+        "SKYWCS",
+        "PSF",
+        "SUMMARYSTATS",
+        "AP_CORR_MAP",
+        "PHOTOCALIB",
+    ):
+        header.remove(f"{name}_ID", ignore_missing=True)
+        header.remove(f"ARCHIVE_ID_{name}", ignore_missing=True)
+
+
+def strip_butler_cards(header: astropy.io.fits.Header) -> None:
+    """Strip header keywords added by butler provenance that would be
+    incorrect if propagated to a downstream file.
+    """
+    for key in list(header):
+        if key.startswith("LSST BUTLER"):
+            del header[key]

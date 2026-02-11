@@ -14,7 +14,8 @@ from __future__ import annotations
 __all__ = ("MaskedImage", "MaskedImageSerializationModel")
 
 import functools
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from contextlib import ExitStack
 from types import EllipsisType
 from typing import Any
 
@@ -28,17 +29,13 @@ from lsst.resources import ResourcePathExpression
 
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
-from ._mask import Mask, MaskSchema, MaskSerializationModel
+from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .fits import (
-    ExtensionHDU,
-    ExtensionKey,
     FitsCompressionOptions,
     FitsInputArchive,
     FitsOpaqueMetadata,
     FitsOutputArchive,
-    PrecompressedImage,
-    strip_wcs_cards,
 )
 from .serialization import (
     ArchiveTree,
@@ -289,9 +286,9 @@ class MaskedImage:
             projection=serialized_projection,
         )
 
-    @classmethod
+    @staticmethod
     def deserialize(
-        cls, model: MaskedImageSerializationModel[Any], archive: InputArchive[Any], *, bbox: Box | None = None
+        model: MaskedImageSerializationModel[Any], archive: InputArchive[Any], *, bbox: Box | None = None
     ) -> MaskedImage:
         """Deserialize an image from an input archive.
 
@@ -343,8 +340,8 @@ class MaskedImage:
         ) as archive:
             archive.add_tree(self.serialize(archive))
 
-    @classmethod
-    def read_fits(cls, url: ResourcePathExpression, *, bbox: Box | None = None) -> MaskedImage:
+    @staticmethod
+    def read_fits(url: ResourcePathExpression, *, bbox: Box | None = None) -> MaskedImage:
         """Read an image from a FITS file.
 
         Parameters
@@ -357,7 +354,7 @@ class MaskedImage:
         """
         with FitsInputArchive.open(url, partial=(bbox is not None)) as archive:
             model = archive.get_tree(MaskedImageSerializationModel[TableCellReferenceModel])
-            result = cls.deserialize(model, archive, bbox=bbox)
+            result = MaskedImage.deserialize(model, archive, bbox=bbox)
             # We only want to save opaque archive metadata on the outermost
             # object, and `deserialize` is designed to be usable if the
             # MaskedImage is nested within some other object, so we set it here
@@ -367,8 +364,62 @@ class MaskedImage:
             result._opaque_metadata = archive.get_opaque_metadata()
         return result
 
-    @classmethod
-    def read_legacy(cls, filename: str, preserve_quantization: bool = False) -> MaskedImage:
+    @staticmethod
+    def from_legacy(
+        legacy: Any,
+        *,
+        unit: astropy.units.Unit | None = None,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+    ) -> MaskedImage:
+        """Convert from an `lsst.afw.image.MaskedImage` instance.
+
+        Parameters
+        ----------
+        legacy
+            An `lsst.afw.image.MaskedImage` instance that will share image and
+            variance (but not mask) pixel data with the returned object.
+        unit
+            Units of the image.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
+        """
+        return MaskedImage(
+            image=Image.from_legacy(legacy.getImage(), unit),
+            mask=Mask.from_legacy(legacy.getMask(), plane_map),
+            variance=Image.from_legacy(legacy.getVariance()),
+        )
+
+    def to_legacy(self, *, copy: bool | None = None, plane_map: Mapping[str, MaskPlane] | None = None) -> Any:
+        """Convert to an `lsst.afw.image.MaskedImage` instance.
+
+        Parameters
+        ----------
+        copy
+            If `True`, always copy the image and variance pixel data.
+            If `False`, return a view, and raise `TypeError` if the pixel data
+            is read-only (this is not supported by afw).  If `None`, onyl if
+            the pixel data is read-only.  Mask pixel data is always copied.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
+        """
+        import lsst.afw.image
+
+        return lsst.afw.image.MaskedImage(
+            self.image.to_legacy(copy=copy),
+            mask=self.mask.to_legacy(plane_map),
+            variance=self.variance.to_legacy(copy=copy),
+            dtype=self.image.array.dtype,
+        )
+
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
+        preserve_quantization: bool = False,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+    ) -> MaskedImage:
         """Read a FITS file written by `lsst.afw.image.MaskedImage.writeFits`.
 
         Parameters
@@ -382,6 +433,9 @@ class MaskedImage:
             stores the original binary table data for those planes in memory.
             If the `MaskedImage` is copied, the precompressed pixel values are
             not transferred to the copy.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
 
         Notes
         -----
@@ -390,42 +444,23 @@ class MaskedImage:
         WCS attached.
         """
         opaque_metadata = FitsOpaqueMetadata()
-        with astropy.io.fits.open(filename) as hdu_list:
-            image_hdu: ExtensionHDU = hdu_list[1]
-            image = Image.read_legacy(image_hdu)
-            strip_wcs_cards(image_hdu.header)
-            image_hdu.header.strip()
-            image_hdu.header.remove("EXTNAME", ignore_missing=True)
-            image_hdu.header.remove("EXTTYPE", ignore_missing=True)
-            image_hdu.header.remove("INHERIT", ignore_missing=True)
-            opaque_metadata.headers[ExtensionKey("IMAGE")] = image_hdu.header
-            mask_hdu: ExtensionHDU = hdu_list[2]
-            mask = Mask.read_legacy(mask_hdu)
-            strip_wcs_cards(mask_hdu.header)
-            mask_hdu.header.strip()
-            mask_hdu.header.remove("EXTNAME", ignore_missing=True)
-            mask_hdu.header.remove("EXTTYPE", ignore_missing=True)
-            mask_hdu.header.remove("INHERIT", ignore_missing=True)
-            # afw set BUNIT on masks because of limitations in how FITS
-            # metadata is handled there.
-            mask_hdu.header.remove("BUNIT", ignore_missing=True)
-            opaque_metadata.headers[ExtensionKey("MASK")] = mask_hdu.header
-            variance_hdu: ExtensionHDU = hdu_list[3]
-            variance = Image.read_legacy(variance_hdu)
-            strip_wcs_cards(variance_hdu.header)
-            variance_hdu.header.strip()
-            variance_hdu.header.remove("EXTNAME", ignore_missing=True)
-            variance_hdu.header.remove("EXTTYPE", ignore_missing=True)
-            variance_hdu.header.remove("INHERIT", ignore_missing=True)
-            opaque_metadata.headers[ExtensionKey("VARIANCE")] = variance_hdu.header
-        if preserve_quantization:
-            image._array.flags["WRITEABLE"] = False
-            mask._array.flags["WRITEABLE"] = False
-            variance._array.flags["WRITEABLE"] = False
-            with astropy.io.fits.open(filename, disable_image_compression=True) as hdu_list:
-                opaque_metadata.precompressed["IMAGE"] = PrecompressedImage.from_bintable(hdu_list[1])
-                opaque_metadata.precompressed["VARIANCE"] = PrecompressedImage.from_bintable(hdu_list[3])
-        return cls(image, mask=mask, variance=variance, opaque_metadata=opaque_metadata)
+        with ExitStack() as exit_stack:
+            hdu_list = exit_stack.enter_context(astropy.io.fits.open(filename))
+            opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
+            image_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
+            variance_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
+            if preserve_quantization:
+                bintable_hdu_list = exit_stack.enter_context(
+                    astropy.io.fits.open(filename, disable_image_compression=True)
+                )
+                image_bintable_hdu = bintable_hdu_list[1]
+                variance_bintable_hdu = bintable_hdu_list[3]
+            image = Image._read_legacy_hdu(hdu_list[1], opaque_metadata, preserve_bintable=image_bintable_hdu)
+            mask = Mask._read_legacy_hdu(hdu_list[2], opaque_metadata, plane_map=plane_map)
+            variance = Image._read_legacy_hdu(
+                hdu_list[3], opaque_metadata, preserve_bintable=variance_bintable_hdu
+            )
+        return MaskedImage(image, mask=mask, variance=variance, opaque_metadata=opaque_metadata)
 
 
 class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):

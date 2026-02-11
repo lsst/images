@@ -18,8 +18,8 @@ import unittest
 import astropy.io.fits
 import numpy as np
 
-from lsst.images import Box, Mask, MaskPlane, MaskSchema
-from lsst.images.tests import assert_masks_equal
+from lsst.images import Box, Mask, MaskPlane, MaskSchema, get_legacy_visit_image_mask_planes
+from lsst.images.tests import assert_masks_equal, compare_mask_to_legacy
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -113,6 +113,24 @@ class MaskTestCase(unittest.TestCase):
                         self.assertEqual(hdu.header[f"MSKD{(n % 31) + 1:04d}"], plane.description)
                         n += 1
         assert_masks_equal(self, mask, roundtripped)
+
+    @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
+    def test_legacy(self) -> None:
+        """Test Mask.read_legacy, Mask.to_legacy, and Mask.from_legacy."""
+        assert DATA_DIR is not None, "Guaranteed by decorator."
+        filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
+        plane_map = get_legacy_visit_image_mask_planes()
+        mask = Mask.read_legacy(filename, ext=2, plane_map=plane_map)
+        try:
+            from lsst.afw.image import MaskedImageFitsReader
+        except ImportError:
+            raise unittest.SkipTest("'lsst.afw.image' could not be imported.") from None
+        reader = MaskedImageFitsReader(filename)
+        self.assertEqual(mask.bbox, Box.from_legacy(reader.readBBox()))
+        legacy_mask = reader.readMask()
+        compare_mask_to_legacy(self, mask, legacy_mask, plane_map)
+        compare_mask_to_legacy(self, mask, mask.to_legacy(plane_map), plane_map)
+        assert_masks_equal(self, mask, Mask.from_legacy(legacy_mask, plane_map=plane_map))
 
 
 if __name__ == "__main__":
