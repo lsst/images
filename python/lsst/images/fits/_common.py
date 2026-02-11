@@ -23,6 +23,8 @@ __all__ = (
     "InvalidFitsArchiveError",
     "PrecompressedImage",
     "add_offset_wcs",
+    "strip_invalidated_butler_cards",
+    "strip_legacy_exposure_cards",
     "strip_wcs_cards",
 )
 
@@ -364,6 +366,9 @@ def strip_wcs_cards(header: astropy.io.fits.Header) -> None:
                 _strip_sip_poly(header, wcsname, "B")
                 _strip_sip_poly(header, wcsname, "AP")
                 _strip_sip_poly(header, wcsname, "BP")
+    header.remove("LONPOLE", ignore_missing=True)
+    header.remove("LATPOLE", ignore_missing=True)
+    header.remove("MJDREF", ignore_missing=True)
 
 
 def _strip_sip_poly(header: astropy.io.fits.Header, wcsname: str, which: str) -> None:
@@ -371,3 +376,35 @@ def _strip_sip_poly(header: astropy.io.fits.Header, wcsname: str, which: str) ->
     if order is not None:
         for i, j in itertools.product(range(order + 1), range(order + 1)):
             header.remove(f"{which}_{i}_{j}{wcsname}", ignore_missing=True)
+
+
+def strip_legacy_exposure_cards(header: astropy.io.fits.Header) -> None:
+    """Strip header keywords added by lsst.afw.image.Exposure."""
+    header.remove("AR_HDU", ignore_missing=True)
+    for name in (
+        "FILTER",
+        "DETECTOR",
+        "VALID_POLYGON",
+        "SKYWCS",
+        "PSF",
+        "SUMMARYSTATS",
+        "AP_CORR_MAP",
+        "PHOTOCALIB",
+    ):
+        header.remove(f"{name}_ID", ignore_missing=True)
+        header.remove(f"ARCHIVE_ID_{name}", ignore_missing=True)
+
+
+def strip_invalidated_butler_cards(header: astropy.io.fits.Header) -> None:
+    """Strip header keywords added by butler provenance that would be
+    incorrect if propagated to a downstream file.
+    """
+    header.remove("LSST BUTLER ID", ignore_missing=True)
+    header.remove("LSST BUTLER RUN", ignore_missing=True)
+    header.remove("LSST BUTLER DATASETTYPE", ignore_missing=True)
+    header.remove("LSST BUTLER QUANTUM", ignore_missing=True)
+    n_inputs = header.pop("LSST BUTLER N_INPUTS", None)
+    for n in range(n_inputs):
+        header.remove(f"LSST BUTLER INPUT {n} ID", ignore_missing=True)
+        header.remove(f"LSST BUTLER INPUT {n} RUN", ignore_missing=True)
+        header.remove(f"LSST BUTLER INPUT {n} DATASETTYPE", ignore_missing=True)

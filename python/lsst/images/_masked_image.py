@@ -38,6 +38,8 @@ from .fits import (
     FitsOpaqueMetadata,
     FitsOutputArchive,
     PrecompressedImage,
+    strip_invalidated_butler_cards,
+    strip_legacy_exposure_cards,
     strip_wcs_cards,
 )
 from .serialization import InputArchive, OpaqueArchiveMetadata, OutputArchive, TableCellReferenceModel
@@ -362,7 +364,7 @@ class MaskedImage:
         return result
 
     @classmethod
-    def read_legacy(cls, filename: str, preserve_quantization: bool = False) -> MaskedImage:
+    def read_legacy(cls, filename: str, *, preserve_quantization: bool = False) -> MaskedImage:
         """Read a FITS file written by `lsst.afw.image.MaskedImage.writeFits`.
 
         Parameters
@@ -385,6 +387,14 @@ class MaskedImage:
         """
         opaque_metadata = FitsOpaqueMetadata()
         with astropy.io.fits.open(filename) as hdu_list:
+            primary_header = hdu_list[0].header.copy(strip=True)
+            # No idea what these spare TAN-SIP headers are doing in the afw
+            # FITS files, but we'll strip them here:
+            primary_header.remove("A_ORDER", ignore_missing=True)
+            primary_header.remove("B_ORDER", ignore_missing=True)
+            strip_legacy_exposure_cards(primary_header)
+            strip_invalidated_butler_cards(primary_header)
+            opaque_metadata.headers[ExtensionKey()] = primary_header
             image_hdu: ExtensionHDU = hdu_list[1]
             image = Image.read_legacy(image_hdu)
             strip_wcs_cards(image_hdu.header)
@@ -392,6 +402,7 @@ class MaskedImage:
             image_hdu.header.remove("EXTNAME", ignore_missing=True)
             image_hdu.header.remove("EXTTYPE", ignore_missing=True)
             image_hdu.header.remove("INHERIT", ignore_missing=True)
+            image_hdu.header.remove("UZSCALE", ignore_missing=True)
             opaque_metadata.headers[ExtensionKey("IMAGE")] = image_hdu.header
             mask_hdu: ExtensionHDU = hdu_list[2]
             mask = Mask.read_legacy(mask_hdu)
@@ -411,6 +422,7 @@ class MaskedImage:
             variance_hdu.header.remove("EXTNAME", ignore_missing=True)
             variance_hdu.header.remove("EXTTYPE", ignore_missing=True)
             variance_hdu.header.remove("INHERIT", ignore_missing=True)
+            variance_hdu.header.remove("UZSCALE", ignore_missing=True)
             opaque_metadata.headers[ExtensionKey("VARIANCE")] = variance_hdu.header
         if preserve_quantization:
             image._array.flags["WRITEABLE"] = False
