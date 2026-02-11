@@ -37,7 +37,7 @@ from lsst.images import (
     TransformSerializationModel,
 )
 from lsst.images.fits import FitsInputArchive, FitsOutputArchive
-from lsst.images.serialization import TableCellReferenceModel
+from lsst.images.serialization import ArchiveTree, TableCellReferenceModel
 from lsst.images.tests.data_ids import DP2_VISIT_DETECTOR_DATA_ID
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
@@ -404,7 +404,7 @@ class TransformTestCase(unittest.TestCase):
         return [Point2D(x=xv, y=yv) for xv, yv in zip(x, y)]
 
 
-class CameraFramesTestModel[P: pydantic.BaseModel](pydantic.BaseModel):
+class CameraFramesTestModel[P: pydantic.BaseModel](ArchiveTree):
     """A testing serialization model that holds both a CamaraFrameSet and
     a Transform extracted from it.
     """

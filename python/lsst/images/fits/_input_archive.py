@@ -34,6 +34,7 @@ from lsst.resources import ResourcePath, ResourcePathExpression
 
 from .._transforms import FrameSet
 from ..serialization import (
+    ArchiveTree,
     ArrayReferenceModel,
     InputArchive,
     TableCellReferenceModel,
@@ -125,7 +126,7 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
             with fs.open(fp, block_size=page_size) as stream:
                 yield cls(stream)
 
-    def get_tree[T: pydantic.BaseModel](self, model_type: type[T]) -> T:
+    def get_tree[T: ArchiveTree](self, model_type: type[T]) -> T:
         """Read the JSON tree from the archive.
 
         Parameters
