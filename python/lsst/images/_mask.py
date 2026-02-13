@@ -36,7 +36,7 @@ import pydantic
 from lsst.resources import ResourcePathExpression
 
 from . import fits
-from ._geom import Box
+from ._geom import YX, Box
 from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .serialization import (
     ArchiveReadError,
@@ -770,30 +770,67 @@ class Mask:
             result._opaque_metadata = archive.get_opaque_metadata()
         return result
 
-    @classmethod
-    def read_legacy(
-        cls,
-        hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU,
+    @staticmethod
+    def from_legacy(
+        legacy: Any,
+        *,
         plane_map: Mapping[str, MaskPlane] | None = None,
     ) -> Mask:
-        """Read a FITS file written by `lsst.afw.image.Mask.writeFits`.
+        """Convert from an `lsst.afw.image.Mask` instance.
 
         Parameters
         ----------
-        hdu
-            An astropy image HDU.
+        legacy
+            An `lsst.afw.image.Mask` instance.  This will not share pixel
+            data with the new object.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
             description.
         """
-        dx: int = hdu.header.pop("LTV1")
-        dy: int = hdu.header.pop("LTV2")
-        start = (-dy, -dx)
-        plane_dict = MaskPlane.read_legacy(hdu.header)
-        array2d: np.ndarray = hdu.data
+        return Mask._from_legacy_array(
+            legacy.array,
+            legacy.getMaskPlaneDict(),
+            start=YX(y=legacy.getY0(), x=legacy.getX0()),
+            plane_map=plane_map,
+        )
+
+    def to_legacy(
+        self,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+    ) -> Any:
+        """Convert to an `lsst.afw.image.Mask` instance.
+
+        The pixel data will not be shared between the two objects.
+
+        Parameters
+        ----------
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
+        """
+        import lsst.afw.image
+        import lsst.geom
+
+        result = lsst.afw.image.Mask(self.bbox.to_legacy())
+        if plane_map is None:
+            plane_map = {plane.name: plane for plane in self.schema if plane is not None}
+        for old_name, new_plane in plane_map.items():
+            old_bit = result.addMaskPlane(old_name)
+            old_bitmask = 1 << old_bit
+            result.array[self.get(new_plane.name)] |= old_bitmask
+        return result
+
+    @staticmethod
+    def _from_legacy_array(
+        array2d: np.ndarray,
+        old_planes: Mapping[str, int],
+        *,
+        start: YX[int],
+        plane_map: Mapping[str, MaskPlane] | None = None,
+    ) -> Mask:
         planes: list[MaskPlane] = []
         new_name_to_old_bitmask: dict[str, int] = {}
-        for old_name, old_bit in plane_dict.items():
+        for old_name, old_bit in old_planes.items():
             old_bitmask = 1 << old_bit
             if plane_map is not None:
                 if new_plane := plane_map.get(old_name):
@@ -809,9 +846,60 @@ class Mask:
                 planes.append(MaskPlane(old_name, ""))
                 new_name_to_old_bitmask[old_name] = old_bitmask
         schema = MaskSchema(planes)
-        mask = cls(0, schema=schema, start=start, shape=array2d.shape)
+        mask = Mask(0, schema=schema, start=start, shape=array2d.shape)
         for new_name, old_bitmask in new_name_to_old_bitmask.items():
             mask.set(new_name, array2d & old_bitmask)
+        return mask
+
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+        ext: str | int = 1,
+    ) -> Mask:
+        """Read a FITS file written by `lsst.afw.image.Mask.writeFits`.
+
+        Parameters
+        ----------
+        filename
+            Full name of the file.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
+        ext
+            Name or index of the FITS HDU to read.
+        """
+        opaque_metadata = fits.FitsOpaqueMetadata()
+        with astropy.io.fits.open(filename) as hdu_list:
+            opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
+            result = Mask._read_legacy_hdu(hdu_list[ext], opaque_metadata, plane_map=plane_map)
+            result._opaque_metadata = opaque_metadata
+        return result
+
+    @staticmethod
+    def _read_legacy_hdu(
+        hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU,
+        opaque_metadata: fits.FitsOpaqueMetadata,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+    ) -> Mask:
+        if isinstance(hdu, astropy.io.fits.BinTableHDU):
+            hdu = astropy.io.fits.CompImageHDU(bintable=hdu)
+        dx: int = hdu.header.pop("LTV1")
+        dy: int = hdu.header.pop("LTV2")
+        start = YX(y=-dy, x=-dx)
+        old_planes = MaskPlane.read_legacy(hdu.header)
+        mask = Mask._from_legacy_array(hdu.data, old_planes, start=start, plane_map=plane_map)
+        fits.strip_wcs_cards(hdu.header)
+        hdu.header.strip()
+        hdu.header.remove("EXTTYPE", ignore_missing=True)
+        hdu.header.remove("INHERIT", ignore_missing=True)
+        # afw set BUNIT on masks because of limitations in how FITS
+        # metadata is handled there.
+        hdu.header.remove("BUNIT", ignore_missing=True)
+        extname = hdu.header.pop("EXTNAME")
+        extver = hdu.header.pop("EXTVER", 1)
+        opaque_metadata.headers[fits.ExtensionKey(extname, extver)] = hdu.header
         return mask
 
 

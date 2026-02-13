@@ -15,6 +15,7 @@ __all__ = ("MaskedImage", "MaskedImageSerializationModel")
 
 import functools
 from collections.abc import Mapping, Sequence
+from contextlib import ExitStack
 from types import EllipsisType
 from typing import Any
 
@@ -31,16 +32,10 @@ from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .fits import (
-    ExtensionHDU,
-    ExtensionKey,
     FitsCompressionOptions,
     FitsInputArchive,
     FitsOpaqueMetadata,
     FitsOutputArchive,
-    PrecompressedImage,
-    strip_invalidated_butler_cards,
-    strip_legacy_exposure_cards,
-    strip_wcs_cards,
 )
 from .serialization import (
     ArchiveTree,
@@ -400,51 +395,22 @@ class MaskedImage:
         WCS attached.
         """
         opaque_metadata = FitsOpaqueMetadata()
-        with astropy.io.fits.open(filename) as hdu_list:
-            primary_header = hdu_list[0].header.copy(strip=True)
-            # No idea what these spare TAN-SIP headers are doing in the afw
-            # FITS files, but we'll strip them here:
-            primary_header.remove("A_ORDER", ignore_missing=True)
-            primary_header.remove("B_ORDER", ignore_missing=True)
-            strip_legacy_exposure_cards(primary_header)
-            strip_invalidated_butler_cards(primary_header)
-            opaque_metadata.headers[ExtensionKey()] = primary_header
-            image_hdu: ExtensionHDU = hdu_list[1]
-            image = Image.read_legacy(image_hdu)
-            strip_wcs_cards(image_hdu.header)
-            image_hdu.header.strip()
-            image_hdu.header.remove("EXTNAME", ignore_missing=True)
-            image_hdu.header.remove("EXTTYPE", ignore_missing=True)
-            image_hdu.header.remove("INHERIT", ignore_missing=True)
-            image_hdu.header.remove("UZSCALE", ignore_missing=True)
-            opaque_metadata.headers[ExtensionKey("IMAGE")] = image_hdu.header
-            mask_hdu: ExtensionHDU = hdu_list[2]
-            mask = Mask.read_legacy(mask_hdu, plane_map=plane_map)
-            strip_wcs_cards(mask_hdu.header)
-            mask_hdu.header.strip()
-            mask_hdu.header.remove("EXTNAME", ignore_missing=True)
-            mask_hdu.header.remove("EXTTYPE", ignore_missing=True)
-            mask_hdu.header.remove("INHERIT", ignore_missing=True)
-            # afw set BUNIT on masks because of limitations in how FITS
-            # metadata is handled there.
-            mask_hdu.header.remove("BUNIT", ignore_missing=True)
-            opaque_metadata.headers[ExtensionKey("MASK")] = mask_hdu.header
-            variance_hdu: ExtensionHDU = hdu_list[3]
-            variance = Image.read_legacy(variance_hdu)
-            strip_wcs_cards(variance_hdu.header)
-            variance_hdu.header.strip()
-            variance_hdu.header.remove("EXTNAME", ignore_missing=True)
-            variance_hdu.header.remove("EXTTYPE", ignore_missing=True)
-            variance_hdu.header.remove("INHERIT", ignore_missing=True)
-            variance_hdu.header.remove("UZSCALE", ignore_missing=True)
-            opaque_metadata.headers[ExtensionKey("VARIANCE")] = variance_hdu.header
-        if preserve_quantization:
-            image._array.flags["WRITEABLE"] = False
-            mask._array.flags["WRITEABLE"] = False
-            variance._array.flags["WRITEABLE"] = False
-            with astropy.io.fits.open(filename, disable_image_compression=True) as hdu_list:
-                opaque_metadata.precompressed["IMAGE"] = PrecompressedImage.from_bintable(hdu_list[1])
-                opaque_metadata.precompressed["VARIANCE"] = PrecompressedImage.from_bintable(hdu_list[3])
+        with ExitStack() as exit_stack:
+            hdu_list = exit_stack.enter_context(astropy.io.fits.open(filename))
+            opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
+            image_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
+            variance_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
+            if preserve_quantization:
+                bintable_hdu_list = exit_stack.enter_context(
+                    astropy.io.fits.open(filename, disable_image_compression=True)
+                )
+                image_bintable_hdu = bintable_hdu_list[1]
+                variance_bintable_hdu = bintable_hdu_list[3]
+            image = Image._read_legacy_hdu(hdu_list[1], opaque_metadata, preserve_bintable=image_bintable_hdu)
+            mask = Mask._read_legacy_hdu(hdu_list[2], opaque_metadata, plane_map=plane_map)
+            variance = Image._read_legacy_hdu(
+                hdu_list[3], opaque_metadata, preserve_bintable=variance_bintable_hdu
+            )
         return MaskedImage(image, mask=mask, variance=variance, opaque_metadata=opaque_metadata)
 
 

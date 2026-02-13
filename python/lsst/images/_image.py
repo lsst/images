@@ -14,6 +14,7 @@ from __future__ import annotations
 __all__ = ("Image", "ImageSerializationModel")
 
 from collections.abc import Callable, Sequence
+from contextlib import ExitStack
 from functools import cached_property
 from types import EllipsisType
 from typing import Any, final
@@ -28,7 +29,7 @@ import pydantic
 from lsst.resources import ResourcePathExpression
 
 from . import fits
-from ._geom import Box
+from ._geom import YX, Box
 from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .serialization import (
     ArchiveTree,
@@ -339,9 +340,8 @@ class Image:
                 projection=serialized_projection,
             )
 
-    @classmethod
+    @staticmethod
     def deserialize(
-        cls,
         model: ImageSerializationModel[Any],
         archive: InputArchive[Any],
         *,
@@ -383,7 +383,9 @@ class Image:
         projection = (
             Projection.deserialize(model.projection, archive) if model.projection is not None else None
         )
-        return cls(array, start=model.start if bbox is None else bbox.start, unit=unit, projection=projection)
+        return Image(
+            array, start=model.start if bbox is None else bbox.start, unit=unit, projection=projection
+        )
 
     def write_fits(
         self,
@@ -409,8 +411,8 @@ class Image:
             tree = archive.serialize_direct("image", self.serialize)
             archive.add_tree(tree)
 
-    @classmethod
-    def read_fits(cls, url: ResourcePathExpression, *, bbox: Box | None = None) -> Image:
+    @staticmethod
+    def read_fits(url: ResourcePathExpression, *, bbox: Box | None = None) -> Image:
         """Read an image from a FITS file.
 
         Parameters
@@ -423,48 +425,119 @@ class Image:
         """
         with fits.FitsInputArchive.open(url, partial=(bbox is not None)) as archive:
             model = archive.get_tree(ImageSerializationModel)
-            result = cls.deserialize(model, archive, bbox=bbox)
+            result = Image.deserialize(model, archive, bbox=bbox)
             result._opaque_metadata = archive.get_opaque_metadata()
         return result
 
-    @classmethod
-    def from_legacy(cls, legacy: Any, unit: astropy.units.Unit | None = None) -> Image:
+    @staticmethod
+    def from_legacy(legacy: Any, unit: astropy.units.Unit | None = None) -> Image:
         """Convert from an `lsst.afw.image.Image` instance.
 
         Parameters
         ----------
         legacy
-            An `lsst.afw.image.Image` instance.
+            An `lsst.afw.image.Image` instance that will share pixel data with
+           the returned object.
         unit
             Units of the image.
         """
-        return cls(legacy.array, start=(legacy.getY0(), legacy.getX0()), unit=unit)
+        return Image(legacy.array, start=(legacy.getY0(), legacy.getX0()), unit=unit)
 
-    def to_legacy(self) -> Any:
-        """Convert to an `lsst.afw.image.Image` instance."""
+    def to_legacy(self, *, copy: bool | None = None) -> Any:
+        """Convert to an `lsst.afw.image.Image` instance.
+
+        Parameters
+        ----------
+        copy
+            If `True`, always copy the pixel data.  If `False`, return a view,
+            and raise `TypeError` if the pixel data is read-only (this is not
+            supported by afw).  If `None`, onyl if the pixel data is
+            read-only.
+        """
         import lsst.afw.image
         import lsst.geom
 
-        result = lsst.afw.image.Image(self._array, dtype=self._array.dtype)
-        result.setXY0(lsst.geom.Point2I(self._bbox.x.min, self._bbox.y.min))
-        return result
+        array = self._array
+        if copy:
+            array = array.copy()
+        elif not self._array.flags.writeable:
+            if copy is None:
+                array = array.copy()
+            else:
+                raise TypeError("Cannot create a legacy lsst.afw.image.Image view into a read-only array.")
 
-    @classmethod
-    def read_legacy(cls, hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU) -> Image:
+        return lsst.afw.image.Image(
+            array,
+            deep=False,
+            dtype=array.dtype.type,
+            xy0=lsst.geom.Point2I(self._bbox.x.min, self._bbox.y.min),
+        )
+
+    @staticmethod
+    def read_legacy(filename: str, *, preserve_quantization: bool = False, ext: str | int = 1) -> Image:
         """Read a FITS file written by `lsst.afw.image.Image.writeFits`.
 
         Parameters
         ----------
-        hdu
-            An Astropy image HDU.
+        filename
+            Full name of the file.
+        preserve_quantization
+            If `True`, ensure that writing the image back out again will
+            exactly preserve quantization-compressed pixel values.  This causes
+            the arrays to be marked as read-only and stores the original binary
+            table data for those planes in memory. If the `Image` is copied,
+            the precompressed pixel values are not transferred to the copy.
+        ext
+            Name or index of the FITS HDU to read.
+
+        Notes
+        -----
+        This method does not attach a `Projection` to the `Image` even if the
+        legacy file is actually an `lsst.afw.image.Exposure` with a WCS
+        attached.
         """
+        opaque_metadata = fits.FitsOpaqueMetadata()
+        with ExitStack() as exit_stack:
+            hdu_list = exit_stack.enter_context(astropy.io.fits.open(filename))
+            opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
+            bintable_hdu: astropy.io.fits.BinTableHDU | None = None
+            if preserve_quantization:
+                bintable_hdu_list = exit_stack.enter_context(
+                    astropy.io.fits.open(filename, disable_image_compression=True)
+                )
+                bintable_hdu = bintable_hdu_list[ext]
+            result = Image._read_legacy_hdu(hdu_list[ext], opaque_metadata, preserve_bintable=bintable_hdu)
+            result._opaque_metadata = opaque_metadata
+        return result
+
+    @staticmethod
+    def _read_legacy_hdu(
+        hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU,
+        opaque_metadata: fits.FitsOpaqueMetadata,
+        *,
+        preserve_bintable: astropy.io.fits.BinTableHDU | None,
+    ) -> Image:
         unit: astropy.units.UnitBase | None = None
         if (fits_unit := hdu.header.pop("BUNIT", None)) is not None:
             unit = astropy.units.Unit(fits_unit, format="fits")
         dx: int = hdu.header.pop("LTV1")
         dy: int = hdu.header.pop("LTV2")
-        start = (-dy, -dx)
+        start = YX(y=-dy, x=-dx)
+        read_only: bool = False
+        if preserve_bintable is not None:
+            opaque_metadata.precompressed[hdu.name] = fits.PrecompressedImage.from_bintable(preserve_bintable)
+            read_only = True
         image = Image(hdu.data, start=start, unit=unit)
+        if read_only:
+            image._array.flags["WRITEABLE"] = False
+        fits.strip_wcs_cards(hdu.header)
+        hdu.header.strip()
+        hdu.header.remove("EXTTYPE", ignore_missing=True)
+        hdu.header.remove("INHERIT", ignore_missing=True)
+        hdu.header.remove("UZSCALE", ignore_missing=True)
+        extname = hdu.header.pop("EXTNAME")
+        extver = hdu.header.pop("EXTVER", 1)
+        opaque_metadata.headers[fits.ExtensionKey(extname, extver)] = hdu.header
         return image
 
 

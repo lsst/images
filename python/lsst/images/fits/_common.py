@@ -304,6 +304,19 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
             return None
         return astropy.io.fits.BinTableHDU(precompressed.data, header=precompressed.header.copy(), name=name)
 
+    def extract_legacy_primary_header(self, header: astropy.io.fits.Header) -> None:
+        """Update the opaque metadata with the header of a the primary HDU
+        of a legacy (`lsst.afw.image`) FITS file.
+        """
+        primary_header = header.copy(strip=True)
+        # No idea what these spare TAN-SIP headers are doing in the afw
+        # FITS files, but we'll strip them here:
+        primary_header.remove("A_ORDER", ignore_missing=True)
+        primary_header.remove("B_ORDER", ignore_missing=True)
+        strip_legacy_exposure_cards(primary_header)
+        strip_invalidated_butler_cards(primary_header)
+        self.headers[ExtensionKey()] = primary_header
+
     def copy(self) -> FitsOpaqueMetadata:
         # Docstring inherited.
         return FitsOpaqueMetadata(headers=self.headers)

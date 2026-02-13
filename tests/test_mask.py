@@ -18,7 +18,7 @@ import unittest
 import astropy.io.fits
 import numpy as np
 
-from lsst.images import Box, Mask, MaskPlane, MaskSchema
+from lsst.images import Box, Mask, MaskPlane, MaskSchema, get_legacy_visit_image_mask_planes
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -114,6 +114,33 @@ class MaskTestCase(unittest.TestCase):
         self.assertEqual(roundtripped.bbox, mask.bbox)
         self.assertEqual(roundtripped.schema, mask.schema)
         np.testing.assert_array_equal(roundtripped.array, mask.array)
+
+    @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
+    def test_legacy(self) -> None:
+        """Test Mask.read_legacy, Mask.to_legacy, and Mask.from_legacy."""
+        assert DATA_DIR is not None, "Guaranteed by decorator."
+        filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
+        plane_map = get_legacy_visit_image_mask_planes()
+        converted_on_read = Mask.read_legacy(filename, ext=2, plane_map=plane_map)
+        try:
+            from lsst.afw.image import MaskedImageFitsReader
+        except ImportError:
+            raise unittest.SkipTest("'lsst.afw.image' could not be imported.") from None
+        reader = MaskedImageFitsReader(filename)
+        self.assertEqual(converted_on_read.bbox, Box.from_legacy(reader.readBBox()))
+        unconverted_afw = reader.readMask()
+        for old_name, new_plane in plane_map.items():
+            np.testing.assert_array_equal(
+                (unconverted_afw.array & unconverted_afw.getPlaneBitMask(old_name)).astype(bool),
+                converted_on_read.get(new_plane.name),
+            )
+        converted_back_to_afw = converted_on_read.to_legacy(plane_map)
+        self.assertEqual(unconverted_afw.getBBox(), converted_back_to_afw.getBBox())
+        np.testing.assert_array_equal(unconverted_afw.array, converted_back_to_afw.array)
+        converted_in_memory = Mask.from_legacy(unconverted_afw, plane_map=plane_map)
+        self.assertEqual(converted_on_read.bbox, converted_in_memory.bbox)
+        self.assertEqual(converted_on_read.schema, converted_in_memory.schema)
+        np.testing.assert_array_equal(converted_on_read.array, converted_in_memory.array)
 
 
 if __name__ == "__main__":
