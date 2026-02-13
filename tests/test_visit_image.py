@@ -18,7 +18,7 @@ import unittest
 import astropy.io.fits
 import numpy as np
 
-from lsst.images import Box, DetectorFrame, VisitImage
+from lsst.images import Box, DetectorFrame, VisitImage, get_legacy_visit_image_mask_planes
 from lsst.images.fits import ExtensionKey
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
@@ -40,7 +40,9 @@ class VisitImageTestCase(unittest.TestCase):
         """
         assert DATA_DIR is not None, "Guaranteed by decorator."
         filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
-        from_afw = VisitImage.read_legacy(filename, preserve_quantization=True)
+        from_afw = VisitImage.read_legacy(
+            filename, preserve_quantization=True, plane_map=get_legacy_visit_image_mask_planes()
+        )
         # Check that we read the units from BUNIT.
         self.assertEqual(from_afw.unit, astropy.units.nJy)
         # Check that the primary header has the keys we want, and none of the

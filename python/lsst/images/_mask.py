@@ -11,7 +11,14 @@
 
 from __future__ import annotations
 
-__all__ = ("Mask", "MaskPlane", "MaskPlaneBit", "MaskSchema", "MaskSerializationModel")
+__all__ = (
+    "Mask",
+    "MaskPlane",
+    "MaskPlaneBit",
+    "MaskSchema",
+    "MaskSerializationModel",
+    "get_legacy_visit_image_mask_planes",
+)
 
 import dataclasses
 import math
@@ -764,24 +771,47 @@ class Mask:
         return result
 
     @classmethod
-    def read_legacy(cls, hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU) -> Mask:
+    def read_legacy(
+        cls,
+        hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+    ) -> Mask:
         """Read a FITS file written by `lsst.afw.image.Mask.writeFits`.
 
         Parameters
         ----------
         hdu
             An astropy image HDU.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
         """
         dx: int = hdu.header.pop("LTV1")
         dy: int = hdu.header.pop("LTV2")
         start = (-dy, -dx)
         plane_dict = MaskPlane.read_legacy(hdu.header)
-        schema = MaskSchema([MaskPlane(name, "") for name in plane_dict])
         array2d: np.ndarray = hdu.data
+        planes: list[MaskPlane] = []
+        new_name_to_old_bitmask: dict[str, int] = {}
+        for old_name, old_bit in plane_dict.items():
+            old_bitmask = 1 << old_bit
+            if plane_map is not None:
+                if new_plane := plane_map.get(old_name):
+                    planes.append(new_plane)
+                    new_name_to_old_bitmask[new_plane.name] = old_bitmask
+                else:
+                    if n_orphaned := np.count_nonzero(array2d & old_bitmask):
+                        raise RuntimeError(
+                            f"Legacy mask plane {old_name!r} is not remapped, "
+                            f"but {n_orphaned} pixels have this bit set."
+                        )
+            else:
+                planes.append(MaskPlane(old_name, ""))
+                new_name_to_old_bitmask[old_name] = old_bitmask
+        schema = MaskSchema(planes)
         mask = cls(0, schema=schema, start=start, shape=array2d.shape)
-        for name, bit2d in plane_dict.items():
-            bitmask2d = 1 << bit2d
-            mask.set(name, array2d & bitmask2d)
+        for new_name, old_bitmask in new_name_to_old_bitmask.items():
+            mask.set(new_name, array2d & old_bitmask)
         return mask
 
 
@@ -804,3 +834,38 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     def bbox(self) -> Box:
         """The 2-d bounding box of the mask."""
         return Box.from_shape(self.data[0].shape, start=self.start)
+
+
+def get_legacy_visit_image_mask_planes() -> dict[str, MaskPlane]:
+    """Return a mapping from legacy mask plane name to `MaskPlane` instance
+    for LSST visit images, c. DP2.
+    """
+    return {
+        "BAD": MaskPlane("BAD", "Bad pixel in the instrument, including bad amplifiers."),
+        "SAT": MaskPlane(
+            "SATURATED", "Pixel was saturated or affected by saturation in a neighboring pixel."
+        ),
+        "INTRP": MaskPlane("INTERPOLATED", "Original pixel value was interpolated."),
+        "CR": MaskPlane("COSMIC_RAY", "A cosmic ray affected this pixel."),
+        "EDGE": MaskPlane(
+            "DETECTION_EDGE",
+            "Pixel was too close to the edge to be considered for detection, "
+            "due to the finite size of the detection kernel.",
+        ),
+        "DETECTED": MaskPlane("DETECTED", "Pixel was part of a detected source."),
+        "SUSPECT": MaskPlane("SUSPECT", "Pixel was close to the saturation level. "),
+        "NO_DATA": MaskPlane("NO_DATA", "No data was available for this pixel."),
+        "VIGNETTED": MaskPlane("VIGNETTED", "Pixel was vignetted by the optics."),
+        "PARTLY_VIGNETTED": MaskPlane("PARTLY_VIGNETTED", "Pixel was partly vignetted by the optics."),
+        "CROSSTALK": MaskPlane("CROSSTALK", "Pixel was affected by crosstalk and corrected accordingly."),
+        "ITL_DIP": MaskPlane(
+            "ITL_DIP", "Pixel was affected by a dark vertical trail from a bright source, on an ITL CCD."
+        ),
+        "NOT_DEBLENDED": MaskPlane(
+            "NOT_DEBLENDED",
+            "Pixel belonged to a detection that was not deblended, usually due to size limits.",
+        ),
+        "SPIKE": MaskPlane(
+            "SPIKE", "Pixel is in the neighborhood of a diffraction spike from a bright star."
+        ),
+    }

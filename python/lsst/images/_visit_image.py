@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("VisitImage", "VisitImageSerializationModel")
 
 import functools
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from types import EllipsisType
 from typing import Any, cast
 
@@ -27,7 +27,7 @@ from lsst.resources import ResourcePathExpression
 
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
-from ._mask import Mask, MaskSchema, MaskSerializationModel
+from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._masked_image import MaskedImage, MaskedImageSerializationModel
 from ._transforms import DetectorFrame, Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .fits import (
@@ -308,6 +308,7 @@ class VisitImage(MaskedImage):
         filename: str,
         *,
         preserve_quantization: bool = False,
+        plane_map: Mapping[str, MaskPlane] | None = None,
         instrument: str | None = None,
         visit: int | None = None,
     ) -> VisitImage:
@@ -324,10 +325,15 @@ class VisitImage(MaskedImage):
             stores the original binary table data for those planes in memory.
             If the `MaskedImage` is copied, the precompressed pixel values are
             not transferred to the copy.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
         """
         from lsst.afw.image import ExposureFitsReader
 
-        masked_image = MaskedImage.read_legacy(filename, preserve_quantization=preserve_quantization)
+        masked_image = MaskedImage.read_legacy(
+            filename, preserve_quantization=preserve_quantization, plane_map=plane_map
+        )
         primary_header = cast(FitsOpaqueMetadata, masked_image._opaque_metadata).headers[ExtensionKey()]
         if instrument is None:
             try:

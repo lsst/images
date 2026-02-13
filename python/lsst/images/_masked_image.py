@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("MaskedImage", "MaskedImageSerializationModel")
 
 import functools
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from types import EllipsisType
 from typing import Any
 
@@ -28,7 +28,7 @@ from lsst.resources import ResourcePathExpression
 
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
-from ._mask import Mask, MaskSchema, MaskSerializationModel
+from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .fits import (
     ExtensionHDU,
@@ -370,7 +370,12 @@ class MaskedImage:
         return result
 
     @staticmethod
-    def read_legacy(filename: str, *, preserve_quantization: bool = False) -> MaskedImage:
+    def read_legacy(
+        filename: str,
+        *,
+        preserve_quantization: bool = False,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+    ) -> MaskedImage:
         """Read a FITS file written by `lsst.afw.image.MaskedImage.writeFits`.
 
         Parameters
@@ -384,6 +389,9 @@ class MaskedImage:
             stores the original binary table data for those planes in memory.
             If the `MaskedImage` is copied, the precompressed pixel values are
             not transferred to the copy.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
 
         Notes
         -----
@@ -411,7 +419,7 @@ class MaskedImage:
             image_hdu.header.remove("UZSCALE", ignore_missing=True)
             opaque_metadata.headers[ExtensionKey("IMAGE")] = image_hdu.header
             mask_hdu: ExtensionHDU = hdu_list[2]
-            mask = Mask.read_legacy(mask_hdu)
+            mask = Mask.read_legacy(mask_hdu, plane_map=plane_map)
             strip_wcs_cards(mask_hdu.header)
             mask_hdu.header.strip()
             mask_hdu.header.remove("EXTNAME", ignore_missing=True)
