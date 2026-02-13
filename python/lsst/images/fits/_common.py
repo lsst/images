@@ -338,7 +338,7 @@ def add_offset_wcs(header: astropy.io.fits.Header, *, x: int, y: int, key: str =
     header.set(f"CUNIT2{key}", "PIXEL")
 
 
-_WCS_VECTOR_KEYS = ("CUNIT", "CRPIX", "CRPIX", "CRVAL", "CRDELT", "CROTA", "CRDER", "CSYER")
+_WCS_VECTOR_KEYS = ("CUNIT", "CRPIX", "CRPIX", "CRVAL", "CRDELT", "CROTA", "CRDER", "CSYER", "CDELT")
 _WCS_MATRIX_KEYS = ("CD{0}_{1}", "PC{0}_{1}")
 
 

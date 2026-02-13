@@ -59,11 +59,15 @@ class VisitImageTestCase(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
             tmp.close()
             from_afw.write_fits(tmp.name)
-            # Check that we're still using the right compression.
+            # Check that we're still using the right compression, and that
+            # wrote WCSs.
             with astropy.io.fits.open(tmp.name, disable_image_compression=True) as fits:
                 self.assertEqual(fits[1].header["ZCMPTYPE"], "RICE_1")
+                self.assertEqual(fits[1].header["CTYPE1"], "RA---TAN-SIP")
                 self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
+                self.assertEqual(fits[2].header["CTYPE1"], "RA---TAN-SIP")
                 self.assertEqual(fits[3].header["ZCMPTYPE"], "RICE_1")
+                self.assertEqual(fits[3].header["CTYPE1"], "RA---TAN-SIP")
             roundtripped = VisitImage.read_fits(tmp.name)
         self.assertEqual(roundtripped.bbox, from_afw.bbox)
         self.assertEqual(roundtripped.unit, from_afw.unit)
@@ -91,6 +95,8 @@ class VisitImageTestCase(unittest.TestCase):
             DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=detector_bbox),
             roundtripped.bbox,
         )
+        self.assertIs(roundtripped.projection, roundtripped.mask.projection)
+        self.assertIs(roundtripped.projection, roundtripped.variance.projection)
         compare_psf_to_legacy(self, roundtripped.psf, reader.readPsf())
 
 

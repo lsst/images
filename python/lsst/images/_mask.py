@@ -16,6 +16,7 @@ __all__ = ("Mask", "MaskPlane", "MaskPlaneBit", "MaskSchema", "MaskSerialization
 import dataclasses
 import math
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
+from functools import cached_property
 from types import EllipsisType
 from typing import Any, cast
 
@@ -430,7 +431,7 @@ class Mask:
         """
         return self._projection.as_astropy(self.bbox) if self._projection is not None else None
 
-    @property
+    @cached_property
     def fits_wcs(self) -> astropy.wcs.WCS | None:
         """An Astropy FITS WCS for this mask's pixel array.
 
@@ -443,7 +444,11 @@ class Mask:
         This may be an approximation or absent if `projection` is not
         naturally representable as a FITS WCS.
         """
-        return self._projection.as_fits_wcs(self.bbox) if self._projection is not None else None
+        return (
+            self._projection.as_fits_wcs(self.bbox, allow_approximation=True)
+            if self._projection is not None
+            else None
+        )
 
     def __getitem__(self, bbox: Box) -> Mask:
         return Mask(
@@ -639,9 +644,8 @@ class Mask:
             update_header(header)
             self.schema.update_header(header)
             if self.projection is not None:
-                fits_wcs = self.projection.as_fits_wcs(self.bbox)
-                if fits_wcs:
-                    header.update(fits_wcs.to_header(relax=True))
+                if self.fits_wcs:
+                    header.update(self.fits_wcs.to_header(relax=True))
             if add_offset_wcs is not None:
                 fits.add_offset_wcs(header, x=self.bbox.x.start, y=self.bbox.y.start, key=add_offset_wcs)
 
