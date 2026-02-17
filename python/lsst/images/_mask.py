@@ -372,6 +372,21 @@ class Mask:
             schema=self.schema,
         )
 
+    def __str__(self) -> str:
+        return f"Mask({self.bbox!s}, {list(self.schema.names)})"
+
+    def __repr__(self) -> str:
+        return f"Mask(..., bbox={self.bbox!r}, schema={self.schema!r})"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Mask):
+            return NotImplemented
+        return (
+            self._bbox == other._bbox
+            and self._schema == other._schema
+            and np.array_equal(self._array, other._array, equal_nan=True)
+        )
+
     def copy(
         self,
         *,
@@ -495,12 +510,6 @@ class Mask:
         if boolean_mask is not ...:
             boolean_mask = boolean_mask.astype(bool)
         self._array[boolean_mask, bit.index] &= ~bit.mask
-
-    def __str__(self) -> str:
-        return f"Mask({self.bbox!s}, {list(self.schema.names)})"
-
-    def __repr__(self) -> str:
-        return f"Mask(..., bbox={self.bbox!r}, schema={self.schema!r})"
 
     def serialize[P: pydantic.BaseModel](
         self,
