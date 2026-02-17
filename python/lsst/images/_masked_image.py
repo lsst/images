@@ -68,10 +68,6 @@ class MaskedImage:
     mask_schema
         Schema for the mask plane.  Must be provided if and only if ``mask`` is
         not provided.
-    opaque_metadata
-        Opaque metadata obtained from reading this object from storage.  It may
-        be provided when writing to storage to propagate that metadata and/or
-        preserve file-format-specific options (e.g. compression parameters).
     projection
         Projection that maps the pixel grid to the sky.
     """
@@ -83,7 +79,6 @@ class MaskedImage:
         mask: Mask | None = None,
         variance: Image | None = None,
         mask_schema: MaskSchema | None = None,
-        opaque_metadata: OpaqueArchiveMetadata | None = None,
         projection: Projection | None = None,
     ):
         if projection is None:
@@ -124,7 +119,7 @@ class MaskedImage:
         self._image = image
         self._mask = mask
         self._variance = variance
-        self._opaque_metadata = opaque_metadata
+        self._opaque_metadata: OpaqueArchiveMetadata | None = None
 
     @property
     def image(self) -> Image:
@@ -192,15 +187,15 @@ class MaskedImage:
         return self.projection.as_fits_wcs(self.bbox) if self.projection is not None else None
 
     def __getitem__(self, bbox: Box) -> MaskedImage:
-        return MaskedImage(
+        result = MaskedImage(
             self.image[bbox],
             mask=self.mask[bbox],
             variance=self.variance[bbox],
-            opaque_metadata=(
-                self._opaque_metadata.subset(bbox) if self._opaque_metadata is not None else None
-            ),
             projection=self.projection,
         )
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.subset(bbox)
+        return result
 
     def __str__(self) -> str:
         return f"MaskedImage({self.image!s}, {list(self.mask.schema.names)})"
@@ -224,14 +219,16 @@ class MaskedImage:
         (e.g. adding or dropping mask planes, or changing ``dtype``; all
         planes with names in both schemas will be copied.).
         """
-        return MaskedImage(
+        result = MaskedImage(
             image=self._image.copy(unit=unit, projection=projection, start=start),
             # We let the constructor take care of propagating projection and
             # unit updates.
             mask=self._mask.copy(schema=mask_schema, projection=None, start=start),
             variance=self._variance.copy(unit=None, projection=None, start=start),
-            opaque_metadata=(self._opaque_metadata.copy() if self._opaque_metadata is not None else None),
         )
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.copy()
+        return result
 
     def view(
         self,
@@ -248,14 +245,16 @@ class MaskedImage:
         This can only be used to make changes to schema descriptions; plane
         names must remain the same (in the same order).
         """
-        return MaskedImage(
+        result = MaskedImage(
             image=self._image.view(unit=unit, projection=projection, start=start),
             # We let the constructor take care of propagating projection and
             # unit updates.
             mask=self._mask.view(schema=mask_schema, projection=None, start=start),
             variance=self._variance.view(unit=None, projection=None, start=start),
-            opaque_metadata=(self._opaque_metadata.copy() if self._opaque_metadata is not None else None),
         )
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.copy()
+        return result
 
     def serialize(self, archive: OutputArchive[Any]) -> MaskedImageSerializationModel:
         """Serialize the masked image to an output archive.
@@ -460,7 +459,9 @@ class MaskedImage:
             variance = Image._read_legacy_hdu(
                 hdu_list[3], opaque_metadata, preserve_bintable=variance_bintable_hdu
             )
-        return MaskedImage(image, mask=mask, variance=variance, opaque_metadata=opaque_metadata)
+        result = MaskedImage(image, mask=mask, variance=variance)
+        result._opaque_metadata = opaque_metadata
+        return result
 
 
 class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):

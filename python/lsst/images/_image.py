@@ -34,6 +34,7 @@ from .serialization import (
     ArrayReferenceModel,
     ArrayReferenceQuantityModel,
     InputArchive,
+    OpaqueArchiveMetadata,
     OutputArchive,
     no_header_updates,
 )
@@ -126,6 +127,7 @@ class Image:
         self._bbox: Box = bbox
         self._unit = unit
         self._projection = projection
+        self._opaque_metadata: OpaqueArchiveMetadata | None = None
 
     @property
     def array(self) -> np.ndarray:
@@ -219,7 +221,10 @@ class Image:
             bbox = self._bbox
         else:
             indices = bbox.slice_within(self._bbox)
-        return Image(self._array[indices], bbox=bbox, unit=self._unit)
+        result = Image(self._array[indices], bbox=bbox, unit=self._unit)
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.subset(bbox)
+        return result
 
     def __setitem__(self, bbox: Box | EllipsisType, value: Image) -> None:
         if bbox is ...:
@@ -258,7 +263,10 @@ class Image:
             projection = self._projection
         if start is ...:
             start = self._bbox.start
-        return Image(self._array.copy(), start=start, unit=unit, projection=projection)
+        result = Image(self._array.copy(), start=start, unit=unit, projection=projection)
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.copy()
+        return result
 
     def view(
         self,
@@ -274,7 +282,10 @@ class Image:
             projection = self._projection
         if start is ...:
             start = self._bbox.start
-        return Image(self._array, start=start, unit=unit, projection=projection)
+        result = Image(self._array, start=start, unit=unit, projection=projection)
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.copy()
+        return result
 
     def serialize[P: pydantic.BaseModel](
         self,

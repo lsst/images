@@ -319,10 +319,6 @@ class Mask:
         include the last dimension of the array.
     projection
         Projection that maps the pixel grid to the sky.
-    opaque_metadata
-        Opaque metadata obtained from reading this object from storage.  It may
-        be provided when writing to storage to propagate that metadata and/or
-        preserve file-format-specific options (e.g. compression parameters).
 
     Notes
     -----
@@ -347,7 +343,6 @@ class Mask:
         start: Sequence[int] | None = None,
         shape: Sequence[int] | None = None,
         projection: Projection | None = None,
-        opaque_metadata: OpaqueArchiveMetadata | None = None,
     ):
         if shape is not None:
             shape = tuple(shape)
@@ -380,7 +375,7 @@ class Mask:
         self._bbox: Box = bbox
         self._schema: MaskSchema = schema
         self._projection = projection
-        self._opaque_metadata = opaque_metadata
+        self._opaque_metadata: OpaqueArchiveMetadata | None = None
 
     @property
     def array(self) -> np.ndarray:
@@ -458,11 +453,14 @@ class Mask:
         )
 
     def __getitem__(self, bbox: Box) -> Mask:
-        return Mask(
+        result = Mask(
             self.array[bbox.y.slice_within(self._bbox.y), bbox.x.slice_within(self._bbox.x), :],
             bbox=bbox,
             schema=self.schema,
         )
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.subset(bbox)
+        return result
 
     def __str__(self) -> str:
         return f"Mask({self.bbox!s}, {list(self.schema.names)})"
@@ -500,10 +498,12 @@ class Mask:
             start = self._bbox.start
         if schema is ...:
             schema = self._schema
-            return Mask(self._array.copy(), start=start, schema=schema, projection=projection)
+            result = Mask(self._array.copy(), start=start, schema=schema, projection=projection)
         else:
             result = Mask(0, schema=schema, shape=self.bbox.shape, start=start, projection=projection)
             result.update(self)
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.copy()
         return result
 
     def view(
@@ -529,7 +529,10 @@ class Mask:
             projection = self._projection
         if start is ...:
             start = self._bbox.start
-        return Mask(self._array, start=start, schema=schema, projection=projection)
+        result = Mask(self._array, start=start, schema=schema, projection=projection)
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.copy()
+        return result
 
     def update(self, other: Mask) -> None:
         """Update ``self`` to include all common mask values set in ``other``.
