@@ -15,13 +15,11 @@ import os
 import tempfile
 import unittest
 
+import lsst.images.fits
 from lsst.images import Box
-from lsst.images.fits import FitsInputArchive, FitsOutputArchive
 from lsst.images.psfs import (
-    PiffSerializationModel,
     PiffWrapper,
     PointSpreadFunction,
-    PSFExSerializationModel,
     PSFExWrapper,
 )
 from lsst.images.tests import compare_psf_to_legacy
@@ -62,12 +60,8 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         compare_psf_to_legacy(self, psf, legacy_psf)
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
             tmp.close()
-            with FitsOutputArchive.open(tmp.name) as output_archive:
-                tree = output_archive.serialize_direct("psf", psf.serialize)
-                output_archive.add_tree(tree)
-            with FitsInputArchive.open(tmp.name) as input_archive:
-                tree = input_archive.get_tree(PiffSerializationModel)
-                roundtripped = PiffWrapper.deserialize(tree, input_archive)
+            lsst.images.fits.write(psf, tmp.name)
+            roundtripped = lsst.images.fits.read(PiffWrapper, tmp.name)
         compare_psf_to_legacy(self, roundtripped, legacy_psf)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
@@ -97,12 +91,8 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         compare_psf_to_legacy(self, psf, legacy_psf)
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
             tmp.close()
-            with FitsOutputArchive.open(tmp.name) as output_archive:
-                tree = output_archive.serialize_direct("psf", psf.serialize)
-                output_archive.add_tree(tree)
-            with FitsInputArchive.open(tmp.name) as input_archive:
-                tree = input_archive.get_tree(PSFExSerializationModel)
-                roundtripped = PSFExWrapper.deserialize(tree, input_archive)
+            lsst.images.fits.write(psf, tmp.name)
+            roundtripped = lsst.images.fits.read(PSFExWrapper, tmp.name)
         compare_psf_to_legacy(self, roundtripped, legacy_psf)
 
 

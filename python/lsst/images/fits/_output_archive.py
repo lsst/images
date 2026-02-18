@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("FitsOutputArchive",)
+__all__ = ("FitsOutputArchive", "write")
 
 import dataclasses
 from collections import Counter
@@ -37,6 +37,44 @@ from ..serialization import (
     no_header_updates,
 )
 from ._common import ExtensionHDU, ExtensionKey, FitsCompressionOptions, FitsOpaqueMetadata
+
+
+def write(
+    obj: Any,
+    filename: str,
+    compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
+    update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+) -> Any:
+    """Write an object with a ``serialize`` method to a FITS file.
+
+    Parameters
+    ----------
+    filename
+        Name of the file to write to.  Must not already exist.
+    compression_options
+        Options for how to compress the FITS file, keyed by the name of
+        the attribute (with JSON pointer ``/`` separators for nested
+        attributes).
+    update_header
+        A callback that will be given the primary HDU FITS header and an
+        opportunity to modify it.
+
+    Returns
+    -------
+    `.serialization.ArchiveTree`
+        The serialized representation of the object.
+    """
+    opaque_metadata = getattr(obj, "_opaque_metadata", None)
+    name = getattr(obj, "_archive_default_name", None)
+    with FitsOutputArchive.open(
+        filename,
+        compression_options=compression_options,
+        opaque_metadata=opaque_metadata,
+        update_header=update_header,
+    ) as archive:
+        tree = archive.serialize_direct(name, obj.serialize) if name is not None else obj.serialize(archive)
+        archive.add_tree(tree)
+    return tree
 
 
 class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
@@ -83,6 +121,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         filename: str,
         compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
         opaque_metadata: Any = None,
+        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> Iterator[Self]:
         """Create an output archive that writes to the given file.
 
@@ -97,6 +136,9 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         opaque_metadata
             Metadata read from an input archive along with the object being
             written now.  Ignored if the metadata is not from a FITS archive.
+        update_header
+            A callback that will be given the primary HDU FITS header and an
+            opportunity to modify it.
 
         Returns
         -------
@@ -107,6 +149,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
             if hdu_list:
                 raise OSError(f"File {filename!r} already exists.")
             archive = cls(hdu_list, compression_options, opaque_metadata)
+            update_header(hdu_list[0].header)
             yield archive
             if not archive._json_hdu_added:
                 raise RuntimeError("Write context exited without 'add_tree' being called.")

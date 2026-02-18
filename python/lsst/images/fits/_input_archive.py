@@ -14,6 +14,7 @@ from __future__ import annotations
 __all__ = (
     "FitsInputArchive",
     "FitsOpaqueMetadata",
+    "read",
 )
 
 import io
@@ -42,6 +43,52 @@ from ..serialization import (
     no_header_updates,
 )
 from ._common import ExtensionHDU, ExtensionKey, FitsOpaqueMetadata, InvalidFitsArchiveError
+
+
+def read[T: Any](
+    cls: type[T],
+    path: ResourcePathExpression,
+    *,
+    page_size: int = 2880 * 50,
+    partial: bool | None = None,
+    **kwargs: Any,
+) -> T:
+    """Read an object with a ``deserialize`` static/classmethod to a FITS file.
+
+    Parameters
+    ----------
+    path
+        File to read; convertible to `lsst.resources.ResourcePath`.
+    page_size
+        Minimum number of bytes to read at at once.  Making this a multiple
+        of the FITS block size (2880) is recommended.
+    partial
+        Whether we will be reading only some of the archive, or if memory
+        pressure forces us to read it only a little at a time.  If `False`,
+        the entire raw file may be read into memory up front. Defaults to
+        `True` if any extra ``**kwargs`` are passed with values other than
+        `None`, since those usually indicate that only some of the original
+        object will be loaded.
+    **kwargs
+        Extra keyword arguments passed to ``cls.deserialize``.
+
+    Returns
+    -------
+    object
+        The loaded object.
+
+    Notes
+    -----
+    Supported types must implement ``deserialize`` and
+    ``_get_archive_tree_type`` (see `.Image` for an example).
+    """
+    if partial is None:
+        partial = any(v is not None for v in kwargs.values())
+    with FitsInputArchive.open(path, page_size=page_size, partial=partial) as archive:
+        tree = archive.get_tree(cls._get_archive_tree_type(TableCellReferenceModel))
+        obj = cls.deserialize(tree, archive, **kwargs)
+        obj._opaque_metadata = archive.get_opaque_metadata()
+        return obj
 
 
 class FitsInputArchive(InputArchive[TableCellReferenceModel]):
@@ -107,7 +154,7 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
             of the FITS block size (2880) is recommended.
         partial
             Whether we will be reading only some of the archive, or if memory
-            pressure forces us to read it only a little at a time..  If `False`
+            pressure forces us to read it only a little at a time.  If `False`
             (default), the entire raw file may be read into memory up front.
 
         Returns

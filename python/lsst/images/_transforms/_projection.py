@@ -268,6 +268,15 @@ class Projection[F: Frame]:
         return Projection(pixel_to_sky, fits_approximation=fits_approximation)
 
     @staticmethod
+    def _get_archive_tree_type[P: pydantic.BaseModel](
+        pointer_type: type[P],
+    ) -> type[ProjectionSerializationModel[P]]:
+        """Return the serialization model type for this object for an archive
+        type that uses the given pointer type.
+        """
+        return ProjectionSerializationModel[pointer_type]  # type: ignore
+
+    @staticmethod
     def from_legacy(sky_wcs: Any, pixel_frame: F, pixel_bounds: Bounds | None = None) -> Projection[F]:
         """Construct a transform from a legacy `lsst.afw.geom.SkyWcs`.
 

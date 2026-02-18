@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import os
 import tempfile
@@ -20,18 +21,18 @@ from typing import Any
 import numpy as np
 import pydantic
 
+import lsst.images.fits
 from lsst.images import (
     Box,
     CameraFrameSet,
     CameraFrameSetSerializationModel,
     DetectorFrame,
+    FocalPlaneFrame,
     Projection,
-    ProjectionSerializationModel,
     Transform,
     TransformSerializationModel,
 )
-from lsst.images.fits import FitsInputArchive, FitsOutputArchive
-from lsst.images.serialization import ArchiveTree, TableCellReferenceModel
+from lsst.images.serialization import ArchiveTree, InputArchive, OutputArchive, TableCellReferenceModel
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
     check_transform,
@@ -69,6 +70,9 @@ class TransformTestCase(unittest.TestCase):
           CameraFrameSet, by referencing the mappings in the frame set.
 
         This test is skipped if legacy modules cannot be imported.
+
+        This test provides coverage for the archive system's pointer and
+        frame-set reference machinery.
         """
         try:
             from lsst.afw.cameraGeom import Camera
@@ -80,36 +84,26 @@ class TransformTestCase(unittest.TestCase):
         frame_set = CameraFrameSet.from_legacy(legacy_camera)
         detector_id: int = DP2_VISIT_DETECTOR_DATA_ID["detector"]
         self.compare_to_legacy_camera(legacy_camera, frame_set)
+        test_holder = FrameSetTestHolder(
+            frames=frame_set,
+            pixels_to_fp=frame_set[frame_set.detector(detector_id), frame_set.focal_plane()],
+        )
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
             tmp.close()
-            with FitsOutputArchive.open(tmp.name) as output_archive:
-                frame_set_ptr = output_archive.serialize_frame_set(
-                    "frames", frame_set, frame_set.serialize, key=id(frame_set)
-                )
-                pixels_to_fp = frame_set[frame_set.detector(detector_id), frame_set.focal_plane()]
-                pixels_to_fp_ser = output_archive.serialize_direct(
-                    "pixels_to_fp", functools.partial(pixels_to_fp.serialize, use_frame_sets=True)
-                )
-                output_archive.add_tree(
-                    CameraFramesTestModel(frames=frame_set_ptr, pixels_to_fp=pixels_to_fp_ser)
-                )
-            self.assertEqual(len(pixels_to_fp_ser.frames), 2)
-            self.assertEqual(len(pixels_to_fp_ser.bounds), 2)
-            self.assertEqual(len(pixels_to_fp_ser.mappings), 1)
+            serialized_test_holder = lsst.images.fits.write(test_holder, tmp.name)
+            self.assertEqual(len(serialized_test_holder.pixels_to_fp.frames), 2)
+            self.assertEqual(len(serialized_test_holder.pixels_to_fp.bounds), 2)
+            self.assertEqual(len(serialized_test_holder.pixels_to_fp.mappings), 1)
             # Instead of storing the AST mapping directly, we should have
             # stored a reference to the frame set:
-            self.assertIsInstance(pixels_to_fp_ser.mappings[0], TableCellReferenceModel)
-            with FitsInputArchive.open(tmp.name) as input_archive:
-                tree = input_archive.get_tree(CameraFramesTestModel[TableCellReferenceModel])
-                rt_frame_set = input_archive.deserialize_pointer(
-                    tree.frames, CameraFrameSetSerializationModel, CameraFrameSet.deserialize
-                )
-                rt_pixels_to_fp = Transform.deserialize(tree.pixels_to_fp, input_archive)
-        self.compare_to_legacy_camera(legacy_camera, rt_frame_set)
-        self.assertEqual(rt_pixels_to_fp.in_frame, frame_set.detector(detector_id))
-        self.assertEqual(rt_pixels_to_fp.out_frame, frame_set.focal_plane())
+            self.assertIsInstance(serialized_test_holder.pixels_to_fp.mappings[0], TableCellReferenceModel)
+            rt_holder = lsst.images.fits.read(FrameSetTestHolder, tmp.name)
+        self.compare_to_legacy_camera(legacy_camera, rt_holder.frames)
+        self.assertEqual(rt_holder.pixels_to_fp.in_frame, frame_set.detector(detector_id))
+        self.assertEqual(rt_holder.pixels_to_fp.out_frame, frame_set.focal_plane())
         self.assertEqual(
-            rt_pixels_to_fp._ast_mapping.simplified().show(), pixels_to_fp._ast_mapping.simplified().show()
+            rt_holder.pixels_to_fp._ast_mapping.simplified().show(),
+            test_holder.pixels_to_fp._ast_mapping.simplified().show(),
         )
 
     def compare_to_legacy_camera(self, legacy_camera: Any, frame_set: CameraFrameSet) -> None:
@@ -182,21 +176,49 @@ class TransformTestCase(unittest.TestCase):
         compare_projection_to_legacy_wcs(self, projection, legacy_wcs, detector_frame, subimage_bbox)
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
             tmp.close()
-            with FitsOutputArchive.open(tmp.name) as output_archive:
-                tree = output_archive.serialize_direct("projection", projection.serialize)
-                output_archive.add_tree(tree)
-            with FitsInputArchive.open(tmp.name) as input_archive:
-                tree = input_archive.get_tree(ProjectionSerializationModel)
-                roundtripped = Projection.deserialize(tree, input_archive)
+            lsst.images.fits.write(projection, tmp.name)
+            roundtripped = lsst.images.fits.read(Projection[DetectorFrame], tmp.name)
         compare_projection_to_legacy_wcs(self, roundtripped, legacy_wcs, detector_frame, subimage_bbox)
 
 
-class CameraFramesTestModel[P: pydantic.BaseModel](ArchiveTree):
-    """A testing serialization model that holds both a CamaraFrameSet and
-    a Transform extracted from it.
+@dataclasses.dataclass
+class FrameSetTestHolder:
+    """A top-level object that holds a CameraFrameSet and a transform
+    extracted from it, for testing archive pointers and frame set references.
     """
 
-    frames: P
+    frames: CameraFrameSet
+    pixels_to_fp: Transform[DetectorFrame, FocalPlaneFrame]
+
+    def serialize[P: pydantic.BaseModel](self, archive: OutputArchive[P]) -> FrameSetTestHolderModel[P]:
+        frames_model = archive.serialize_frame_set(
+            "frames", self.frames, self.frames.serialize, key=id(self.frames)
+        )
+        pixels_to_fp_model = archive.serialize_direct(
+            "pixels_to_fp", functools.partial(self.pixels_to_fp.serialize, use_frame_sets=True)
+        )
+        return FrameSetTestHolderModel[P](frames=frames_model, pixels_to_fp=pixels_to_fp_model)
+
+    @staticmethod
+    def deserialize(model: FrameSetTestHolderModel[Any], archive: InputArchive[Any]) -> FrameSetTestHolder:
+        assert not isinstance(model.frames, CameraFrameSetSerializationModel), "Archive pointer expected."
+        frames = archive.deserialize_pointer(
+            model.frames, CameraFrameSetSerializationModel, CameraFrameSet.deserialize
+        )
+        pixels_to_fp = Transform.deserialize(model.pixels_to_fp, archive)
+        return FrameSetTestHolder(frames, pixels_to_fp)
+
+    @staticmethod
+    def _get_archive_tree_type[P: pydantic.BaseModel](
+        pointer_type: type[P],
+    ) -> type[FrameSetTestHolderModel[P]]:
+        return FrameSetTestHolderModel[pointer_type]  # type: ignore
+
+
+class FrameSetTestHolderModel[P: pydantic.BaseModel](ArchiveTree):
+    """The serialization model for FrameSetTestHolder."""
+
+    frames: CameraFrameSetSerializationModel | P
     pixels_to_fp: TransformSerializationModel[P]
 
 

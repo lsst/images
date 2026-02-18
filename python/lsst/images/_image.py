@@ -17,7 +17,7 @@ from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from functools import cached_property
 from types import EllipsisType
-from typing import Any, final
+from typing import Any, ClassVar, final
 
 import astropy.io.fits
 import astropy.units
@@ -25,6 +25,8 @@ import astropy.wcs
 import numpy as np
 import numpy.typing as npt
 import pydantic
+
+from lsst.resources import ResourcePathExpression
 
 from . import fits
 from ._geom import YX, Box
@@ -388,6 +390,54 @@ class Image:
         return Image(
             array, start=model.start if bbox is None else bbox.start, unit=unit, projection=projection
         )
+
+    @staticmethod
+    def _get_archive_tree_type[P: pydantic.BaseModel](
+        pointer_type: type[P],
+    ) -> type[ImageSerializationModel[P]]:
+        """Return the serialization model type for this object for an archive
+        type that uses the given pointer type.
+        """
+        return ImageSerializationModel[pointer_type]  # type: ignore
+
+    _archive_default_name: ClassVar[str] = "image"
+    """The name this object should be serialized with when written as the
+    top-level object.
+    """
+
+    def write_fits(
+        self,
+        filename: str,
+        *,
+        compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
+    ) -> None:
+        """Write the image to a FITS file.
+
+        Parameters
+        ----------
+        filename
+            Name of the file to write to.  Must be a local file.
+        compression
+            Compression options.
+        """
+        compression_options = {}
+        if compression is not fits.FitsCompressionOptions.DEFAULT:
+            compression_options[self._archive_default_name] = compression
+        fits.write(self, filename, compression_options)
+
+    @staticmethod
+    def read_fits(url: ResourcePathExpression, *, bbox: Box | None = None) -> Image:
+        """Read an image from a FITS file.
+
+        Parameters
+        ----------
+        url
+            URL of the file to read; may be any type supported by
+            `lsst.resources.ResourcePath`.
+        bbox
+            Bounding box of a subimage to read instead.
+        """
+        return fits.read(Image, url, bbox=bbox)
 
     @staticmethod
     def from_legacy(legacy: Any, unit: astropy.units.Unit | None = None) -> Image:

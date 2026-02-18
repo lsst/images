@@ -25,7 +25,7 @@ import math
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
 from functools import cached_property
 from types import EllipsisType
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 import astropy.io.fits
 import astropy.wcs
@@ -739,6 +739,20 @@ class Mask:
         array_2d = archive.get_array(ref, strip_header=_strip_header, slices=slices)
         return Mask(array_2d[:, :, np.newaxis], schema=schema_2d, start=start)
 
+    @staticmethod
+    def _get_archive_tree_type[P: pydantic.BaseModel](
+        pointer_type: type[P],
+    ) -> type[MaskSerializationModel[P]]:
+        """Return the serialization model type for this object for an archive
+        type that uses the given pointer type.
+        """
+        return MaskSerializationModel[pointer_type]  # type: ignore
+
+    _archive_default_name: ClassVar[str] = "mask"
+    """The name this object should be serialized with when written as the
+    top-level object.
+    """
+
     def write_fits(
         self,
         filename: str,
@@ -756,12 +770,8 @@ class Mask:
         """
         compression_options = {}
         if compression is not fits.FitsCompressionOptions.DEFAULT:
-            compression_options["mask"] = compression
-        with fits.FitsOutputArchive.open(
-            filename, opaque_metadata=self._opaque_metadata, compression_options=compression_options
-        ) as archive:
-            tree = archive.serialize_direct("mask", self.serialize)
-            archive.add_tree(tree)
+            compression_options[self._archive_default_name] = compression
+        fits.write(self, filename, compression_options)
 
     @staticmethod
     def read_fits(url: ResourcePathExpression, *, bbox: Box | None = None) -> Mask:
@@ -775,11 +785,7 @@ class Mask:
         bbox
             Bounding box of a subimage to read instead.
         """
-        with fits.FitsInputArchive.open(url, partial=(bbox is not None)) as archive:
-            model = archive.get_tree(MaskSerializationModel)
-            result = Mask.deserialize(model, archive, bbox=bbox)
-            result._opaque_metadata = archive.get_opaque_metadata()
-        return result
+        return fits.read(Mask, url, bbox=bbox)
 
     @staticmethod
     def from_legacy(

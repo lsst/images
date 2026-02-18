@@ -197,6 +197,15 @@ class CameraFrameSet(FrameSet):
 
         return CameraFrameSet(model.instrument, astshim.FrameSet.fromString(model.ast))
 
+    @staticmethod
+    def _get_archive_tree_type(
+        pointer_type: type[pydantic.BaseModel],
+    ) -> type[CameraFrameSetSerializationModel]:
+        """Return the serialization model type for this object for an archive
+        type that uses the given pointer type.
+        """
+        return CameraFrameSetSerializationModel
+
     @classmethod
     def from_legacy(cls, camera: Any) -> CameraFrameSet:
         """Construct a transform from a legacy `lsst.afw.cameraGeom.Camera`.

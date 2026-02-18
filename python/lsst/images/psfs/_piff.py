@@ -137,6 +137,15 @@ class PiffWrapper(PointSpreadFunction):
         impl = PSF._read(reader, "piff", PiffLogger(_LOG))
         return cls(impl, bounds=Bounds.deserialize(model.bounds), stamp_size=model.stamp_size)
 
+    @staticmethod
+    def _get_archive_tree_type(
+        pointer_type: type[pydantic.BaseModel],
+    ) -> type[PiffSerializationModel]:
+        """Return the serialization model type for this object for an archive
+        type that uses the given pointer type.
+        """
+        return PiffSerializationModel
+
     @contextmanager
     def _without_stars(self) -> Iterator[None]:
         """Temporarily drop the embedded list of stars used to fit the PSF.

@@ -155,6 +155,15 @@ class PSFExWrapper(LegacyPointSpreadFunction):
         legacy_psf = PsfexPsf.fromSerializationData(data)
         return cls(legacy_psf, Bounds.deserialize(model.bounds))
 
+    @staticmethod
+    def _get_archive_tree_type(
+        pointer_type: type[pydantic.BaseModel],
+    ) -> type[PSFExSerializationModel]:
+        """Return the serialization model type for this object for an archive
+        type that uses the given pointer type.
+        """
+        return PSFExSerializationModel
+
 
 class PSFExSerializationModel(serialization.ArchiveTree):
     """Serialization model for PSFEx PSFs."""

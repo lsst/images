@@ -27,22 +27,16 @@ import pydantic
 
 from lsst.resources import ResourcePathExpression
 
+from . import fits
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
-from .fits import (
-    FitsCompressionOptions,
-    FitsInputArchive,
-    FitsOpaqueMetadata,
-    FitsOutputArchive,
-)
 from .serialization import (
     ArchiveTree,
     InputArchive,
     OpaqueArchiveMetadata,
     OutputArchive,
-    TableCellReferenceModel,
 )
 from .utils import is_none
 
@@ -306,13 +300,22 @@ class MaskedImage:
         variance = Image.deserialize(model.variance, archive, bbox=bbox)
         return MaskedImage(image, mask=mask, variance=variance)
 
+    @staticmethod
+    def _get_archive_tree_type[P: pydantic.BaseModel](
+        pointer_type: type[P],
+    ) -> type[MaskedImageSerializationModel[P]]:
+        """Return the serialization model type for this object for an archive
+        type that uses the given pointer type.
+        """
+        return MaskedImageSerializationModel[pointer_type]  # type: ignore
+
     def write_fits(
         self,
         filename: str,
         *,
-        image_compression: FitsCompressionOptions | None = FitsCompressionOptions.DEFAULT,
-        mask_compression: FitsCompressionOptions | None = FitsCompressionOptions.DEFAULT,
-        variance_compression: FitsCompressionOptions | None = FitsCompressionOptions.DEFAULT,
+        image_compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
+        mask_compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
+        variance_compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
     ) -> None:
         """Write the image to a FITS file.
 
@@ -328,19 +331,16 @@ class MaskedImage:
             Compression options for the `variance` plane.
         """
         compression_options = {}
-        if image_compression is not FitsCompressionOptions.DEFAULT:
+        if image_compression is not fits.FitsCompressionOptions.DEFAULT:
             compression_options["image"] = image_compression
-        if mask_compression is not FitsCompressionOptions.DEFAULT:
+        if mask_compression is not fits.FitsCompressionOptions.DEFAULT:
             compression_options["mask"] = mask_compression
-        if variance_compression is not FitsCompressionOptions.DEFAULT:
+        if variance_compression is not fits.FitsCompressionOptions.DEFAULT:
             compression_options["variance"] = variance_compression
-        with FitsOutputArchive.open(
-            filename, opaque_metadata=self._opaque_metadata, compression_options=compression_options
-        ) as archive:
-            archive.add_tree(self.serialize(archive))
+        fits.write(self, filename, compression_options=compression_options)
 
-    @staticmethod
-    def read_fits(url: ResourcePathExpression, *, bbox: Box | None = None) -> MaskedImage:
+    @classmethod
+    def read_fits(cls, url: ResourcePathExpression, *, bbox: Box | None = None) -> MaskedImage:
         """Read an image from a FITS file.
 
         Parameters
@@ -351,17 +351,7 @@ class MaskedImage:
         bbox
             Bounding box of a subimage to read instead.
         """
-        with FitsInputArchive.open(url, partial=(bbox is not None)) as archive:
-            model = archive.get_tree(MaskedImageSerializationModel[TableCellReferenceModel])
-            result = MaskedImage.deserialize(model, archive, bbox=bbox)
-            # We only want to save opaque archive metadata on the outermost
-            # object, and `deserialize` is designed to be usable if the
-            # MaskedImage is nested within some other object, so we set it here
-            # instead of passing it to the constructor there.  This might be
-            # telling us the opaque metadata archive interfaces ought to be
-            # reworked, but I don't see a better approach right now.
-            result._opaque_metadata = archive.get_opaque_metadata()
-        return result
+        return fits.read(cls, url, bbox=bbox)
 
     @staticmethod
     def from_legacy(
@@ -442,7 +432,7 @@ class MaskedImage:
         if the legacy file is actually an `lsst.afw.image.Exposure` with a
         WCS attached.
         """
-        opaque_metadata = FitsOpaqueMetadata()
+        opaque_metadata = fits.FitsOpaqueMetadata()
         with ExitStack() as exit_stack:
             hdu_list = exit_stack.enter_context(astropy.io.fits.open(filename))
             opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)

@@ -450,6 +450,15 @@ class Transform[I: Frame, O: Frame]:
         return transform
 
     @staticmethod
+    def _get_archive_tree_type[P: pydantic.BaseModel](
+        pointer_type: type[P],
+    ) -> type[TransformSerializationModel[P]]:
+        """Return the serialization model type for this object for an archive
+        type that uses the given pointer type.
+        """
+        return TransformSerializationModel[pointer_type]  # type: ignore
+
+    @staticmethod
     def from_legacy(
         legacy: Any,
         in_frame: I,
