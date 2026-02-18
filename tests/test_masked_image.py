@@ -21,7 +21,7 @@ import numpy as np
 
 from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema, get_legacy_visit_image_mask_planes
 from lsst.images.fits import FitsCompressionOptions
-from lsst.images.tests import assert_masked_images_equal, compare_masked_image_to_legacy
+from lsst.images.tests import RoundtripFits, assert_masked_images_equal, compare_masked_image_to_legacy
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -83,18 +83,15 @@ class MaskedImageTestCase(unittest.TestCase):
         np.testing.assert_array_equal(
             self.masked_image.image.array[subslices], self.masked_image.image[subbox].array
         )
-        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
-            tmp.close()
-            self.masked_image.write_fits(tmp.name)
-            roundtripped = MaskedImage.read_fits(tmp.name)
-            subimage = MaskedImage.read_fits(tmp.name, bbox=subbox)
+        with RoundtripFits(self, self.masked_image) as roundtrip:
+            subimage = roundtrip.get(bbox=subbox)
             # Check that we used lossless compression (the default).
-            with astropy.io.fits.open(tmp.name, disable_image_compression=True) as fits:
-                self.assertEqual(fits[1].header["ZCMPTYPE"], "GZIP_2")
-                self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
-                self.assertEqual(fits[3].header["ZCMPTYPE"], "GZIP_2")
-        assert_masked_images_equal(self, roundtripped, self.masked_image, expect_view=False)
-        assert_masked_images_equal(self, subimage, roundtripped[subbox], expect_view=False)
+            fits = roundtrip.inspect()
+            self.assertEqual(fits[1].header["ZCMPTYPE"], "GZIP_2")
+            self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
+            self.assertEqual(fits[3].header["ZCMPTYPE"], "GZIP_2")
+        assert_masked_images_equal(self, roundtrip.result, self.masked_image, expect_view=False)
+        assert_masked_images_equal(self, subimage, roundtrip.result[subbox], expect_view=False)
 
     def test_fits_roundtrip_lossy(self) -> None:
         """Test that we can round-trip the MaskedImage through FITS, including

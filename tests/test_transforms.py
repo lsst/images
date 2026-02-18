@@ -14,14 +14,12 @@ from __future__ import annotations
 import dataclasses
 import functools
 import os
-import tempfile
 import unittest
 from typing import Any
 
 import numpy as np
 import pydantic
 
-import lsst.images.fits
 from lsst.images import (
     Box,
     CameraFrameSet,
@@ -35,6 +33,7 @@ from lsst.images import (
 from lsst.images.serialization import ArchiveTree, InputArchive, OutputArchive, TableCellReferenceModel
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
+    RoundtripFits,
     check_transform,
     compare_projection_to_legacy_wcs,
     legacy_points_to_xy_array,
@@ -88,21 +87,18 @@ class TransformTestCase(unittest.TestCase):
             frames=frame_set,
             pixels_to_fp=frame_set[frame_set.detector(detector_id), frame_set.focal_plane()],
         )
-        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
-            tmp.close()
-            serialized_test_holder = lsst.images.fits.write(test_holder, tmp.name)
-            self.assertEqual(len(serialized_test_holder.pixels_to_fp.frames), 2)
-            self.assertEqual(len(serialized_test_holder.pixels_to_fp.bounds), 2)
-            self.assertEqual(len(serialized_test_holder.pixels_to_fp.mappings), 1)
+        with RoundtripFits(self, test_holder) as roundtrip:
+            self.assertEqual(len(roundtrip.serialized.pixels_to_fp.frames), 2)
+            self.assertEqual(len(roundtrip.serialized.pixels_to_fp.bounds), 2)
+            self.assertEqual(len(roundtrip.serialized.pixels_to_fp.mappings), 1)
             # Instead of storing the AST mapping directly, we should have
             # stored a reference to the frame set:
-            self.assertIsInstance(serialized_test_holder.pixels_to_fp.mappings[0], TableCellReferenceModel)
-            rt_holder = lsst.images.fits.read(FrameSetTestHolder, tmp.name)
-        self.compare_to_legacy_camera(legacy_camera, rt_holder.frames)
-        self.assertEqual(rt_holder.pixels_to_fp.in_frame, frame_set.detector(detector_id))
-        self.assertEqual(rt_holder.pixels_to_fp.out_frame, frame_set.focal_plane())
+            self.assertIsInstance(roundtrip.serialized.pixels_to_fp.mappings[0], TableCellReferenceModel)
+        self.compare_to_legacy_camera(legacy_camera, roundtrip.result.frames)
+        self.assertEqual(roundtrip.result.pixels_to_fp.in_frame, frame_set.detector(detector_id))
+        self.assertEqual(roundtrip.result.pixels_to_fp.out_frame, frame_set.focal_plane())
         self.assertEqual(
-            rt_holder.pixels_to_fp._ast_mapping.simplified().show(),
+            roundtrip.result.pixels_to_fp._ast_mapping.simplified().show(),
             test_holder.pixels_to_fp._ast_mapping.simplified().show(),
         )
 
@@ -174,11 +170,9 @@ class TransformTestCase(unittest.TestCase):
         detector_frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=wcs_bbox)
         projection = Projection.from_legacy(legacy_wcs, detector_frame)
         compare_projection_to_legacy_wcs(self, projection, legacy_wcs, detector_frame, subimage_bbox)
-        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
-            tmp.close()
-            lsst.images.fits.write(projection, tmp.name)
-            roundtripped = lsst.images.fits.read(Projection[DetectorFrame], tmp.name)
-        compare_projection_to_legacy_wcs(self, roundtripped, legacy_wcs, detector_frame, subimage_bbox)
+        with RoundtripFits(self, projection, "Projection") as roundtrip:
+            pass
+        compare_projection_to_legacy_wcs(self, roundtrip.result, legacy_wcs, detector_frame, subimage_bbox)
 
 
 @dataclasses.dataclass

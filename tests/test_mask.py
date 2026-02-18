@@ -12,14 +12,12 @@
 from __future__ import annotations
 
 import os
-import tempfile
 import unittest
 
-import astropy.io.fits
 import numpy as np
 
 from lsst.images import Box, Mask, MaskPlane, MaskSchema, get_legacy_visit_image_mask_planes
-from lsst.images.tests import assert_masks_equal, compare_mask_to_legacy
+from lsst.images.tests import RoundtripFits, assert_masks_equal, compare_mask_to_legacy
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -93,26 +91,23 @@ class MaskTestCase(unittest.TestCase):
         for plane in schema:
             if plane is not None:
                 mask.set(plane.name, self.rng.random(shape) > 0.5)
-        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
-            tmp.close()
-            mask.write_fits(tmp.name)
-            roundtripped = Mask.read_fits(tmp.name)
-            with astropy.io.fits.open(tmp.name, disable_image_compression=True) as fits:
-                self.assertEqual(fits[1].header["EXTNAME"], "MASK")
-                self.assertEqual(fits[1].header.get("EXTVER", 1), 1)
-                self.assertEqual(fits[1].header["ZCMPTYPE"], "GZIP_2")
-                self.assertEqual(fits[2].header["EXTNAME"], "MASK")
-                self.assertEqual(fits[2].header["EXTVER"], 2)
-                self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
-                n = 0
-                for plane in planes:
-                    if plane is not None:
-                        hdu = fits[1] if n < 31 else fits[2]
-                        self.assertEqual(hdu.header[f"MSKN{(n % 31) + 1:04d}"], plane.name)
-                        self.assertEqual(hdu.header[f"MSKM{(n % 31) + 1:04d}"], 1 << (n % 31))
-                        self.assertEqual(hdu.header[f"MSKD{(n % 31) + 1:04d}"], plane.description)
-                        n += 1
-        assert_masks_equal(self, mask, roundtripped)
+        with RoundtripFits(self, mask) as roundtrip:
+            fits = roundtrip.inspect()
+            self.assertEqual(fits[1].header["EXTNAME"], "MASK")
+            self.assertEqual(fits[1].header.get("EXTVER", 1), 1)
+            self.assertEqual(fits[1].header["ZCMPTYPE"], "GZIP_2")
+            self.assertEqual(fits[2].header["EXTNAME"], "MASK")
+            self.assertEqual(fits[2].header["EXTVER"], 2)
+            self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
+            n = 0
+            for plane in planes:
+                if plane is not None:
+                    hdu = fits[1] if n < 31 else fits[2]
+                    self.assertEqual(hdu.header[f"MSKN{(n % 31) + 1:04d}"], plane.name)
+                    self.assertEqual(hdu.header[f"MSKM{(n % 31) + 1:04d}"], 1 << (n % 31))
+                    self.assertEqual(hdu.header[f"MSKD{(n % 31) + 1:04d}"], plane.description)
+                    n += 1
+        assert_masks_equal(self, mask, roundtrip.result)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_legacy(self) -> None:

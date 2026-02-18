@@ -12,17 +12,15 @@
 from __future__ import annotations
 
 import os
-import tempfile
 import unittest
 
-import lsst.images.fits
 from lsst.images import Box
 from lsst.images.psfs import (
     PiffWrapper,
     PointSpreadFunction,
     PSFExWrapper,
 )
-from lsst.images.tests import compare_psf_to_legacy
+from lsst.images.tests import RoundtripFits, compare_psf_to_legacy
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -58,11 +56,9 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         self.assertEqual(psf.bounds, bounds)
         self.assertIsInstance(psf.piff_psf, PSF)
         compare_psf_to_legacy(self, psf, legacy_psf)
-        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
-            tmp.close()
-            lsst.images.fits.write(psf, tmp.name)
-            roundtripped = lsst.images.fits.read(PiffWrapper, tmp.name)
-        compare_psf_to_legacy(self, roundtripped, legacy_psf)
+        with RoundtripFits(self, psf) as roundtrip:
+            pass
+        compare_psf_to_legacy(self, roundtrip.result, legacy_psf)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_psfex(self) -> None:
@@ -89,11 +85,10 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         self.assertEqual(psf.bounds, bounds)
         self.assertIsInstance(psf.legacy_psf, PsfexPsf)
         compare_psf_to_legacy(self, psf, legacy_psf)
-        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
-            tmp.close()
-            lsst.images.fits.write(psf, tmp.name)
-            roundtripped = lsst.images.fits.read(PSFExWrapper, tmp.name)
-        compare_psf_to_legacy(self, roundtripped, legacy_psf)
+        compare_psf_to_legacy(self, psf, legacy_psf)
+        with RoundtripFits(self, psf) as roundtrip:
+            pass
+        compare_psf_to_legacy(self, roundtrip.result, legacy_psf)
 
 
 if __name__ == "__main__":
