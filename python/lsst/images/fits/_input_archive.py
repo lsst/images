@@ -53,7 +53,7 @@ def read[T: Any](
     partial: bool | None = None,
     **kwargs: Any,
 ) -> T:
-    """Read an object with a ``deserialize`` static/classmethod to a FITS file.
+    """Read an object from a FITS file.
 
     Parameters
     ----------

@@ -474,3 +474,8 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         exclude_if=is_none,
         description="Projection that maps the pixel grid to the sky.",
     )
+
+    @property
+    def bbox(self) -> Box:
+        """The bounding box of the image."""
+        return self.image.bbox

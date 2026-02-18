@@ -83,7 +83,7 @@ class MaskedImageTestCase(unittest.TestCase):
         np.testing.assert_array_equal(
             self.masked_image.image.array[subslices], self.masked_image.image[subbox].array
         )
-        with RoundtripFits(self, self.masked_image) as roundtrip:
+        with RoundtripFits(self, self.masked_image, "MaskedImageV2") as roundtrip:
             subimage = roundtrip.get(bbox=subbox)
             # Check that we used lossless compression (the default).
             fits = roundtrip.inspect()
