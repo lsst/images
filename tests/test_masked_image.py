@@ -111,6 +111,7 @@ class MaskedImageTestCase(unittest.TestCase):
                 tmp.name,
                 image_compression=FitsCompressionOptions.LOSSY,
                 variance_compression=FitsCompressionOptions.LOSSY,
+                compression_seed=50,
             )
             roundtripped = MaskedImage.read_fits(tmp.name)
             subimage = MaskedImage.read_fits(tmp.name, bbox=subbox)

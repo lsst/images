@@ -36,6 +36,7 @@ from typing import ClassVar, Self, final
 
 import astropy.io.fits
 import numpy as np
+import pydantic
 
 from .._geom import Box
 from ..serialization import OpaqueArchiveMetadata
@@ -118,8 +119,7 @@ class FitsDitherAlgorithm(enum.StrEnum):
         raise AssertionError("Invalid enum value.")
 
 
-@dataclasses.dataclass(frozen=True)
-class FitsQuantizationOptions:
+class FitsQuantizationOptions(pydantic.BaseModel, frozen=True):
     """Quantization options for FITS compression."""
 
     dither: FitsDitherAlgorithm
@@ -133,17 +133,19 @@ class FitsQuantizationOptions:
     scaling to apply directly to the original pixels before quantization.
     """
 
-    seed: int
+    seed: int | None = None
     """Random number seed to use for dithering.
 
     Values between 1 and 10000 (inclusive) are used directly.  ``0`` will
     generate a value from the current time, and ``-1`` will generate a value
     from the checksum of the image.
+
+    If `None`, the ``compression_seed`` parameter must be passed to
+    `FitsOutputArchive.open` if any quantized compression is configured.
     """
 
 
-@dataclasses.dataclass(frozen=True)
-class FitsCompressionOptions:
+class FitsCompressionOptions(pydantic.BaseModel, frozen=True):
     """Configuration options for FITS compression."""
 
     algorithm: FitsCompressionAlgorithm = FitsCompressionAlgorithm.GZIP_2
@@ -189,9 +191,7 @@ class FitsCompressionOptions:
 FitsCompressionOptions.DEFAULT = FitsCompressionOptions()
 FitsCompressionOptions.LOSSY = FitsCompressionOptions(
     algorithm=FitsCompressionAlgorithm.RICE_1,
-    quantization=FitsQuantizationOptions(
-        dither=FitsDitherAlgorithm.SUBTRACTIVE_DITHER_2, level=16.0, seed=-1
-    ),
+    quantization=FitsQuantizationOptions(dither=FitsDitherAlgorithm.SUBTRACTIVE_DITHER_2, level=16.0),
 )
 
 

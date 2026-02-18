@@ -410,6 +410,7 @@ class Image:
         filename: str,
         *,
         compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
+        compression_seed: int | None = None,
     ) -> None:
         """Write the image to a FITS file.
 
@@ -419,11 +420,14 @@ class Image:
             Name of the file to write to.  Must be a local file.
         compression
             Compression options.
+        compression_seed
+            A FITS tile compression seed to use whenever the configured
+            compression seed is `None` or (for backwards compatibility) ``0``.
         """
         compression_options = {}
         if compression is not fits.FitsCompressionOptions.DEFAULT:
             compression_options[self._archive_default_name] = compression
-        fits.write(self, filename, compression_options)
+        fits.write(self, filename, compression_options, compression_seed=compression_seed)
 
     @staticmethod
     def read_fits(url: ResourcePathExpression, *, bbox: Box | None = None) -> Image:

@@ -44,6 +44,7 @@ def write(
     filename: str,
     compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
     update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    compression_seed: int | None = None,
 ) -> Any:
     """Write an object with a ``serialize`` method to a FITS file.
 
@@ -58,6 +59,10 @@ def write(
     update_header
         A callback that will be given the primary HDU FITS header and an
         opportunity to modify it.
+    compression_seed
+        A FITS tile compression seed to use whenever the configured
+        compression seed is `None` or (for backwards compatibility) ``0``.
+        This value is then incremented every time it is used.
 
     Returns
     -------
@@ -71,6 +76,7 @@ def write(
         compression_options=compression_options,
         opaque_metadata=opaque_metadata,
         update_header=update_header,
+        compression_seed=compression_seed,
     ) as archive:
         tree = archive.serialize_direct(name, obj.serialize) if name is not None else obj.serialize(archive)
         archive.add_tree(tree)
@@ -90,6 +96,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         hdu_list: astropy.io.fits.HDUList,
         compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
         opaque_metadata: Any = None,
+        compression_seed: int | None = None,
     ):
         # JSON blobs for objects we've saved as pointers:
         self._pointer_targets: list[bytes] = []
@@ -105,6 +112,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         self._primary_hdu.header.set("JSONSIZE", 0, "Size of the JSON tree HDU.")
         self._hdus_by_name = Counter[str]()
         self._compression_options = dict(compression_options) if compression_options is not None else {}
+        self._compression_seed = compression_seed
         self._opaque_metadata = (
             opaque_metadata if isinstance(opaque_metadata, FitsOpaqueMetadata) else FitsOpaqueMetadata()
         )
@@ -122,6 +130,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
         opaque_metadata: Any = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        compression_seed: int | None = None,
     ) -> Iterator[Self]:
         """Create an output archive that writes to the given file.
 
@@ -139,6 +148,10 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         update_header
             A callback that will be given the primary HDU FITS header and an
             opportunity to modify it.
+        compression_seed
+            A FITS tile compression seed to use whenever the configured
+            compression seed is `None` or (for backwards compatibility) ``0``.
+            This value is then incremented every time it is used.
 
         Returns
         -------
@@ -148,7 +161,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         with astropy.io.fits.open(filename, mode="append") as hdu_list:
             if hdu_list:
                 raise OSError(f"File {filename!r} already exists.")
-            archive = cls(hdu_list, compression_options, opaque_metadata)
+            archive = cls(hdu_list, compression_options, opaque_metadata, compression_seed=compression_seed)
             update_header(hdu_list[0].header)
             yield archive
             if not archive._json_hdu_added:
@@ -307,7 +320,23 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         self._json_hdu_added = True
 
     def _get_compression_options(self, name: str) -> FitsCompressionOptions | None:
-        return self._compression_options.get(name, FitsCompressionOptions.DEFAULT)
+        result = self._compression_options.get(name, FitsCompressionOptions.DEFAULT)
+        if result is None or result.quantization is None:
+            return result
+        if self._compression_seed is not None and not result.quantization.seed:
+            result = result.model_copy(
+                update={
+                    "quantization": result.quantization.model_copy(update={"seed": self._compression_seed})
+                }
+            )
+            self._compression_seed += 1
+            if self._compression_seed > 10000:
+                self._compression_seed = 1
+        # MyPy can tell that result.quantization is not None in the 'if', but
+        # forgets that by this 'else':
+        elif result.quantization.seed is None:  # type: ignore[union-attr]
+            raise RuntimeError("No quantization seed provided.")
+        return result
 
     @staticmethod
     def _make_index_table(hdu_list: astropy.io.fits.HDUList) -> astropy.io.fits.BinTableHDU:

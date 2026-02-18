@@ -316,6 +316,7 @@ class MaskedImage:
         image_compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
         mask_compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
         variance_compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
+        compression_seed: int | None = None,
     ) -> None:
         """Write the image to a FITS file.
 
@@ -329,6 +330,10 @@ class MaskedImage:
             Compression options for the `mask` plane.
         variance_compression
             Compression options for the `variance` plane.
+        compression_seed
+            A FITS tile compression seed to use whenever the configured
+            compression seed is `None` or (for backwards compatibility) ``0``.
+            This value is then incremented every time it is used.
         """
         compression_options = {}
         if image_compression is not fits.FitsCompressionOptions.DEFAULT:
@@ -337,7 +342,7 @@ class MaskedImage:
             compression_options["mask"] = mask_compression
         if variance_compression is not fits.FitsCompressionOptions.DEFAULT:
             compression_options["variance"] = variance_compression
-        fits.write(self, filename, compression_options=compression_options)
+        fits.write(self, filename, compression_options=compression_options, compression_seed=compression_seed)
 
     @classmethod
     def read_fits(cls, url: ResourcePathExpression, *, bbox: Box | None = None) -> MaskedImage:
