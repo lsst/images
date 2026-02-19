@@ -83,6 +83,10 @@ class VisitImageTestCase(unittest.TestCase):
             subbox = Box.factory[8:13, 9:30]
             subimage = roundtrip.get(bbox=subbox)
             assert_masked_images_equal(self, subimage, self.visit_image[subbox], expect_view=False)
+            alternates: dict[str, Any] = {}
+            with self.subTest():
+                self.assertEqual(roundtrip.get("bbox"), self.visit_image.bbox)
+                alternates = {k: roundtrip.get(k) for k in ["projection", "image", "mask", "variance", "psf"]}
         assert_masked_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
         # Check that the round-tripped headers are the same (up to card order).
         self.assertEqual(
@@ -102,6 +106,7 @@ class VisitImageTestCase(unittest.TestCase):
                 expect_view=False,
                 plane_map=self.plane_map,
                 **DP2_VISIT_DETECTOR_DATA_ID,
+                alternates=alternates,
             )
             # Check converting from the legacy object in-memory.
             compare_visit_image_to_legacy(

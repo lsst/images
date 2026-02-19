@@ -142,6 +142,7 @@ def compare_masked_image_to_legacy(
     *,
     plane_map: Mapping[str, MaskPlane] | None = None,
     expect_view: bool | None = None,
+    alternates: Mapping[str, Any] | None = None,
 ) -> None:
     """Compare a `.MaskedImage` object to a legacy `lsst.afw.image.MaskedImage`
     object.
@@ -159,12 +160,22 @@ def compare_masked_image_to_legacy(
     expect_view
         Whether to test that the image and variance arrays do or do not share
         memory.
+    alternates
+        A mapping of other versions of one or more (new) components to also
+        check against the legacy versions of those components.
     """
     compare_image_to_legacy(tc, masked_image.image, legacy_masked_image.getImage(), expect_view=expect_view)
     compare_mask_to_legacy(tc, masked_image.mask, legacy_masked_image.getMask(), plane_map=plane_map)
     compare_image_to_legacy(
         tc, masked_image.variance, legacy_masked_image.getVariance(), expect_view=expect_view
     )
+    if alternates:
+        if image := alternates.get("image"):
+            compare_image_to_legacy(tc, image, legacy_masked_image.getImage(), expect_view=expect_view)
+        if mask := alternates.get("mask"):
+            compare_mask_to_legacy(tc, mask, legacy_masked_image.getMask(), plane_map=plane_map)
+        if variance := alternates.get("variance"):
+            compare_image_to_legacy(tc, variance, legacy_masked_image.getVariance(), expect_view=expect_view)
 
 
 def compare_visit_image_to_legacy(
@@ -177,12 +188,41 @@ def compare_visit_image_to_legacy(
     instrument: str,
     visit: int,
     detector: int,
+    alternates: Mapping[str, Any] | None = None,
 ) -> None:
     """Compare a `.VisitImage` object to a legacy `lsst.afw.image.Exposure`
     object.
+
+    Parameters
+    ----------
+    tc
+        Test case to use for asserts.
+    visit_image
+        New image to test.
+    legacy_exposure
+        Legacy image to test against.
+    plane_map
+        Mapping between new and legacy mask planes.
+    expect_view
+        Whether to test that the image and variance arrays do or do not share
+        memory.
+    instrument
+        Expected instrument name.
+    visit
+        Expected visit ID.
+    detetector
+        Expected detector ID.
+    alternates
+        A mapping of other versions of one or more (new) components to also
+        check against the legacy versions of those components.
     """
     compare_masked_image_to_legacy(
-        tc, visit_image, legacy_exposure.getMaskedImage(), plane_map=plane_map, expect_view=expect_view
+        tc,
+        visit_image,
+        legacy_exposure.getMaskedImage(),
+        plane_map=plane_map,
+        expect_view=expect_view,
+        alternates=alternates,
     )
     detector_bbox = Box.from_legacy(legacy_exposure.getDetector().getBBox())
     compare_projection_to_legacy_wcs(
@@ -195,6 +235,17 @@ def compare_visit_image_to_legacy(
     tc.assertIs(visit_image.projection, visit_image.mask.projection)
     tc.assertIs(visit_image.projection, visit_image.variance.projection)
     compare_psf_to_legacy(tc, visit_image.psf, legacy_exposure.getPsf())
+    if alternates:
+        if projection := alternates.get("projection"):
+            compare_projection_to_legacy_wcs(
+                tc,
+                projection,
+                legacy_exposure.getWcs(),
+                DetectorFrame(instrument=instrument, visit=visit, detector=detector, bbox=detector_bbox),
+                visit_image.bbox,
+            )
+        if psf := alternates.get("psf"):
+            compare_psf_to_legacy(tc, psf, legacy_exposure.getPsf())
 
 
 def compare_psf_to_legacy(tc: unittest.TestCase, psf: PointSpreadFunction, legacy_psf: Any) -> None:
