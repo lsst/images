@@ -11,8 +11,15 @@
 
 from __future__ import annotations
 
-__all__ = ("CoordinateTransform",)
+__all__ = ("is_none",)
 
+import operator
+import sys
 
-class CoordinateTransform:
-    pass
+if sys.version_info >= (3, 14, 0):
+    is_none = operator.is_none  # type: ignore[attr-defined]
+else:
+
+    def is_none(x: object) -> bool:
+        """Test whether an object is None."""
+        return x is None

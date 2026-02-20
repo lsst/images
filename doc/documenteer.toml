@@ -20,9 +20,13 @@ nitpick_ignore = [
   ["py:class", "T"],  # type variables don't resolve
   ["py:class", "P"],  # type variables don't resolve
   ["py:class", "V"],  # type variables don't resolve
+  ["py:class", "F"],  # type variables don't resolve
+  ["py:class", "I"],  # type variables don't resolve
+  ["py:class", "O"],  # type variables don't resolve
 ]
 nitpick_ignore_regex = [
   ['py:.*', 'lsst\..*'],  # Ignore warnings from links to other lsst packages.
+  ['py:.*', 'astshim\..*'],  # Ignore warnings from links to astshim.
   ['py:.*', 'cProfile.Profile'],  # Link does not resolve to py3 docs.
   ['py:class', 'a set-like.*'],  # collections.abc.Mapping inheritance.
   ['py:class', 'a shallow copy.*'],  # collections.abc.Mapping inheritance.
