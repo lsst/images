@@ -17,7 +17,7 @@ import functools
 from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
 from types import EllipsisType
-from typing import Any
+from typing import Any, Literal, overload
 
 import astropy.io.fits
 import astropy.units
@@ -407,13 +407,42 @@ class MaskedImage:
             dtype=self.image.array.dtype,
         )
 
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str, *, preserve_quantization: bool = False, component: Literal["image"]
+    ) -> Image: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str, *, plane_map: Mapping[str, MaskPlane] | None = None, component: Literal["mask"]
+    ) -> Mask: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str, *, preserve_quantization: bool = False, component: Literal["variance"]
+    ) -> Image: ...
+
+    @overload
     @staticmethod
     def read_legacy(
         filename: str,
         *,
         preserve_quantization: bool = False,
         plane_map: Mapping[str, MaskPlane] | None = None,
-    ) -> MaskedImage:
+        component: None = None,
+    ) -> MaskedImage: ...
+
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
+        preserve_quantization: bool = False,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+        component: Literal["image", "mask", "variance"] | None = None,
+    ) -> Any:
         """Read a FITS file written by `lsst.afw.image.MaskedImage.writeFits`.
 
         Parameters
@@ -430,6 +459,8 @@ class MaskedImage:
         plane_map
             A mapping from legacy mask plane name to the new plane name and
             description.
+        component
+            A component to read instead of the full image.
 
         Notes
         -----
@@ -439,7 +470,11 @@ class MaskedImage:
         """
         with astropy.io.fits.open(filename) as hdu_list:
             return MaskedImage._read_legacy_hdus(
-                hdu_list, filename, preserve_quantization=preserve_quantization, plane_map=plane_map
+                hdu_list,
+                filename,
+                preserve_quantization=preserve_quantization,
+                plane_map=plane_map,
+                component=component,
             )
 
     @staticmethod
@@ -449,11 +484,13 @@ class MaskedImage:
         *,
         preserve_quantization: bool = False,
         plane_map: Mapping[str, MaskPlane] | None = None,
-    ) -> MaskedImage:
+        component: Literal["image", "mask", "variance"] | None,
+    ) -> Any:
         opaque_metadata = fits.FitsOpaqueMetadata()
         opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
         image_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
         variance_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
+        result: Any
         with ExitStack() as exit_stack:
             if preserve_quantization:
                 bintable_hdu_list = exit_stack.enter_context(
@@ -461,12 +498,24 @@ class MaskedImage:
                 )
                 image_bintable_hdu = bintable_hdu_list[1]
                 variance_bintable_hdu = bintable_hdu_list[3]
-            image = Image._read_legacy_hdu(hdu_list[1], opaque_metadata, preserve_bintable=image_bintable_hdu)
-            mask = Mask._read_legacy_hdu(hdu_list[2], opaque_metadata, plane_map=plane_map)
-            variance = Image._read_legacy_hdu(
-                hdu_list[3], opaque_metadata, preserve_bintable=variance_bintable_hdu
-            )
-        result = MaskedImage(image, mask=mask, variance=variance)
+            if component is None or component == "image":
+                image = Image._read_legacy_hdu(
+                    hdu_list[1], opaque_metadata, preserve_bintable=image_bintable_hdu
+                )
+                if component == "image":
+                    result = image
+            if component is None or component == "mask":
+                mask = Mask._read_legacy_hdu(hdu_list[2], opaque_metadata, plane_map=plane_map)
+                if component == "mask":
+                    result = mask
+            if component is None or component == "variance":
+                variance = Image._read_legacy_hdu(
+                    hdu_list[3], opaque_metadata, preserve_bintable=variance_bintable_hdu
+                )
+                if component == "variance":
+                    result = variance
+        if component is None:
+            result = MaskedImage(image, mask=mask, variance=variance)
         result._opaque_metadata = opaque_metadata
         return result
 

@@ -18,7 +18,7 @@ __all__ = ("VisitImage", "VisitImageSerializationModel")
 import functools
 from collections.abc import Mapping, Sequence
 from types import EllipsisType
-from typing import Any, cast
+from typing import Any, Literal, cast, overload
 
 import astropy.io.fits
 import astropy.units
@@ -27,7 +27,7 @@ import pydantic
 
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
-from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
+from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_legacy_visit_image_mask_planes
 from ._masked_image import MaskedImage, MaskedImageSerializationModel
 from ._transforms import DetectorFrame, Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .fits import FitsOpaqueMetadata
@@ -289,6 +289,7 @@ class VisitImage(MaskedImage):
         plane_map: Mapping[str, MaskPlane] | None = None,
         instrument: str | None = None,
         visit: int | None = None,
+        component: str | None = None,
     ) -> VisitImage:
         """Convert from an `lsst.afw.image.Exposure` instance.
 
@@ -302,13 +303,16 @@ class VisitImage(MaskedImage):
             key will be used, if available.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
-            description.
+            description.  If `None` (default)
+            `get_legacy_visit_image_mask_planes` is used.
         instrument
             Name of the instrument.  Extracted from the metadata if not
             provided.
         visit
             ID of the visit.  Extracted from the metadata if not provided.
         """
+        if plane_map is None:
+            plane_map = get_legacy_visit_image_mask_planes()
         md = legacy.getMetadata()
         if instrument is None:
             try:
@@ -369,6 +373,66 @@ class VisitImage(MaskedImage):
         result._opaque_metadata = masked_image._opaque_metadata
         return result
 
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
+        component: Literal["bbox"],
+    ) -> Box: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
+        preserve_quantization: bool = False,
+        instrument: str | None = None,
+        visit: int | None = None,
+        component: Literal["image"],
+    ) -> Image: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+        instrument: str | None = None,
+        visit: int | None = None,
+        component: Literal["mask"],
+    ) -> Mask: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
+        preserve_quantization: bool = False,
+        instrument: str | None = None,
+        visit: int | None = None,
+        component: Literal["variance"],
+    ) -> Image: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
+        instrument: str | None = None,
+        visit: int | None = None,
+        component: Literal["projection"],
+    ) -> Projection[DetectorFrame]: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
+        component: Literal["psf"],
+    ) -> PointSpreadFunction: ...
+
+    @overload
     @staticmethod
     def read_legacy(
         filename: str,
@@ -377,7 +441,19 @@ class VisitImage(MaskedImage):
         plane_map: Mapping[str, MaskPlane] | None = None,
         instrument: str | None = None,
         visit: int | None = None,
-    ) -> VisitImage:
+        component: None = None,
+    ) -> VisitImage: ...
+
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
+        preserve_quantization: bool = False,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+        instrument: str | None = None,
+        visit: int | None = None,
+        component: Literal["bbox", "image", "mask", "variance", "projection", "psf"] | None = None,
+    ) -> Any:
         """Read a FITS file written by `lsst.afw.image.Exposure.writeFits`.
 
         Parameters
@@ -393,16 +469,38 @@ class VisitImage(MaskedImage):
             not transferred to the copy.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
-            description.
+            description.  If `None` (default)
+            `get_legacy_visit_image_mask_planes` is used.
         instrument
             Name of the instrument.  Read from the primary header if not
             provided.
         visit
             ID of the visit.  Read from the primary header if not
             provided.
+        component
+            A component to read instead of the full image.
         """
         from lsst.afw.image import ExposureFitsReader
 
+        reader = ExposureFitsReader(filename)
+        if component == "bbox":
+            return Box.from_legacy(reader.readBBox())
+        legacy_detector = reader.readDetector()
+        if legacy_detector is None:
+            raise ValueError(f"Exposure file {filename!r} does not have a Detector.")
+        detector_bbox = Box.from_legacy(legacy_detector.getBBox())
+        if component in (None, "image", "mask", "variance", "projection"):
+            legacy_wcs = reader.readWcs()
+            if legacy_wcs is None:
+                raise ValueError(f"Exposure file {filename!r} does not have a SkyWcs.")
+        if component in (None, "psf"):
+            legacy_psf = reader.readPsf()
+            if legacy_psf is None:
+                raise ValueError(f"Exposure file {filename!r} does not have a Psf.")
+            psf = PointSpreadFunction.from_legacy(legacy_psf, bounds=detector_bbox)
+            if component == "psf":
+                return psf
+        assert component in (None, "image", "mask", "variance", "projection"), component  # for MyPy
         with astropy.io.fits.open(filename) as hdu_list:
             primary_header = hdu_list[0].header
             if instrument is None:
@@ -419,38 +517,39 @@ class VisitImage(MaskedImage):
                     raise ValueError(
                         "Visit ID could not be found in butler data ID FITS headers and must be provided."
                     ) from None
-            masked_image = MaskedImage._read_legacy_hdus(
-                hdu_list, filename, preserve_quantization=preserve_quantization, plane_map=plane_map
+            projection = Projection.from_legacy(
+                legacy_wcs,
+                DetectorFrame(
+                    instrument=instrument,
+                    visit=visit,
+                    detector=legacy_detector.getId(),
+                    bbox=detector_bbox,
+                ),
             )
-        reader = ExposureFitsReader(filename)
-        legacy_wcs = reader.readWcs()
-        if legacy_wcs is None:
-            raise ValueError(f"Exposure file {filename!r} does not have a SkyWcs.")
-        legacy_detector = reader.readDetector()
-        if legacy_detector is None:
-            raise ValueError(f"Exposure file {filename!r} does not have a Detector.")
-        detector_bbox = Box.from_legacy(legacy_detector.getBBox())
-        projection = Projection.from_legacy(
-            legacy_wcs,
-            DetectorFrame(
-                instrument=instrument,
-                visit=visit,
-                detector=legacy_detector.getId(),
-                bbox=detector_bbox,
-            ),
-        )
-        legacy_psf = reader.readPsf()
-        if legacy_psf is None:
-            raise ValueError(f"Exposure file {filename!r} does not have a Psf.")
-        psf = PointSpreadFunction.from_legacy(legacy_psf, bounds=detector_bbox)
+            if component == "projection":
+                return projection
+            if plane_map is None:
+                plane_map = get_legacy_visit_image_mask_planes()
+            assert component != "psf", component  # for MyPy
+            from_masked_image = MaskedImage._read_legacy_hdus(
+                hdu_list,
+                filename,
+                preserve_quantization=preserve_quantization,
+                plane_map=plane_map,
+                component=component,
+            )
+        if component is not None:
+            # This is the image, mask, or variance; attach the projection
+            # and return
+            return from_masked_image.view(projection=projection)
         result = VisitImage(
-            masked_image.image,
-            mask=masked_image.mask,
-            variance=masked_image.variance,
+            from_masked_image.image,
+            mask=from_masked_image.mask,
+            variance=from_masked_image.variance,
             projection=projection,
             psf=psf,
         )
-        result._opaque_metadata = masked_image._opaque_metadata
+        result._opaque_metadata = from_masked_image._opaque_metadata
         return result
 
 

@@ -22,6 +22,7 @@ from lsst.images.fits import ExtensionKey
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
+    TemporaryButler,
     assert_masked_images_equal,
     compare_visit_image_to_legacy,
 )
@@ -36,14 +37,16 @@ class VisitImageTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         assert DATA_DIR is not None, "Guaranteed by decorator."
-        filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
+        cls.filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
         cls.plane_map = plane_map = get_legacy_visit_image_mask_planes()
-        cls.visit_image = VisitImage.read_legacy(filename, preserve_quantization=True, plane_map=plane_map)
+        cls.visit_image = VisitImage.read_legacy(
+            cls.filename, preserve_quantization=True, plane_map=plane_map
+        )
         cls.legacy_exposure: Any = None
         try:
             from lsst.afw.image import ExposureFitsReader
 
-            cls.legacy_exposure = ExposureFitsReader(filename).read()
+            cls.legacy_exposure = ExposureFitsReader(cls.filename).read()
         except ImportError:
             pass
 
@@ -115,6 +118,39 @@ class VisitImageTestCase(unittest.TestCase):
                 self.legacy_exposure,
                 expect_view=True,
                 plane_map=self.plane_map,
+                **DP2_VISIT_DETECTOR_DATA_ID,
+            )
+
+    def test_butler_converters(self) -> None:
+        """Test that we can read a VisitImage and its components from a butler
+        dataset written as an `lsst.afw.image.Exposure`.
+        """
+        if self.legacy_exposure is None:
+            raise unittest.SkipTest("lsst.afw.image.afw could not be imported.")
+        with TemporaryButler(legacy="ExposureF") as helper:
+            from lsst.daf.butler import FileDataset
+
+            helper.butler.ingest(FileDataset(path=self.filename, refs=[helper.legacy]), transfer="symlink")
+            visit_image_ref = helper.legacy.overrideStorageClass("VisitImage")
+            visit_image = helper.butler.get(visit_image_ref)
+            bbox = helper.butler.get(visit_image_ref.makeComponentRef("bbox"))
+            self.assertEqual(bbox, visit_image.bbox)
+            alternates = {
+                k: helper.butler.get(visit_image_ref.makeComponentRef(k))
+                # TODO: including "projection" here fails because there's
+                # code in daf_butler that expects any component to be valid
+                # for the *internal* storage class, not the requested one,
+                # and that's difficult to fix because it's tied up with the
+                # data ID standardization logic.
+                for k in ["image", "mask", "variance", "psf"]
+            }
+            compare_visit_image_to_legacy(
+                self,
+                visit_image,
+                self.legacy_exposure,
+                expect_view=False,
+                plane_map=self.plane_map,
+                alternates=alternates,
                 **DP2_VISIT_DETECTOR_DATA_ID,
             )
 
