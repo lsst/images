@@ -298,7 +298,10 @@ class MaskedImage:
         image = Image.deserialize(model.image, archive, bbox=bbox)
         mask = Mask.deserialize(model.mask, archive, bbox=bbox)
         variance = Image.deserialize(model.variance, archive, bbox=bbox)
-        return MaskedImage(image, mask=mask, variance=variance)
+        projection = (
+            Projection.deserialize(model.projection, archive) if model.projection is not None else None
+        )
+        return MaskedImage(image, mask=mask, variance=variance, projection=projection)
 
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
