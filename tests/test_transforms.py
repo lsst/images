@@ -173,6 +173,16 @@ class TransformTestCase(unittest.TestCase):
         with RoundtripFits(self, projection, "Projection") as roundtrip:
             pass
         compare_projection_to_legacy_wcs(self, roundtrip.result, legacy_wcs, detector_frame, subimage_bbox)
+        with RoundtripFits(self, projection.fits_approximation, "Projection") as roundtrip:
+            pass
+        compare_projection_to_legacy_wcs(
+            self,
+            roundtrip.result,
+            legacy_wcs.getFitsApproximation(),
+            detector_frame,
+            subimage_bbox,
+            is_fits=True,
+        )
 
 
 @dataclasses.dataclass
