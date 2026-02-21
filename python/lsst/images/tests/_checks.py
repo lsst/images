@@ -33,7 +33,7 @@ __all__ = (
 
 import unittest
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import astropy.units as u
 import astropy.wcs.wcsapi
@@ -78,15 +78,18 @@ def assert_images_equal(
     *,
     rtol: float = 0.0,
     atol: float = 0.0,
-    expect_view: bool | None = None,
+    expect_view: bool | Literal["array"] | None = None,
 ) -> None:
     """Assert that two images are equal or nearly equal."""
     tc.assertEqual(a.bbox, b.bbox)
     tc.assertEqual(a.unit, b.unit)
     assert_projections_equal(tc, a.projection, b.projection)
     if expect_view is not None:
-        tc.assertEqual(np.may_share_memory(a.array, b.array), expect_view)
-        tc.assertEqual(a.metadata is b.metadata, expect_view)
+        tc.assertEqual(np.may_share_memory(a.array, b.array), bool(expect_view))
+        if expect_view == "array":
+            tc.assertEqual(a.metadata, b.metadata)
+        else:
+            tc.assertEqual(a.metadata is b.metadata, expect_view)
     if not expect_view:
         assert_close(tc, a.array, b.array, atol=atol, rtol=rtol)
         tc.assertEqual(a.metadata, b.metadata)
