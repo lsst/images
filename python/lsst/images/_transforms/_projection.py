@@ -119,6 +119,11 @@ class Projection[F: Frame]:
         return self._pixel_to_sky.out_frame
 
     @property
+    def pixel_bounds(self) -> Bounds | None:
+        """The region that bounds valid pixel points (`Bounds` | `None`)."""
+        return self._pixel_to_sky.in_bounds
+
+    @property
     def pixel_to_sky_transform(self) -> Transform[F, SkyFrame]:
         """Low-level transform from pixel to sky coordinates (`Transform`)."""
         return self._pixel_to_sky
@@ -134,6 +139,20 @@ class Projection[F: Frame]:
         `as_fits_wcs` method that does not return `None`.
         """
         return Projection(self._fits_approximation) if self._fits_approximation is not None else None
+
+    def show(self, simplified: bool = False, comments: bool = False) -> str:
+        """Return the AST native representation of the transform.
+
+        Parameters
+        ----------
+        simplified
+            Whether to ask AST to simplify the mapping before showing it.
+            This will make it much more likely that two equivalent transforms
+            have the same `show` result.
+        comments
+            Whether to include descriptive comments.
+        """
+        return self._pixel_to_sky.show(simplified=simplified, comments=comments)
 
     def pixel_to_sky[T: np.ndarray | float](self, *, x: T, y: T) -> SkyCoord:
         """Transform one or more pixel points to sky coordinates.

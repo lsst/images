@@ -173,6 +173,23 @@ class Transform[I: Frame, O: Frame]:
         """The region that bounds valid output points (`Bounds` | `None`)."""
         return self._out_bounds
 
+    def show(self, simplified: bool = False, comments: bool = False) -> str:
+        """Return the AST native representation of the transform.
+
+        Parameters
+        ----------
+        simplified
+            Whether to ask AST to simplify the mapping before showing it.
+            This will make it much more likely that two equivalent transforms
+            have the same `show` result.
+        comments
+            Whether to include descriptive comments.
+        """
+        ast_mapping = self._ast_mapping
+        if simplified:
+            ast_mapping = ast_mapping.simplified()
+        return ast_mapping.show(comments)
+
     def apply_forward[T: np.ndarray | float](self, *, x: T, y: T) -> XY[T]:
         """Apply the forward transform to one or more points.
 
