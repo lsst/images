@@ -11,11 +11,10 @@
 
 from __future__ import annotations
 
-import warnings
-
 __all__ = ("VisitImage", "VisitImageSerializationModel")
 
 import functools
+import warnings
 from collections.abc import Callable, Mapping, MutableMapping
 from types import EllipsisType
 from typing import Any, Literal, cast, overload
