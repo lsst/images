@@ -14,9 +14,8 @@ from __future__ import annotations
 __all__ = ("MaskedImage", "MaskedImageSerializationModel")
 
 import functools
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from contextlib import ExitStack
-from types import EllipsisType
 from typing import Any, Literal, overload
 
 import astropy.io.fits
@@ -197,55 +196,9 @@ class MaskedImage:
     def __repr__(self) -> str:
         return f"MaskedImage({self.image!r}, mask_schema={self.mask.schema!r})"
 
-    def copy(
-        self,
-        *,
-        unit: astropy.units.UnitBase | None | EllipsisType = ...,
-        mask_schema: MaskSchema | EllipsisType = ...,
-        projection: Projection | None | EllipsisType = ...,
-        start: Sequence[int] | EllipsisType = ...,
-    ) -> MaskedImage:
-        """Deep-copy the masked image, with optional updates.
-
-        Notes
-        -----
-        This can also be used to rewrite the mask with a new related schema
-        (e.g. adding or dropping mask planes, or changing ``dtype``; all
-        planes with names in both schemas will be copied.).
-        """
-        result = MaskedImage(
-            image=self._image.copy(unit=unit, projection=projection, start=start),
-            # We let the constructor take care of propagating projection and
-            # unit updates.
-            mask=self._mask.copy(schema=mask_schema, projection=None, start=start),
-            variance=self._variance.copy(unit=None, projection=None, start=start),
-        )
-        if self._opaque_metadata is not None:
-            result._opaque_metadata = self._opaque_metadata.copy()
-        return result
-
-    def view(
-        self,
-        *,
-        unit: astropy.units.UnitBase | None | EllipsisType = ...,
-        mask_schema: MaskSchema | EllipsisType = ...,
-        projection: Projection | None | EllipsisType = ...,
-        start: Sequence[int] | EllipsisType = ...,
-    ) -> MaskedImage:
-        """Make a view of the masked image, with optional updates.
-
-        Notes
-        -----
-        This can only be used to make changes to schema descriptions; plane
-        names must remain the same (in the same order).
-        """
-        result = MaskedImage(
-            image=self._image.view(unit=unit, projection=projection, start=start),
-            # We let the constructor take care of propagating projection and
-            # unit updates.
-            mask=self._mask.view(schema=mask_schema, projection=None, start=start),
-            variance=self._variance.view(unit=None, projection=None, start=start),
-        )
+    def copy(self) -> MaskedImage:
+        """Deep-copy the masked image."""
+        result = MaskedImage(image=self._image.copy(), mask=self._mask.copy(), variance=self._variance.copy())
         if self._opaque_metadata is not None:
             result._opaque_metadata = self._opaque_metadata.copy()
         return result

@@ -251,21 +251,9 @@ class Image:
             and np.array_equal(self._array, other._array, equal_nan=True)
         )
 
-    def copy(
-        self,
-        *,
-        unit: astropy.units.UnitBase | None | EllipsisType = ...,
-        projection: Projection | None | EllipsisType = ...,
-        start: Sequence[int] | EllipsisType = ...,
-    ) -> Image:
+    def copy(self) -> Image:
         """Deep-copy the image, with optional updates."""
-        if unit is ...:
-            unit = self._unit
-        if projection is ...:
-            projection = self._projection
-        if start is ...:
-            start = self._bbox.start
-        result = Image(self._array.copy(), start=start, unit=unit, projection=projection)
+        result = Image(self._array.copy(), bbox=self._bbox, unit=self._unit, projection=self._projection)
         if self._opaque_metadata is not None:
             result._opaque_metadata = self._opaque_metadata.copy()
         return result

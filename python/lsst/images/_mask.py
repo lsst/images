@@ -477,31 +477,9 @@ class Mask:
             and np.array_equal(self._array, other._array, equal_nan=True)
         )
 
-    def copy(
-        self,
-        *,
-        schema: MaskSchema | EllipsisType = ...,
-        projection: Projection | None | EllipsisType = ...,
-        start: Sequence[int] | EllipsisType = ...,
-    ) -> Mask:
-        """Deep-copy the mask, with optional updates.
-
-        Notes
-        -----
-        This can also be used to rewrite the mask with a new related schema
-        (e.g. adding or dropping mask planes, or changing ``dtype``; all
-        planes with names in both schemas will be copied.).
-        """
-        if projection is ...:
-            projection = self._projection
-        if start is ...:
-            start = self._bbox.start
-        if schema is ...:
-            schema = self._schema
-            result = Mask(self._array.copy(), start=start, schema=schema, projection=projection)
-        else:
-            result = Mask(0, schema=schema, shape=self.bbox.shape, start=start, projection=projection)
-            result.update(self)
+    def copy(self) -> Mask:
+        """Deep-copy the mask."""
+        result = Mask(self._array.copy(), bbox=self._bbox, schema=self._schema, projection=self._projection)
         if self._opaque_metadata is not None:
             result._opaque_metadata = self._opaque_metadata.copy()
         return result
@@ -636,7 +614,8 @@ class Mask:
         """
         data: list[ArrayReferenceModel] = []
         for schema_2d in self.schema.split(np.int32):
-            mask_2d = self.copy(schema=schema_2d)
+            mask_2d = Mask(0, bbox=self.bbox, schema=schema_2d, projection=self._projection)
+            mask_2d.update(self)
             data.append(mask_2d._serialize_2d(archive, update_header=update_header))
         serialized_projection: ProjectionSerializationModel[P] | None = None
         if save_projection and self.projection is not None:
