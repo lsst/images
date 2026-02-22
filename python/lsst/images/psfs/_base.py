@@ -118,6 +118,7 @@ class PointSpreadFunction(ABC):
         already known, a subclass `from_legacy` method can be called instead.
         """
         from lsst.afw.detection import Psf
+        from lsst.cell_coadds import StitchedPsf
         from lsst.meas.extensions.piff.piffPsf import PiffPsf
 
         match legacy_psf:
@@ -125,6 +126,10 @@ class PointSpreadFunction(ABC):
                 from ._piff import PiffWrapper
 
                 return PiffWrapper.from_legacy(legacy_psf, bounds)
+            case StitchedPsf():
+                from ..cells import CellPointSpreadFunction
+
+                return CellPointSpreadFunction.from_legacy(legacy_psf, bounds)
             case Psf():
                 from ._legacy import LegacyPointSpreadFunction
 

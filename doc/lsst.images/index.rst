@@ -23,6 +23,7 @@ API Reference
    :maxdepth: 1
 
    core-api.rst
+   cells.rst
    psfs.rst
    fields.rst
    aperture_corrections.rst

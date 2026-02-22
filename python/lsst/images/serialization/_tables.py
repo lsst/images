@@ -186,8 +186,10 @@ class TableColumnModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
             raise ArchiveReadError(
                 f"Table column {self.name} has type {datatype}; expected {self.data.datatype}."
             )
-        if (shape := astropy_column.shape[1:]) != self.data.shape:
-            raise ArchiveReadError(f"Table column {self.name} has shape {shape}; expected {self.data.shape}.")
+        if (shape := astropy_column.shape[1:]) != tuple(self.data.shape):
+            raise ArchiveReadError(
+                f"Table column {self.name} has shape {shape}; expected {tuple(self.data.shape)}."
+            )
 
 
 class TableModel(pydantic.BaseModel):

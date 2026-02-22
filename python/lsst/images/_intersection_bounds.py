@@ -67,7 +67,14 @@ class IntersectionBounds:
         return np.logical_and(self._a.contains(x=x, y=y), self._b.contains(x=x, y=y))
 
     def intersection(self, other: Bounds) -> Bounds:
-        """Compute the intersection of this bounds object with another."""
+        """Compute the intersection of this bounds object with another.
+
+        Notes
+        -----
+        Bounds intersection is guaranteed to raise `NoOverlapError` when the
+        operand bounding boxes do not overlap, but it may return a bounds
+        implementation that contains no points in more complex cases.
+        """
         from ._concrete_bounds import _intersect_ib
 
         return _intersect_ib(self, other)
