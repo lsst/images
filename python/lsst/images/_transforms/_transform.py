@@ -26,7 +26,8 @@ import astropy.units as u
 import numpy as np
 import pydantic
 
-from .._geom import XY, Bounds, Box, SerializableBounds
+from .._concrete_bounds import SerializableBounds
+from .._geom import XY, Bounds, Box
 from ..serialization import ArchiveReadError, ArchiveTree, InputArchive, OutputArchive
 from ._frames import Frame, SerializableFrame, SkyFrame
 

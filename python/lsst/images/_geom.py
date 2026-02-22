@@ -19,16 +19,30 @@ __all__ = (
     "BoxSliceFactory",
     "Interval",
     "IntervalSliceFactory",
-    "SerializableBounds",
 )
 
 import math
 from collections.abc import Callable, Iterator, Sequence
-from typing import Any, ClassVar, NamedTuple, Protocol, Self, TypedDict, TypeVar, final, overload
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    NamedTuple,
+    Protocol,
+    Self,
+    TypedDict,
+    TypeVar,
+    cast,
+    final,
+    overload,
+)
 
 import numpy as np
 import pydantic
 import pydantic_core.core_schema as pcs
+
+if TYPE_CHECKING:
+    from ._concrete_bounds import SerializableBounds
 
 # This pre-python-3.12 declaration is needed by Sphinx (probably the
 # autodoc-typehints plugin.
@@ -836,11 +850,6 @@ class BoxSliceFactory:
 Box.factory = BoxSliceFactory()
 
 
-# This is expected to become a union of concrete Bounds types that we can
-# serialize via pydantic.  Right now that's only Box.
-type SerializableBounds = Box
-
-
 class Bounds(Protocol):
     """A protocol for objects that represent the validity region for a function
     defined in 2-d pixel coordinates.
@@ -893,7 +902,6 @@ class Bounds(Protocol):
     @classmethod
     def deserialize(cls, serialized: SerializableBounds) -> Self:
         """Convert a serialized bounds object into its in-memory form."""
-        match serialized:
-            case Box():
-                return serialized  # type: ignore[return-value]
-        raise RuntimeError(f"Cannot deserialize {serialized!r}.")
+        from ._concrete_bounds import deserialize_bounds
+
+        return cast(Self, deserialize_bounds(serialized))
