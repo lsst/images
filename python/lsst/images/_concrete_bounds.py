@@ -14,16 +14,15 @@ from __future__ import annotations
 __all__ = ("SerializableBounds", "deserialize_bounds")
 
 
+from ._cell_grid import CellGridBounds
 from ._geom import Bounds, Box
 
-# This is expected to become a union of concrete Bounds types that we can
-# serialize via pydantic.  Right now that's only Box.
-type SerializableBounds = Box
+type SerializableBounds = Box | CellGridBounds
 
 
 def deserialize_bounds(serialized: SerializableBounds) -> Bounds:
     """Convert a serialized bounds object into its in-memory form."""
     match serialized:
-        case Box():
+        case Box() | CellGridBounds():
             return serialized  # type: ignore[return-value]
     raise RuntimeError(f"Cannot deserialize {serialized!r}.")
