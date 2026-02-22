@@ -25,7 +25,8 @@ import pydantic
 from lsst.images._image import Image
 
 from .. import serialization
-from .._geom import Bounds, Box, SerializableBounds
+from .._concrete_bounds import SerializableBounds
+from .._geom import Bounds, Box
 from ._base import PointSpreadFunction
 
 

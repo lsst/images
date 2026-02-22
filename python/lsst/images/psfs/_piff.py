@@ -27,7 +27,8 @@ import numpy as np
 import pydantic
 
 from .. import serialization
-from .._geom import Bounds, Box, SerializableBounds
+from .._concrete_bounds import SerializableBounds
+from .._geom import Bounds, Box
 from .._image import Image
 from ._base import PointSpreadFunction
 
