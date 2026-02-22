@@ -89,10 +89,6 @@ class VisitImage(MaskedImage):
     mask_schema
         Schema for the mask plane.  Must be provided if and only if ``mask`` is
         not provided.
-    opaque_metadata
-        Opaque metadata obtained from reading this object from storage.  It may
-        be provided when writing to storage to propagate that metadata and/or
-        preserve file-format-specific options (e.g. compression parameters).
     projection
         Projection that maps the pixel grid to the sky.  Can only be `None` if
         a projection is already attached to ``image``.
