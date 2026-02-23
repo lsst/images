@@ -223,11 +223,7 @@ class VisitImage(MaskedImage):
         serialized_variance = archive.serialize_direct(
             "variance", functools.partial(self.variance.serialize, save_projection=False)
         )
-        serialized_projection = (
-            archive.serialize_direct("projection", self.projection.serialize)
-            if self.projection is not None
-            else None
-        )
+        serialized_projection = archive.serialize_direct("projection", self.projection.serialize)
         serialized_psf: PiffSerializationModel | PSFExSerializationModel | GaussianPSFSerializationModel
         match self._psf:
             # MyPy is able to figure things out here with this match statement,
