@@ -26,7 +26,7 @@ import pydantic
 
 from ._asdf_utils import ArrayReferenceModel
 from ._common import ArchiveTree, OpaqueArchiveMetadata, no_header_updates
-from ._tables import TableModel
+from ._tables import TableReferenceModel
 
 if TYPE_CHECKING:
     from .._transforms import FrameSet
@@ -129,7 +129,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
     @abstractmethod
     def get_table(
         self,
-        ref: TableModel,
+        ref: TableReferenceModel,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> astropy.table.Table:
         """Load a table from the archive.
@@ -153,7 +153,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
     @abstractmethod
     def get_structured_array(
         self,
-        ref: TableModel,
+        ref: TableReferenceModel,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> np.ndarray:
         """Load a table from the archive as a structured array.

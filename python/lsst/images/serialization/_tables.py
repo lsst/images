@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = (
     "ColumnDefinitionModel",
     "TableCellReferenceModel",
-    "TableModel",
+    "TableReferenceModel",
     "UnsupportedTableError",
 )
 
@@ -102,7 +102,7 @@ class ColumnDefinitionModel(pydantic.BaseModel):
         astropy_column.description = self.description
 
 
-class TableModel(pydantic.BaseModel):
+class TableReferenceModel(pydantic.BaseModel):
     """Placeholder for an ASDF-like model for referencing binary tabular
     data.
     """

@@ -35,7 +35,7 @@ from ..serialization import (
     NumberType,
     OutputArchive,
     TableCellReferenceModel,
-    TableModel,
+    TableReferenceModel,
     no_header_updates,
 )
 from ._common import ExtensionHDU, ExtensionKey, FitsCompressionOptions, FitsOpaqueMetadata
@@ -260,7 +260,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> TableModel:
+    ) -> TableReferenceModel:
         if name is None:
             raise RuntimeError("Cannot save table with name=None unless it is nested.")
         extname = name.upper()
@@ -269,7 +269,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         for c in columns:
             c.update_from_table(table)
         key = self._add_hdu(hdu, update_header)
-        return TableModel(source=str(key), columns=columns)
+        return TableReferenceModel(source=str(key), columns=columns)
 
     def add_structured_array(
         self,
@@ -279,7 +279,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         units: Mapping[str, astropy.units.Unit] | None = None,
         descriptions: Mapping[str, str] | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> TableModel:
+    ) -> TableReferenceModel:
         if name is None:
             raise RuntimeError("Cannot save structured array with name=None unless it is nested.")
         extname = name.upper()
@@ -292,7 +292,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
             for c in columns:
                 c.description = descriptions.get(c.name, "")
         key = self._add_hdu(hdu, update_header)
-        return TableModel(source=str(key), columns=columns)
+        return TableReferenceModel(source=str(key), columns=columns)
 
     def _add_hdu(
         self,
