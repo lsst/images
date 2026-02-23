@@ -30,6 +30,7 @@ dependencies = [
     "lsst-resources",
     "astro-metadata-translator >=30.2026.900",
     "starlink-pyast >=4.0.0",
+    "shapely >= 2.1",
 ]
 dynamic = ["version"]
 
