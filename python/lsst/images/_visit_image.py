@@ -287,7 +287,6 @@ class VisitImage(MaskedImage):
         plane_map: Mapping[str, MaskPlane] | None = None,
         instrument: str | None = None,
         visit: int | None = None,
-        component: str | None = None,
     ) -> VisitImage:
         """Convert from an `lsst.afw.image.Exposure` instance.
 
