@@ -28,7 +28,7 @@ import pydantic
 
 from ._asdf_utils import ArrayReferenceModel
 from ._common import ArchiveTree, no_header_updates
-from ._tables import TableModel
+from ._tables import TableReferenceModel
 
 if TYPE_CHECKING:
     from .._transforms import FrameSet
@@ -213,7 +213,7 @@ class OutputArchive[P](ABC):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> TableModel:
+    ) -> TableReferenceModel:
         """Add a table to the archive.
 
         Parameters
@@ -233,7 +233,7 @@ class OutputArchive[P](ABC):
 
         Returns
         -------
-        TableModel
+        TableReferenceModel
             A Pydantic model that represents the table.  Column definitions
             are included directly in the model while the actual data is
             stored elsewhere and referenced by the model.
@@ -257,7 +257,7 @@ class OutputArchive[P](ABC):
         units: Mapping[str, astropy.units.Unit] | None = None,
         descriptions: Mapping[str, str] | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> TableModel:
+    ) -> TableReferenceModel:
         """Add a table to the archive.
 
         Parameters
@@ -286,7 +286,7 @@ class OutputArchive[P](ABC):
 
         Returns
         -------
-        TableModel
+        TableReferenceModel
             A Pydantic model that represents the table.  Column definitions
             are included directly in the model while the actual data is
             stored elsewhere and referenced by the model.
@@ -356,7 +356,7 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> TableModel:
+    ) -> TableReferenceModel:
         return self._parent.add_table(table, name=self._join_path(name), update_header=update_header)
 
     def add_structured_array(
@@ -367,7 +367,7 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         units: Mapping[str, astropy.units.Unit] | None = None,
         descriptions: Mapping[str, str] | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> TableModel:
+    ) -> TableReferenceModel:
         return self._parent.add_structured_array(
             array,
             name=self._join_path(name),
