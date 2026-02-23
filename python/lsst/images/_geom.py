@@ -15,6 +15,7 @@ __all__ = (
     "XY",
     "YX",
     "Bounds",
+    "BoundsError",
     "Box",
     "BoxSliceFactory",
     "Interval",
@@ -905,3 +906,7 @@ class Bounds(Protocol):
         from ._concrete_bounds import deserialize_bounds
 
         return cast(Self, deserialize_bounds(serialized))
+
+
+class BoundsError(ValueError):
+    """Exception raised when an object is evaluated outside its bounds."""
