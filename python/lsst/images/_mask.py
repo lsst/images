@@ -889,9 +889,7 @@ class Mask:
         # afw set BUNIT on masks because of limitations in how FITS
         # metadata is handled there.
         hdu.header.remove("BUNIT", ignore_missing=True)
-        extname = hdu.header.pop("EXTNAME")
-        extver = hdu.header.pop("EXTVER", 1)
-        opaque_metadata.headers[fits.ExtensionKey(extname, extver)] = hdu.header
+        opaque_metadata.add_header(hdu.header)
         return mask
 
 

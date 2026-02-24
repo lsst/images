@@ -235,10 +235,8 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
             array = reader.data
         if key not in self._opaque_metadata.headers:
             opaque_header = reader.header.copy(strip=True)
-            opaque_header.remove("EXTNAME", ignore_missing=True)
-            opaque_header.remove("EXTVER", ignore_missing=True)
             strip_header(opaque_header)
-            self._opaque_metadata.headers[key] = opaque_header
+            self._opaque_metadata.add_header(opaque_header, key=key)
         return array
 
     def get_table(
@@ -262,10 +260,8 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         key, reader = self._get_source_reader(ref)
         if key not in self._opaque_metadata.headers:
             opaque_header = reader.header.copy(strip=True)
-            opaque_header.remove("EXTNAME", ignore_missing=True)
-            opaque_header.remove("EXTVER", ignore_missing=True)
             strip_header(opaque_header)
-            self._opaque_metadata.headers[key] = opaque_header
+            self._opaque_metadata.add_header(opaque_header, key=key)
         return reader.hdu.data
 
     def get_opaque_metadata(self) -> FitsOpaqueMetadata:

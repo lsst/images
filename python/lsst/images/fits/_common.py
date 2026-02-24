@@ -285,6 +285,41 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
     Precompressed pixel values are never copied or transferred to subsets.
     """
 
+    def add_header(
+        self,
+        header: astropy.io.fits.Header,
+        name: str | None = None,
+        ver: int | None = None,
+        key: ExtensionKey | None = None,
+    ) -> None:
+        """Add a header to the opaque metadata if it is not already present,
+        and strip EXTNAME and EXTVER if present.
+
+        Parameters
+        ----------
+        header
+            Header to add.  May be modified in place.
+        name
+            EXTNAME (all caps).  If not provided, the EXTNAME card must be
+            present in the header.  Use ``""`` for the primary header.
+        ver
+            EXTVER.  If not provided and the EXTVER card is not present,
+            defaults to 1.
+        key
+            Combination of EXTNAME and EXTVER; used instead of both ``name``
+            and ``ver`` if provided.
+        """
+        if key is None:
+            if name is None:
+                name = header["EXTNAME"]
+            if ver is None:
+                ver = header.get("EXTVER", 1)
+            key = ExtensionKey(name, ver)
+        if key not in self.headers:
+            header.remove("EXTNAME", ignore_missing=True)
+            header.remove("EXTVER", ignore_missing=True)
+            self.headers[key] = header
+
     def maybe_use_precompressed(self, name: str) -> astropy.io.fits.BinTableHDU | None:
         """Look up the given EXTNAME to see if there is a tile compressed image
         HDU that should be used directly, instead of requantizing.

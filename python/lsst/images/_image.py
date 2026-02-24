@@ -537,9 +537,7 @@ class Image:
         hdu.header.remove("EXTTYPE", ignore_missing=True)
         hdu.header.remove("INHERIT", ignore_missing=True)
         hdu.header.remove("UZSCALE", ignore_missing=True)
-        extname = hdu.header.pop("EXTNAME")
-        extver = hdu.header.pop("EXTVER", 1)
-        opaque_metadata.headers[fits.ExtensionKey(extname, extver)] = hdu.header
+        opaque_metadata.add_header(hdu.header)
         return image
 
 
