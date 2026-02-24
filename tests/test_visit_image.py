@@ -59,7 +59,7 @@ class VisitImageTestCase(unittest.TestCase):
         # Check that the primary header has the keys we want, and none of the
         # keys we don't want.
         header = self.visit_image._opaque_metadata.headers[ExtensionKey()]
-        self.assertIn("EXPTIME", header)
+        self.assertIn("INSTRUME", header)
         self.assertNotIn("LSST BUTLER ID", header)
         self.assertNotIn("AR HDU", header)
         self.assertNotIn("A_ORDER", header)
