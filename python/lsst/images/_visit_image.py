@@ -16,7 +16,7 @@ import warnings
 __all__ = ("VisitImage", "VisitImageSerializationModel")
 
 import functools
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Literal, cast, overload
 
 import astropy.io.fits
@@ -265,27 +265,9 @@ class VisitImage(MaskedImage):
         if plane_map is None:
             plane_map = get_legacy_visit_image_mask_planes()
         md = legacy.getMetadata()
-        if instrument is None:
-            try:
-                instrument = str(md["LSST BUTLER DATAID INSTRUMENT"])
-            except LookupError:
-                raise ValueError(
-                    "Instrument name could not be found in butler data ID metadata and must be provided."
-                ) from None
-        if visit is None:
-            try:
-                visit = int(md["LSST BUTLER DATAID VISIT"])
-            except LookupError:
-                raise ValueError(
-                    "Visit ID could not be found in butler data ID metadata and must be provided."
-                ) from None
-        if unit is None:
-            try:
-                unit = astropy.units.Unit(md["BUNIT"], format="fits")
-            except LookupError:
-                raise ValueError(
-                    "BUNIT could not be found in exposure metadata and must be provided."
-                ) from None
+        instrument = _extract_or_check_header("LSST BUTLER DATAID INSTRUMENT", instrument, md, str)
+        visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, int)
+        unit = _extract_or_check_header("BUNIT", unit, md, lambda x: astropy.units.Unit(x, format="fits"))
         legacy_wcs = legacy.getWcs()
         if legacy_wcs is None:
             raise ValueError("Exposure does not have a SkyWcs.")
@@ -539,3 +521,21 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
                     raise ArchiveReadError("PSF model type not recognized.")
         except ArchiveReadError as err:
             return err
+
+
+def _extract_or_check_header[T](
+    key: str, given_value: T | None, header: Any, coerce: Callable[[Any], T]
+) -> T:
+    hdr_value: T | None = None
+    if (hdr_raw_value := header.get(key)) is not None:
+        hdr_value = coerce(hdr_raw_value)
+    if given_value is not None:
+        if hdr_value is not None and hdr_value != given_value:
+            raise ValueError(
+                f"Given value {given_value!r} does not match {hdr_value!r} from header key {key}."
+            )
+        return given_value
+    else:
+        if hdr_value is None:
+            raise ValueError(f"No FITS header key {key} found.")
+        return hdr_value
