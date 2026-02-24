@@ -428,7 +428,6 @@ def _strip_sip_poly(header: astropy.io.fits.Header, wcsname: str, which: str) ->
 
 def strip_legacy_exposure_cards(header: astropy.io.fits.Header) -> None:
     """Strip header keywords added by lsst.afw.image.Exposure."""
-    # These are from the archive system:
     header.remove("AR_HDU", ignore_missing=True)
     for name in (
         "FILTER",
@@ -442,38 +441,6 @@ def strip_legacy_exposure_cards(header: astropy.io.fits.Header) -> None:
     ):
         header.remove(f"{name}_ID", ignore_missing=True)
         header.remove(f"ARCHIVE_ID_{name}", ignore_missing=True)
-    # These are from VisitInfo:
-    for key in (
-        "EXPTIME",
-        "DARKTIME",
-        "DATE-AVG",
-        "TIMESYS",
-        "TIME-MID",
-        "MJD-AVG-UT1",
-        "AVG-ERA",
-        "BORE-RA",
-        "BORE-DEC",
-        "BORE-AZ",
-        "BORE-ALT",
-        "BORE-AIRMASS",
-        "BORE-ROTANG",
-        "ROTTYPE",
-        "OBS-LONG",
-        "OBS-LAT",
-        "OBS-ELEV",
-        "AIRTEMP",
-        "AIRPRESS",
-        "HUMIDITY",
-        "INSTRUMENT",
-        "IDNUM",
-        "FOCUSZ",
-        "OBSTYPE",
-        "PROGRAM",
-        "REASON",
-        "OBJECT",
-        "HAS-SIMULATED-CONTENT",
-    ):
-        header.remove(key, ignore_missing=True)
 
 
 def strip_butler_cards(header: astropy.io.fits.Header) -> None:
