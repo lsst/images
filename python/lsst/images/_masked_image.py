@@ -14,9 +14,9 @@ from __future__ import annotations
 __all__ = ("MaskedImage", "MaskedImageSerializationModel")
 
 import functools
-from collections.abc import Sequence
-from types import EllipsisType
-from typing import Any
+from collections.abc import Mapping
+from contextlib import ExitStack
+from typing import Any, Literal, overload
 
 import astropy.io.fits
 import astropy.units
@@ -24,22 +24,19 @@ import astropy.wcs
 import numpy as np
 import pydantic
 
-from lsst.resources import ResourcePathExpression
+from lsst.resources import ResourcePath, ResourcePathExpression
 
+from . import fits
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
-from ._mask import Mask, MaskSchema, MaskSerializationModel
-from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
-from .fits import (
-    ExtensionHDU,
-    FitsCompressionOptions,
-    FitsInputArchive,
-    FitsOpaqueMetadata,
-    FitsOutputArchive,
-    PrecompressedImage,
-    strip_wcs_cards,
+from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
+from ._transforms import Frame, Projection, ProjectionAstropyView, ProjectionSerializationModel
+from .serialization import (
+    ArchiveTree,
+    InputArchive,
+    OpaqueArchiveMetadata,
+    OutputArchive,
 )
-from .serialization import InputArchive, OpaqueArchiveMetadata, OutputArchive
 from .utils import is_none
 
 
@@ -64,10 +61,6 @@ class MaskedImage:
     mask_schema
         Schema for the mask plane.  Must be provided if and only if ``mask`` is
         not provided.
-    opaque_metadata
-        Opaque metadata obtained from reading this object from storage.  It may
-        be provided when writing to storage to propagate that metadata and/or
-        preserve file-format-specific options (e.g. compression parameters).
     projection
         Projection that maps the pixel grid to the sky.
     """
@@ -79,7 +72,6 @@ class MaskedImage:
         mask: Mask | None = None,
         variance: Image | None = None,
         mask_schema: MaskSchema | None = None,
-        opaque_metadata: OpaqueArchiveMetadata | None = None,
         projection: Projection | None = None,
     ):
         if projection is None:
@@ -120,7 +112,7 @@ class MaskedImage:
         self._image = image
         self._mask = mask
         self._variance = variance
-        self._opaque_metadata = opaque_metadata
+        self._opaque_metadata: OpaqueArchiveMetadata | None = None
 
     @property
     def image(self) -> Image:
@@ -188,15 +180,15 @@ class MaskedImage:
         return self.projection.as_fits_wcs(self.bbox) if self.projection is not None else None
 
     def __getitem__(self, bbox: Box) -> MaskedImage:
-        return MaskedImage(
+        result = MaskedImage(
             self.image[bbox],
             mask=self.mask[bbox],
             variance=self.variance[bbox],
-            opaque_metadata=(
-                self._opaque_metadata.subset(bbox) if self._opaque_metadata is not None else None
-            ),
             projection=self.projection,
         )
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.subset(bbox)
+        return result
 
     def __str__(self) -> str:
         return f"MaskedImage({self.image!s}, {list(self.mask.schema.names)})"
@@ -204,53 +196,12 @@ class MaskedImage:
     def __repr__(self) -> str:
         return f"MaskedImage({self.image!r}, mask_schema={self.mask.schema!r})"
 
-    def copy(
-        self,
-        *,
-        unit: astropy.units.UnitBase | None | EllipsisType = ...,
-        mask_schema: MaskSchema | EllipsisType = ...,
-        projection: Projection | None | EllipsisType = ...,
-        start: Sequence[int] | EllipsisType = ...,
-    ) -> MaskedImage:
-        """Deep-copy the masked image, with optional updates.
-
-        Notes
-        -----
-        This can only be used to make changes to schema descriptions; plane
-        names must remain the same (in the same order).
-        """
-        return MaskedImage(
-            image=self._image.copy(unit=unit, projection=projection, start=start),
-            # We let the constructor take care of propagating projection and
-            # unit updates.
-            mask=self._mask.copy(schema=mask_schema, projection=None, start=start),
-            variance=self._variance.copy(unit=None, projection=None, start=start),
-            opaque_metadata=(self._opaque_metadata.copy() if self._opaque_metadata is not None else None),
-        )
-
-    def view(
-        self,
-        *,
-        unit: astropy.units.UnitBase | None | EllipsisType = ...,
-        mask_schema: MaskSchema | EllipsisType = ...,
-        projection: Projection | None | EllipsisType = ...,
-        start: Sequence[int] | EllipsisType = ...,
-    ) -> MaskedImage:
-        """Make a view of the masked image, with optional updates.
-
-        Notes
-        -----
-        This can only be used to make changes to schema descriptions; plane
-        names must remain the same (in the same order).
-        """
-        return MaskedImage(
-            image=self._image.view(unit=unit, projection=projection, start=start),
-            # We let the constructor take care of propagating projection and
-            # unit updates.
-            mask=self._mask.view(schema=mask_schema, projection=None, start=start),
-            variance=self._variance.view(unit=None, projection=None, start=start),
-            opaque_metadata=(self._opaque_metadata.copy() if self._opaque_metadata is not None else None),
-        )
+    def copy(self) -> MaskedImage:
+        """Deep-copy the masked image."""
+        result = MaskedImage(image=self._image.copy(), mask=self._mask.copy(), variance=self._variance.copy())
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.copy()
+        return result
 
     def serialize(self, archive: OutputArchive[Any]) -> MaskedImageSerializationModel:
         """Serialize the masked image to an output archive.
@@ -258,24 +209,7 @@ class MaskedImage:
         Parameters
         ----------
         archive
-            `~serialization.OutputArchive` instance to write to.
-
-        Returns
-        -------
-        MaskedImageSerializationModel
-            A Pydantic model representation of the masked image, holding
-            references to data stored in the archive.
-
-        Notes
-        -----
-        This method has the signature expected by
-        `~serialization.OutputArchive.serialize_direct` and
-        `~serialization.OutputArchive.serialize_pointer`, in order to allow
-        objects holding a `MaskedImage` to delegate its serialization.
-
-        This method does not initialize the opaque metadata of the returned
-        masked image from the archive, as it does not assume that the masked
-        image is the top-level entry in the archive.
+            Archive to write to.
         """
         serialized_image = archive.serialize_direct(
             "image", functools.partial(self.image.serialize, save_projection=False)
@@ -298,48 +232,49 @@ class MaskedImage:
             projection=serialized_projection,
         )
 
-    @classmethod
+    @staticmethod
     def deserialize(
-        cls, model: MaskedImageSerializationModel[Any], archive: InputArchive[Any], *, bbox: Box | None = None
+        model: MaskedImageSerializationModel[Any], archive: InputArchive[Any], *, bbox: Box | None = None
     ) -> MaskedImage:
-        """Deserialize a masked image from an input archive.
+        """Deserialize an image from an input archive.
 
         Parameters
         ----------
         model
-            A Pydantic model representation of the masked image, holding
-            references to data stored in the archive.
+            A Pydantic model representation of the image, holding references
+            to data stored in the archive.
         archive
-            `~serialization.InputArchive` instance to read from.
+            Archive to read from.
         bbox
             Bounding box of a subimage to read instead.
-
-        Notes
-        -----
-        When there is no ``bbox`` argument, this method has the signature
-        expected by `~serialization.InputArchive.deserialize_pointer`, in
-        order to allow objects holding a `MaskedImage` to delegate its
-        deserialization.  A ``lambda`` or `functools.partial` can be used to
-        pass ``bbox`` in this case.
-
-        This method does not pass the opaque metadata of the masked image to
-        the archive, as it does not assume that the masked image is the
-        top-level entry in the archive.
         """
         image = Image.deserialize(model.image, archive, bbox=bbox)
         mask = Mask.deserialize(model.mask, archive, bbox=bbox)
         variance = Image.deserialize(model.variance, archive, bbox=bbox)
-        return MaskedImage(image, mask=mask, variance=variance)
+        projection = (
+            Projection.deserialize(model.projection, archive) if model.projection is not None else None
+        )
+        return MaskedImage(image, mask=mask, variance=variance, projection=projection)
+
+    @staticmethod
+    def _get_archive_tree_type[P: pydantic.BaseModel](
+        pointer_type: type[P],
+    ) -> type[MaskedImageSerializationModel[P]]:
+        """Return the serialization model type for this object for an archive
+        type that uses the given pointer type.
+        """
+        return MaskedImageSerializationModel[pointer_type]  # type: ignore
 
     def write_fits(
         self,
         filename: str,
         *,
-        image_compression: FitsCompressionOptions | None = FitsCompressionOptions.DEFAULT,
-        mask_compression: FitsCompressionOptions | None = FitsCompressionOptions.DEFAULT,
-        variance_compression: FitsCompressionOptions | None = FitsCompressionOptions.DEFAULT,
+        image_compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
+        mask_compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
+        variance_compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
+        compression_seed: int | None = None,
     ) -> None:
-        """Write the masked image to a FITS file.
+        """Write the image to a FITS file.
 
         Parameters
         ----------
@@ -351,22 +286,23 @@ class MaskedImage:
             Compression options for the `mask` plane.
         variance_compression
             Compression options for the `variance` plane.
+        compression_seed
+            A FITS tile compression seed to use whenever the configured
+            compression seed is `None` or (for backwards compatibility) ``0``.
+            This value is then incremented every time it is used.
         """
         compression_options = {}
-        if image_compression is not FitsCompressionOptions.DEFAULT:
+        if image_compression is not fits.FitsCompressionOptions.DEFAULT:
             compression_options["image"] = image_compression
-        if mask_compression is not FitsCompressionOptions.DEFAULT:
+        if mask_compression is not fits.FitsCompressionOptions.DEFAULT:
             compression_options["mask"] = mask_compression
-        if variance_compression is not FitsCompressionOptions.DEFAULT:
+        if variance_compression is not fits.FitsCompressionOptions.DEFAULT:
             compression_options["variance"] = variance_compression
-        with FitsOutputArchive.open(
-            filename, opaque_metadata=self._opaque_metadata, compression_options=compression_options
-        ) as archive:
-            archive.add_tree(self.serialize(archive))
+        fits.write(self, filename, compression_options=compression_options, compression_seed=compression_seed)
 
     @classmethod
     def read_fits(cls, url: ResourcePathExpression, *, bbox: Box | None = None) -> MaskedImage:
-        """Read a masked image from a FITS file.
+        """Read an image from a FITS file.
 
         Parameters
         ----------
@@ -376,26 +312,113 @@ class MaskedImage:
         bbox
             Bounding box of a subimage to read instead.
         """
-        with FitsInputArchive.open(url, partial=(bbox is not None)) as archive:
-            model = archive.get_tree(MaskedImageSerializationModel)
-            result = cls.deserialize(model, archive, bbox=bbox)
-            # We only want to save opaque archive metadata on the outermost
-            # object, and `deserialize` is designed to be usable if the
-            # MaskedImage is nested within some other object, so we set it here
-            # instead of passing it to the constructor there.  This might be
-            # telling us the opaque metadata archive interfaces ought to be
-            # reworked, but I don't see a better approach right now.
-            result._opaque_metadata = archive.get_opaque_metadata()
-        return result
+        return fits.read(cls, url, bbox=bbox)
 
-    @classmethod
-    def read_legacy(cls, filename: str, preserve_quantization: bool = False) -> MaskedImage:
+    @staticmethod
+    def from_legacy(
+        legacy: Any,
+        *,
+        unit: astropy.units.Unit | None = None,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+    ) -> MaskedImage:
+        """Convert from an `lsst.afw.image.MaskedImage` instance.
+
+        Parameters
+        ----------
+        legacy
+            An `lsst.afw.image.MaskedImage` instance that will share image and
+            variance (but not mask) pixel data with the returned object.
+        unit
+            Units of the image.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
+        """
+        return MaskedImage(
+            image=Image.from_legacy(legacy.getImage(), unit),
+            mask=Mask.from_legacy(legacy.getMask(), plane_map),
+            variance=Image.from_legacy(legacy.getVariance()),
+        )
+
+    def to_legacy(self, *, copy: bool | None = None, plane_map: Mapping[str, MaskPlane] | None = None) -> Any:
+        """Convert to an `lsst.afw.image.MaskedImage` instance.
+
+        Parameters
+        ----------
+        copy
+            If `True`, always copy the image and variance pixel data.
+            If `False`, return a view, and raise `TypeError` if the pixel data
+            is read-only (this is not supported by afw).  If `None`, onyl if
+            the pixel data is read-only.  Mask pixel data is always copied.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
+        """
+        import lsst.afw.image
+
+        return lsst.afw.image.MaskedImage(
+            self.image.to_legacy(copy=copy),
+            mask=self.mask.to_legacy(plane_map),
+            variance=self.variance.to_legacy(copy=copy),
+            dtype=self.image.array.dtype,
+        )
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        uri: ResourcePathExpression,
+        *,
+        preserve_quantization: bool = False,
+        component: Literal["image"],
+        fits_wcs_frame: Frame | None = None,
+    ) -> Image: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        uri: ResourcePathExpression,
+        *,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+        component: Literal["mask"],
+        fits_wcs_frame: Frame | None = None,
+    ) -> Mask: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        uri: ResourcePathExpression,
+        *,
+        preserve_quantization: bool = False,
+        component: Literal["variance"],
+        fits_wcs_frame: Frame | None = None,
+    ) -> Image: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        uri: ResourcePathExpression,
+        *,
+        preserve_quantization: bool = False,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+        component: None = None,
+        fits_wcs_frame: Frame | None = None,
+    ) -> MaskedImage: ...
+
+    @staticmethod
+    def read_legacy(
+        uri: ResourcePathExpression,
+        *,
+        preserve_quantization: bool = False,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+        component: Literal["image", "mask", "variance"] | None = None,
+        fits_wcs_frame: Frame | None = None,
+    ) -> Any:
         """Read a FITS file written by `lsst.afw.image.MaskedImage.writeFits`.
 
         Parameters
         ----------
-        filename
-            Full name of the file.
+        uri
+            URI or file name.
         preserve_quantization
             If `True`, ensure that writing the masked image back out again will
             exactly preserve quantization-compressed pixel values.  This causes
@@ -403,53 +426,87 @@ class MaskedImage:
             stores the original binary table data for those planes in memory.
             If the `MaskedImage` is copied, the precompressed pixel values are
             not transferred to the copy.
-
-        Notes
-        -----
-        This method does not attach a `Projection` to the `MaskedImage` even
-        if the legacy file is actually an `lsst.afw.image.Exposure` with a
-        WCS attached.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
+        component
+            A component to read instead of the full image.
+        fits_wcs_frame
+            If not `None` and the HDU containing the image plane has a FITS
+            WCS, attach a `Projection` to the returned masked image by
+            converting that WCS.  When ``component`` is one of ``"image"``,
+            ``"mask"``, or ``"variance"``, a FITS WCS from the component HDU
+            is used instead (all three should have the same WCS).
         """
-        opaque_metadata = FitsOpaqueMetadata()
-        with astropy.io.fits.open(filename) as hdu_list:
-            image_hdu: ExtensionHDU = hdu_list[1]
-            image = Image.read_legacy(image_hdu)
-            strip_wcs_cards(image_hdu.header)
-            image_hdu.header.strip()
-            image_hdu.header.remove("EXTNAME", ignore_missing=True)
-            image_hdu.header.remove("EXTTYPE", ignore_missing=True)
-            image_hdu.header.remove("INHERIT", ignore_missing=True)
-            opaque_metadata.headers["IMAGE"] = image_hdu.header
-            mask_hdu: ExtensionHDU = hdu_list[2]
-            mask = Mask.read_legacy(mask_hdu)
-            strip_wcs_cards(mask_hdu.header)
-            mask_hdu.header.strip()
-            mask_hdu.header.remove("EXTNAME", ignore_missing=True)
-            mask_hdu.header.remove("EXTTYPE", ignore_missing=True)
-            mask_hdu.header.remove("INHERIT", ignore_missing=True)
-            # afw set BUNIT on masks because of limitations in how FITS
-            # metadata is handled there.
-            mask_hdu.header.remove("BUNIT", ignore_missing=True)
-            opaque_metadata.headers["MASK"] = mask_hdu.header
-            variance_hdu: ExtensionHDU = hdu_list[3]
-            variance = Image.read_legacy(variance_hdu)
-            strip_wcs_cards(variance_hdu.header)
-            variance_hdu.header.strip()
-            variance_hdu.header.remove("EXTNAME", ignore_missing=True)
-            variance_hdu.header.remove("EXTTYPE", ignore_missing=True)
-            variance_hdu.header.remove("INHERIT", ignore_missing=True)
-            opaque_metadata.headers["VARIANCE"] = variance_hdu.header
-        if preserve_quantization:
-            image._array.flags["WRITEABLE"] = False
-            mask._array.flags["WRITEABLE"] = False
-            variance._array.flags["WRITEABLE"] = False
-            with astropy.io.fits.open(filename, disable_image_compression=True) as hdu_list:
-                opaque_metadata.precompressed["IMAGE"] = PrecompressedImage.from_bintable(hdu_list[1])
-                opaque_metadata.precompressed["VARIANCE"] = PrecompressedImage.from_bintable(hdu_list[3])
-        return cls(image, mask=mask, variance=variance, opaque_metadata=opaque_metadata)
+        fs, fspath = ResourcePath(uri).to_fsspec()
+        with fs.open(fspath) as stream, astropy.io.fits.open(stream) as hdu_list:
+            return MaskedImage._read_legacy_hdus(
+                hdu_list,
+                uri,
+                preserve_quantization=preserve_quantization,
+                plane_map=plane_map,
+                component=component,
+                fits_wcs_frame=fits_wcs_frame,
+            )
+
+    @staticmethod
+    def _read_legacy_hdus(
+        hdu_list: astropy.io.fits.HDUList,
+        uri: ResourcePathExpression,
+        *,
+        preserve_quantization: bool = False,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+        component: Literal["image", "mask", "variance"] | None,
+        fits_wcs_frame: Frame | None = None,
+    ) -> Any:
+        opaque_metadata = fits.FitsOpaqueMetadata()
+        opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
+        image_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
+        variance_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
+        result: Any
+        with ExitStack() as exit_stack:
+            if preserve_quantization:
+                fs, fspath = ResourcePath(uri).to_fsspec()
+                bintable_stream = exit_stack.enter_context(fs.open(fspath))
+                bintable_hdu_list = exit_stack.enter_context(
+                    astropy.io.fits.open(bintable_stream, disable_image_compression=True)
+                )
+                image_bintable_hdu = bintable_hdu_list[1]
+                variance_bintable_hdu = bintable_hdu_list[3]
+            if component is None or component == "image":
+                image = Image._read_legacy_hdu(
+                    hdu_list[1],
+                    opaque_metadata,
+                    preserve_bintable=image_bintable_hdu,
+                    fits_wcs_frame=fits_wcs_frame,
+                )
+                if component == "image":
+                    result = image
+            if component is None or component == "mask":
+                mask = Mask._read_legacy_hdu(
+                    hdu_list[2],
+                    opaque_metadata,
+                    plane_map=plane_map,
+                    fits_wcs_frame=fits_wcs_frame if component is not None else None,
+                )
+                if component == "mask":
+                    result = mask
+            if component is None or component == "variance":
+                variance = Image._read_legacy_hdu(
+                    hdu_list[3],
+                    opaque_metadata,
+                    preserve_bintable=variance_bintable_hdu,
+                    fits_wcs_frame=fits_wcs_frame if component is not None else None,
+                )
+                if component == "variance":
+                    result = variance
+        if component is None:
+            result = MaskedImage(image, mask=mask, variance=variance)
+        result._opaque_metadata = opaque_metadata
+        return result
 
 
-class MaskedImageSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
+class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """A Pydantic model used to represent a serialized `MaskedImage`."""
 
     image: ImageSerializationModel[P] = pydantic.Field(description="The main data image.")
@@ -457,10 +514,15 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
         description="Bitmask that annotates the main image's pixels."
     )
     variance: ImageSerializationModel[P] = pydantic.Field(
-        description="Per-pixel variance estimages for the main image."
+        description="Per-pixel variance estimates for the main image."
     )
     projection: ProjectionSerializationModel[P] | None = pydantic.Field(
         default=None,
         exclude_if=is_none,
         description="Projection that maps the pixel grid to the sky.",
     )
+
+    @property
+    def bbox(self) -> Box:
+        """The bounding box of the image."""
+        return self.image.bbox

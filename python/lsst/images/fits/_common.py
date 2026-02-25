@@ -14,6 +14,7 @@ from __future__ import annotations
 
 __all__ = (
     "ExtensionHDU",
+    "ExtensionKey",
     "FitsCompressionAlgorithm",
     "FitsCompressionOptions",
     "FitsDitherAlgorithm",
@@ -22,6 +23,8 @@ __all__ = (
     "InvalidFitsArchiveError",
     "PrecompressedImage",
     "add_offset_wcs",
+    "strip_butler_cards",
+    "strip_legacy_exposure_cards",
     "strip_wcs_cards",
 )
 
@@ -33,11 +36,48 @@ from typing import ClassVar, Self, final
 
 import astropy.io.fits
 import numpy as np
+import pydantic
 
 from .._geom import Box
 from ..serialization import OpaqueArchiveMetadata
 
 type ExtensionHDU = astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU
+
+
+@dataclasses.dataclass(frozen=True)
+class ExtensionKey:
+    """The identifiers for a single FITS extension HDU within a file."""
+
+    name: str = ""
+    """Value of the EXTNAME keyword, or an empty string for the primary HDU."""
+
+    ver: int = 1
+    """Value of the EXTVER keyword (which may be absent if it is ``1``)."""
+
+    @classmethod
+    def from_index_row(cls, row: np.ndarray) -> ExtensionKey:
+        """Construct from a row of the index binary table appended to the
+        FITS files written by the package.
+        """
+        return cls(str(row["EXTNAME"]).upper(), int(row["EXTVER"]))
+
+    @classmethod
+    def from_str(cls, source: str) -> ExtensionKey:
+        """Construct from the `str` coercion of this type, which is used
+        as the 'source' field in various Pydantic models that serve as
+        references to other HDUs.
+        """
+        name, comma, ver = source.removeprefix("fits:").partition(",")
+        if not comma:
+            return cls(name)
+        else:
+            return cls(name, int(ver))
+
+    def __str__(self) -> str:
+        if self.ver > 1:
+            return f"fits:{self.name},{self.ver}"
+        else:
+            return f"fits:{self.name}"
 
 
 class InvalidFitsArchiveError(RuntimeError):
@@ -79,8 +119,7 @@ class FitsDitherAlgorithm(enum.StrEnum):
         raise AssertionError("Invalid enum value.")
 
 
-@dataclasses.dataclass(frozen=True)
-class FitsQuantizationOptions:
+class FitsQuantizationOptions(pydantic.BaseModel, frozen=True):
     """Quantization options for FITS compression."""
 
     dither: FitsDitherAlgorithm
@@ -94,17 +133,19 @@ class FitsQuantizationOptions:
     scaling to apply directly to the original pixels before quantization.
     """
 
-    seed: int
+    seed: int | None = None
     """Random number seed to use for dithering.
 
     Values between 1 and 10000 (inclusive) are used directly.  ``0`` will
     generate a value from the current time, and ``-1`` will generate a value
     from the checksum of the image.
+
+    If `None`, the ``compression_seed`` parameter must be passed to
+    `FitsOutputArchive.open` if any quantized compression is configured.
     """
 
 
-@dataclasses.dataclass(frozen=True)
-class FitsCompressionOptions:
+class FitsCompressionOptions(pydantic.BaseModel, frozen=True):
     """Configuration options for FITS compression."""
 
     algorithm: FitsCompressionAlgorithm = FitsCompressionAlgorithm.GZIP_2
@@ -150,9 +191,7 @@ class FitsCompressionOptions:
 FitsCompressionOptions.DEFAULT = FitsCompressionOptions()
 FitsCompressionOptions.LOSSY = FitsCompressionOptions(
     algorithm=FitsCompressionAlgorithm.RICE_1,
-    quantization=FitsQuantizationOptions(
-        dither=FitsDitherAlgorithm.SUBTRACTIVE_DITHER_2, level=16.0, seed=-1
-    ),
+    quantization=FitsQuantizationOptions(dither=FitsDitherAlgorithm.SUBTRACTIVE_DITHER_2, level=16.0),
 )
 
 
@@ -228,22 +267,58 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
     knowing how it was serialized.
     """
 
-    headers: dict[str, astropy.io.fits.Header] = dataclasses.field(default_factory=dict)
+    headers: dict[ExtensionKey, astropy.io.fits.Header] = dataclasses.field(default_factory=dict)
     """FITS headers found (but not interpreted and stripped) when reading, to
     be propagated on write.
 
-    Keys are EXTNAME values, or "" for the primary header.  Header information
-    in opaque metadata is considered immutable, allowing it to be transferred
-    by reference to copies and subsets of the object it is attached to.
+    Keys are EXTNAME/EXTVER combinations, or ("", 1) for the primary header.
+    Header information in opaque metadata is considered immutable, allowing it
+    to be transferred by reference to copies and subsets of the object it is
+    attached to.
     """
 
     precompressed: dict[str, PrecompressedImage] = dataclasses.field(default_factory=dict)
     """FITS tile-compressed HDUs that should be written out directly instead
     of the in-memory data provided.
 
-    Keys are EXTNAME values.  Precompressed pixel values are never copied or
-    transferred to subsets.
+    Keys are EXTNAME values, which must be unique (no EXTVER disambiguation).
+    Precompressed pixel values are never copied or transferred to subsets.
     """
+
+    def add_header(
+        self,
+        header: astropy.io.fits.Header,
+        name: str | None = None,
+        ver: int | None = None,
+        key: ExtensionKey | None = None,
+    ) -> None:
+        """Add a header to the opaque metadata if it is not already present,
+        and strip EXTNAME and EXTVER if present.
+
+        Parameters
+        ----------
+        header
+            Header to add.  May be modified in place.
+        name
+            EXTNAME (all caps).  If not provided, the EXTNAME card must be
+            present in the header.  Use ``""`` for the primary header.
+        ver
+            EXTVER.  If not provided and the EXTVER card is not present,
+            defaults to 1.
+        key
+            Combination of EXTNAME and EXTVER; used instead of both ``name``
+            and ``ver`` if provided.
+        """
+        if key is None:
+            if name is None:
+                name = header["EXTNAME"]
+            if ver is None:
+                ver = header.get("EXTVER", 1)
+            key = ExtensionKey(name, ver)
+        if key not in self.headers:
+            header.remove("EXTNAME", ignore_missing=True)
+            header.remove("EXTVER", ignore_missing=True)
+            self.headers[key] = header
 
     def maybe_use_precompressed(self, name: str) -> astropy.io.fits.BinTableHDU | None:
         """Look up the given EXTNAME to see if there is a tile compressed image
@@ -263,6 +338,19 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         if (precompressed := self.precompressed.get(name)) is None:
             return None
         return astropy.io.fits.BinTableHDU(precompressed.data, header=precompressed.header.copy(), name=name)
+
+    def extract_legacy_primary_header(self, header: astropy.io.fits.Header) -> None:
+        """Update the opaque metadata with the header of the primary HDU
+        of a legacy (`lsst.afw.image`) FITS file.
+        """
+        primary_header = header.copy(strip=True)
+        # No idea what these spare TAN-SIP headers are doing in the afw
+        # FITS files, but we'll strip them here:
+        primary_header.remove("A_ORDER", ignore_missing=True)
+        primary_header.remove("B_ORDER", ignore_missing=True)
+        strip_legacy_exposure_cards(primary_header)
+        strip_butler_cards(primary_header)
+        self.headers[ExtensionKey()] = primary_header
 
     def copy(self) -> FitsOpaqueMetadata:
         # Docstring inherited.
@@ -298,7 +386,7 @@ def add_offset_wcs(header: astropy.io.fits.Header, *, x: int | float, y: int | f
     header.set(f"CUNIT2{key}", "PIXEL")
 
 
-_WCS_VECTOR_KEYS = ("CUNIT", "CRPIX", "CRPIX", "CRVAL", "CRDELT", "CROTA", "CRDER", "CSYER")
+_WCS_VECTOR_KEYS = ("CUNIT", "CRPIX", "CRPIX", "CRVAL", "CRDELT", "CROTA", "CRDER", "CSYER", "CDELT")
 _WCS_MATRIX_KEYS = ("CD{0}_{1}", "PC{0}_{1}")
 
 
@@ -326,6 +414,9 @@ def strip_wcs_cards(header: astropy.io.fits.Header) -> None:
                 _strip_sip_poly(header, wcsname, "B")
                 _strip_sip_poly(header, wcsname, "AP")
                 _strip_sip_poly(header, wcsname, "BP")
+    header.remove("LONPOLE", ignore_missing=True)
+    header.remove("LATPOLE", ignore_missing=True)
+    header.remove("MJDREF", ignore_missing=True)
 
 
 def _strip_sip_poly(header: astropy.io.fits.Header, wcsname: str, which: str) -> None:
@@ -333,3 +424,29 @@ def _strip_sip_poly(header: astropy.io.fits.Header, wcsname: str, which: str) ->
     if order is not None:
         for i, j in itertools.product(range(order + 1), range(order + 1)):
             header.remove(f"{which}_{i}_{j}{wcsname}", ignore_missing=True)
+
+
+def strip_legacy_exposure_cards(header: astropy.io.fits.Header) -> None:
+    """Strip header keywords added by lsst.afw.image.Exposure."""
+    header.remove("AR_HDU", ignore_missing=True)
+    for name in (
+        "FILTER",
+        "DETECTOR",
+        "VALID_POLYGON",
+        "SKYWCS",
+        "PSF",
+        "SUMMARYSTATS",
+        "AP_CORR_MAP",
+        "PHOTOCALIB",
+    ):
+        header.remove(f"{name}_ID", ignore_missing=True)
+        header.remove(f"ARCHIVE_ID_{name}", ignore_missing=True)
+
+
+def strip_butler_cards(header: astropy.io.fits.Header) -> None:
+    """Strip header keywords added by butler provenance that would be
+    incorrect if propagated to a downstream file.
+    """
+    for key in list(header):
+        if key.startswith("LSST BUTLER"):
+            del header[key]

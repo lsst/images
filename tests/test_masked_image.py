@@ -19,8 +19,9 @@ import astropy.io.fits
 import astropy.units as u
 import numpy as np
 
-from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
+from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema, get_legacy_visit_image_mask_planes
 from lsst.images.fits import FitsCompressionOptions
+from lsst.images.tests import RoundtripFits, assert_masked_images_equal, compare_masked_image_to_legacy
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -82,28 +83,15 @@ class MaskedImageTestCase(unittest.TestCase):
         np.testing.assert_array_equal(
             self.masked_image.image.array[subslices], self.masked_image.image[subbox].array
         )
-        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
-            tmp.close()
-            self.masked_image.write_fits(tmp.name)
-            roundtripped = MaskedImage.read_fits(tmp.name)
-            subimage = MaskedImage.read_fits(tmp.name, bbox=subbox)
+        with RoundtripFits(self, self.masked_image, "MaskedImageV2") as roundtrip:
+            subimage = roundtrip.get(bbox=subbox)
             # Check that we used lossless compression (the default).
-            with astropy.io.fits.open(tmp.name, disable_image_compression=True) as fits:
-                self.assertEqual(fits[1].header["ZCMPTYPE"], "GZIP_2")
-                self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
-                self.assertEqual(fits[3].header["ZCMPTYPE"], "GZIP_2")
-        self.assertEqual(roundtripped.bbox, self.masked_image.bbox)
-        self.assertEqual(roundtripped.unit, self.masked_image.unit)
-        self.assertEqual(roundtripped.mask.schema, self.masked_image.mask.schema)
-        np.testing.assert_array_equal(roundtripped.image.array, self.masked_image.image.array)
-        np.testing.assert_array_equal(roundtripped.mask.array, self.masked_image.mask.array)
-        np.testing.assert_array_equal(roundtripped.variance.array, self.masked_image.variance.array)
-        self.assertEqual(subimage.bbox, subbox)
-        self.assertEqual(subimage.unit, self.masked_image.unit)
-        self.assertEqual(subimage.mask.schema, self.masked_image.mask.schema)
-        np.testing.assert_array_equal(subimage.image.array, self.masked_image.image.array[subslices])
-        np.testing.assert_array_equal(subimage.mask.array, self.masked_image.mask.array[subslices])
-        np.testing.assert_array_equal(subimage.variance.array, self.masked_image.variance.array[subslices])
+            fits = roundtrip.inspect()
+            self.assertEqual(fits[1].header["ZCMPTYPE"], "GZIP_2")
+            self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
+            self.assertEqual(fits[3].header["ZCMPTYPE"], "GZIP_2")
+        assert_masked_images_equal(self, roundtrip.result, self.masked_image, expect_view=False)
+        assert_masked_images_equal(self, subimage, roundtrip.result[subbox], expect_view=False)
 
     def test_fits_roundtrip_lossy(self) -> None:
         """Test that we can round-trip the MaskedImage through FITS, including
@@ -120,6 +108,7 @@ class MaskedImageTestCase(unittest.TestCase):
                 tmp.name,
                 image_compression=FitsCompressionOptions.LOSSY,
                 variance_compression=FitsCompressionOptions.LOSSY,
+                compression_seed=50,
             )
             roundtripped = MaskedImage.read_fits(tmp.name)
             subimage = MaskedImage.read_fits(tmp.name, bbox=subbox)
@@ -127,43 +116,41 @@ class MaskedImageTestCase(unittest.TestCase):
                 self.assertEqual(fits[1].header["ZCMPTYPE"], "RICE_1")
                 self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
                 self.assertEqual(fits[3].header["ZCMPTYPE"], "RICE_1")
-        self.assertEqual(roundtripped.bbox, self.masked_image.bbox)
-        self.assertEqual(roundtripped.unit, self.masked_image.unit)
-        self.assertEqual(roundtripped.mask.schema, self.masked_image.mask.schema)
-        np.testing.assert_allclose(roundtripped.image.array, self.masked_image.image.array, rtol=0.01)
-        np.testing.assert_array_equal(roundtripped.mask.array, self.masked_image.mask.array)
-        np.testing.assert_allclose(roundtripped.variance.array, self.masked_image.variance.array, rtol=0.01)
-        self.assertEqual(subimage.bbox, subbox)
-        self.assertEqual(subimage.unit, self.masked_image.unit)
-        self.assertEqual(subimage.mask.schema, self.masked_image.mask.schema)
-        np.testing.assert_array_equal(subimage.image.array, roundtripped.image.array[subslices])
-        np.testing.assert_array_equal(subimage.mask.array, roundtripped.mask.array[subslices])
-        np.testing.assert_array_equal(subimage.variance.array, roundtripped.variance.array[subslices])
+        assert_masked_images_equal(self, roundtripped, self.masked_image, expect_view=False, rtol=0.01)
+        assert_masked_images_equal(self, subimage, roundtripped[subbox], expect_view=False)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
-    def test_legacy_rewrite(self) -> None:
-        """Test that we can read a ``lsst.afw.image.MaskedImage`` into an
-        `lsst.images.MaskedImage` and write that out while preserving even
-        lossy-compressed pixel values exactly.
+    def test_legacy(self) -> None:
+        """Test MaskedImage.read_legacy, MaskedImage.to_legacy, and
+        MaskedImage.from_legacy.
         """
         assert DATA_DIR is not None, "Guaranteed by decorator."
         filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
-        from_afw = MaskedImage.read_legacy(filename, preserve_quantization=True)
-        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
-            tmp.close()
-            from_afw.write_fits(tmp.name)
-            # Check that we're still using the right compression.
-            with astropy.io.fits.open(tmp.name, disable_image_compression=True) as fits:
-                self.assertEqual(fits[1].header["ZCMPTYPE"], "RICE_1")
-                self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
-                self.assertEqual(fits[3].header["ZCMPTYPE"], "RICE_1")
-            roundtripped = MaskedImage.read_fits(tmp.name)
-        self.assertEqual(roundtripped.bbox, from_afw.bbox)
-        self.assertEqual(roundtripped.unit, from_afw.unit)
-        self.assertEqual(roundtripped.mask.schema, from_afw.mask.schema)
-        np.testing.assert_array_equal(roundtripped.image.array, from_afw.image.array)
-        np.testing.assert_array_equal(roundtripped.mask.array, from_afw.mask.array)
-        np.testing.assert_array_equal(roundtripped.variance.array, from_afw.variance.array)
+        plane_map = get_legacy_visit_image_mask_planes()
+        masked_image = MaskedImage.read_legacy(filename, plane_map=plane_map)
+        try:
+            from lsst.afw.image import MaskedImageFitsReader
+        except ImportError:
+            raise unittest.SkipTest("'lsst.afw.image' could not be imported.") from None
+        reader = MaskedImageFitsReader(filename)
+        legacy_masked_image = reader.read()
+        compare_masked_image_to_legacy(
+            self, masked_image, legacy_masked_image, plane_map=plane_map, expect_view=False
+        )
+        compare_masked_image_to_legacy(
+            self,
+            masked_image,
+            masked_image.to_legacy(plane_map=plane_map),
+            plane_map=plane_map,
+            expect_view=True,
+        )
+        compare_masked_image_to_legacy(
+            self,
+            MaskedImage.from_legacy(legacy_masked_image, plane_map=plane_map),
+            legacy_masked_image,
+            expect_view=True,
+            plane_map=plane_map,
+        )
 
 
 if __name__ == "__main__":

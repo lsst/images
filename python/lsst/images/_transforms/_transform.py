@@ -27,7 +27,7 @@ import numpy as np
 import pydantic
 
 from .._geom import XY, Bounds, Box, SerializableBounds
-from ..serialization import ArchiveReadError, InputArchive, OutputArchive
+from ..serialization import ArchiveReadError, ArchiveTree, InputArchive, OutputArchive
 from ._frames import Frame, SerializableFrame, SkyFrame
 
 if TYPE_CHECKING:
@@ -450,6 +450,15 @@ class Transform[I: Frame, O: Frame]:
         return transform
 
     @staticmethod
+    def _get_archive_tree_type[P: pydantic.BaseModel](
+        pointer_type: type[P],
+    ) -> type[TransformSerializationModel[P]]:
+        """Return the serialization model type for this object for an archive
+        type that uses the given pointer type.
+        """
+        return TransformSerializationModel[pointer_type]  # type: ignore
+
+    @staticmethod
     def from_legacy(
         legacy: Any,
         in_frame: I,
@@ -528,13 +537,13 @@ def _standardize_xy[T: np.ndarray | float](xy: XY[T], frame: Frame) -> XY[T]:
     return XY(x=frame.standardize_x(xy.x), y=frame.standardize_y(xy.y))
 
 
-class MappingSerializationModel(pydantic.BaseModel):
+class MappingSerializationModel(ArchiveTree):
     """Serialization model for an AST Mapping."""
 
     ast: str = pydantic.Field(description="A serialized Starlink AST Mapping, using the AST native encoding.")
 
 
-class TransformSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
+class TransformSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """Serialization model for coordinate transforms."""
 
     frames: list[SerializableFrame] = pydantic.Field(

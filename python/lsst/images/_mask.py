@@ -11,13 +11,21 @@
 
 from __future__ import annotations
 
-__all__ = ("Mask", "MaskPlane", "MaskPlaneBit", "MaskSchema", "MaskSerializationModel")
+__all__ = (
+    "Mask",
+    "MaskPlane",
+    "MaskPlaneBit",
+    "MaskSchema",
+    "MaskSerializationModel",
+    "get_legacy_visit_image_mask_planes",
+)
 
 import dataclasses
 import math
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
+from functools import cached_property
 from types import EllipsisType
-from typing import Any
+from typing import Any, ClassVar, cast
 
 import astropy.io.fits
 import astropy.wcs
@@ -25,10 +33,23 @@ import numpy as np
 import numpy.typing as npt
 import pydantic
 
+from lsst.resources import ResourcePath, ResourcePathExpression
+
 from . import fits
-from ._geom import Box, Interval
-from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
-from .serialization import ArrayReferenceModel, InputArchive, OutputArchive, no_header_updates
+from ._geom import YX, Box
+from ._transforms import Frame, Projection, ProjectionAstropyView, ProjectionSerializationModel
+from .serialization import (
+    ArchiveReadError,
+    ArchiveTree,
+    ArrayReferenceModel,
+    InputArchive,
+    IntegerType,
+    NumberType,
+    OpaqueArchiveMetadata,
+    OutputArchive,
+    is_integer,
+    no_header_updates,
+)
 from .utils import is_none
 
 
@@ -76,13 +97,13 @@ class MaskPlaneBit:
     is stored.
     """
 
-    mask: np.unsignedinteger
+    mask: np.integer
     """Bitmask that selects just this plane's bit from a mask array value
-    (`numpy.unsignedinteger`).
+    (`numpy.integer`).
     """
 
     @classmethod
-    def compute(cls, overall_index: int, stride: int, mask_type: type[np.unsignedinteger]) -> MaskPlaneBit:
+    def compute(cls, overall_index: int, stride: int, mask_type: type[np.integer]) -> MaskPlaneBit:
         """Construct a `MaskPlaneBit` from the overall index of a plane in a
         `MaskSchema` and the stride (number of bits per mask array element).
         """
@@ -113,21 +134,36 @@ class MaskSchema:
     the description for that plane, and the `bitmask` method can be used to
     obtain an array that can be used to select one or more planes by name in
     a mask array that uses this schema.
+
+    If no mask planes are provided, a `None` placeholder is automatically
+    added.
     """
 
     def __init__(self, planes: Iterable[MaskPlane | None], dtype: npt.DTypeLike = np.uint8):
-        self._planes = tuple(planes)
-        self._dtype = np.dtype(dtype)
-        if not issubclass(self._dtype.type, np.unsignedinteger):
-            raise TypeError("dtype for masks must be an unsigned integer.")
+        self._planes: tuple[MaskPlane | None, ...] = tuple(planes) or (None,)
+        self._dtype = cast(np.dtype[np.integer], np.dtype(dtype))
+        stride = self.bits_per_element(self._dtype)
         self._descriptions = {plane.name: plane.description for plane in self._planes if plane is not None}
-        stride = self._dtype.itemsize * 8
         self._mask_size = math.ceil(len(self._planes) / stride)
         self._bits: dict[str, MaskPlaneBit] = {
             plane.name: MaskPlaneBit.compute(n, stride, self._dtype.type)
             for n, plane in enumerate(self._planes)
             if plane is not None
         }
+
+    @staticmethod
+    def bits_per_element(dtype: npt.DTypeLike) -> int:
+        """Return the number of mask bits per array element for the given
+        data type.
+        """
+        dtype = np.dtype(dtype)
+        match dtype.kind:
+            case "u":
+                return dtype.itemsize * 8
+            case "i":
+                return dtype.itemsize * 8 - 1
+            case _:
+                raise TypeError(f"dtype for masks must be an integer; got {dtype} with kind={dtype.kind}.")
 
     def __iter__(self) -> Iterator[MaskPlane | None]:
         return iter(self._planes)
@@ -151,7 +187,7 @@ class MaskSchema:
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, MaskSchema):
-            return self._planes == other._planes
+            return self._planes == other._planes and self._dtype == other._dtype
         return False
 
     @property
@@ -199,6 +235,64 @@ class MaskSchema:
             bit = self._bits[plane]
             result[bit.index] |= bit.mask
         return result
+
+    def split(self, dtype: npt.DTypeLike) -> list[MaskSchema]:
+        """Split the schema into an equivalent series of schemas that each
+        have a `mask_size` of ``1``, dropping all `None` placeholders.
+
+        Parameters
+        ----------
+        dtype
+            Data type of the new mask pixels.
+
+        Returns
+        -------
+        `list` [`MaskSchema`]
+            A list of mask schemas that together include all planes in
+            ``self`` and have `mask_size` equal to ``1``.  If there are no
+            mask planes (only `None` placeholders) in ``self``, a single mask
+            schema with a `None` placeholder is returned; otherwise `None`
+            placeholders are returned.
+        """
+        dtype = np.dtype(dtype)
+        planes: list[MaskPlane] = []
+        schemas: list[MaskSchema] = []
+        n_planes_per_schema = self.bits_per_element(dtype)
+        for plane in self._planes:
+            if plane is not None:
+                planes.append(plane)
+                if len(planes) == n_planes_per_schema:
+                    schemas.append(MaskSchema(planes, dtype=dtype))
+                    planes.clear()
+        if planes:
+            schemas.append(MaskSchema(planes, dtype=dtype))
+        if not schemas:
+            schemas.append(MaskSchema([None], dtype=dtype))
+        return schemas
+
+    def update_header(self, header: astropy.io.fits.Header) -> None:
+        """Add a description of this mask schema to a FITS header."""
+        for n, plane in enumerate(self):
+            if plane is not None:
+                bit = self.bit(plane.name)
+                if bit.index != 0:
+                    raise TypeError("Only mask schemas with mask_size==1 can be described in FITS.")
+                header.set(f"MSKN{n + 1:04d}", plane.name, f"Name for mask plane {n + 1}.")
+                header.set(f"MSKM{n + 1:04d}", bit.mask, f"Bitmask for plane n={n + 1}; always 1<<(n-1).")
+                # We don't add a comment to the description card, because it's
+                # likely to overrun a single card and get the CONTINUE
+                # treatment . That will cause Astropy to warn about the comment
+                # being truncated and that's worse than just leaving it
+                # unexplained; it's pretty obvious from context what it is.
+                header.set(f"MSKD{n + 1:04d}", plane.description)
+
+    def strip_header(self, header: astropy.io.fits.Header) -> None:
+        """Remove all header cards added by `update_header`."""
+        for n, plane in enumerate(self):
+            if plane is not None:
+                header.remove(f"MSKN{n + 1:04d}", ignore_missing=True)
+                header.remove(f"MSKM{n + 1:04d}", ignore_missing=True)
+                header.remove(f"MSKD{n + 1:04d}", ignore_missing=True)
 
 
 class Mask:
@@ -281,6 +375,7 @@ class Mask:
         self._bbox: Box = bbox
         self._schema: MaskSchema = schema
         self._projection = projection
+        self._opaque_metadata: OpaqueArchiveMetadata | None = None
 
     @property
     def array(self) -> np.ndarray:
@@ -338,7 +433,7 @@ class Mask:
         """
         return self._projection.as_astropy(self.bbox) if self._projection is not None else None
 
-    @property
+    @cached_property
     def fits_wcs(self) -> astropy.wcs.WCS | None:
         """An Astropy FITS WCS for this mask's pixel array.
 
@@ -351,39 +446,43 @@ class Mask:
         This may be an approximation or absent if `projection` is not
         naturally representable as a FITS WCS.
         """
-        return self._projection.as_fits_wcs(self.bbox) if self._projection is not None else None
+        return (
+            self._projection.as_fits_wcs(self.bbox, allow_approximation=True)
+            if self._projection is not None
+            else None
+        )
 
     def __getitem__(self, bbox: Box) -> Mask:
-        return Mask(
+        result = Mask(
             self.array[bbox.y.slice_within(self._bbox.y), bbox.x.slice_within(self._bbox.x), :],
             bbox=bbox,
             schema=self.schema,
         )
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.subset(bbox)
+        return result
 
-    def copy(
-        self,
-        *,
-        schema: MaskSchema | EllipsisType = ...,
-        projection: Projection | None | EllipsisType = ...,
-        start: Sequence[int] | EllipsisType = ...,
-    ) -> Mask:
-        """Deep-copy the mask, with optional updates.
+    def __str__(self) -> str:
+        return f"Mask({self.bbox!s}, {list(self.schema.names)})"
 
-        Notes
-        -----
-        This can only be used to make changes to schema descriptions; plane
-        names must remain the same (in the same order).
-        """
-        if schema is ...:
-            schema = self._schema
-        else:
-            if list(schema.names) != list(self.schema.names):
-                raise ValueError("Cannot create a mask view with a schema with different names.")
-        if projection is ...:
-            projection = self._projection
-        if start is ...:
-            start = self._bbox.start
-        return Mask(self._array, start=start, schema=schema, projection=projection)
+    def __repr__(self) -> str:
+        return f"Mask(..., bbox={self.bbox!r}, schema={self.schema!r})"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Mask):
+            return NotImplemented
+        return (
+            self._bbox == other._bbox
+            and self._schema == other._schema
+            and np.array_equal(self._array, other._array, equal_nan=True)
+        )
+
+    def copy(self) -> Mask:
+        """Deep-copy the mask."""
+        result = Mask(self._array.copy(), bbox=self._bbox, schema=self._schema, projection=self._projection)
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.copy()
+        return result
 
     def view(
         self,
@@ -408,7 +507,29 @@ class Mask:
             projection = self._projection
         if start is ...:
             start = self._bbox.start
-        return Mask(self._array, start=start, schema=schema, projection=projection)
+        result = Mask(self._array, start=start, schema=schema, projection=projection)
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.copy()
+        return result
+
+    def update(self, other: Mask) -> None:
+        """Update ``self`` to include all common mask values set in ``other``.
+
+        Notes
+        -----
+        This only operates on the intersection of the two mask bounding boxes
+        and the mask planes that are present in both.  Mask bits are only set,
+        not cleared (i.e. this uses ``|=`` updates, not ``=`` assignments).
+        """
+        lhs = self
+        rhs = other
+        if other.bbox != self.bbox:
+            if (bbox := self.bbox.intersection(other.bbox)) is None:
+                return
+            lhs = self[bbox]
+            rhs = other[bbox]
+        for name in self.schema.names & other.schema.names:
+            lhs.set(name, rhs.get(name))
 
     def get(self, plane: str) -> np.ndarray:
         """Return a 2-d boolean array for the given mask plane.
@@ -463,12 +584,6 @@ class Mask:
             boolean_mask = boolean_mask.astype(bool)
         self._array[boolean_mask, bit.index] &= ~bit.mask
 
-    def __str__(self) -> str:
-        return f"Mask({self.bbox!s}, {list(self.schema.names)})"
-
-    def __repr__(self) -> str:
-        return f"Mask(..., bbox={self.bbox!r}, schema={self.schema!r})"
-
     def serialize[P: pydantic.BaseModel](
         self,
         archive: OutputArchive[P],
@@ -482,12 +597,13 @@ class Mask:
         Parameters
         ----------
         archive
-            `~serialization.OutputArchive` instance to write to.
+            Archive to write to.
         update_header
             A callback that will be given the FITS header for the HDU
-            containing this image in order to add keys to it.  This callback
+            containing this mask in order to add keys to it.  This callback
             may be provided but will not be called if the output format is not
-            FITS.
+            FITS.  As multiple HDUs may be added, this function may be called
+            multiple times.
         save_projection
             If `True`, save the `Projection` attached to the mask, if there
             is one.
@@ -495,31 +611,44 @@ class Mask:
             A FITS WCS single-character suffix to use when adding a linear
             WCS that maps the FITS array to the logical pixel coordinates
             defined by ``bbox.start``.  Set to `None` to not write this WCS.
-
-        Returns
-        -------
-        MaskSerializationModel
-            A Pydantic model representation of the mask, holding references
-            to data stored in the archive.
         """
-
-        def _update_header(header: astropy.io.fits.Header) -> None:
-            update_header(header)
-            # TODO: save mask plane information.
-            if self.projection is not None:
-                fits_wcs = self.projection.as_fits_wcs(self.bbox)
-                if fits_wcs:
-                    header.update(fits_wcs.to_header(relax=True))
-            if add_offset_wcs is not None:
-                fits.add_offset_wcs(header, x=self.bbox.x.start, y=self.bbox.y.start, key=add_offset_wcs)
-
-        ref = archive.add_array(self.array, update_header=_update_header)
+        data: list[ArrayReferenceModel] = []
+        for schema_2d in self.schema.split(np.int32):
+            mask_2d = Mask(0, bbox=self.bbox, schema=schema_2d, projection=self._projection)
+            mask_2d.update(self)
+            data.append(mask_2d._serialize_2d(archive, update_header=update_header))
         serialized_projection: ProjectionSerializationModel[P] | None = None
         if save_projection and self.projection is not None:
             serialized_projection = archive.serialize_direct("projection", self.projection.serialize)
+        serialized_dtype = NumberType.from_numpy(self.schema.dtype)
+        assert is_integer(serialized_dtype), "Mask dtypes should always be integers."
         return MaskSerializationModel.model_construct(
-            data=ref, start=list(self.bbox.start), planes=list(self.schema), projection=serialized_projection
+            data=data,
+            start=list(self.bbox.start),
+            planes=list(self.schema),
+            dtype=serialized_dtype,
+            projection=serialized_projection,
         )
+
+    def _serialize_2d[P: pydantic.BaseModel](
+        self,
+        archive: OutputArchive[P],
+        *,
+        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        save_projection: bool = True,
+        add_offset_wcs: str | None = "A",
+    ) -> ArrayReferenceModel:
+        def _update_header(header: astropy.io.fits.Header) -> None:
+            update_header(header)
+            self.schema.update_header(header)
+            if self.projection is not None:
+                if self.fits_wcs:
+                    header.update(self.fits_wcs.to_header(relax=True))
+            if add_offset_wcs is not None:
+                fits.add_offset_wcs(header, x=self.bbox.x.start, y=self.bbox.y.start, key=add_offset_wcs)
+
+        assert self.array.shape[2] == 1, "Mask should be split before calling this method."
+        return archive.add_array(self._array[:, :, 0], update_header=_update_header)
 
     @classmethod
     def deserialize(
@@ -538,7 +667,7 @@ class Mask:
             A Pydantic model representation of the mask, holding references
             to data stored in the archive.
         archive
-            `~serialization.InputArchive` instance to read from.
+            Archive to read from.
         bbox
             Bounding box of a subimage to read instead.
         strip_header
@@ -546,52 +675,254 @@ class Mask:
             ``update_header`` argument in the corresponding call to
             `serialize`.
         """
-
-        def _strip_header(header: astropy.io.fits.Header) -> None:
-            strip_header(header)
-            fits.strip_wcs_cards(header)
-            # TODO: strip mask plane information.
-
-        slices = bbox.slice_within(model.bbox) if bbox is not None else ...
-        array = archive.get_array(model.data, strip_header=_strip_header, slices=slices)
-        schema = MaskSchema(model.planes, dtype=array.dtype)
+        slices: tuple[slice, ...] | EllipsisType = ...
+        if bbox is not None:
+            slices = bbox.slice_within(model.bbox)
+        else:
+            bbox = model.bbox
+        if not is_integer(model.dtype):
+            raise ArchiveReadError(f"Mask array has a non-integer dtype: {model.dtype}.")
+        schema = MaskSchema(model.planes, dtype=model.dtype.to_numpy())
         projection = (
             Projection.deserialize(model.projection, archive) if model.projection is not None else None
         )
-        return cls(
-            array, schema=schema, start=model.start if bbox is None else bbox.start, projection=projection
-        )
+        result = Mask(0, schema=schema, bbox=bbox, projection=projection)
+        schemas_2d = schema.split(np.int32)
+        if len(schemas_2d) != len(model.data):
+            raise ArchiveReadError(
+                f"Number of mask arrays ({len(model.data)}) does not match expectation ({len(schemas_2d)})."
+            )
+        for ref, schema_2d in zip(model.data, schemas_2d):
+            mask_2d = cls._deserialize_2d(
+                ref, schema_2d, bbox.start, archive, strip_header=strip_header, slices=slices
+            )
+            result.update(mask_2d)
+        return result
 
     @classmethod
-    def read_legacy(cls, hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU) -> Mask:
+    def _deserialize_2d(
+        cls,
+        ref: ArrayReferenceModel,
+        schema_2d: MaskSchema,
+        start: Sequence[int],
+        archive: InputArchive[Any],
+        *,
+        slices: tuple[slice, ...] | EllipsisType = ...,
+        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> Mask:
+        def _strip_header(header: astropy.io.fits.Header) -> None:
+            strip_header(header)
+            schema_2d.strip_header(header)
+            fits.strip_wcs_cards(header)
+
+        array_2d = archive.get_array(ref, strip_header=_strip_header, slices=slices)
+        return Mask(array_2d[:, :, np.newaxis], schema=schema_2d, start=start)
+
+    @staticmethod
+    def _get_archive_tree_type[P: pydantic.BaseModel](
+        pointer_type: type[P],
+    ) -> type[MaskSerializationModel[P]]:
+        """Return the serialization model type for this object for an archive
+        type that uses the given pointer type.
+        """
+        return MaskSerializationModel[pointer_type]  # type: ignore
+
+    _archive_default_name: ClassVar[str] = "mask"
+    """The name this object should be serialized with when written as the
+    top-level object.
+    """
+
+    def write_fits(
+        self,
+        filename: str,
+        *,
+        compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
+    ) -> None:
+        """Write the mask to a FITS file.
+
+        Parameters
+        ----------
+        filename
+            Name of the file to write to.  Must be a local file.
+        compression
+            Compression options.
+        """
+        compression_options = {}
+        if compression is not fits.FitsCompressionOptions.DEFAULT:
+            compression_options[self._archive_default_name] = compression
+        fits.write(self, filename, compression_options)
+
+    @staticmethod
+    def read_fits(url: ResourcePathExpression, *, bbox: Box | None = None) -> Mask:
+        """Read an image from a FITS file.
+
+        Parameters
+        ----------
+        url
+            URL of the file to read; may be any type supported by
+            `lsst.resources.ResourcePath`.
+        bbox
+            Bounding box of a subimage to read instead.
+        """
+        return fits.read(Mask, url, bbox=bbox)
+
+    @staticmethod
+    def from_legacy(
+        legacy: Any,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+    ) -> Mask:
+        """Convert from an `lsst.afw.image.Mask` instance.
+
+        Parameters
+        ----------
+        legacy
+            An `lsst.afw.image.Mask` instance.  This will not share pixel
+            data with the new object.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
+        """
+        return Mask._from_legacy_array(
+            legacy.array,
+            legacy.getMaskPlaneDict(),
+            start=YX(y=legacy.getY0(), x=legacy.getX0()),
+            plane_map=plane_map,
+        )
+
+    def to_legacy(self, plane_map: Mapping[str, MaskPlane] | None = None) -> Any:
+        """Convert to an `lsst.afw.image.Mask` instance.
+
+        The pixel data will not be shared between the two objects.
+
+        Parameters
+        ----------
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
+        """
+        import lsst.afw.image
+        import lsst.geom
+
+        result = lsst.afw.image.Mask(self.bbox.to_legacy())
+        if plane_map is None:
+            plane_map = {plane.name: plane for plane in self.schema if plane is not None}
+        for old_name, new_plane in plane_map.items():
+            old_bit = result.addMaskPlane(old_name)
+            old_bitmask = 1 << old_bit
+            result.array[self.get(new_plane.name)] |= old_bitmask
+        return result
+
+    @staticmethod
+    def _from_legacy_array(
+        array2d: np.ndarray,
+        old_planes: Mapping[str, int],
+        *,
+        start: YX[int],
+        plane_map: Mapping[str, MaskPlane] | None = None,
+        projection: Projection | None = None,
+    ) -> Mask:
+        planes: list[MaskPlane] = []
+        new_name_to_old_bitmask: dict[str, int] = {}
+        for old_name, old_bit in old_planes.items():
+            old_bitmask = 1 << old_bit
+            if plane_map is not None:
+                if new_plane := plane_map.get(old_name):
+                    planes.append(new_plane)
+                    new_name_to_old_bitmask[new_plane.name] = old_bitmask
+                else:
+                    if n_orphaned := np.count_nonzero(array2d & old_bitmask):
+                        raise RuntimeError(
+                            f"Legacy mask plane {old_name!r} is not remapped, "
+                            f"but {n_orphaned} pixels have this bit set."
+                        )
+            else:
+                planes.append(MaskPlane(old_name, ""))
+                new_name_to_old_bitmask[old_name] = old_bitmask
+        schema = MaskSchema(planes)
+        mask = Mask(0, schema=schema, start=start, shape=array2d.shape, projection=projection)
+        for new_name, old_bitmask in new_name_to_old_bitmask.items():
+            mask.set(new_name, array2d & old_bitmask)
+        return mask
+
+    @staticmethod
+    def read_legacy(
+        uri: ResourcePathExpression,
+        *,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+        ext: str | int = 1,
+        fits_wcs_frame: Frame | None = None,
+    ) -> Mask:
         """Read a FITS file written by `lsst.afw.image.Mask.writeFits`.
 
         Parameters
         ----------
-        hdu
-            An astropy image HDU.
+        uri
+            URI or file name.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
+        ext
+            Name or index of the FITS HDU to read.
+        fits_wcs_frame
+            If not `None` and the HDU containing the mask has a FITS WCS,
+            attach a `Projection` to the returned mask by converting that WCS.
         """
+        opaque_metadata = fits.FitsOpaqueMetadata()
+        fs, fspath = ResourcePath(uri).to_fsspec()
+        with fs.open(fspath) as stream, astropy.io.fits.open(stream) as hdu_list:
+            opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
+            result = Mask._read_legacy_hdu(
+                hdu_list[ext], opaque_metadata, plane_map=plane_map, fits_wcs_frame=fits_wcs_frame
+            )
+            result._opaque_metadata = opaque_metadata
+        return result
+
+    @staticmethod
+    def _read_legacy_hdu(
+        hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU,
+        opaque_metadata: fits.FitsOpaqueMetadata,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+        fits_wcs_frame: Frame | None = None,
+    ) -> Mask:
+        if isinstance(hdu, astropy.io.fits.BinTableHDU):
+            hdu = astropy.io.fits.CompImageHDU(bintable=hdu)
         dx: int = hdu.header.pop("LTV1")
         dy: int = hdu.header.pop("LTV2")
-        start = (-dy, -dx)
-        plane_dict = MaskPlane.read_legacy(hdu.header)
-        schema = MaskSchema([MaskPlane(name, "") for name in plane_dict])
-        array2d: np.ndarray = hdu.data
-        mask = cls(0, schema=schema, start=start, shape=array2d.shape)
-        for name, bit2d in plane_dict.items():
-            bitmask2d = 1 << bit2d
-            mask.set(name, array2d & bitmask2d)
+        start = YX(y=-dy, x=-dx)
+        old_planes = MaskPlane.read_legacy(hdu.header)
+        projection: Projection | None = None
+        if fits_wcs_frame is not None:
+            try:
+                fits_wcs = astropy.wcs.WCS(hdu.header)
+            except KeyError:
+                pass
+            else:
+                projection = Projection.from_fits_wcs(
+                    fits_wcs, pixel_frame=fits_wcs_frame, x0=start.x, y0=start.y
+                )
+        mask = Mask._from_legacy_array(
+            hdu.data, old_planes, start=start, plane_map=plane_map, projection=projection
+        )
+        fits.strip_wcs_cards(hdu.header)
+        hdu.header.strip()
+        hdu.header.remove("EXTTYPE", ignore_missing=True)
+        hdu.header.remove("INHERIT", ignore_missing=True)
+        # afw set BUNIT on masks because of limitations in how FITS
+        # metadata is handled there.
+        hdu.header.remove("BUNIT", ignore_missing=True)
+        opaque_metadata.add_header(hdu.header)
         return mask
 
 
-class MaskSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
+class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """Pydantic model used to represent the serialized form of a `.Mask`."""
 
-    data: ArrayReferenceModel = pydantic.Field(description="Reference to pixel data.")
+    data: list[ArrayReferenceModel] = pydantic.Field(description="References to pixel data.")
     start: list[int] = pydantic.Field(
         description="Coordinate of the first pixels in the array, ordered (y, x)."
     )
     planes: list[MaskPlane | None] = pydantic.Field(description="Definitions of the bitplanes in the mask.")
+    dtype: IntegerType = pydantic.Field(description="Data type of the in-memory mask.")
     projection: ProjectionSerializationModel[P] | None = pydantic.Field(
         default=None,
         exclude_if=is_none,
@@ -601,6 +932,39 @@ class MaskSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
     @property
     def bbox(self) -> Box:
         """The 2-d bounding box of the mask."""
-        return Box(
-            *[Interval.factory[begin : begin + size] for begin, size in zip(self.start, self.data.shape[:-1])]
-        )
+        return Box.from_shape(self.data[0].shape, start=self.start)
+
+
+def get_legacy_visit_image_mask_planes() -> dict[str, MaskPlane]:
+    """Return a mapping from legacy mask plane name to `MaskPlane` instance
+    for LSST visit images, c. DP2.
+    """
+    return {
+        "BAD": MaskPlane("BAD", "Bad pixel in the instrument, including bad amplifiers."),
+        "SAT": MaskPlane(
+            "SATURATED", "Pixel was saturated or affected by saturation in a neighboring pixel."
+        ),
+        "INTRP": MaskPlane("INTERPOLATED", "Original pixel value was interpolated."),
+        "CR": MaskPlane("COSMIC_RAY", "A cosmic ray affected this pixel."),
+        "EDGE": MaskPlane(
+            "DETECTION_EDGE",
+            "Pixel was too close to the edge to be considered for detection, "
+            "due to the finite size of the detection kernel.",
+        ),
+        "DETECTED": MaskPlane("DETECTED", "Pixel was part of a detected source."),
+        "SUSPECT": MaskPlane("SUSPECT", "Pixel was close to the saturation level. "),
+        "NO_DATA": MaskPlane("NO_DATA", "No data was available for this pixel."),
+        "VIGNETTED": MaskPlane("VIGNETTED", "Pixel was vignetted by the optics."),
+        "PARTLY_VIGNETTED": MaskPlane("PARTLY_VIGNETTED", "Pixel was partly vignetted by the optics."),
+        "CROSSTALK": MaskPlane("CROSSTALK", "Pixel was affected by crosstalk and corrected accordingly."),
+        "ITL_DIP": MaskPlane(
+            "ITL_DIP", "Pixel was affected by a dark vertical trail from a bright source, on an ITL CCD."
+        ),
+        "NOT_DEBLENDED": MaskPlane(
+            "NOT_DEBLENDED",
+            "Pixel belonged to a detection that was not deblended, usually due to size limits.",
+        ),
+        "SPIKE": MaskPlane(
+            "SPIKE", "Pixel is in the neighborhood of a diffraction spike from a bright star."
+        ),
+    }

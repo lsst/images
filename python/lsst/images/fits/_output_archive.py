@@ -11,9 +11,10 @@
 
 from __future__ import annotations
 
-__all__ = ("FitsOutputArchive",)
+__all__ = ("FitsOutputArchive", "write")
 
 import dataclasses
+from collections import Counter
 from collections.abc import Callable, Hashable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, Self
@@ -25,6 +26,7 @@ import pydantic
 
 from .._transforms import FrameSet
 from ..serialization import (
+    ArchiveTree,
     ArrayReferenceModel,
     ColumnDefinitionModel,
     NestedOutputArchive,
@@ -34,7 +36,51 @@ from ..serialization import (
     TableModel,
     no_header_updates,
 )
-from ._common import ExtensionHDU, FitsCompressionOptions, FitsOpaqueMetadata
+from ._common import ExtensionHDU, ExtensionKey, FitsCompressionOptions, FitsOpaqueMetadata
+
+
+def write(
+    obj: Any,
+    filename: str,
+    compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
+    update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    compression_seed: int | None = None,
+) -> Any:
+    """Write an object with a ``serialize`` method to a FITS file.
+
+    Parameters
+    ----------
+    filename
+        Name of the file to write to.  Must not already exist.
+    compression_options
+        Options for how to compress the FITS file, keyed by the name of
+        the attribute (with JSON pointer ``/`` separators for nested
+        attributes).
+    update_header
+        A callback that will be given the primary HDU FITS header and an
+        opportunity to modify it.
+    compression_seed
+        A FITS tile compression seed to use whenever the configured
+        compression seed is `None` or (for backwards compatibility) ``0``.
+        This value is then incremented every time it is used.
+
+    Returns
+    -------
+    `.serialization.ArchiveTree`
+        The serialized representation of the object.
+    """
+    opaque_metadata = getattr(obj, "_opaque_metadata", None)
+    name = getattr(obj, "_archive_default_name", None)
+    with FitsOutputArchive.open(
+        filename,
+        compression_options=compression_options,
+        opaque_metadata=opaque_metadata,
+        update_header=update_header,
+        compression_seed=compression_seed,
+    ) as archive:
+        tree = archive.serialize_direct(name, obj.serialize) if name is not None else obj.serialize(archive)
+        archive.add_tree(tree)
+    return tree
 
 
 class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
@@ -50,6 +96,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         hdu_list: astropy.io.fits.HDUList,
         compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
         opaque_metadata: Any = None,
+        compression_seed: int | None = None,
     ):
         # JSON blobs for objects we've saved as pointers:
         self._pointer_targets: list[bytes] = []
@@ -63,11 +110,13 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         self._primary_hdu.header.set("INDXSIZE", 0, "Size of the HDU index.")
         self._primary_hdu.header.set("JSONADDR", 0, "Offset in bytes to the JSON tree HDU.")
         self._primary_hdu.header.set("JSONSIZE", 0, "Size of the JSON tree HDU.")
+        self._hdus_by_name = Counter[str]()
         self._compression_options = dict(compression_options) if compression_options is not None else {}
+        self._compression_seed = compression_seed
         self._opaque_metadata = (
             opaque_metadata if isinstance(opaque_metadata, FitsOpaqueMetadata) else FitsOpaqueMetadata()
         )
-        if (opaque_primary_header := self._opaque_metadata.headers.get("")) is not None:
+        if (opaque_primary_header := self._opaque_metadata.headers.get(ExtensionKey())) is not None:
             self._primary_hdu.header.extend(opaque_primary_header)
         self._hdu_list.append(self._primary_hdu)
         self._json_hdu_added: bool = False
@@ -80,6 +129,8 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         filename: str,
         compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
         opaque_metadata: Any = None,
+        update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        compression_seed: int | None = None,
     ) -> Iterator[Self]:
         """Create an output archive that writes to the given file.
 
@@ -94,6 +145,13 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         opaque_metadata
             Metadata read from an input archive along with the object being
             written now.  Ignored if the metadata is not from a FITS archive.
+        update_header
+            A callback that will be given the primary HDU FITS header and an
+            opportunity to modify it.
+        compression_seed
+            A FITS tile compression seed to use whenever the configured
+            compression seed is `None` or (for backwards compatibility) ``0``.
+            This value is then incremented every time it is used.
 
         Returns
         -------
@@ -103,7 +161,8 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         with astropy.io.fits.open(filename, mode="append") as hdu_list:
             if hdu_list:
                 raise OSError(f"File {filename!r} already exists.")
-            archive = cls(hdu_list, compression_options, opaque_metadata)
+            archive = cls(hdu_list, compression_options, opaque_metadata, compression_seed=compression_seed)
+            update_header(hdu_list[0].header)
             yield archive
             if not archive._json_hdu_added:
                 raise RuntimeError("Write context exited without 'add_tree' being called.")
@@ -175,13 +234,12 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
                 hdu = compression_options.make_hdu(array, name=extname)
             else:
                 hdu = astropy.io.fits.ImageHDU(array, name=extname)
-        array_model = ArrayReferenceModel(
-            source=f"fits:{extname}",
+        key = self._add_hdu(hdu, update_header)
+        return ArrayReferenceModel(
+            source=str(key),
             shape=list(array.shape),
             datatype=NumberType.from_numpy(array.dtype),
         )
-        self._add_hdu(hdu, update_header)
-        return array_model
 
     def add_table(
         self,
@@ -197,9 +255,8 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         columns = ColumnDefinitionModel.from_record_dtype(hdu.data.dtype)
         for c in columns:
             c.update_from_table(table)
-        table_model = TableModel(source=f"fits:{extname}", columns=columns)
-        self._add_hdu(hdu, update_header)
-        return table_model
+        key = self._add_hdu(hdu, update_header)
+        return TableModel(source=str(key), columns=columns)
 
     def add_structured_array(
         self,
@@ -221,27 +278,26 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         if descriptions is not None:
             for c in columns:
                 c.description = descriptions.get(c.name, "")
-        table_model = TableModel(source=f"fits:{extname}", columns=columns)
-        self._add_hdu(hdu, update_header)
-        return table_model
+        key = self._add_hdu(hdu, update_header)
+        return TableModel(source=str(key), columns=columns)
 
     def _add_hdu(
         self,
         hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> None:
-        try:
-            self._hdu_list.index_of(hdu.name)
-        except KeyError:
-            pass
-        else:
-            raise RuntimeError(f"EXTNAME {hdu.name} is not unique.")
+    ) -> ExtensionKey:
+        n_hdus = self._hdus_by_name.get(hdu.name, 0)
+        key = ExtensionKey(hdu.name, n_hdus + 1)
+        if n_hdus:
+            hdu.header["EXTVER"] = key.ver
+        self._hdus_by_name[hdu.name] += 1
         update_header(hdu.header)
-        if (opaque_headers := self._opaque_metadata.headers.get(hdu.name)) is not None:
+        if (opaque_headers := self._opaque_metadata.headers.get(key)) is not None:
             hdu.header.extend(opaque_headers)
         self._hdu_list.append(hdu)
+        return key
 
-    def add_tree(self, tree: pydantic.BaseModel) -> None:
+    def add_tree(self, tree: ArchiveTree) -> None:
         """Write the JSON tree to the archive.
 
         This method must be called exactly once, just before the `open` context
@@ -264,7 +320,23 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         self._json_hdu_added = True
 
     def _get_compression_options(self, name: str) -> FitsCompressionOptions | None:
-        return self._compression_options.get(name, FitsCompressionOptions.DEFAULT)
+        result = self._compression_options.get(name, FitsCompressionOptions.DEFAULT)
+        if result is None or result.quantization is None:
+            return result
+        if self._compression_seed is not None and not result.quantization.seed:
+            result = result.model_copy(
+                update={
+                    "quantization": result.quantization.model_copy(update={"seed": self._compression_seed})
+                }
+            )
+            self._compression_seed += 1
+            if self._compression_seed > 10000:
+                self._compression_seed = 1
+        # MyPy can tell that result.quantization is not None in the 'if', but
+        # forgets that by this 'else':
+        elif result.quantization.seed is None:  # type: ignore[union-attr]
+            raise RuntimeError("No quantization seed provided.")
+        return result
 
     @staticmethod
     def _make_index_table(hdu_list: astropy.io.fits.HDUList) -> astropy.io.fits.BinTableHDU:
@@ -278,6 +350,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         index_hdu = astropy.io.fits.BinTableHDU.from_columns(
             [
                 astropy.io.fits.Column("EXTNAME", f"A{max_name_size}"),
+                astropy.io.fits.Column("EXTVER", "J"),
                 astropy.io.fits.Column("XTENSION", "A8"),
                 astropy.io.fits.Column("ZIMAGE", "L"),
             ]
@@ -288,6 +361,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         hdu: ExtensionHDU | astropy.io.fits.PrimaryHDU
         for n, hdu in enumerate(hdu_list):
             index_hdu.data[n]["EXTNAME"] = hdu.header.get("EXTNAME", "")
+            index_hdu.data[n]["EXTVER"] = hdu.header.get("EXTVER", 1)
             index_hdu.data[n]["XTENSION"] = hdu.header.get("XTENSION", "IMAGE")
             index_hdu.data[n]["ZIMAGE"] = hdu.header.get("ZIMAGE", False)
             bytes = _HDUBytes.from_read_hdu(hdu)

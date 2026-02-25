@@ -45,6 +45,8 @@ https = ["lsst-resources[https]"]
 gs = ["lsst-resources[gs]"]
 # Add feature for Piff PSF support.
 piff = ["piff >= 1.6", "galsim >= 2.7"]
+# Add feature for Butler support.
+butler = ["lsst-daf-butler"]
 
 [tool.setuptools.packages.find]
 where = ["python"]

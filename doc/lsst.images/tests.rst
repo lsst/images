@@ -1,7 +1,7 @@
-Core API Reference
-==================
+Test Utilities
+==============
 
-.. automodapi:: lsst.images
+.. automodapi:: lsst.images.tests
    :no-main-docstr:
    :no-inheritance-diagram:
    :inherited-members:

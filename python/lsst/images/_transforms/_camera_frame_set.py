@@ -19,7 +19,7 @@ import astropy.units as u
 import pydantic
 
 from .._geom import Bounds, Box
-from ..serialization import InputArchive, OutputArchive
+from ..serialization import ArchiveTree, InputArchive, OutputArchive
 from . import _frames  # use this import style to facilitate pattern matching
 from ._frame_set import FrameLookupError, FrameSet
 from ._transform import Transform
@@ -197,6 +197,15 @@ class CameraFrameSet(FrameSet):
 
         return CameraFrameSet(model.instrument, astshim.FrameSet.fromString(model.ast))
 
+    @staticmethod
+    def _get_archive_tree_type(
+        pointer_type: type[pydantic.BaseModel],
+    ) -> type[CameraFrameSetSerializationModel]:
+        """Return the serialization model type for this object for an archive
+        type that uses the given pointer type.
+        """
+        return CameraFrameSetSerializationModel
+
     @classmethod
     def from_legacy(cls, camera: Any) -> CameraFrameSet:
         """Construct a transform from a legacy `lsst.afw.cameraGeom.Camera`.
@@ -211,7 +220,7 @@ class CameraFrameSet(FrameSet):
         return CameraFrameSet("HSC", ast_frame_set)
 
 
-class CameraFrameSetSerializationModel(pydantic.BaseModel):
+class CameraFrameSetSerializationModel(ArchiveTree):
     """Serialization model for `CameraFrameSet`."""
 
     instrument: str = pydantic.Field(description="Name of the instrument.")

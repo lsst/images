@@ -14,8 +14,10 @@ from __future__ import annotations
 __all__ = ("Image", "ImageSerializationModel")
 
 from collections.abc import Callable, Sequence
+from contextlib import ExitStack
+from functools import cached_property
 from types import EllipsisType
-from typing import Any, final
+from typing import Any, ClassVar, final
 
 import astropy.io.fits
 import astropy.units
@@ -24,13 +26,17 @@ import numpy as np
 import numpy.typing as npt
 import pydantic
 
+from lsst.resources import ResourcePath, ResourcePathExpression
+
 from . import fits
-from ._geom import Box
-from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
+from ._geom import YX, Box
+from ._transforms import Frame, Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .serialization import (
+    ArchiveTree,
     ArrayReferenceModel,
     ArrayReferenceQuantityModel,
     InputArchive,
+    OpaqueArchiveMetadata,
     OutputArchive,
     no_header_updates,
 )
@@ -123,6 +129,7 @@ class Image:
         self._bbox: Box = bbox
         self._unit = unit
         self._projection = projection
+        self._opaque_metadata: OpaqueArchiveMetadata | None = None
 
     @property
     def array(self) -> np.ndarray:
@@ -190,7 +197,7 @@ class Image:
         """
         return self._projection.as_astropy(self.bbox) if self._projection is not None else None
 
-    @property
+    @cached_property
     def fits_wcs(self) -> astropy.wcs.WCS | None:
         """An Astropy FITS WCS for this image's pixel array.
 
@@ -203,7 +210,11 @@ class Image:
         This may be an approximation or absent if `projection` is not
         naturally representable as a FITS WCS.
         """
-        return self._projection.as_fits_wcs(self.bbox) if self._projection is not None else None
+        return (
+            self._projection.as_fits_wcs(self.bbox, allow_approximation=True)
+            if self._projection is not None
+            else None
+        )
 
     def __getitem__(self, bbox: Box | EllipsisType) -> Image:
         indices: EllipsisType | tuple[slice, ...]
@@ -212,7 +223,10 @@ class Image:
             bbox = self._bbox
         else:
             indices = bbox.slice_within(self._bbox)
-        return Image(self._array[indices], bbox=bbox, unit=self._unit)
+        result = Image(self._array[indices], bbox=bbox, unit=self._unit)
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.subset(bbox)
+        return result
 
     def __setitem__(self, bbox: Box | EllipsisType, value: Image) -> None:
         if bbox is ...:
@@ -237,21 +251,12 @@ class Image:
             and np.array_equal(self._array, other._array, equal_nan=True)
         )
 
-    def copy(
-        self,
-        *,
-        unit: astropy.units.UnitBase | None | EllipsisType = ...,
-        projection: Projection | None | EllipsisType = ...,
-        start: Sequence[int] | EllipsisType = ...,
-    ) -> Image:
+    def copy(self) -> Image:
         """Deep-copy the image, with optional updates."""
-        if unit is ...:
-            unit = self._unit
-        if projection is ...:
-            projection = self._projection
-        if start is ...:
-            start = self._bbox.start
-        return Image(self._array.copy(), start=start, unit=unit, projection=projection)
+        result = Image(self._array.copy(), bbox=self._bbox, unit=self._unit, projection=self._projection)
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.copy()
+        return result
 
     def view(
         self,
@@ -267,7 +272,10 @@ class Image:
             projection = self._projection
         if start is ...:
             start = self._bbox.start
-        return Image(self._array, start=start, unit=unit, projection=projection)
+        result = Image(self._array, start=start, unit=unit, projection=projection)
+        if self._opaque_metadata is not None:
+            result._opaque_metadata = self._opaque_metadata.copy()
+        return result
 
     def serialize[P: pydantic.BaseModel](
         self,
@@ -282,7 +290,7 @@ class Image:
         Parameters
         ----------
         archive
-            `~serialization.OutputArchive` instance to write to.
+            Archive to write to.
         update_header
             A callback that will be given the FITS header for the HDU
             containing this image in order to add keys to it.  This callback
@@ -295,12 +303,6 @@ class Image:
             A FITS WCS single-character suffix to use when adding a linear
             WCS that maps the FITS array to the logical pixel coordinates
             defined by ``bbox.start``.  Set to `None` to not write this WCS.
-
-        Returns
-        -------
-        ImageSerializationModel
-            A Pydantic model representation of the image, holding references
-            to data stored in the archive.
         """
         if save_projection and add_offset_wcs == "":
             raise TypeError("save_projection=True is not compatible with add_offset_wcs=''.")
@@ -310,9 +312,8 @@ class Image:
             if self.unit is not None:
                 header["BUNIT"] = self.unit.to_string(format="fits")
             if self.projection is not None:
-                fits_wcs = self.projection.as_fits_wcs(self.bbox)
-                if fits_wcs:
-                    header.update(fits_wcs.to_header(relax=True))
+                if self.fits_wcs:
+                    header.update(self.fits_wcs.to_header(relax=True))
             if add_offset_wcs is not None:
                 fits.add_offset_wcs(header, x=self.bbox.x.start, y=self.bbox.y.start, key=add_offset_wcs)
 
@@ -331,9 +332,8 @@ class Image:
                 projection=serialized_projection,
             )
 
-    @classmethod
+    @staticmethod
     def deserialize(
-        cls,
         model: ImageSerializationModel[Any],
         archive: InputArchive[Any],
         *,
@@ -348,7 +348,7 @@ class Image:
             A Pydantic model representation of the image, holding references
             to data stored in the archive.
         archive
-            `~serialization.InputArchive` instance to read from.
+            Archive to read from.
         bbox
             Bounding box of a subimage to read instead.
         strip_header
@@ -375,50 +375,193 @@ class Image:
         projection = (
             Projection.deserialize(model.projection, archive) if model.projection is not None else None
         )
-        return cls(array, start=model.start if bbox is None else bbox.start, unit=unit, projection=projection)
+        return Image(
+            array, start=model.start if bbox is None else bbox.start, unit=unit, projection=projection
+        )
 
-    @classmethod
-    def from_legacy(cls, legacy: Any, unit: astropy.units.Unit | None = None) -> Image:
+    @staticmethod
+    def _get_archive_tree_type[P: pydantic.BaseModel](
+        pointer_type: type[P],
+    ) -> type[ImageSerializationModel[P]]:
+        """Return the serialization model type for this object for an archive
+        type that uses the given pointer type.
+        """
+        return ImageSerializationModel[pointer_type]  # type: ignore
+
+    _archive_default_name: ClassVar[str] = "image"
+    """The name this object should be serialized with when written as the
+    top-level object.
+    """
+
+    def write_fits(
+        self,
+        filename: str,
+        *,
+        compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
+        compression_seed: int | None = None,
+    ) -> None:
+        """Write the image to a FITS file.
+
+        Parameters
+        ----------
+        filename
+            Name of the file to write to.  Must be a local file.
+        compression
+            Compression options.
+        compression_seed
+            A FITS tile compression seed to use whenever the configured
+            compression seed is `None` or (for backwards compatibility) ``0``.
+        """
+        compression_options = {}
+        if compression is not fits.FitsCompressionOptions.DEFAULT:
+            compression_options[self._archive_default_name] = compression
+        fits.write(self, filename, compression_options, compression_seed=compression_seed)
+
+    @staticmethod
+    def read_fits(url: ResourcePathExpression, *, bbox: Box | None = None) -> Image:
+        """Read an image from a FITS file.
+
+        Parameters
+        ----------
+        url
+            URL of the file to read; may be any type supported by
+            `lsst.resources.ResourcePath`.
+        bbox
+            Bounding box of a subimage to read instead.
+        """
+        return fits.read(Image, url, bbox=bbox)
+
+    @staticmethod
+    def from_legacy(legacy: Any, unit: astropy.units.Unit | None = None) -> Image:
         """Convert from an `lsst.afw.image.Image` instance.
 
         Parameters
         ----------
         legacy
-            An `lsst.afw.image.Image` instance.
+            An `lsst.afw.image.Image` instance that will share pixel data with
+           the returned object.
         unit
             Units of the image.
         """
-        return cls(legacy.array, start=(legacy.getY0(), legacy.getX0()), unit=unit)
+        return Image(legacy.array, start=(legacy.getY0(), legacy.getX0()), unit=unit)
 
-    def to_legacy(self) -> Any:
-        """Convert to an `lsst.afw.image.Image` instance."""
+    def to_legacy(self, *, copy: bool | None = None) -> Any:
+        """Convert to an `lsst.afw.image.Image` instance.
+
+        Parameters
+        ----------
+        copy
+            If `True`, always copy the pixel data.  If `False`, return a view,
+            and raise `TypeError` if the pixel data is read-only (this is not
+            supported by afw).  If `None`, onyl if the pixel data is
+            read-only.
+        """
         import lsst.afw.image
         import lsst.geom
 
-        result = lsst.afw.image.Image(self._array, dtype=self._array.dtype)
-        result.setXY0(lsst.geom.Point2I(self._bbox.x.min, self._bbox.y.min))
-        return result
+        array = self._array
+        if copy:
+            array = array.copy()
+        elif not self._array.flags.writeable:
+            if copy is None:
+                array = array.copy()
+            else:
+                raise TypeError("Cannot create a legacy lsst.afw.image.Image view into a read-only array.")
 
-    @classmethod
-    def read_legacy(cls, hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU) -> Image:
+        return lsst.afw.image.Image(
+            array,
+            deep=False,
+            dtype=array.dtype.type,
+            xy0=lsst.geom.Point2I(self._bbox.x.min, self._bbox.y.min),
+        )
+
+    @staticmethod
+    def read_legacy(
+        uri: ResourcePathExpression,
+        *,
+        preserve_quantization: bool = False,
+        ext: str | int = 1,
+        fits_wcs_frame: Frame | None = None,
+    ) -> Image:
         """Read a FITS file written by `lsst.afw.image.Image.writeFits`.
 
         Parameters
         ----------
-        hdu
-            An Astropy image HDU.
+        uri
+            URI or file name.
+        preserve_quantization
+            If `True`, ensure that writing the image back out again will
+            exactly preserve quantization-compressed pixel values.  This causes
+            the arrays to be marked as read-only and stores the original binary
+            table data for those planes in memory. If the `Image` is copied,
+            the precompressed pixel values are not transferred to the copy.
+        ext
+            Name or index of the FITS HDU to read.
+        fits_wcs_frame
+            If not `None` and the HDU containing the image has a FITS WCS,
+            attach a `Projection` to the returned image by converting that
+            WCS.
         """
+        opaque_metadata = fits.FitsOpaqueMetadata()
+        with ExitStack() as exit_stack:
+            fs, fspath = ResourcePath(uri).to_fsspec()
+            stream = exit_stack.enter_context(fs.open(fspath))
+            hdu_list = exit_stack.enter_context(astropy.io.fits.open(stream))
+            opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
+            bintable_hdu: astropy.io.fits.BinTableHDU | None = None
+            if preserve_quantization:
+                bintable_stream = exit_stack.enter_context(fs.open(fspath))
+                bintable_hdu_list = exit_stack.enter_context(
+                    astropy.io.fits.open(bintable_stream, disable_image_compression=True)
+                )
+                bintable_hdu = bintable_hdu_list[ext]
+            result = Image._read_legacy_hdu(
+                hdu_list[ext], opaque_metadata, preserve_bintable=bintable_hdu, fits_wcs_frame=fits_wcs_frame
+            )
+            result._opaque_metadata = opaque_metadata
+        return result
+
+    @staticmethod
+    def _read_legacy_hdu(
+        hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU,
+        opaque_metadata: fits.FitsOpaqueMetadata,
+        *,
+        preserve_bintable: astropy.io.fits.BinTableHDU | None,
+        fits_wcs_frame: Frame | None = None,
+    ) -> Image:
         unit: astropy.units.UnitBase | None = None
         if (fits_unit := hdu.header.pop("BUNIT", None)) is not None:
             unit = astropy.units.Unit(fits_unit, format="fits")
         dx: int = hdu.header.pop("LTV1")
         dy: int = hdu.header.pop("LTV2")
-        start = (-dy, -dx)
-        image = Image(hdu.data, start=start, unit=unit)
+        start = YX(y=-dy, x=-dx)
+        read_only: bool = False
+        if preserve_bintable is not None:
+            opaque_metadata.precompressed[hdu.name] = fits.PrecompressedImage.from_bintable(preserve_bintable)
+            read_only = True
+        projection: Projection | None = None
+        if fits_wcs_frame is not None:
+            try:
+                fits_wcs = astropy.wcs.WCS(hdu.header)
+            except KeyError:
+                pass
+            else:
+                projection = Projection.from_fits_wcs(
+                    fits_wcs, pixel_frame=fits_wcs_frame, x0=start.x, y0=start.y
+                )
+        image = Image(hdu.data, start=start, unit=unit, projection=projection)
+        if read_only:
+            image._array.flags["WRITEABLE"] = False
+        fits.strip_wcs_cards(hdu.header)
+        hdu.header.strip()
+        hdu.header.remove("EXTTYPE", ignore_missing=True)
+        hdu.header.remove("INHERIT", ignore_missing=True)
+        hdu.header.remove("UZSCALE", ignore_missing=True)
+        opaque_metadata.add_header(hdu.header)
         return image
 
 
-class ImageSerializationModel[P: pydantic.BaseModel](pydantic.BaseModel):
+class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """Pydantic model used to represent the serialized form of an `.Image`."""
 
     data: ArrayReferenceQuantityModel | ArrayReferenceModel = pydantic.Field(

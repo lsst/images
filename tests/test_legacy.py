@@ -16,6 +16,7 @@ import unittest
 import numpy as np
 
 from lsst.images import Box, Image, Interval
+from lsst.images.fits import FitsCompressionOptions
 
 try:
     import lsst.afw.image
@@ -64,6 +65,33 @@ class LegacyConversionTestCase(unittest.TestCase):
         np.testing.assert_array_equal(i.array, j.array)
         k = Image.from_legacy(j)
         self.assertEqual(i, k)
+
+    def test_fits_compression_from_recipe(self) -> None:
+        """Test that we can convert butler configuration for a compression
+        write recipe into a FitsCompressionOptions dict.
+        """
+        config = {
+            "image": {
+                "algorithm": "RICE_1",
+                "quantization": {
+                    "dither": "SUBTRACTIVE_DITHER_2",
+                    "scaling": "STDEV_MASKED",
+                    "mask_planes": ["NO_DATA", "INTRP"],
+                    "level": 16.0,
+                },
+            },
+            "mask": {
+                "algorithm": "GZIP_2",
+            },
+        }
+        self.assertEqual(
+            FitsCompressionOptions.model_validate(config["image"]),
+            FitsCompressionOptions.LOSSY,
+        )
+        self.assertEqual(
+            FitsCompressionOptions.model_validate(config["mask"]),
+            FitsCompressionOptions.DEFAULT,
+        )
 
 
 if __name__ == "__main__":

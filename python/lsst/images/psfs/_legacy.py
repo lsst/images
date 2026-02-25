@@ -135,7 +135,10 @@ class PSFExWrapper(LegacyPointSpreadFunction):
         This method is intended to be usable as the callback function passed to
         `.serialization.InputArchive.deserialize_pointer`.
         """
-        from lsst.meas.extensions.psfex import PsfexPsf, PsfexPsfSerializationData
+        try:
+            from lsst.meas.extensions.psfex import PsfexPsf, PsfexPsfSerializationData
+        except ImportError:
+            raise serialization.ArchiveReadError("Failed to import lsst.meas.extensions.psfex.") from None
 
         parameters = archive.get_array(model.parameters).astype(np.float32)
         data = PsfexPsfSerializationData()
@@ -152,8 +155,17 @@ class PSFExWrapper(LegacyPointSpreadFunction):
         legacy_psf = PsfexPsf.fromSerializationData(data)
         return cls(legacy_psf, Bounds.deserialize(model.bounds))
 
+    @staticmethod
+    def _get_archive_tree_type(
+        pointer_type: type[pydantic.BaseModel],
+    ) -> type[PSFExSerializationModel]:
+        """Return the serialization model type for this object for an archive
+        type that uses the given pointer type.
+        """
+        return PSFExSerializationModel
 
-class PSFExSerializationModel(pydantic.BaseModel):
+
+class PSFExSerializationModel(serialization.ArchiveTree):
     """Serialization model for PSFEx PSFs."""
 
     average_x: float = pydantic.Field(
@@ -187,3 +199,5 @@ class PSFExSerializationModel(pydantic.BaseModel):
     context: serialization.InlineArray = pydantic.Field(description="Internal PSFEx context array.")
 
     bounds: SerializableBounds = pydantic.Field(description="Validity range for this PSF model.")
+
+    model_config = pydantic.ConfigDict(ser_json_inf_nan="constants")
