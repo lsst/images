@@ -306,7 +306,7 @@ class VisitImage(MaskedImage):
         result._opaque_metadata = masked_image._opaque_metadata
         return result
 
-    @overload
+    @overload  # type: ignore[override]
     @staticmethod
     def read_legacy(
         filename: str,
@@ -378,7 +378,7 @@ class VisitImage(MaskedImage):
     ) -> VisitImage: ...
 
     @staticmethod
-    def read_legacy(
+    def read_legacy(  # type: ignore[override]
         filename: str,
         *,
         preserve_quantization: bool = False,

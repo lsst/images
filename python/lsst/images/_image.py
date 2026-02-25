@@ -30,7 +30,7 @@ from lsst.resources import ResourcePathExpression
 
 from . import fits
 from ._geom import YX, Box
-from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
+from ._transforms import Frame, Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .serialization import (
     ArchiveTree,
     ArrayReferenceModel,
@@ -476,7 +476,13 @@ class Image:
         )
 
     @staticmethod
-    def read_legacy(filename: str, *, preserve_quantization: bool = False, ext: str | int = 1) -> Image:
+    def read_legacy(
+        filename: str,
+        *,
+        preserve_quantization: bool = False,
+        ext: str | int = 1,
+        fits_wcs_frame: Frame | None = None,
+    ) -> Image:
         """Read a FITS file written by `lsst.afw.image.Image.writeFits`.
 
         Parameters
@@ -491,12 +497,10 @@ class Image:
             the precompressed pixel values are not transferred to the copy.
         ext
             Name or index of the FITS HDU to read.
-
-        Notes
-        -----
-        This method does not attach a `Projection` to the `Image` even if the
-        legacy file is actually an `lsst.afw.image.Exposure` with a WCS
-        attached.
+        fits_wcs_frame
+            If not `None` and the HDU containing the image has a FITS WCS,
+            attach a `Projection` to the returned image by converting that
+            WCS.
         """
         opaque_metadata = fits.FitsOpaqueMetadata()
         with ExitStack() as exit_stack:
@@ -508,7 +512,9 @@ class Image:
                     astropy.io.fits.open(filename, disable_image_compression=True)
                 )
                 bintable_hdu = bintable_hdu_list[ext]
-            result = Image._read_legacy_hdu(hdu_list[ext], opaque_metadata, preserve_bintable=bintable_hdu)
+            result = Image._read_legacy_hdu(
+                hdu_list[ext], opaque_metadata, preserve_bintable=bintable_hdu, fits_wcs_frame=fits_wcs_frame
+            )
             result._opaque_metadata = opaque_metadata
         return result
 
@@ -518,6 +524,7 @@ class Image:
         opaque_metadata: fits.FitsOpaqueMetadata,
         *,
         preserve_bintable: astropy.io.fits.BinTableHDU | None,
+        fits_wcs_frame: Frame | None = None,
     ) -> Image:
         unit: astropy.units.UnitBase | None = None
         if (fits_unit := hdu.header.pop("BUNIT", None)) is not None:
@@ -529,7 +536,17 @@ class Image:
         if preserve_bintable is not None:
             opaque_metadata.precompressed[hdu.name] = fits.PrecompressedImage.from_bintable(preserve_bintable)
             read_only = True
-        image = Image(hdu.data, start=start, unit=unit)
+        projection: Projection | None = None
+        if fits_wcs_frame is not None:
+            try:
+                fits_wcs = astropy.wcs.WCS(hdu.header)
+            except KeyError:
+                pass
+            else:
+                projection = Projection.from_fits_wcs(
+                    fits_wcs, pixel_frame=fits_wcs_frame, x0=start.x, y0=start.y
+                )
+        image = Image(hdu.data, start=start, unit=unit, projection=projection)
         if read_only:
             image._array.flags["WRITEABLE"] = False
         fits.strip_wcs_cards(hdu.header)

@@ -37,7 +37,7 @@ from lsst.resources import ResourcePathExpression
 
 from . import fits
 from ._geom import YX, Box
-from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
+from ._transforms import Frame, Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .serialization import (
     ArchiveReadError,
     ArchiveTree,
@@ -819,6 +819,7 @@ class Mask:
         *,
         start: YX[int],
         plane_map: Mapping[str, MaskPlane] | None = None,
+        projection: Projection | None = None,
     ) -> Mask:
         planes: list[MaskPlane] = []
         new_name_to_old_bitmask: dict[str, int] = {}
@@ -838,7 +839,7 @@ class Mask:
                 planes.append(MaskPlane(old_name, ""))
                 new_name_to_old_bitmask[old_name] = old_bitmask
         schema = MaskSchema(planes)
-        mask = Mask(0, schema=schema, start=start, shape=array2d.shape)
+        mask = Mask(0, schema=schema, start=start, shape=array2d.shape, projection=projection)
         for new_name, old_bitmask in new_name_to_old_bitmask.items():
             mask.set(new_name, array2d & old_bitmask)
         return mask
@@ -849,6 +850,7 @@ class Mask:
         *,
         plane_map: Mapping[str, MaskPlane] | None = None,
         ext: str | int = 1,
+        fits_wcs_frame: Frame | None = None,
     ) -> Mask:
         """Read a FITS file written by `lsst.afw.image.Mask.writeFits`.
 
@@ -861,11 +863,16 @@ class Mask:
             description.
         ext
             Name or index of the FITS HDU to read.
+        fits_wcs_frame
+            If not `None` and the HDU containing the mask has a FITS WCS,
+            attach a `Projection` to the returned mask by converting that WCS.
         """
         opaque_metadata = fits.FitsOpaqueMetadata()
         with astropy.io.fits.open(filename) as hdu_list:
             opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
-            result = Mask._read_legacy_hdu(hdu_list[ext], opaque_metadata, plane_map=plane_map)
+            result = Mask._read_legacy_hdu(
+                hdu_list[ext], opaque_metadata, plane_map=plane_map, fits_wcs_frame=fits_wcs_frame
+            )
             result._opaque_metadata = opaque_metadata
         return result
 
@@ -874,6 +881,7 @@ class Mask:
         hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU,
         opaque_metadata: fits.FitsOpaqueMetadata,
         plane_map: Mapping[str, MaskPlane] | None = None,
+        fits_wcs_frame: Frame | None = None,
     ) -> Mask:
         if isinstance(hdu, astropy.io.fits.BinTableHDU):
             hdu = astropy.io.fits.CompImageHDU(bintable=hdu)
@@ -881,7 +889,19 @@ class Mask:
         dy: int = hdu.header.pop("LTV2")
         start = YX(y=-dy, x=-dx)
         old_planes = MaskPlane.read_legacy(hdu.header)
-        mask = Mask._from_legacy_array(hdu.data, old_planes, start=start, plane_map=plane_map)
+        projection: Projection | None = None
+        if fits_wcs_frame is not None:
+            try:
+                fits_wcs = astropy.wcs.WCS(hdu.header)
+            except KeyError:
+                pass
+            else:
+                projection = Projection.from_fits_wcs(
+                    fits_wcs, pixel_frame=fits_wcs_frame, x0=start.x, y0=start.y
+                )
+        mask = Mask._from_legacy_array(
+            hdu.data, old_planes, start=start, plane_map=plane_map, projection=projection
+        )
         fits.strip_wcs_cards(hdu.header)
         hdu.header.strip()
         hdu.header.remove("EXTTYPE", ignore_missing=True)

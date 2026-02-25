@@ -30,7 +30,7 @@ from . import fits
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
-from ._transforms import Projection, ProjectionAstropyView, ProjectionSerializationModel
+from ._transforms import Frame, Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .serialization import (
     ArchiveTree,
     InputArchive,
@@ -366,19 +366,31 @@ class MaskedImage:
     @overload
     @staticmethod
     def read_legacy(
-        filename: str, *, preserve_quantization: bool = False, component: Literal["image"]
+        filename: str,
+        *,
+        preserve_quantization: bool = False,
+        component: Literal["image"],
+        fits_wcs_frame: Frame | None = None,
     ) -> Image: ...
 
     @overload
     @staticmethod
     def read_legacy(
-        filename: str, *, plane_map: Mapping[str, MaskPlane] | None = None, component: Literal["mask"]
+        filename: str,
+        *,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+        component: Literal["mask"],
+        fits_wcs_frame: Frame | None = None,
     ) -> Mask: ...
 
     @overload
     @staticmethod
     def read_legacy(
-        filename: str, *, preserve_quantization: bool = False, component: Literal["variance"]
+        filename: str,
+        *,
+        preserve_quantization: bool = False,
+        component: Literal["variance"],
+        fits_wcs_frame: Frame | None = None,
     ) -> Image: ...
 
     @overload
@@ -389,6 +401,7 @@ class MaskedImage:
         preserve_quantization: bool = False,
         plane_map: Mapping[str, MaskPlane] | None = None,
         component: None = None,
+        fits_wcs_frame: Frame | None = None,
     ) -> MaskedImage: ...
 
     @staticmethod
@@ -398,6 +411,7 @@ class MaskedImage:
         preserve_quantization: bool = False,
         plane_map: Mapping[str, MaskPlane] | None = None,
         component: Literal["image", "mask", "variance"] | None = None,
+        fits_wcs_frame: Frame | None = None,
     ) -> Any:
         """Read a FITS file written by `lsst.afw.image.MaskedImage.writeFits`.
 
@@ -417,12 +431,12 @@ class MaskedImage:
             description.
         component
             A component to read instead of the full image.
-
-        Notes
-        -----
-        This method does not attach a `Projection` to the `MaskedImage` even
-        if the legacy file is actually an `lsst.afw.image.Exposure` with a
-        WCS attached.
+        fits_wcs_frame
+            If not `None` and the HDU containing the image plane has a FITS
+            WCS, attach a `Projection` to the returned masked image by
+            converting that WCS.  When ``component`` is one of ``"image"``,
+            ``"mask"``, or ``"variance"``, a FITS WCS from the component HDU
+            is used instead (all three should have the same WCS).
         """
         with astropy.io.fits.open(filename) as hdu_list:
             return MaskedImage._read_legacy_hdus(
@@ -431,6 +445,7 @@ class MaskedImage:
                 preserve_quantization=preserve_quantization,
                 plane_map=plane_map,
                 component=component,
+                fits_wcs_frame=fits_wcs_frame,
             )
 
     @staticmethod
@@ -441,6 +456,7 @@ class MaskedImage:
         preserve_quantization: bool = False,
         plane_map: Mapping[str, MaskPlane] | None = None,
         component: Literal["image", "mask", "variance"] | None,
+        fits_wcs_frame: Frame | None = None,
     ) -> Any:
         opaque_metadata = fits.FitsOpaqueMetadata()
         opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
@@ -456,17 +472,28 @@ class MaskedImage:
                 variance_bintable_hdu = bintable_hdu_list[3]
             if component is None or component == "image":
                 image = Image._read_legacy_hdu(
-                    hdu_list[1], opaque_metadata, preserve_bintable=image_bintable_hdu
+                    hdu_list[1],
+                    opaque_metadata,
+                    preserve_bintable=image_bintable_hdu,
+                    fits_wcs_frame=fits_wcs_frame,
                 )
                 if component == "image":
                     result = image
             if component is None or component == "mask":
-                mask = Mask._read_legacy_hdu(hdu_list[2], opaque_metadata, plane_map=plane_map)
+                mask = Mask._read_legacy_hdu(
+                    hdu_list[2],
+                    opaque_metadata,
+                    plane_map=plane_map,
+                    fits_wcs_frame=fits_wcs_frame if component is not None else None,
+                )
                 if component == "mask":
                     result = mask
             if component is None or component == "variance":
                 variance = Image._read_legacy_hdu(
-                    hdu_list[3], opaque_metadata, preserve_bintable=variance_bintable_hdu
+                    hdu_list[3],
+                    opaque_metadata,
+                    preserve_bintable=variance_bintable_hdu,
+                    fits_wcs_frame=fits_wcs_frame if component is not None else None,
                 )
                 if component == "variance":
                     result = variance
