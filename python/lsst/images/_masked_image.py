@@ -24,7 +24,7 @@ import astropy.wcs
 import numpy as np
 import pydantic
 
-from lsst.resources import ResourcePathExpression
+from lsst.resources import ResourcePath, ResourcePathExpression
 
 from . import fits
 from ._geom import Box
@@ -366,7 +366,7 @@ class MaskedImage:
     @overload
     @staticmethod
     def read_legacy(
-        filename: str,
+        uri: ResourcePathExpression,
         *,
         preserve_quantization: bool = False,
         component: Literal["image"],
@@ -376,7 +376,7 @@ class MaskedImage:
     @overload
     @staticmethod
     def read_legacy(
-        filename: str,
+        uri: ResourcePathExpression,
         *,
         plane_map: Mapping[str, MaskPlane] | None = None,
         component: Literal["mask"],
@@ -386,7 +386,7 @@ class MaskedImage:
     @overload
     @staticmethod
     def read_legacy(
-        filename: str,
+        uri: ResourcePathExpression,
         *,
         preserve_quantization: bool = False,
         component: Literal["variance"],
@@ -396,7 +396,7 @@ class MaskedImage:
     @overload
     @staticmethod
     def read_legacy(
-        filename: str,
+        uri: ResourcePathExpression,
         *,
         preserve_quantization: bool = False,
         plane_map: Mapping[str, MaskPlane] | None = None,
@@ -406,7 +406,7 @@ class MaskedImage:
 
     @staticmethod
     def read_legacy(
-        filename: str,
+        uri: ResourcePathExpression,
         *,
         preserve_quantization: bool = False,
         plane_map: Mapping[str, MaskPlane] | None = None,
@@ -417,8 +417,8 @@ class MaskedImage:
 
         Parameters
         ----------
-        filename
-            Full name of the file.
+        uri
+            URI or file name.
         preserve_quantization
             If `True`, ensure that writing the masked image back out again will
             exactly preserve quantization-compressed pixel values.  This causes
@@ -438,10 +438,11 @@ class MaskedImage:
             ``"mask"``, or ``"variance"``, a FITS WCS from the component HDU
             is used instead (all three should have the same WCS).
         """
-        with astropy.io.fits.open(filename) as hdu_list:
+        fs, fspath = ResourcePath(uri).to_fsspec()
+        with fs.open(fspath) as stream, astropy.io.fits.open(stream) as hdu_list:
             return MaskedImage._read_legacy_hdus(
                 hdu_list,
-                filename,
+                uri,
                 preserve_quantization=preserve_quantization,
                 plane_map=plane_map,
                 component=component,
@@ -451,7 +452,7 @@ class MaskedImage:
     @staticmethod
     def _read_legacy_hdus(
         hdu_list: astropy.io.fits.HDUList,
-        filename: str,
+        uri: ResourcePathExpression,
         *,
         preserve_quantization: bool = False,
         plane_map: Mapping[str, MaskPlane] | None = None,
@@ -465,8 +466,10 @@ class MaskedImage:
         result: Any
         with ExitStack() as exit_stack:
             if preserve_quantization:
+                fs, fspath = ResourcePath(uri).to_fsspec()
+                bintable_stream = exit_stack.enter_context(fs.open(fspath))
                 bintable_hdu_list = exit_stack.enter_context(
-                    astropy.io.fits.open(filename, disable_image_compression=True)
+                    astropy.io.fits.open(bintable_stream, disable_image_compression=True)
                 )
                 image_bintable_hdu = bintable_hdu_list[1]
                 variance_bintable_hdu = bintable_hdu_list[3]

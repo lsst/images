@@ -26,7 +26,7 @@ import numpy as np
 import numpy.typing as npt
 import pydantic
 
-from lsst.resources import ResourcePathExpression
+from lsst.resources import ResourcePath, ResourcePathExpression
 
 from . import fits
 from ._geom import YX, Box
@@ -477,7 +477,7 @@ class Image:
 
     @staticmethod
     def read_legacy(
-        filename: str,
+        uri: ResourcePathExpression,
         *,
         preserve_quantization: bool = False,
         ext: str | int = 1,
@@ -487,8 +487,8 @@ class Image:
 
         Parameters
         ----------
-        filename
-            Full name of the file.
+        uri
+            URI or file name.
         preserve_quantization
             If `True`, ensure that writing the image back out again will
             exactly preserve quantization-compressed pixel values.  This causes
@@ -504,12 +504,15 @@ class Image:
         """
         opaque_metadata = fits.FitsOpaqueMetadata()
         with ExitStack() as exit_stack:
-            hdu_list = exit_stack.enter_context(astropy.io.fits.open(filename))
+            fs, fspath = ResourcePath(uri).to_fsspec()
+            stream = exit_stack.enter_context(fs.open(fspath))
+            hdu_list = exit_stack.enter_context(astropy.io.fits.open(stream))
             opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
             bintable_hdu: astropy.io.fits.BinTableHDU | None = None
             if preserve_quantization:
+                bintable_stream = exit_stack.enter_context(fs.open(fspath))
                 bintable_hdu_list = exit_stack.enter_context(
-                    astropy.io.fits.open(filename, disable_image_compression=True)
+                    astropy.io.fits.open(bintable_stream, disable_image_compression=True)
                 )
                 bintable_hdu = bintable_hdu_list[ext]
             result = Image._read_legacy_hdu(

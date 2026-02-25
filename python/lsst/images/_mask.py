@@ -33,7 +33,7 @@ import numpy as np
 import numpy.typing as npt
 import pydantic
 
-from lsst.resources import ResourcePathExpression
+from lsst.resources import ResourcePath, ResourcePathExpression
 
 from . import fits
 from ._geom import YX, Box
@@ -846,7 +846,7 @@ class Mask:
 
     @staticmethod
     def read_legacy(
-        filename: str,
+        uri: ResourcePathExpression,
         *,
         plane_map: Mapping[str, MaskPlane] | None = None,
         ext: str | int = 1,
@@ -856,8 +856,8 @@ class Mask:
 
         Parameters
         ----------
-        filename
-            Full name of the file.
+        uri
+            URI or file name.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
             description.
@@ -868,7 +868,8 @@ class Mask:
             attach a `Projection` to the returned mask by converting that WCS.
         """
         opaque_metadata = fits.FitsOpaqueMetadata()
-        with astropy.io.fits.open(filename) as hdu_list:
+        fs, fspath = ResourcePath(uri).to_fsspec()
+        with fs.open(fspath) as stream, astropy.io.fits.open(stream) as hdu_list:
             opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
             result = Mask._read_legacy_hdu(
                 hdu_list[ext], opaque_metadata, plane_map=plane_map, fits_wcs_frame=fits_wcs_frame
