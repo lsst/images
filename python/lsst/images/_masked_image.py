@@ -65,7 +65,8 @@ class MaskedImage:
     projection
         Projection that maps the pixel grid to the sky.
     obs_info
-        General information about this visit in standardized form.
+        General information about the associated observation in standardized
+        form.
     """
 
     def __init__(
@@ -157,8 +158,8 @@ class MaskedImage:
 
     @property
     def obs_info(self) -> ObservationInfo | None:
-        """General information about this observation in standard form.
-        (`~astro_metadata_translator.ObservationInfo` | `None`).
+        """General information about the associated observation in standard
+        form. (`~astro_metadata_translator.ObservationInfo` | `None`).
         """
         return self._image.obs_info
 
