@@ -25,6 +25,7 @@ import astropy.wcs
 import numpy as np
 import numpy.typing as npt
 import pydantic
+from astro_metadata_translator import ObservationInfo
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
@@ -69,6 +70,8 @@ class Image:
         Units for the image's pixel values.
     projection
         Projection that maps the pixel grid to the sky.
+    obs_info
+        General information about this visit in standardized form.
 
     Notes
     -----
@@ -103,6 +106,7 @@ class Image:
         dtype: npt.DTypeLike | None = None,
         unit: astropy.units.UnitBase | None = None,
         projection: Projection[Any] | None = None,
+        obs_info: ObservationInfo | None = None,
     ):
         if isinstance(array_or_fill, np.ndarray):
             if dtype is not None:
@@ -130,6 +134,7 @@ class Image:
         self._unit = unit
         self._projection = projection
         self._opaque_metadata: OpaqueArchiveMetadata | None = None
+        self._obs_info = obs_info
 
     @property
     def array(self) -> np.ndarray:
@@ -182,6 +187,13 @@ class Image:
         return self._projection
 
     @property
+    def obs_info(self) -> ObservationInfo | None:
+        """General information about this observation in standard form.
+        (`~astro_metadata_translator.ObservationInfo` | `None`).
+        """
+        return self._obs_info
+
+    @property
     def astropy_wcs(self) -> ProjectionAstropyView | None:
         """An Astropy WCS for this image's pixel array.
 
@@ -223,7 +235,13 @@ class Image:
             bbox = self._bbox
         else:
             indices = bbox.slice_within(self._bbox)
-        result = Image(self._array[indices], bbox=bbox, unit=self._unit)
+        result = Image(
+            self._array[indices],
+            bbox=bbox,
+            unit=self._unit,
+            projection=self._projection,
+            obs_info=self._obs_info,
+        )
         if self._opaque_metadata is not None:
             result._opaque_metadata = self._opaque_metadata.subset(bbox)
         return result
@@ -253,7 +271,13 @@ class Image:
 
     def copy(self) -> Image:
         """Deep-copy the image, with optional updates."""
-        result = Image(self._array.copy(), bbox=self._bbox, unit=self._unit, projection=self._projection)
+        result = Image(
+            self._array.copy(),
+            bbox=self._bbox,
+            unit=self._unit,
+            projection=self._projection,
+            obs_info=self._obs_info,
+        )
         if self._opaque_metadata is not None:
             result._opaque_metadata = self._opaque_metadata.copy()
         return result
@@ -264,6 +288,7 @@ class Image:
         unit: astropy.units.UnitBase | None | EllipsisType = ...,
         projection: Projection | None | EllipsisType = ...,
         start: Sequence[int] | EllipsisType = ...,
+        obs_info: ObservationInfo | None | EllipsisType = ...,
     ) -> Image:
         """Make a view of the image, with optional updates."""
         if unit is ...:
@@ -272,7 +297,9 @@ class Image:
             projection = self._projection
         if start is ...:
             start = self._bbox.start
-        result = Image(self._array, start=start, unit=unit, projection=projection)
+        if obs_info is ...:
+            obs_info = self._obs_info
+        result = Image(self._array, start=start, unit=unit, projection=projection, obs_info=obs_info)
         if self._opaque_metadata is not None:
             result._opaque_metadata = self._opaque_metadata.copy()
         return result
@@ -323,13 +350,17 @@ class Image:
             serialized_projection = archive.serialize_direct("projection", self.projection.serialize)
         if self.unit is None:
             return ImageSerializationModel.model_construct(
-                data=ref, start=list(self.bbox.start), projection=serialized_projection
+                data=ref,
+                start=list(self.bbox.start),
+                projection=serialized_projection,
+                obs_info=self._obs_info,
             )
         else:
             return ImageSerializationModel.model_construct(
                 data=ArrayReferenceQuantityModel.model_construct(value=ref, unit=self.unit),
                 start=list(self.bbox.start),
                 projection=serialized_projection,
+                obs_info=self._obs_info,
             )
 
     @staticmethod
@@ -376,7 +407,11 @@ class Image:
             Projection.deserialize(model.projection, archive) if model.projection is not None else None
         )
         return Image(
-            array, start=model.start if bbox is None else bbox.start, unit=unit, projection=projection
+            array,
+            start=model.start if bbox is None else bbox.start,
+            unit=unit,
+            projection=projection,
+            obs_info=model.obs_info,
         )
 
     @staticmethod
@@ -574,6 +609,11 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         default=None,
         exclude_if=is_none,
         description="Projection that maps the logical pixel grid onto the sky.",
+    )
+    obs_info: ObservationInfo | None = pydantic.Field(
+        default=None,
+        exclude_if=is_none,
+        description="Standardized description of image metadata",
     )
 
     @property

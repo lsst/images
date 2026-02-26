@@ -23,6 +23,7 @@ import astropy.units
 import astropy.wcs
 import numpy as np
 import pydantic
+from astro_metadata_translator import ObservationInfo
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
@@ -63,6 +64,8 @@ class MaskedImage:
         not provided.
     projection
         Projection that maps the pixel grid to the sky.
+    obs_info
+        General information about this visit in standardized form.
     """
 
     def __init__(
@@ -73,15 +76,20 @@ class MaskedImage:
         variance: Image | None = None,
         mask_schema: MaskSchema | None = None,
         projection: Projection | None = None,
+        obs_info: ObservationInfo | None = None,
     ):
         if projection is None:
             projection = image.projection
         else:
             image = image.view(projection=projection)
+        if obs_info is None:
+            obs_info = image.obs_info
+        else:
+            image = image.view(obs_info=obs_info)
         if mask is None:
             if mask_schema is None:
                 raise TypeError("'mask_schema' must be provided if 'mask' is not.")
-            mask = Mask(schema=mask_schema, bbox=image.bbox, projection=projection)
+            mask = Mask(schema=mask_schema, bbox=image.bbox, projection=projection, obs_info=obs_info)
         elif mask_schema is not None:
             raise TypeError("'mask_schema' may not be provided if 'mask' is.")
         else:
@@ -95,11 +103,12 @@ class MaskedImage:
                 bbox=image.bbox,
                 unit=None if image.unit is None else image.unit**2,
                 projection=projection,
+                obs_info=obs_info,
             )
         else:
             if image.bbox != variance.bbox:
                 raise ValueError(f"Image ({image.bbox}) and variance ({variance.bbox}) bboxes do not agree.")
-            variance = variance.view(projection=projection)
+            variance = variance.view(projection=projection, obs_info=obs_info)
             if image.unit is None:
                 if variance.unit is not None:
                     raise ValueError(f"Image has no units but variance does ({variance.unit}).")
@@ -147,6 +156,13 @@ class MaskedImage:
         return self._image.projection
 
     @property
+    def obs_info(self) -> ObservationInfo | None:
+        """General information about this observation in standard form.
+        (`~astro_metadata_translator.ObservationInfo` | `None`).
+        """
+        return self._image.obs_info
+
+    @property
     def astropy_wcs(self) -> ProjectionAstropyView | None:
         """An Astropy WCS for the pixel arrays
         (`ProjectionAstropyView` | `None`).
@@ -181,10 +197,10 @@ class MaskedImage:
 
     def __getitem__(self, bbox: Box) -> MaskedImage:
         result = MaskedImage(
+            # Projection and obs_info propagate from the image.
             self.image[bbox],
             mask=self.mask[bbox],
             variance=self.variance[bbox],
-            projection=self.projection,
         )
         if self._opaque_metadata is not None:
             result._opaque_metadata = self._opaque_metadata.subset(bbox)

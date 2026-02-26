@@ -50,6 +50,15 @@ class VisitImageTestCase(unittest.TestCase):
         except ImportError:
             pass
 
+    def test_obs_info(self) -> None:
+        """Check that ObservationInfo has been constructured."""
+        legacy = VisitImage.from_legacy(self.legacy_exposure, plane_map=self.plane_map)
+        self.assertIsNotNone(legacy.obs_info)
+        self.maxDiff = None
+        self.assertEqual(legacy.obs_info, self.visit_image.obs_info)
+        assert legacy.obs_info is not None  # for mypy.
+        self.assertEqual(legacy.obs_info.instrument, "LSSTCam")
+
     def test_read_legacy_headers(self) -> None:
         """Test that headers were correctly stripped and interpreted in
         `VisitImage.read_legacy`.
