@@ -1,0 +1,2 @@
+Added support for ``ObservationInfo`` to be attached to images.
+``VisitImage`` will construct this object from legacy images.
