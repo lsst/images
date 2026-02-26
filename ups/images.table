@@ -1,4 +1,5 @@
 setupRequired(resources)
+setupRequired(astro_metadata_translator)
 
 setupOptional(testdata_images)
 setupOptional(afw)
