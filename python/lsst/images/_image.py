@@ -229,11 +229,14 @@ class Image:
             else None
         )
 
-    def __getitem__(self, bbox: Box | EllipsisType) -> Image:
+    def __getitem__(self, bbox: Box | EllipsisType | tuple[slice, slice]) -> Image:
         indices: EllipsisType | tuple[slice, ...]
         if bbox is ...:
             indices = ...
             bbox = self._bbox
+        elif isinstance(bbox, tuple):
+            bbox = self._bbox[bbox]
+            indices = bbox.slice_within(self._bbox)
         else:
             indices = bbox.slice_within(self._bbox)
         result = Image(
