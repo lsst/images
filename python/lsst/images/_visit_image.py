@@ -45,7 +45,7 @@ def _obs_info_from_md(md: MutableMapping[str, Any], visit_info: Any = None) -> O
     # Try to get an ObservationInfo from the primary header as if
     # it's a raw header. Else fallback.
     try:
-        obs_info = ObservationInfo.from_header(md)
+        obs_info = ObservationInfo.from_header(md, quiet=True)
     except ValueError:
         # Not known translator. Must fall back to visit info. If we have
         # an actual VisitInfo, serialize it since we know that it will be
@@ -62,7 +62,7 @@ def _obs_info_from_md(md: MutableMapping[str, Any], visit_info: Any = None) -> O
         # Try the given header looking for VisitInfo hints.
         # We get lots of warnings if nothing can be found. Currently
         # no way to disable those without capturing them.
-        obs_info = ObservationInfo.from_header(md, translator_class=VisitInfoTranslator)
+        obs_info = ObservationInfo.from_header(md, translator_class=VisitInfoTranslator, quiet=True)
     return obs_info
 
 
