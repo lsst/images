@@ -325,7 +325,7 @@ class Interval:
         This assumes ``other.contains(self)``.
         """
         if not other.contains(self):
-            raise ValueError(
+            raise IndexError(
                 f"Can not calculate a slice of {other} within {self} "
                 "since the given interval does not contain this one."
             )
@@ -383,9 +383,12 @@ class Interval:
             raise ValueError(f"Slice {s} has non-unit step.")
         start = s.start if s.start is not None else self.start
         stop = s.stop if s.stop is not None else self.stop
-        new = Interval(start=start, stop=stop)
+        try:
+            new = Interval(start=start, stop=stop)
+        except ValueError as e:
+            raise IndexError(f"Bounds failure when creating slice with start={start} stop={stop}") from e
         if not self.contains(new):
-            raise ValueError(
+            raise IndexError(
                 f"The requested slice ({start}, {stop}) "
                 f"is not contained within the enclosing interval ({self})"
             )
@@ -713,7 +716,7 @@ class Box:
                     return Box(self.y[y], self.x[x])
                 case _:
                     raise TypeError("Expected exactly two slices.")
-        except ValueError as e:
+        except IndexError as e:
             e.add_note(f"Error applying slice {key} to {self}")
             raise
 

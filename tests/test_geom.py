@@ -149,13 +149,13 @@ class IntervalTestCase(unittest.TestCase):
         self.assertEqual(subset.start, 10)
         self.assertEqual(subset.stop, 20)
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(IndexError):
             i[:30]
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(IndexError):
             i[30:]
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(IndexError):
             i[-1:10]
 
         with self.assertRaises(ValueError):
@@ -174,7 +174,7 @@ class IntervalTestCase(unittest.TestCase):
         self.assertEqual(s.start, 2)
         self.assertEqual(s.stop, 11)
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(IndexError):
             i.slice_within(Interval(start=3, stop=5))
 
         val = i.linspace()
@@ -304,7 +304,7 @@ class BoxTestCase(unittest.TestCase):
         self.assertEqual(slices.x.stop, 29)
         self.assertEqual(slices.y.stop, 20)
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(IndexError):
             box[-1:5, 3:]
         with self.assertRaises(TypeError):
             box[3:5, :5, 4:]

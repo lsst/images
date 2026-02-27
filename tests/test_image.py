@@ -38,7 +38,7 @@ class ImageTestCase(unittest.TestCase):
 
         # Add an explicit bounding box and then slice it.
         image = Image(data, bbox=Box.factory[-2:1, 10:14])
-        with self.assertRaises(ValueError):
+        with self.assertRaises(IndexError):
             # Same slice no longer works because we have moved origin.
             image[:3, 1:3]
         subset = image[:0, 11:13]
