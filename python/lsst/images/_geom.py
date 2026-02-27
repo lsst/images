@@ -267,7 +267,7 @@ class Interval:
         return x >= self.start and x < self.stop
 
     @overload
-    def contains(self, other: Interval | int) -> bool: ...
+    def contains(self, other: Interval | int | float) -> bool: ...
 
     @overload
     def contains(self, other: np.ndarray) -> np.ndarray: ...
@@ -324,6 +324,11 @@ class Interval:
 
         This assumes ``other.contains(self)``.
         """
+        if not other.contains(self):
+            raise ValueError(
+                f"Can not calculate a slice of {other} within {self} "
+                "since the given interval does not contain this one."
+            )
         return slice(self.start - other.start, self.stop - other.start)
 
     @classmethod
@@ -368,6 +373,23 @@ class Interval:
 
     def _serialize(self) -> _SerializedInterval:
         return {"start": self._start, "stop": self._stop}
+
+    def __getitem__(self, s: slice) -> Interval:
+        """Return a subset of the interval.
+
+        If the start is omitted from the slice, the current start is assumed.
+        """
+        if s.step is not None and s.step != 1:
+            raise ValueError(f"Slice {s} has non-unit step.")
+        start = s.start if s.start is not None else self.start
+        stop = s.stop if s.stop is not None else self.stop
+        new = Interval(start=start, stop=stop)
+        if not self.contains(new):
+            raise ValueError(
+                f"The requested slice ({start}, {stop}) "
+                f"is not contained within the enclosing interval ({self})"
+            )
+        return new
 
 
 class IntervalSliceFactory:
@@ -451,7 +473,7 @@ class Box:
             case [y_start, x_start]:
                 pass
             case _:
-                raise ValueError(f"Invalid sequence for shape: {shape!r}.")
+                raise ValueError(f"Invalid sequence for start: {start!r}.")
         return Box(y=Interval.from_size(y_size, start=y_start), x=Interval.from_size(x_size, start=x_start))
 
     @property
@@ -501,6 +523,8 @@ class Box:
         --------
         numpy.meshgrid
         """
+        if n is not None and step is not None:
+            raise TypeError("'n' and 'step' cannot both be provided.")
         match n:
             case int():
                 ax = self.x.linspace(n)
@@ -514,6 +538,8 @@ class Box:
             case None:
                 ax = self.x.linspace(step=step)
                 ay = self.y.linspace(step=step)
+            case _:
+                raise ValueError(f"Unexpected values for n ({n})")
         return XY(*np.meshgrid(ax, ay))
 
     def __eq__(self, other: object) -> bool:
@@ -674,6 +700,22 @@ class Box:
         """
         assert isinstance(serialized, Box)
         return serialized
+
+    def __getitem__(self, key: tuple[slice, slice]) -> Box:
+        """Given a slice, return a new box."""
+        # If the slice is missing the start, use the same start as the
+        # current object.
+        try:
+            match key:
+                case XY(x=x, y=y):
+                    return Box(self.y[y], self.x[x])
+                case (y, x):
+                    return Box(self.y[y], self.x[x])
+                case _:
+                    raise TypeError("Expected exactly two slices.")
+        except ValueError as e:
+            e.add_note(f"Error applying slice {key} to {self}")
+            raise
 
 
 class BoxSliceFactory:
