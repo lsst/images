@@ -27,6 +27,7 @@ dependencies = [
     "numpy >= 2.0",
     "pydantic >= 2.12",
     "lsst-resources",
+    "astro-metadata-translator >=30.2026.900"
 ]
 dynamic = ["version"]
 

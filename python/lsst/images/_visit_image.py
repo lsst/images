@@ -16,13 +16,14 @@ import warnings
 __all__ = ("VisitImage", "VisitImageSerializationModel")
 
 import functools
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, MutableMapping
 from typing import Any, Literal, cast, overload
 
 import astropy.io.fits
 import astropy.units
 import astropy.wcs
 import pydantic
+from astro_metadata_translator import ObservationInfo, VisitInfoTranslator
 
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
@@ -38,6 +39,31 @@ from .psfs import (
     PSFExWrapper,
 )
 from .serialization import ArchiveReadError, InputArchive, OutputArchive
+
+
+def _obs_info_from_md(md: MutableMapping[str, Any], visit_info: Any = None) -> ObservationInfo:
+    # Try to get an ObservationInfo from the primary header as if
+    # it's a raw header. Else fallback.
+    try:
+        obs_info = ObservationInfo.from_header(md, quiet=True)
+    except ValueError:
+        # Not known translator. Must fall back to visit info. If we have
+        # an actual VisitInfo, serialize it since we know that it will be
+        # complete.
+        if visit_info is not None:
+            from lsst.afw.image import setVisitInfoMetadata
+            from lsst.daf.base import PropertyList
+
+            pl = PropertyList()
+            setVisitInfoMetadata(pl, visit_info)
+            # Merge so that we still have access to butler provenance.
+            md.update(pl)
+
+        # Try the given header looking for VisitInfo hints.
+        # We get lots of warnings if nothing can be found. Currently
+        # no way to disable those without capturing them.
+        obs_info = ObservationInfo.from_header(md, translator_class=VisitInfoTranslator, quiet=True)
+    return obs_info
 
 
 class VisitImage(MaskedImage):
@@ -71,6 +97,8 @@ class VisitImage(MaskedImage):
     psf
         Point-spread function model for this image, or an exception explaining
         why it could not be read (to be raised if the PSF is requested later).
+    obs_info
+        General information about this visit in standardized form.
     """
 
     def __init__(
@@ -81,6 +109,7 @@ class VisitImage(MaskedImage):
         variance: Image | None = None,
         mask_schema: MaskSchema | None = None,
         projection: Projection[DetectorFrame] | None = None,
+        obs_info: ObservationInfo | None = None,
         psf: PointSpreadFunction | ArchiveReadError,
     ):
         super().__init__(
@@ -89,11 +118,14 @@ class VisitImage(MaskedImage):
             variance=variance,
             mask_schema=mask_schema,
             projection=projection,
+            obs_info=obs_info,
         )
         if self.image.unit is None:
             raise TypeError("The image component of a VisitImage must have units.")
         if self.image.projection is None:
             raise TypeError("The projection component of a VisitImage cannot be None.")
+        if self.image.obs_info is None:
+            raise TypeError("The observation info component of a VisitImage cannot be None.")
         if not isinstance(self.image.projection.pixel_frame, DetectorFrame):
             raise TypeError("The projection's pixel frame must be a DetectorFrame for VisitImage.")
         self._psf = psf
@@ -109,6 +141,15 @@ class VisitImage(MaskedImage):
         (`Projection` [`DetectorFrame`]).
         """
         return cast(Projection[DetectorFrame], super().projection)
+
+    @property
+    def obs_info(self) -> ObservationInfo:
+        """General information about this observation in standard form.
+        (`~astro_metadata_translator.ObservationInfo`).
+        """
+        obs_info = self.image.obs_info
+        assert obs_info is not None
+        return obs_info
 
     @property
     def astropy_wcs(self) -> ProjectionAstropyView:
@@ -142,6 +183,7 @@ class VisitImage(MaskedImage):
             variance=self.variance[bbox],
             projection=self.projection,
             psf=self.psf,
+            obs_info=self.obs_info,
         )
         if opaque_metadata := getattr(self, "_opaque_metadata", None):
             result._opaque_metadata = opaque_metadata.subset(bbox)
@@ -156,7 +198,11 @@ class VisitImage(MaskedImage):
     def copy(self) -> VisitImage:
         """Deep-copy the visit image."""
         result = VisitImage(
-            image=self._image.copy(), mask=self._mask.copy(), variance=self._variance.copy(), psf=self._psf
+            image=self._image.copy(),
+            mask=self._mask.copy(),
+            variance=self._variance.copy(),
+            psf=self._psf,
+            obs_info=self.obs_info,
         )
         if self._opaque_metadata is not None:
             result._opaque_metadata = self._opaque_metadata.copy()
@@ -195,6 +241,7 @@ class VisitImage(MaskedImage):
             variance=serialized_variance,
             projection=serialized_projection,
             psf=serialized_psf,
+            obs_info=self.obs_info,
         )
 
     # Type-checkers want the model argument to only require
@@ -218,6 +265,7 @@ class VisitImage(MaskedImage):
             variance=masked_image.variance,
             psf=psf,
             projection=projection,
+            obs_info=model.obs_info,
         )
         return result
 
@@ -265,6 +313,7 @@ class VisitImage(MaskedImage):
         if plane_map is None:
             plane_map = get_legacy_visit_image_mask_planes()
         md = legacy.getMetadata()
+        obs_info = _obs_info_from_md(md, visit_info=legacy.info.getVisitInfo())
         instrument = _extract_or_check_header("LSST BUTLER DATAID INSTRUMENT", instrument, md, str)
         visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, int)
         unit = _extract_or_check_header("BUNIT", unit, md, lambda x: astropy.units.Unit(x, format="fits"))
@@ -302,6 +351,7 @@ class VisitImage(MaskedImage):
             variance=masked_image.variance,
             projection=projection,
             psf=psf,
+            obs_info=obs_info,
         )
         result._opaque_metadata = masked_image._opaque_metadata
         return result
@@ -471,6 +521,7 @@ class VisitImage(MaskedImage):
                 plane_map=plane_map,
                 component=component,
             )
+        obs_info = _obs_info_from_md(primary_header)
         if component is not None:
             # This is the image, mask, or variance; attach the projection
             # and return
@@ -481,6 +532,7 @@ class VisitImage(MaskedImage):
             variance=from_masked_image.variance,
             projection=projection,
             psf=psf,
+            obs_info=obs_info,
         )
         result._opaque_metadata = from_masked_image._opaque_metadata
         return result
@@ -505,6 +557,9 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     )
     psf: PiffSerializationModel | PSFExSerializationModel | Any = pydantic.Field(
         union_mode="left_to_right", description="PSF model for the image."
+    )
+    obs_info: ObservationInfo = pydantic.Field(
+        description="Standardized description of visit metadata",
     )
 
     def deserialize_psf(self, archive: InputArchive[Any]) -> PointSpreadFunction | ArchiveReadError:

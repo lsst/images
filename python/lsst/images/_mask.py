@@ -32,6 +32,7 @@ import astropy.wcs
 import numpy as np
 import numpy.typing as npt
 import pydantic
+from astro_metadata_translator import ObservationInfo
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
@@ -319,6 +320,9 @@ class Mask:
         include the last dimension of the array.
     projection
         Projection that maps the pixel grid to the sky.
+    obs_info
+        General information about the associated observation in standardized
+        form.
 
     Notes
     -----
@@ -343,6 +347,7 @@ class Mask:
         start: Sequence[int] | None = None,
         shape: Sequence[int] | None = None,
         projection: Projection | None = None,
+        obs_info: ObservationInfo | None = None,
     ):
         if shape is not None:
             shape = tuple(shape)
@@ -376,6 +381,7 @@ class Mask:
         self._schema: MaskSchema = schema
         self._projection = projection
         self._opaque_metadata: OpaqueArchiveMetadata | None = None
+        self._obs_info = obs_info
 
     @property
     def array(self) -> np.ndarray:
@@ -416,6 +422,13 @@ class Mask:
         box ``start``; they are not just array indices.
         """
         return self._projection
+
+    @property
+    def obs_info(self) -> ObservationInfo | None:
+        """General information about the associated observation in standard
+        form. (`~astro_metadata_translator.ObservationInfo` | `None`).
+        """
+        return self._obs_info
 
     @property
     def astropy_wcs(self) -> ProjectionAstropyView | None:
@@ -479,7 +492,13 @@ class Mask:
 
     def copy(self) -> Mask:
         """Deep-copy the mask."""
-        result = Mask(self._array.copy(), bbox=self._bbox, schema=self._schema, projection=self._projection)
+        result = Mask(
+            self._array.copy(),
+            bbox=self._bbox,
+            schema=self._schema,
+            projection=self._projection,
+            obs_info=self._obs_info,
+        )
         if self._opaque_metadata is not None:
             result._opaque_metadata = self._opaque_metadata.copy()
         return result
@@ -490,6 +509,7 @@ class Mask:
         schema: MaskSchema | EllipsisType = ...,
         projection: Projection | None | EllipsisType = ...,
         start: Sequence[int] | EllipsisType = ...,
+        obs_info: ObservationInfo | None | EllipsisType = ...,
     ) -> Mask:
         """Make a view of the mask, with optional updates.
 
@@ -507,7 +527,9 @@ class Mask:
             projection = self._projection
         if start is ...:
             start = self._bbox.start
-        result = Mask(self._array, start=start, schema=schema, projection=projection)
+        if obs_info is ...:
+            obs_info = self._obs_info
+        result = Mask(self._array, start=start, schema=schema, projection=projection, obs_info=obs_info)
         if self._opaque_metadata is not None:
             result._opaque_metadata = self._opaque_metadata.copy()
         return result
@@ -614,7 +636,9 @@ class Mask:
         """
         data: list[ArrayReferenceModel] = []
         for schema_2d in self.schema.split(np.int32):
-            mask_2d = Mask(0, bbox=self.bbox, schema=schema_2d, projection=self._projection)
+            mask_2d = Mask(
+                0, bbox=self.bbox, schema=schema_2d, projection=self._projection, obs_info=self._obs_info
+            )
             mask_2d.update(self)
             data.append(mask_2d._serialize_2d(archive, update_header=update_header))
         serialized_projection: ProjectionSerializationModel[P] | None = None
@@ -628,6 +652,7 @@ class Mask:
             planes=list(self.schema),
             dtype=serialized_dtype,
             projection=serialized_projection,
+            obs_info=self._obs_info,
         )
 
     def _serialize_2d[P: pydantic.BaseModel](
@@ -686,7 +711,7 @@ class Mask:
         projection = (
             Projection.deserialize(model.projection, archive) if model.projection is not None else None
         )
-        result = Mask(0, schema=schema, bbox=bbox, projection=projection)
+        result = Mask(0, schema=schema, bbox=bbox, projection=projection, obs_info=model.obs_info)
         schemas_2d = schema.split(np.int32)
         if len(schemas_2d) != len(model.data):
             raise ArchiveReadError(
@@ -927,6 +952,11 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         default=None,
         exclude_if=is_none,
         description="Projection that maps the logical pixel grid onto the sky.",
+    )
+    obs_info: ObservationInfo | None = pydantic.Field(
+        default=None,
+        exclude_if=is_none,
+        description="Standardized description of image metadata",
     )
 
     @property
