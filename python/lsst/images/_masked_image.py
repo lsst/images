@@ -16,6 +16,7 @@ __all__ = ("MaskedImage", "MaskedImageSerializationModel")
 import functools
 from collections.abc import Mapping
 from contextlib import ExitStack
+from types import EllipsisType
 from typing import Any, Literal, overload
 
 import astropy.io.fits
@@ -28,10 +29,11 @@ from astro_metadata_translator import ObservationInfo
 from lsst.resources import ResourcePath, ResourcePathExpression
 
 from . import fits
+from ._generalized_image import GeneralizedImage
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
-from ._transforms import Frame, Projection, ProjectionAstropyView, ProjectionSerializationModel
+from ._transforms import Frame, Projection, ProjectionSerializationModel
 from .serialization import (
     ArchiveTree,
     InputArchive,
@@ -41,7 +43,7 @@ from .serialization import (
 from .utils import is_none
 
 
-class MaskedImage:
+class MaskedImage(GeneralizedImage):
     """A multi-plane image with data (image), mask, and variance planes.
 
     Parameters
@@ -163,40 +165,10 @@ class MaskedImage:
         """
         return self._image.obs_info
 
-    @property
-    def astropy_wcs(self) -> ProjectionAstropyView | None:
-        """An Astropy WCS for the pixel arrays
-        (`ProjectionAstropyView` | `None`).
-
-        Notes
-        -----
-        As expected for Astropy WCS objects, this defines pixel coordinates
-        such that the first row and column in the arrays are ``(0, 0)``, not
-        ``bbox.start``, as is the case for `projection`.
-
-        This object satisfies the `astropy.wcs.wcsapi.BaseHighLevelWCS` and
-        `astropy.wcs.wcsapi.BaseLowLevelWCS` interfaces, but it is not an
-        `astropy.wcs.WCS` (use `fits_wcs` for that).
-        """
-        return self.projection.as_astropy(self.bbox) if self.projection is not None else None
-
-    @property
-    def fits_wcs(self) -> astropy.wcs.WCS | None:
-        """An Astropy FITS WCS for this mask's pixel array
-        (`astropy.wcs.WCS` | `None`).
-
-        Notes
-        -----
-        As expected for Astropy WCS objects, this defines pixel coordinates
-        such that the first row and column in the arrays are ``(0, 0)``, not
-        ``bbox.start``, as is the case for `projection`.
-
-        This may be an approximation or absent if `projection` is not
-        naturally representable as a FITS WCS.
-        """
-        return self.projection.as_fits_wcs(self.bbox) if self.projection is not None else None
-
-    def __getitem__(self, bbox: Box) -> MaskedImage:
+    def __getitem__(self, bbox: Box | EllipsisType) -> MaskedImage:
+        super().__getitem__(bbox)
+        if bbox is ...:
+            return self
         result = MaskedImage(
             # Projection and obs_info propagate from the image.
             self.image[bbox],
@@ -206,6 +178,11 @@ class MaskedImage:
         if self._opaque_metadata is not None:
             result._opaque_metadata = self._opaque_metadata.subset(bbox)
         return result
+
+    def __setitem__(self, bbox: Box | EllipsisType, value: MaskedImage) -> None:
+        self._image[bbox] = value.image
+        self._mask[bbox] = value.mask
+        self._variance[bbox] = value.variance
 
     def __str__(self) -> str:
         return f"MaskedImage({self.image!s}, {list(self.mask.schema.names)})"
