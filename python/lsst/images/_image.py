@@ -37,7 +37,7 @@ from .serialization import (
     ArrayReferenceModel,
     ArrayReferenceQuantityModel,
     InputArchive,
-    OpaqueArchiveMetadata,
+    MetadataValue,
     OutputArchive,
     no_header_updates,
 )
@@ -73,6 +73,8 @@ class Image(GeneralizedImage):
     obs_info
         General information about the associated observation in standardized
         form.
+    metadata
+        Arbitrary flexible metadata to associate with the image.
 
     Notes
     -----
@@ -108,7 +110,9 @@ class Image(GeneralizedImage):
         unit: astropy.units.UnitBase | None = None,
         projection: Projection[Any] | None = None,
         obs_info: ObservationInfo | None = None,
+        metadata: dict[str, MetadataValue] | None = None,
     ):
+        super().__init__(metadata)
         if isinstance(array_or_fill, np.ndarray):
             if dtype is not None:
                 array = np.array(array_or_fill, dtype=dtype)
@@ -134,7 +138,6 @@ class Image(GeneralizedImage):
         self._bbox: Box = bbox
         self._unit = unit
         self._projection = projection
-        self._opaque_metadata: OpaqueArchiveMetadata | None = None
         self._obs_info = obs_info
 
     @property
@@ -199,16 +202,16 @@ class Image(GeneralizedImage):
         if bbox is ...:
             return self
         indices = bbox.slice_within(self._bbox)
-        result = Image(
-            self._array[indices],
+        return self._transfer_metadata(
+            Image(
+                self._array[indices],
+                bbox=bbox,
+                unit=self._unit,
+                projection=self._projection,
+                obs_info=self._obs_info,
+            ),
             bbox=bbox,
-            unit=self._unit,
-            projection=self._projection,
-            obs_info=self._obs_info,
         )
-        if self._opaque_metadata is not None:
-            result._opaque_metadata = self._opaque_metadata.subset(bbox)
-        return result
 
     def __setitem__(self, bbox: Box | EllipsisType, value: Image) -> None:
         self[bbox].quantity[...] = value.quantity
@@ -229,17 +232,16 @@ class Image(GeneralizedImage):
         )
 
     def copy(self) -> Image:
-        """Deep-copy the image, with optional updates."""
-        result = Image(
-            self._array.copy(),
-            bbox=self._bbox,
-            unit=self._unit,
-            projection=self._projection,
-            obs_info=self._obs_info,
+        return self._transfer_metadata(
+            Image(
+                self._array.copy(),
+                bbox=self._bbox,
+                unit=self._unit,
+                projection=self._projection,
+                obs_info=self._obs_info,
+            ),
+            copy=True,
         )
-        if self._opaque_metadata is not None:
-            result._opaque_metadata = self._opaque_metadata.copy()
-        return result
 
     def view(
         self,
@@ -258,10 +260,9 @@ class Image(GeneralizedImage):
             start = self._bbox.start
         if obs_info is ...:
             obs_info = self._obs_info
-        result = Image(self._array, start=start, unit=unit, projection=projection, obs_info=obs_info)
-        if self._opaque_metadata is not None:
-            result._opaque_metadata = self._opaque_metadata.copy()
-        return result
+        return self._transfer_metadata(
+            Image(self._array, start=start, unit=unit, projection=projection, obs_info=obs_info)
+        )
 
     def serialize[P: pydantic.BaseModel](
         self,
@@ -313,6 +314,7 @@ class Image(GeneralizedImage):
                 start=list(self.bbox.start),
                 projection=serialized_projection,
                 obs_info=self._obs_info,
+                metadata=self.metadata,
             )
         else:
             return ImageSerializationModel.model_construct(
@@ -320,6 +322,7 @@ class Image(GeneralizedImage):
                 start=list(self.bbox.start),
                 projection=serialized_projection,
                 obs_info=self._obs_info,
+                metadata=self.metadata,
             )
 
     @staticmethod
@@ -371,6 +374,7 @@ class Image(GeneralizedImage):
             unit=unit,
             projection=projection,
             obs_info=model.obs_info,
+            metadata=model.metadata,
         )
 
     @staticmethod

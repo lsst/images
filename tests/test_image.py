@@ -17,7 +17,7 @@ import unittest
 import numpy as np
 
 from lsst.images import Box, Image
-from lsst.images.tests import assert_close, compare_image_to_legacy
+from lsst.images.tests import assert_close, assert_images_equal, compare_image_to_legacy
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -27,14 +27,17 @@ class ImageTestCase(unittest.TestCase):
 
     def test_basics(self):
         """Test basic constructor patterns."""
-        image = Image(42, shape=(5, 5))
+        image = Image(42, shape=(5, 5), metadata={"three": 3})
         assert_close(self, image.array, np.zeros([5, 5], dtype=np.int64) + 42)
+        self.assertEqual(image.metadata["three"], 3)
 
         data = np.array([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]])
         image = Image(data)
         subset = image[Box.factory[:3, 1:3]]
         subset2 = image.absolute[:3, 1:3]
-        self.assertEqual(subset2, subset)
+        assert_images_equal(self, subset2, subset, expect_view=True)
+
+        assert_images_equal(self, image.copy(), image, expect_view=False)
 
         # Add an explicit bounding box and then slice it.
         image = Image(data, bbox=Box.factory[-2:1, 10:14])

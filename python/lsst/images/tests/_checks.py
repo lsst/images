@@ -84,14 +84,17 @@ def assert_images_equal(
     tc.assertEqual(a.unit, b.unit)
     if expect_view is not None:
         tc.assertEqual(np.may_share_memory(a.array, b.array), expect_view)
+        tc.assertEqual(a.metadata is b.metadata, expect_view)
     if not expect_view:
         assert_close(tc, a.array, b.array, atol=atol, rtol=rtol)
+        tc.assertEqual(a.metadata, b.metadata)
 
 
 def assert_masks_equal(tc: unittest.TestCase, a: Mask, b: Mask) -> None:
     """Assert that two masks are equal or nearly equal."""
     tc.assertEqual(a.bbox, b.bbox)
     tc.assertEqual(a.schema, b.schema)
+    tc.assertEqual(a.metadata, b.metadata)
     np.testing.assert_array_equal(a.array, b.array)
 
 
@@ -105,6 +108,7 @@ def assert_masked_images_equal(
     expect_view: bool | None = None,
 ) -> None:
     """Assert that two masked images are equal or nearly equal."""
+    tc.assertEqual(a.metadata, b.metadata)
     assert_images_equal(tc, a.image, b.image, rtol=rtol, atol=atol, expect_view=expect_view)
     assert_masks_equal(tc, a.mask, b.mask)
     assert_images_equal(tc, a.variance, b.variance, rtol=rtol, atol=atol, expect_view=expect_view)

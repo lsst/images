@@ -22,6 +22,7 @@ import astropy.wcs
 
 from ._geom import Box
 from ._transforms import Projection, ProjectionAstropyView
+from .serialization import MetadataValue, OpaqueArchiveMetadata
 
 T = TypeVar("T", bound="GeneralizedImage")  # for sphinx
 
@@ -29,7 +30,16 @@ T = TypeVar("T", bound="GeneralizedImage")  # for sphinx
 class GeneralizedImage(ABC):
     """A base class for types that represent one or more 2-d image-like arrays
     with the same pixel grid and projection.
+
+    Parameters
+    ----------
+    metadata
+        Arbitrary flexible metadata to associate with the image.
     """
+
+    def __init__(self, metadata: dict[str, MetadataValue] | None = None):
+        self._metadata = metadata if metadata is not None else {}
+        self._opaque_metadata: OpaqueArchiveMetadata | None = None
 
     @property
     @abstractmethod
@@ -134,6 +144,23 @@ class GeneralizedImage(ABC):
         """
         return AbsoluteSliceProxy(self)
 
+    @property
+    def metadata(self) -> dict[str, MetadataValue]:
+        """Arbitrary flexible metadata associated with the image (`dict`).
+
+        Notes
+        -----
+        Metadata is shared with subimages and other views.  It can be
+        disconnected by reassigning to a copy explicitly:
+
+            image.metadata = image.metadata.copy()
+        """
+        return self._metadata
+
+    @metadata.setter
+    def metadata(self, value: dict[str, MetadataValue]) -> None:
+        self._metadata = value
+
     # Subclasses should delegate to super().__getitem__ for some user-friendly
     # argument type-checking before providing their own implementation.
     @abstractmethod
@@ -147,8 +174,48 @@ class GeneralizedImage(ABC):
 
     @abstractmethod
     def copy(self) -> Self:
-        """Deep-copy the image."""
+        """Deep-copy the image and metadata.
+
+        Attached immutable objects (like `Projection` instances) are not
+        copied.
+        """
         raise NotImplementedError()
+
+    def _transfer_metadata(self, new: Self, copy: bool = False, bbox: Box | None = None) -> Self:
+        """Transfer metadata held by this base class to a new instance.
+
+        Parameters
+        ----------
+        new
+            New instance to modify and return.
+        copy
+            Whether the new instance is a deep-copy of ``self``.
+        bbox
+            Bounding box used to construct ``new`` as a subset of ``self``.
+
+        Returns
+        -------
+        GeneralizedImage
+            The new object passed in, modified in place.
+
+        Notes
+        -----
+        This is a utility method for subclasses to use when finishing
+        construction of a new one.
+        """
+        if bbox is not None:
+            opaque_metadata = (
+                self._opaque_metadata.subset(bbox) if self._opaque_metadata is not None else None
+            )
+        else:
+            opaque_metadata = self._opaque_metadata
+        metadata = self._metadata
+        if copy:
+            metadata = metadata.copy()
+            opaque_metadata = opaque_metadata.copy() if opaque_metadata is not None else None
+        new._metadata = metadata
+        new._opaque_metadata = opaque_metadata
+        return new
 
 
 class LocalSliceProxy[T: GeneralizedImage]:

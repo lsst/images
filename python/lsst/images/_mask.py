@@ -45,8 +45,8 @@ from .serialization import (
     ArrayReferenceModel,
     InputArchive,
     IntegerType,
+    MetadataValue,
     NumberType,
-    OpaqueArchiveMetadata,
     OutputArchive,
     is_integer,
     no_header_updates,
@@ -323,6 +323,8 @@ class Mask(GeneralizedImage):
     obs_info
         General information about the associated observation in standardized
         form.
+    metadata
+        Arbitrary flexible metadata to associate with the mask.
 
     Notes
     -----
@@ -348,7 +350,9 @@ class Mask(GeneralizedImage):
         shape: Sequence[int] | None = None,
         projection: Projection | None = None,
         obs_info: ObservationInfo | None = None,
+        metadata: dict[str, MetadataValue] | None = None,
     ):
+        super().__init__(metadata)
         if shape is not None:
             shape = tuple(shape)
         if start is not None:
@@ -380,7 +384,6 @@ class Mask(GeneralizedImage):
         self._bbox: Box = bbox
         self._schema: MaskSchema = schema
         self._projection = projection
-        self._opaque_metadata: OpaqueArchiveMetadata | None = None
         self._obs_info = obs_info
 
     @property
@@ -434,14 +437,14 @@ class Mask(GeneralizedImage):
         super().__getitem__(bbox)
         if bbox is ...:
             return self
-        result = Mask(
-            self.array[bbox.y.slice_within(self._bbox.y), bbox.x.slice_within(self._bbox.x), :],
+        return self._transfer_metadata(
+            Mask(
+                self.array[bbox.y.slice_within(self._bbox.y), bbox.x.slice_within(self._bbox.x), :],
+                bbox=bbox,
+                schema=self.schema,
+            ),
             bbox=bbox,
-            schema=self.schema,
         )
-        if self._opaque_metadata is not None:
-            result._opaque_metadata = self._opaque_metadata.subset(bbox)
-        return result
 
     def __setitem__(self, bbox: Box | EllipsisType, value: Mask) -> None:
         subview = self[bbox]
@@ -464,17 +467,17 @@ class Mask(GeneralizedImage):
         )
 
     def copy(self) -> Mask:
-        """Deep-copy the mask."""
-        result = Mask(
-            self._array.copy(),
-            bbox=self._bbox,
-            schema=self._schema,
-            projection=self._projection,
-            obs_info=self._obs_info,
+        """Deep-copy the mask and metadata."""
+        return self._transfer_metadata(
+            Mask(
+                self._array.copy(),
+                bbox=self._bbox,
+                schema=self._schema,
+                projection=self._projection,
+                obs_info=self._obs_info,
+            ),
+            copy=True,
         )
-        if self._opaque_metadata is not None:
-            result._opaque_metadata = self._opaque_metadata.copy()
-        return result
 
     def view(
         self,
@@ -502,10 +505,9 @@ class Mask(GeneralizedImage):
             start = self._bbox.start
         if obs_info is ...:
             obs_info = self._obs_info
-        result = Mask(self._array, start=start, schema=schema, projection=projection, obs_info=obs_info)
-        if self._opaque_metadata is not None:
-            result._opaque_metadata = self._opaque_metadata.copy()
-        return result
+        return self._transfer_metadata(
+            Mask(self._array, start=start, schema=schema, projection=projection, obs_info=obs_info)
+        )
 
     def update(self, other: Mask) -> None:
         """Update ``self`` to include all common mask values set in ``other``.
@@ -630,6 +632,7 @@ class Mask(GeneralizedImage):
             dtype=serialized_dtype,
             projection=serialized_projection,
             obs_info=self._obs_info,
+            metadata=self.metadata,
         )
 
     def _serialize_2d[P: pydantic.BaseModel](
@@ -688,7 +691,14 @@ class Mask(GeneralizedImage):
         projection = (
             Projection.deserialize(model.projection, archive) if model.projection is not None else None
         )
-        result = Mask(0, schema=schema, bbox=bbox, projection=projection, obs_info=model.obs_info)
+        result = Mask(
+            0,
+            schema=schema,
+            bbox=bbox,
+            projection=projection,
+            obs_info=model.obs_info,
+            metadata=model.metadata,
+        )
         schemas_2d = schema.split(np.int32)
         if len(schemas_2d) != len(model.data):
             raise ArchiveReadError(
