@@ -26,6 +26,7 @@ from astropy.wcs.wcsapi import BaseLowLevelWCS, HighLevelWCSMixin
 from .._geom import XY, YX, Bounds, Box
 from ..serialization import ArchiveTree, InputArchive, OutputArchive
 from ..utils import is_none
+from . import _ast as astshim
 from ._frames import Frame, SkyFrame
 from ._transform import Transform, TransformSerializationModel, _ast_apply
 
@@ -318,8 +319,6 @@ class ProjectionAstropyView(BaseLowLevelWCS, HighLevelWCSMixin):
     def __init__(self, ast_pixel_to_sky: Any, bbox: Box | None):
         self._bbox = bbox
         if bbox is not None:
-            import astshim
-
             ast_pixel_to_sky = astshim.ShiftMap(list(bbox.start.xy)).then(ast_pixel_to_sky)
         self._ast_pixel_to_sky = ast_pixel_to_sky
 

@@ -28,6 +28,7 @@ import pydantic
 
 from .._geom import XY, Bounds, Box, SerializableBounds
 from ..serialization import ArchiveReadError, ArchiveTree, InputArchive, OutputArchive
+from . import _ast as astshim
 from ._frames import Frame, SerializableFrame, SkyFrame
 
 if TYPE_CHECKING:
@@ -78,7 +79,7 @@ class Transform[I: Frame, O: Frame]:
     ):
         self._in_frame = in_frame
         self._out_frame = out_frame
-        self._ast_mapping = ast_mapping
+        self._ast_mapping = astshim.wrap_mapping(ast_mapping)
         self._in_bounds = in_bounds or getattr(in_frame, "bbox", None)
         self._out_bounds = out_bounds or getattr(out_frame, "bbox", None)
         self._components = list(components)
@@ -126,8 +127,6 @@ class Transform[I: Frame, O: Frame]:
         --------
         Projection.from_fits_wcs
         """
-        import astshim
-
         ast_stream = astshim.StringStream(fits_wcs.to_header_string(relax=True))
         ast_fits_chan = astshim.FitsChan(ast_stream, "Encoding=FITS-WCS, SipReplace=0")
         ast_frame_set = ast_fits_chan.read()
@@ -149,8 +148,6 @@ class Transform[I: Frame, O: Frame]:
         frame
             Frame used for both input and output points.
         """
-        import astshim
-
         return Transform(frame, frame, astshim.UnitMap(2))
 
     @property
@@ -344,8 +341,6 @@ class Transform[I: Frame, O: Frame]:
         not evaluate identically due to small implementation differences in
         the order of floating-point operations.
         """
-        import astshim
-
         ast_frame_set = self._get_ast_frame_set()
         _prepend_ast_shift(ast_frame_set, x=1.0 - bbox.x.start, y=1.0 - bbox.y.start, ast_domain="GRID")
         ast_stream = astshim.StringStream()
@@ -415,8 +410,6 @@ class Transform[I: Frame, O: Frame]:
         archive
             Archive to read from.
         """
-        import astshim
-
         if len(model.frames) != len(model.bounds):
             raise ArchiveReadError(
                 f"Inconsistent lengths for 'frames' ({len(model.frames)}) and 'bounds' ({len(model.bounds)})."
@@ -490,8 +483,6 @@ class Transform[I: Frame, O: Frame]:
         )
 
     def _get_ast_frame_set(self) -> Any:
-        import astshim
-
         ast_frame_set = astshim.FrameSet(_make_ast_frame(self._in_frame))
         ast_frame_set.addFrame(astshim.FrameSet.BASE, self._ast_mapping, _make_ast_frame(self._out_frame))
         return ast_frame_set
@@ -506,8 +497,6 @@ def _ast_apply[T: np.ndarray | float](method: Any, *, x: T, y: T) -> XY[T]:
 
 
 def _prepend_ast_shift(ast_frame_set: Any, x: float, y: float, ast_domain: str) -> None:
-    import astshim
-
     ast_output_frame_id = ast_frame_set.current
     ast_frame_set.addFrame(
         astshim.FrameSet.BASE,
@@ -519,8 +508,6 @@ def _prepend_ast_shift(ast_frame_set: Any, x: float, y: float, ast_domain: str) 
 
 
 def _make_ast_frame(frame: Frame) -> Any:
-    import astshim
-
     if frame is SkyFrame.ICRS:
         return astshim.SkyFrame("")
     ast_frame = astshim.Frame(2, f"Ident={frame._ast_ident}")
