@@ -33,7 +33,6 @@ import numpy as np
 import pydantic
 import pydantic_core.core_schema as pcs
 
-from ._common import ArchiveTree
 from ._dtypes import NumberType
 
 
@@ -83,7 +82,7 @@ type Unit = Annotated[
 ]
 
 
-class ArrayReferenceModel(ArchiveTree):
+class ArrayReferenceModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     """Model for the subset of the ASDF 'ndarray' schema, in the case where the
     array data is stored elsewhere.
     """
@@ -104,7 +103,7 @@ class ArrayReferenceModel(ArchiveTree):
     source_is_table: ClassVar[Literal[False]] = False
 
 
-class InlineArrayModel(ArchiveTree):
+class InlineArrayModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     """Model for the subset of the ASDF 'ndarray' schema, in the case where the
     array data is stored inline.
     """
@@ -157,7 +156,7 @@ class _InlineArraySerialization:
 type InlineArray = Annotated[np.ndarray, _InlineArraySerialization]
 
 
-class QuantityModel(ArchiveTree):
+class QuantityModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     """Model for a subset of the ASDF 'quantity' schema for scalars."""
 
     value: pydantic.StrictFloat
@@ -172,7 +171,7 @@ class QuantityModel(ArchiveTree):
     )
 
 
-class InlineArrayQuantityModel(ArchiveTree):
+class InlineArrayQuantityModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     """Model for a subset of the ASDF 'quantity' schema for inline arrays."""
 
     value: InlineArrayModel
@@ -187,7 +186,7 @@ class InlineArrayQuantityModel(ArchiveTree):
     )
 
 
-class ArrayReferenceQuantityModel(ArchiveTree):
+class ArrayReferenceQuantityModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     """Model for a subset of the ASDF 'quantity' schema for external arrays."""
 
     value: ArrayReferenceModel
@@ -273,7 +272,7 @@ class _InlineArrayQuantitySerialization:
 type InlineArrayQuantity = Annotated[astropy.units.Quantity, _InlineArrayQuantitySerialization]
 
 
-class TimeModel(ArchiveTree):
+class TimeModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     """Model for a subset of the ASDF 'time' schema."""
 
     value: str

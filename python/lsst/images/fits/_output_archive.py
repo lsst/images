@@ -201,7 +201,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         nested = NestedOutputArchive[TableCellReferenceModel](name, self)
         return serializer(nested)
 
-    def serialize_pointer[T: pydantic.BaseModel](
+    def serialize_pointer[T: ArchiveTree](
         self, name: str, serializer: Callable[[OutputArchive[TableCellReferenceModel]], T], key: Hashable
     ) -> TableCellReferenceModel:
         if (pointer := self._pointers_by_key.get(key)) is not None:
@@ -214,7 +214,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         self._pointers_by_key[key] = pointer
         return pointer
 
-    def serialize_frame_set[T: pydantic.BaseModel](
+    def serialize_frame_set[T: ArchiveTree](
         self, name: str, frame_set: FrameSet, serializer: Callable[[OutputArchive], T], key: Hashable
     ) -> TableCellReferenceModel:
         # Docstring inherited.

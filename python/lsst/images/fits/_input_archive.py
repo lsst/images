@@ -29,7 +29,6 @@ import astropy.io.fits
 import astropy.table
 import fsspec
 import numpy as np
-import pydantic
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
@@ -196,7 +195,7 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         json_bytes = self._readers[ExtensionKey("JSON")].data[0]["JSON"].tobytes()
         return model_type.model_validate_json(json_bytes)
 
-    def deserialize_pointer[U: pydantic.BaseModel, V](
+    def deserialize_pointer[U: ArchiveTree, V](
         self,
         pointer: TableCellReferenceModel,
         model_type: type[U],

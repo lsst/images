@@ -193,7 +193,7 @@ type PiffScalar = int | float | str | bool | None
 type PiffDict = dict[str, PiffScalar | list[PiffScalar]]
 
 
-class GalSimPixelScaleModel(serialization.ArchiveTree):
+class GalSimPixelScaleModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     """Model used to serialize `galsim.wcs.PixelScale` instances."""
 
     scale: float
@@ -209,7 +209,7 @@ class GalSimPixelScaleModel(serialization.ArchiveTree):
 type GalSimLocalWcsModel = Annotated[GalSimPixelScaleModel, pydantic.Field(discriminator="wcs_type")]
 
 
-class PiffTableModel(serialization.ArchiveTree):
+class PiffTableModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     """Serialization model used to embed a reference to a binary-data table in
     a Piff serialization's JSON-like data.
     """
@@ -218,7 +218,7 @@ class PiffTableModel(serialization.ArchiveTree):
     table: serialization.TableModel
 
 
-class PiffObjectModel(serialization.ArchiveTree):
+class PiffObjectModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     """General-purpose serialization model used for various Piff objects."""
 
     structs: dict[str, PiffDict] = pydantic.Field(default_factory=dict, exclude_if=operator.not_)
@@ -239,8 +239,6 @@ class PiffSerializationModel(serialization.ArchiveTree):
     bounds: SerializableBounds = pydantic.Field(
         description="The bounds object that represents the PSF's validity region."
     )
-
-    model_config = pydantic.ConfigDict(ser_json_inf_nan="constants")
 
 
 class _ArchivePiffWriter:

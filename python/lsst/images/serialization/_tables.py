@@ -27,7 +27,6 @@ import numpy.typing as npt
 import pydantic
 
 from ._asdf_utils import Unit
-from ._common import ArchiveTree
 from ._dtypes import NumberType
 
 if TYPE_CHECKING:
@@ -40,7 +39,7 @@ class UnsupportedTableError(NotImplementedError):
     """
 
 
-class ColumnDefinitionModel(ArchiveTree):
+class ColumnDefinitionModel(pydantic.BaseModel):
     """A model that describes a column in a table."""
 
     name: str
@@ -103,7 +102,7 @@ class ColumnDefinitionModel(ArchiveTree):
         astropy_column.description = self.description
 
 
-class TableModel(ArchiveTree):
+class TableModel(pydantic.BaseModel):
     """Placeholder for an ASDF-like model for referencing binary tabular
     data.
     """
@@ -122,7 +121,7 @@ class TableModel(ArchiveTree):
     source_is_table: ClassVar[Literal[True]] = True
 
 
-class TableCellReferenceModel(ArchiveTree):
+class TableCellReferenceModel(pydantic.BaseModel):
     """A model that acts as a pointer to data in a table cell."""
 
     model_config = pydantic.ConfigDict(frozen=True)
