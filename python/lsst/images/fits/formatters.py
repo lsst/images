@@ -119,7 +119,7 @@ class GenericFormatter(FormatterV2):
                 del header[key]
         if self.butler_provenance is not None:
             for key, value in self.butler_provenance.to_flat_dict(
-                self.dataset_ref, prefix="LSST BUTLER", sep=" ", simple_types=True, max_inputs=3_000
+                self.dataset_ref, prefix="HIERARCH LSST BUTLER", sep=" ", simple_types=True, max_inputs=3_000
             ).items():
                 header.set(key, value)
 

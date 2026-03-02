@@ -15,13 +15,14 @@ __all__ = ("RoundtripFits", "TemporaryButler")
 
 import tempfile
 import unittest
+import uuid
 from contextlib import ExitStack
 from typing import Any, TypeVar
 
 import astropy.io.fits
 
 try:
-    from lsst.daf.butler import Butler, DataCoordinate, DatasetRef, DatasetType
+    from lsst.daf.butler import Butler, DataCoordinate, DatasetProvenance, DatasetRef, DatasetType
 
     HAVE_BUTLER = True
 except ImportError:
@@ -199,7 +200,10 @@ class RoundtripFits[T]:
         assert self._storage_class is not None, "Should not use butler if no storage class"
         butler_helper = self._exit_stack.enter_context(TemporaryButler(test_dataset=self._storage_class))
         self.butler = butler_helper.butler
-        self.ref = self.butler.put(self._original, butler_helper.test_dataset)
+        quantum_id = uuid.uuid4()
+        self.ref = self.butler.put(
+            self._original, butler_helper.test_dataset, provenance=DatasetProvenance(quantum_id=quantum_id)
+        )
         self.result = self.butler.get(self.ref)
 
     def _run_without_butler(self) -> None:

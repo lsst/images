@@ -124,7 +124,7 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         # Save the remaining primary header keys so we can propagate them on
         # rewrite.
         self._opaque_metadata = FitsOpaqueMetadata()
-        self._opaque_metadata.headers[ExtensionKey()] = self._primary_hdu.header.copy(strip=True)
+        self._opaque_metadata.add_header(self._primary_hdu.header.copy(strip=True), name="", ver=1)
         # Read the JSON and index HDUs from the end.
         stream.seek(json_address)
         tail_data = stream.read(json_size + index_size)
