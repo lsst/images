@@ -16,6 +16,7 @@ __all__ = ("MaskedImage", "MaskedImageSerializationModel")
 import functools
 from collections.abc import Mapping
 from contextlib import ExitStack
+from types import EllipsisType
 from typing import Any, Literal, overload
 
 import astropy.io.fits
@@ -164,7 +165,10 @@ class MaskedImage(GeneralizedImage):
         """
         return self._image.obs_info
 
-    def __getitem__(self, bbox: Box) -> MaskedImage:
+    def __getitem__(self, bbox: Box | EllipsisType) -> MaskedImage:
+        super().__getitem__(bbox)
+        if bbox is ...:
+            return self
         result = MaskedImage(
             # Projection and obs_info propagate from the image.
             self.image[bbox],

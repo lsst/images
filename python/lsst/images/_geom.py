@@ -16,7 +16,9 @@ __all__ = (
     "YX",
     "Bounds",
     "Box",
+    "BoxSliceFactory",
     "Interval",
+    "IntervalSliceFactory",
     "SerializableBounds",
 )
 

@@ -33,16 +33,19 @@ class ImageTestCase(unittest.TestCase):
         data = np.array([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]])
         image = Image(data)
         subset = image[Box.factory[:3, 1:3]]
-        subset2 = image[:3, 1:3]
+        subset2 = image.absolute[:3, 1:3]
         self.assertEqual(subset2, subset)
 
         # Add an explicit bounding box and then slice it.
         image = Image(data, bbox=Box.factory[-2:1, 10:14])
         with self.assertRaises(IndexError):
-            # Same slice no longer works because we have moved origin.
-            image[:3, 1:3]
-        subset = image[:0, 11:13]
-        assert_close(self, subset.array, np.array([[2, 3], [6, 7]]))
+            # Same slice no longer works in absolute slicing because we have
+            # moved origin.
+            image.absolute[:3, 1:3]
+        # That slice does still work in local coordinates.
+        assert_close(self, image.local[:3, 1:3].array, subset2.array)
+        # And we can write an equivalent slice in absolute coordinates.
+        assert_close(self, image.absolute[:0, 11:13].array, np.array([[2, 3], [6, 7]]))
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_legacy(self) -> None:

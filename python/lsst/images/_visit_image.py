@@ -17,6 +17,7 @@ __all__ = ("VisitImage", "VisitImageSerializationModel")
 
 import functools
 from collections.abc import Callable, Mapping, MutableMapping
+from types import EllipsisType
 from typing import Any, Literal, cast, overload
 
 import astropy.io.fits
@@ -176,7 +177,10 @@ class VisitImage(MaskedImage):
             raise self._psf
         return self._psf
 
-    def __getitem__(self, bbox: Box) -> VisitImage:
+    def __getitem__(self, bbox: Box | EllipsisType) -> VisitImage:
+        super().__getitem__(bbox)
+        if bbox is ...:
+            return self
         result = VisitImage(
             self.image[bbox],
             mask=self.mask[bbox],

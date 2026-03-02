@@ -194,16 +194,11 @@ class Image(GeneralizedImage):
         """
         return self._obs_info
 
-    def __getitem__(self, bbox: Box | EllipsisType | tuple[slice, slice]) -> Image:
-        indices: EllipsisType | tuple[slice, ...]
+    def __getitem__(self, bbox: Box | EllipsisType) -> Image:
+        super().__getitem__(bbox)
         if bbox is ...:
-            indices = ...
-            bbox = self._bbox
-        elif isinstance(bbox, tuple):
-            bbox = self._bbox.absolute[bbox]
-            indices = bbox.slice_within(self._bbox)
-        else:
-            indices = bbox.slice_within(self._bbox)
+            return self
+        indices = bbox.slice_within(self._bbox)
         result = Image(
             self._array[indices],
             bbox=bbox,
