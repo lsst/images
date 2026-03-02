@@ -23,7 +23,6 @@ __all__ = (
 import dataclasses
 import math
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
-from functools import cached_property
 from types import EllipsisType
 from typing import Any, ClassVar, cast
 
@@ -37,8 +36,9 @@ from astro_metadata_translator import ObservationInfo
 from lsst.resources import ResourcePath, ResourcePathExpression
 
 from . import fits
+from ._generalized_image import GeneralizedImage
 from ._geom import YX, Box
-from ._transforms import Frame, Projection, ProjectionAstropyView, ProjectionSerializationModel
+from ._transforms import Frame, Projection, ProjectionSerializationModel
 from .serialization import (
     ArchiveReadError,
     ArchiveTree,
@@ -296,7 +296,7 @@ class MaskSchema:
                 header.remove(f"MSKD{n + 1:04d}", ignore_missing=True)
 
 
-class Mask:
+class Mask(GeneralizedImage):
     """A 2-d bitmask image backed by a 3-d byte array.
 
     Parameters
@@ -429,41 +429,6 @@ class Mask:
         form. (`~astro_metadata_translator.ObservationInfo` | `None`).
         """
         return self._obs_info
-
-    @property
-    def astropy_wcs(self) -> ProjectionAstropyView | None:
-        """An Astropy WCS for this mask's pixel array.
-
-        Notes
-        -----
-        As expected for Astropy WCS objects, this defines pixel coordinates
-        such that the first row and column in `array` are ``(0, 0)``, not
-        ``bbox.start``, as is the case for `projection`.
-
-        This object satisfies the `astropy.wcs.wcsapi.BaseHighLevelWCS` and
-        `astropy.wcs.wcsapi.BaseLowLevelWCS` interfaces, but it is not an
-        `astropy.wcs.WCS` (use `fits_wcs` for that).
-        """
-        return self._projection.as_astropy(self.bbox) if self._projection is not None else None
-
-    @cached_property
-    def fits_wcs(self) -> astropy.wcs.WCS | None:
-        """An Astropy FITS WCS for this mask's pixel array.
-
-        Notes
-        -----
-        As expected for Astropy WCS objects, this defines pixel coordinates
-        such that the first row and column in `array` are ``(0, 0)``, not
-        ``bbox.start``, as is the case for `projection`.
-
-        This may be an approximation or absent if `projection` is not
-        naturally representable as a FITS WCS.
-        """
-        return (
-            self._projection.as_fits_wcs(self.bbox, allow_approximation=True)
-            if self._projection is not None
-            else None
-        )
 
     def __getitem__(self, bbox: Box) -> Mask:
         result = Mask(
