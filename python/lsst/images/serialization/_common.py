@@ -14,10 +14,12 @@ from __future__ import annotations
 __all__ = (
     "ArchiveReadError",
     "ArchiveTree",
+    "MetadataValue",
     "OpaqueArchiveMetadata",
     "no_header_updates",
 )
 
+import operator
 from typing import TYPE_CHECKING, Protocol, Self
 
 import astropy.table
@@ -30,6 +32,11 @@ if TYPE_CHECKING:
     import astropy.io.fits
 
 
+type MetadataValue = (
+    pydantic.StrictInt | pydantic.StrictFloat | pydantic.StrictStr | pydantic.StrictBool | None
+)
+
+
 class ArchiveTree(
     pydantic.BaseModel, ser_json_inf_nan="constants", ser_json_bytes="base64", val_json_bytes="base64"
 ):
@@ -37,6 +44,10 @@ class ArchiveTree(
     for all objects that may be used as the top-level tree models written to
     archives.
     """
+
+    metadata: dict[str, MetadataValue] = pydantic.Field(
+        default_factory=dict, description="Additional unstructured metadata.", exclude_if=operator.not_
+    )
 
 
 class ArchiveReadError(RuntimeError):

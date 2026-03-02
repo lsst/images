@@ -29,6 +29,7 @@ from ..serialization import (
     ArchiveTree,
     ArrayReferenceModel,
     ColumnDefinitionModel,
+    MetadataValue,
     NestedOutputArchive,
     NumberType,
     OutputArchive,
@@ -45,6 +46,7 @@ def write(
     compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
     update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     compression_seed: int | None = None,
+    metadata: dict[str, MetadataValue] | None = None,
 ) -> Any:
     """Write an object with a ``serialize`` method to a FITS file.
 
@@ -63,6 +65,9 @@ def write(
         A FITS tile compression seed to use whenever the configured
         compression seed is `None` or (for backwards compatibility) ``0``.
         This value is then incremented every time it is used.
+    metadata
+        Additional metadata to save with the object.  This will override any
+        flexible metadata carried by the object itself with the same keys.
 
     Returns
     -------
@@ -79,6 +84,8 @@ def write(
         compression_seed=compression_seed,
     ) as archive:
         tree = archive.serialize_direct(name, obj.serialize) if name is not None else obj.serialize(archive)
+        if metadata is not None:
+            tree.metadata.update(metadata)
         archive.add_tree(tree)
     return tree
 
