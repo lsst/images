@@ -179,6 +179,11 @@ class MaskedImage(GeneralizedImage):
             result._opaque_metadata = self._opaque_metadata.subset(bbox)
         return result
 
+    def __setitem__(self, bbox: Box | EllipsisType, value: MaskedImage) -> None:
+        self._image[bbox] = value.image
+        self._mask[bbox] = value.mask
+        self._variance[bbox] = value.variance
+
     def __str__(self) -> str:
         return f"MaskedImage({self.image!s}, {list(self.mask.schema.names)})"
 

@@ -211,12 +211,7 @@ class Image(GeneralizedImage):
         return result
 
     def __setitem__(self, bbox: Box | EllipsisType, value: Image) -> None:
-        if bbox is ...:
-            bbox = self._bbox
-        if value._bbox != bbox:
-            value = value[bbox]
-        # Use the quantity property to handle unit conversions and checks.
-        self.quantity[bbox.slice_within(self._bbox)] = value.quantity
+        self[bbox].quantity[...] = value.quantity
 
     def __str__(self) -> str:
         return f"Image({self.bbox!s}, {self.array.dtype.type.__name__})"

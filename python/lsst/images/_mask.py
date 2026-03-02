@@ -443,6 +443,11 @@ class Mask(GeneralizedImage):
             result._opaque_metadata = self._opaque_metadata.subset(bbox)
         return result
 
+    def __setitem__(self, bbox: Box | EllipsisType, value: Mask) -> None:
+        subview = self[bbox]
+        subview.clear()
+        subview.update(value)
+
     def __str__(self) -> str:
         return f"Mask({self.bbox!s}, {list(self.schema.names)})"
 
@@ -556,23 +561,27 @@ class Mask(GeneralizedImage):
             boolean_mask = boolean_mask.astype(bool)
         self._array[boolean_mask, bit.index] |= bit.mask
 
-    def clear(self, plane: str, boolean_mask: np.ndarray | EllipsisType = ...) -> None:
-        """Clear a mask plane.
+    def clear(self, plane: str | None = None, boolean_mask: np.ndarray | EllipsisType = ...) -> None:
+        """Clear one or more mask planes.
 
         Parameters
         ----------
         plane
-            Name of the mask plane to set
+            Name of the mask plane to set.  If `None` all mask planes are
+            cleared.
         boolean_mask
             A 2-d boolean array with the same shape as `bbox` that is `True`
             where the bit for ``plane`` should be cleared and `False` where it
             should be left unchanged.  May be ``...`` to clear the bit
             everywhere.
         """
-        bit = self.schema.bit(plane)
         if boolean_mask is not ...:
             boolean_mask = boolean_mask.astype(bool)
-        self._array[boolean_mask, bit.index] &= ~bit.mask
+        if plane is None:
+            self._array[boolean_mask, :] = 0
+        else:
+            bit = self.schema.bit(plane)
+            self._array[boolean_mask, bit.index] &= ~bit.mask
 
     def serialize[P: pydantic.BaseModel](
         self,
