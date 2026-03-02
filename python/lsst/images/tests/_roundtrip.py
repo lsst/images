@@ -115,6 +115,12 @@ class RoundtripFits[T]:
     directories are deleted, but the ``result`` attribute is still usable.
     In between the `inspect` and `get` methods can be used to perform other
     tests.
+
+    This helper internally tests that butler provenance is saved with any
+    object that has a metadata attribute.  This modifies the metadata attached
+    to the object being saved (since that's what the formatter does), which
+    conveniently (but perhaps surprisingly) keeps the metadata of the
+    roundtripped object equal to that of the original.
     """
 
     def __init__(self, tc: unittest.TestCase, original: T, storage_class: str | None = None):
@@ -123,6 +129,7 @@ class RoundtripFits[T]:
         self._serialized: Any = None
         self._exit_stack = ExitStack()
         self._filename: str | None = None
+        self._tc = tc
         self.result: Any
         self.butler: Butler | None = None
         self.ref: DatasetRef | None = None
@@ -205,6 +212,11 @@ class RoundtripFits[T]:
             self._original, butler_helper.test_dataset, provenance=DatasetProvenance(quantum_id=quantum_id)
         )
         self.result = self.butler.get(self.ref)
+        if (metadata := getattr(self.result, "metadata", None)) is not None:
+            # Check that the provenance was written to the flexible metadata.
+            provenance, ref = DatasetProvenance.from_flat_dict(metadata, self.butler)
+            self._tc.assertEqual(ref, self.ref)
+            self._tc.assertEqual(provenance.quantum_id, quantum_id)
 
     def _run_without_butler(self) -> None:
         tmp = self._exit_stack.enter_context(

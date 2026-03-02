@@ -16,7 +16,7 @@ __all__ = ("GenericFormatter", "ImageFormatter", "MaskedImageFormatter", "VisitI
 import enum
 import hashlib
 import json
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 import astropy.io.fits
 
@@ -29,7 +29,7 @@ from .._mask import Mask
 from .._masked_image import MaskedImageSerializationModel
 from .._transforms import Projection, ProjectionSerializationModel
 from .._visit_image import VisitImageSerializationModel
-from ..serialization import TableCellReferenceModel
+from ..serialization import MetadataValue, TableCellReferenceModel
 from ._common import FitsCompressionOptions
 from ._input_archive import FitsInputArchive, read
 from ._output_archive import write
@@ -52,6 +52,11 @@ class GenericFormatter(FormatterV2):
     The write parameter configuration for this formatter is designed to be
     identical to that for the legacy FITS formatters defined in
     `lsst.obs.base`.
+
+    Butler provenance is written to both FITS headers and the object's
+    flexible metadata.  The latter *will modify the in-memory object being
+    saved*, which can be surprising but is usually desirable, as it ensures
+    any butler information attached to that is up-to-date.
     """
 
     default_extension: ClassVar[str] = ".fits"
@@ -66,12 +71,20 @@ class GenericFormatter(FormatterV2):
         return read(pytype, uri, **kwargs)
 
     def write_local_file(self, in_memory_dataset: Any, uri: ResourcePath) -> None:
+        metadata: dict[str, MetadataValue] = getattr(in_memory_dataset, "metadata", {})
+        DatasetProvenance.strip_provenance_from_flat_dict(metadata)
+        if self.butler_provenance is not None:
+            for key, value in self.butler_provenance.to_flat_dict(
+                self.dataset_ref, prefix="butler", sep=".", simple_types=True, max_inputs=3_000
+            ).items():
+                metadata[key] = cast(MetadataValue, value)  # simple_types=True guarantees this is okay
         write(
             in_memory_dataset,
             uri.ospath,
             update_header=self._update_header,
             compression_options=self._get_compression_options(),
             compression_seed=self._get_compression_seed(),
+            metadata=metadata,
         )
 
     def add_provenance(
