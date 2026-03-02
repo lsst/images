@@ -27,7 +27,8 @@ dependencies = [
     "numpy >= 2.0",
     "pydantic >= 2.12",
     "lsst-resources",
-    "astro-metadata-translator >=30.2026.900"
+    "astro-metadata-translator >=30.2026.900",
+    "starlink-pyast >=4.0.0",
 ]
 dynamic = ["version"]
 
@@ -168,7 +169,7 @@ extend-select = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["lsst", "astshim"]
+known-first-party = ["lsst", "astshim", "starlink"]
 
 [tool.ruff.lint.pycodestyle]
 max-doc-length = 79
@@ -206,7 +207,7 @@ warn_redundant_casts = true
 plugins = "pydantic.mypy"
 
 [[tool.mypy.overrides]]
-module = ["numpy.*", "fsspec.*", "astropy.*", "galsim.*", "piff.*", "lsst.*", "astshim.*"]
+module = ["numpy.*", "fsspec.*", "astropy.*", "galsim.*", "piff.*", "lsst.*", "astshim.*", "starlink.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

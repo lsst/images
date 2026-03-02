@@ -20,6 +20,7 @@ import pydantic
 
 from .._geom import Bounds, Box
 from ..serialization import ArchiveTree, InputArchive, OutputArchive
+from . import _ast as astshim
 from . import _frames  # use this import style to facilitate pattern matching
 from ._frame_set import FrameLookupError, FrameSet
 from ._transform import Transform
@@ -34,8 +35,8 @@ class CameraFrameSet(FrameSet):
     `lsst.afw.cameraGeom` object (`from_legacy`).
     """
 
-    # After we've moved from astshim to pyast we can make this constructor
-    # public and document it.  For now:
+    # This constructor is kept private while we support both the astshim
+    # and starlink-pyast AST wrappers.  For now:
     # 'instrument': the short (butler dimension) name.
     # 'ast': an astshim.FrameSet as returned by
     #        lsst.afw.cameraGeom.TransformMap.makeFrameSet.
@@ -43,7 +44,7 @@ class CameraFrameSet(FrameSet):
     #        and DETECTOR_${ID}, and the focal plane frame must know its
     #        units.
     def __init__(self, instrument: str, ast: Any):
-        self._ast = ast
+        self._ast = astshim.wrap_frame_set(ast)
         self._focal_plane_frame_id: int = 0
         self._field_angle_frame_id: int = 0
         self._detector_frame_ids: dict[int, int] = {}
@@ -193,8 +194,6 @@ class CameraFrameSet(FrameSet):
         archive
             Archive to read from.
         """
-        import astshim
-
         return CameraFrameSet(model.instrument, astshim.FrameSet.fromString(model.ast))
 
     @staticmethod
