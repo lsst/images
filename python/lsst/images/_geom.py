@@ -135,7 +135,7 @@ class Interval:
         self._start = int(start)
         self._stop = int(stop)
         if not (self._stop > self._start):
-            raise ValueError(f"Interval must have positive size; got [{self._start}, {self._stop})")
+            raise IndexError(f"Interval must have positive size; got [{self._start}, {self._stop})")
 
     __slots__ = ("_start", "_stop")
 
@@ -210,6 +210,30 @@ class Interval:
         Array values are integers.
         """
         return np.arange(self.start, self.stop)
+
+    @property
+    def absolute(self) -> IntervalSliceFactory:
+        """A factory for constructing a contained `Interval` using slice
+        syntax and absolute coordinates.
+
+        Notes
+        -----
+        Slice bounds that are absent are replaced with the bounds of ``self``.
+        """
+        return IntervalSliceFactory(self, is_local=False)
+
+    @property
+    def local(self) -> IntervalSliceFactory:
+        """A factory for constructing a contained `Interval` using a slice
+        relative to the start of this one (`IntervalSliceFactory`).
+
+        Notes
+        -----
+        This factory interprets slices as "local" coordinates, in which ``0``
+        corresponds to ``self.start``.  Negative bounds are relative to
+        ``self.stop``, as is usually the case for Python sequences.
+        """
+        return IntervalSliceFactory(self, is_local=True)
 
     def linspace(self, n: int | None = None, *, step: float | None = None) -> np.ndarray:
         """Return an array of values that spans the interval.
@@ -374,42 +398,71 @@ class Interval:
     def _serialize(self) -> _SerializedInterval:
         return {"start": self._start, "stop": self._stop}
 
-    def __getitem__(self, s: slice) -> Interval:
-        """Return a subset of the interval.
-
-        If the start is omitted from the slice, the current start is assumed.
-        """
-        if s.step is not None and s.step != 1:
-            raise ValueError(f"Slice {s} has non-unit step.")
-        start = s.start if s.start is not None else self.start
-        stop = s.stop if s.stop is not None else self.stop
-        try:
-            new = Interval(start=start, stop=stop)
-        except ValueError as e:
-            raise IndexError(f"Bounds failure when creating slice with start={start} stop={stop}") from e
-        if not self.contains(new):
-            raise IndexError(
-                f"The requested slice ({start}, {stop}) "
-                f"is not contained within the enclosing interval ({self})"
-            )
-        return new
-
 
 class IntervalSliceFactory:
     """A factory for `Interval` objects using array-slice syntax.
 
     Notes
     -----
-    When indexed with a single slice, this returns an `Interval`::
+    When indexed with a single slice on the `Interval.factory` attribute, this
+    returns an `Interval` with exactly the given bounds::
 
         assert Interval.factory[3:6] == Interval(start=3, stop=6)
 
+    A missing start bound is replaced by ``0``, but a missing stop bound is
+    not allowed.
+
+    When obtained from the `Interval.absolute` property, indices are absolute
+    coordinate values, but any omitted bounds are replaced with the parent
+    interval's bounds::
+
+        parent = Interval.factory[3:6]
+        assert Interval.factory[4:5] == parent.absolute[:5]
+
+    The final interval is also checked to be contained by the parent interval.
+
+    When obtained from the `Interval.local` property, indices are interpreted
+    as relative to the parent interval, and negative indices are relative to
+    the end (like `~collections.abc.Sequence` indexing)::
+
+        parent = Interval.factory[3:6]
+        assert Interval.factory[4:5] == parent.local[1:-1]
+
+    When the stop bound is greater than the size of the parent interval, the
+    returned interval is clipped to be contained by the parent (as in
+    `~collections.abc.Sequence` indexing).
     """
+
+    def __init__(self, parent: Interval | None = None, is_local: bool = False):
+        self._parent = parent
+        self._is_local = is_local
 
     def __getitem__(self, s: slice) -> Interval:
         if s.step is not None and s.step != 1:
             raise ValueError(f"Slice {s} has non-unit step.")
-        return Interval(start=s.start or 0, stop=s.stop)
+        if self._is_local:
+            assert self._parent is not None, "is_local=True requires a parent interval"
+            start, stop, _ = s.indices(self._parent.size)
+            start += self._parent.start
+            stop += self._parent.start
+        else:
+            start = s.start
+            stop = s.stop
+            if start is None:
+                if self._parent is None:
+                    start = 0
+                else:
+                    start = self._parent.start
+            if stop is None:
+                if self._parent is None:
+                    raise IndexError("An Interval cannot have an empty upper bound.")
+                stop = self._parent.stop
+        if self._parent is not None:
+            if start < self._parent.start:
+                raise IndexError(f"Absolute start {start} (passed as {s.start}) is < {self._parent.start}.")
+            if stop > self._parent.stop:
+                raise IndexError(f"Absolute stop {stop} (passed as {s.stop}) is > {self._parent.stop}.")
+        return Interval(start=start, stop=stop)
 
 
 Interval.factory = IntervalSliceFactory()
@@ -495,13 +548,37 @@ class Box:
 
     @property
     def x(self) -> Interval:
-        """Shortcut for the last dimension's interval (`int`)."""
+        """The x-dimension interval (`int`)."""
         return self._intervals[-1]
 
     @property
     def y(self) -> Interval:
-        """Shortcut for the second-to-last dimension's interval (`int`)."""
+        """The y-dimension interval (`int`)."""
         return self._intervals[-2]
+
+    @property
+    def absolute(self) -> BoxSliceFactory:
+        """A factory for constructing a contained `Box` using slice
+        syntax and absolute coordinates.
+
+        Notes
+        -----
+        Slice bounds that are absent are replaced with the bounds of ``self``.
+        """
+        return BoxSliceFactory(y=self.y.absolute, x=self.x.absolute)
+
+    @property
+    def local(self) -> BoxSliceFactory:
+        """A factory for constructing a contained `Interval` using a slice
+        relative to the start of this one (`BoxSliceFactory`).
+
+        Notes
+        -----
+        This factory interprets slices as "local" coordinates, in which ``0``
+        corresponds to ``self.start``.  Negative bounds are relative to
+        ``self.stop``, as is usually the case for Python sequences.
+        """
+        return BoxSliceFactory(y=self.y.local, x=self.x.local)
 
     def meshgrid(self, n: int | Sequence[int] | None = None, *, step: float | None = None) -> XY[np.ndarray]:
         """Return a pair of 2-d arrays of the coordinate values of the box.
@@ -704,42 +781,52 @@ class Box:
         assert isinstance(serialized, Box)
         return serialized
 
-    def __getitem__(self, key: tuple[slice, slice]) -> Box:
-        """Given a slice, return a new box."""
-        # If the slice is missing the start, use the same start as the
-        # current object.
-        try:
-            match key:
-                case XY(x=x, y=y):
-                    return Box(self.y[y], self.x[x])
-                case (y, x):
-                    return Box(self.y[y], self.x[x])
-                case _:
-                    raise TypeError("Expected exactly two slices.")
-        except IndexError as e:
-            e.add_note(f"Error applying slice {key} to {self}")
-            raise
-
 
 class BoxSliceFactory:
     """A factory for `Box` objects using array-slice syntax.
 
     Notes
     -----
-    When indexed with one or more slices, this returns a `Box`:
+    When `Box.factory` is indexed with a pair of slices, this returns a
+    `Box` with exactly those bounds::
 
         assert (
             Box.factory[3:6, -1:2]
             == Box(x=Interval(start=-1, stop=2), y=Interval(start=3, stop=6)
         )
+
+    A missing start bound is replaced by ``0``, but a missing stop bound is
+    not allowed.
+
+    When obtained from the `Box.absolute` property, indices are absolute
+    coordinate values, but any omitted bounds are replaced with the parent
+    box's bounds::
+
+        parent = Box.factory[3:6, -1:2]
+        assert Box.factory[4:5, 0:2] == parent.absolute[:5, 0:]
+
+    The final box is also checked to be contained by the parent box.
+
+    When obtained from the `Box.local` property, indices are interpreted
+    as relative to the parent box, and negative indices are relative to
+    the end (like `~collections.abc.Sequence` indexing)::
+
+        parent = Box.factory[3:6, -1:2]
+        assert Box.factory[4:5, 0:2] == parent.local[1:-1, 1:]
     """
+
+    def __init__(
+        self, y: IntervalSliceFactory = Interval.factory, x: IntervalSliceFactory = Interval.factory
+    ):
+        self._y = y
+        self._x = x
 
     def __getitem__(self, key: tuple[slice, slice]) -> Box:
         match key:
             case XY(x=x, y=y):
-                return Box(Interval.factory[y], Interval.factory[x])
+                return Box(y=self._y[y], x=self._x[x])
             case (y, x):
-                return Box(Interval.factory[y], Interval.factory[x])
+                return Box(y=self._y[y], x=self._x[x])
             case _:
                 raise TypeError("Expected exactly two slices.")
 

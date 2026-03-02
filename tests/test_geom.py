@@ -135,31 +135,67 @@ class IntervalTestCase(unittest.TestCase):
         i = Interval.factory[3:20]
         self.assertEqual(i.start, 3)
         self.assertEqual(i.stop, 20)
-        self.assertEqual(i[::], i)
+        self.assertEqual(i.absolute[::], i)
+        self.assertEqual(i.local[::], i)
 
-        subset = i[5:10]
+        subset = i.absolute[5:10]
         self.assertEqual(subset.start, 5)
         self.assertEqual(subset.stop, 10)
 
-        subset = i[:10]
+        subset = i.local[5:10]
+        self.assertEqual(subset.start, 8)
+        self.assertEqual(subset.stop, 13)
+
+        subset = i.absolute[:10]
         self.assertEqual(subset.start, 3)
         self.assertEqual(subset.stop, 10)
 
-        subset = i[10:]
+        subset = i.local[:10]
+        self.assertEqual(subset.start, 3)
+        self.assertEqual(subset.stop, 13)
+
+        subset = i.absolute[10:]
         self.assertEqual(subset.start, 10)
         self.assertEqual(subset.stop, 20)
 
-        with self.assertRaises(IndexError):
-            i[:30]
+        subset = i.local[10:]
+        self.assertEqual(subset.start, 13)
+        self.assertEqual(subset.stop, 20)
+
+        subset = i.local[3:-2]
+        self.assertEqual(subset.start, 6)
+        self.assertEqual(subset.stop, 18)
+
+        subset = i.local[-5:-2]
+        self.assertEqual(subset.start, 15)
+        self.assertEqual(subset.stop, 18)
 
         with self.assertRaises(IndexError):
-            i[30:]
+            i.absolute[:30]
+
+        # It might seem surprising that this does not raise, but it's exactly
+        # what what list(range(3, 20))[:30] does:
+        subset = i.local[:30]
+        self.assertEqual(subset.start, 3)
+        self.assertEqual(subset.stop, 20)
 
         with self.assertRaises(IndexError):
-            i[-1:10]
+            i.absolute[30:]
+
+        with self.assertRaises(IndexError):
+            i.local[30:]
+
+        with self.assertRaises(IndexError):
+            i.absolute[-1:10]
+
+        with self.assertRaises(IndexError):
+            i.local[-1:10]
 
         with self.assertRaises(ValueError):
-            i[::2]
+            i.absolute[::2]
+
+        with self.assertRaises(ValueError):
+            i.local[::2]
 
         with self.assertRaises(ValueError):
             Interval.factory[1:2:2]
@@ -283,11 +319,17 @@ class BoxTestCase(unittest.TestCase):
     def test_slicing(self) -> None:
         """Test slicing."""
         box = Box.factory[:10, :20]
-        sbox = box[4:6, :3]
+        sbox = box.absolute[4:6, :3]
         self.assertEqual(sbox, Box.factory[4:6, 0:3])
-        sbox = box[4:, 5:]
+        sbox = box.local[4:6, :3]
+        self.assertEqual(sbox, Box.factory[4:6, 0:3])
+        sbox = box.absolute[4:, 5:]
         self.assertEqual(sbox, Box.factory[4:10, 5:20])
-        sbox = box[XY(slice(5, None), slice(4, None))]
+        sbox = box.local[4:, 5:]
+        self.assertEqual(sbox, Box.factory[4:10, 5:20])
+        sbox = box.absolute[XY(slice(5, None), slice(4, None))]
+        self.assertEqual(sbox, Box.factory[4:10, 5:20])
+        sbox = box.local[XY(slice(5, None), slice(4, None))]
         self.assertEqual(sbox, Box.factory[4:10, 5:20])
 
         self.assertEqual(Box.factory[4:10, -1:2], Box.factory[XY(slice(-1, 2), slice(4, 10))])
@@ -305,9 +347,13 @@ class BoxTestCase(unittest.TestCase):
         self.assertEqual(slices.y.stop, 20)
 
         with self.assertRaises(IndexError):
-            box[-1:5, 3:]
+            box.absolute[-1:5, 3:]
+        with self.assertRaises(IndexError):
+            box.local[-1:5, 3:]
         with self.assertRaises(TypeError):
-            box[3:5, :5, 4:]
+            box.absolute[3:5, :5, 4:]
+        with self.assertRaises(TypeError):
+            box.local[3:5, :5, 4:]
         with self.assertRaises(TypeError):
             Box.factory[3:5, :6, 4:]
 

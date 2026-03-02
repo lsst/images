@@ -200,7 +200,7 @@ class Image(GeneralizedImage):
             indices = ...
             bbox = self._bbox
         elif isinstance(bbox, tuple):
-            bbox = self._bbox[bbox]
+            bbox = self._bbox.absolute[bbox]
             indices = bbox.slice_within(self._bbox)
         else:
             indices = bbox.slice_within(self._bbox)
