@@ -29,6 +29,8 @@ except ImportError:
     HAVE_BUTLER = False
 
 from .. import fits
+from .._generalized_image import GeneralizedImage
+from ..serialization import MetadataValue
 
 # We need an old-style TypeVar for Sphinx.
 T = TypeVar("T")
@@ -116,11 +118,8 @@ class RoundtripFits[T]:
     In between the `inspect` and `get` methods can be used to perform other
     tests.
 
-    This helper internally tests that butler provenance is saved with any
-    object that has a metadata attribute.  This modifies the metadata attached
-    to the object being saved (since that's what the formatter does), which
-    conveniently (but perhaps surprisingly) keeps the metadata of the
-    roundtripped object equal to that of the original.
+    This helper internally tests that butler provenance and metadata are saved
+    with any `.GeneralizedImage` object.
     """
 
     def __init__(self, tc: unittest.TestCase, original: T, storage_class: str | None = None):
@@ -133,13 +132,28 @@ class RoundtripFits[T]:
         self.result: Any
         self.butler: Butler | None = None
         self.ref: DatasetRef | None = None
+        self._test_metadata: dict[str, MetadataValue] = {
+            "roundtrip_test_1": 1,
+            "roundtrip_test_2": 2.5,
+            "roundtrip_test_3": "three",
+            "roundtrip_test_4": True,
+            "roundtrip_test_5": None,
+        }
 
     def __enter__(self) -> RoundtripFits[T]:
         self._exit_stack.__enter__()
+        if isinstance(self._original, GeneralizedImage):
+            self._original.metadata.update(self._test_metadata)
         if HAVE_BUTLER and self._storage_class is not None:
             self._run_with_butler()
         else:
             self._run_without_butler()
+        if isinstance(self._original, GeneralizedImage):
+            assert isinstance(self.result, GeneralizedImage)
+            for k in self._test_metadata:
+                self._tc.assertEqual(self.result.metadata[k], self._test_metadata[k])
+                del self._original.metadata[k]
+                del self.result.metadata[k]
         return self
 
     def __exit__(self, *args: Any) -> bool | None:
@@ -195,13 +209,20 @@ class RoundtripFits[T]:
         if self.butler is None:
             if component is not None:
                 raise unittest.SkipTest("Cannot test component reads without a butler.")
-            return fits.read(type(self._original), self.filename, **kwargs)
+            result = fits.read(type(self._original), self.filename, **kwargs)
         else:
             assert self.ref is not None, "butler and ref should be None or not together"
             ref = self.ref
             if component is not None:
                 ref = ref.makeComponentRef(component)
-            return self.butler.get(ref, parameters=kwargs)
+            result = self.butler.get(ref, parameters=kwargs)
+        if isinstance(result, GeneralizedImage):
+            # The metadata the RoundtripFits object added for the test may or
+            # may not be present; strip it if it does so comparisons to the
+            # original are not messed up.
+            for k in self._test_metadata:
+                result.metadata.pop(k, None)
+        return result
 
     def _run_with_butler(self) -> None:
         assert self._storage_class is not None, "Should not use butler if no storage class"
@@ -212,11 +233,11 @@ class RoundtripFits[T]:
             self._original, butler_helper.test_dataset, provenance=DatasetProvenance(quantum_id=quantum_id)
         )
         self.result = self.butler.get(self.ref)
-        if (metadata := getattr(self.result, "metadata", None)) is not None:
-            # Check that the provenance was written to the flexible metadata.
-            provenance, ref = DatasetProvenance.from_flat_dict(metadata, self.butler)
-            self._tc.assertEqual(ref, self.ref)
-            self._tc.assertEqual(provenance.quantum_id, quantum_id)
+        if isinstance(self._original, GeneralizedImage):
+            self._tc.assertEqual(
+                DatasetRef.from_simple(self.result.butler_dataset, universe=self.butler.dimensions), self.ref
+            )
+            self._tc.assertEqual(self.result.butler_provenance.quantum_id, quantum_id)
 
     def _run_without_butler(self) -> None:
         tmp = self._exit_stack.enter_context(
@@ -225,4 +246,6 @@ class RoundtripFits[T]:
         tmp.close()
         self._filename = tmp.name
         self._serialized = fits.write(self._original, tmp.name)
-        self.result = fits.read(type(self._original), tmp.name)
+        read_result = fits.read(type(self._original), tmp.name)
+        self._tc.assertIsNone(read_result.butler_info)
+        self.result = read_result.deserialized

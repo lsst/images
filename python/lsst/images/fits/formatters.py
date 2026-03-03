@@ -16,7 +16,7 @@ __all__ = ("GenericFormatter", "ImageFormatter", "MaskedImageFormatter", "VisitI
 import enum
 import hashlib
 import json
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar
 
 import astropy.io.fits
 
@@ -29,7 +29,7 @@ from .._mask import Mask
 from .._masked_image import MaskedImageSerializationModel
 from .._transforms import Projection, ProjectionSerializationModel
 from .._visit_image import VisitImageSerializationModel
-from ..serialization import MetadataValue, TableCellReferenceModel
+from ..serialization import ButlerInfo, TableCellReferenceModel
 from ._common import FitsCompressionOptions
 from ._input_archive import FitsInputArchive, read
 from ._output_archive import write
@@ -53,10 +53,7 @@ class GenericFormatter(FormatterV2):
     identical to that for the legacy FITS formatters defined in
     `lsst.obs.base`.
 
-    Butler provenance is written to both FITS headers and the object's
-    flexible metadata.  The latter *will modify the in-memory object being
-    saved*, which can be surprising but is usually desirable, as it ensures
-    any butler information attached to that is up-to-date.
+    Butler provenance is written to both FITS headers and the archive tree.
     """
 
     default_extension: ClassVar[str] = ".fits"
@@ -68,23 +65,20 @@ class GenericFormatter(FormatterV2):
     def read_from_uri(self, uri: ResourcePath, component: str | None = None, expected_size: int = -1) -> Any:
         pytype = self.dataset_ref.datasetType.storageClass.pytype
         kwargs = self.file_descriptor.parameters or {}
-        return read(pytype, uri, **kwargs)
+        return read(pytype, uri, **kwargs).deserialized
 
     def write_local_file(self, in_memory_dataset: Any, uri: ResourcePath) -> None:
-        metadata: dict[str, MetadataValue] = getattr(in_memory_dataset, "metadata", {})
-        DatasetProvenance.strip_provenance_from_flat_dict(metadata)
-        if self.butler_provenance is not None:
-            for key, value in self.butler_provenance.to_flat_dict(
-                self.dataset_ref, prefix="butler", sep=".", simple_types=True, max_inputs=3_000
-            ).items():
-                metadata[key] = cast(MetadataValue, value)  # simple_types=True guarantees this is okay
+        butler_info = ButlerInfo(
+            dataset=self.dataset_ref.to_simple(),
+            provenance=self.butler_provenance if self.butler_provenance is not None else DatasetProvenance(),
+        )
         write(
             in_memory_dataset,
             uri.ospath,
             update_header=self._update_header,
             compression_options=self._get_compression_options(),
             compression_seed=self._get_compression_seed(),
-            metadata=metadata,
+            butler_info=butler_info,
         )
 
     def add_provenance(
@@ -170,7 +164,7 @@ class ImageFormatter(GenericFormatter):
     def read_from_uri(self, uri: ResourcePath, component: str | None = None, expected_size: int = -1) -> Any:
         pytype: Any = self.file_descriptor.storageClass.pytype
         if component is None:
-            result = read(pytype, uri, bbox=self.pop_bbox_from_parameters())
+            result = read(pytype, uri, bbox=self.pop_bbox_from_parameters()).deserialized
         else:
             with FitsInputArchive.open(uri, partial=True) as archive:
                 tree = archive.get_tree(pytype._get_archive_tree_type(TableCellReferenceModel))

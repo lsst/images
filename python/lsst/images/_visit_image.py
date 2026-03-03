@@ -268,16 +268,14 @@ class VisitImage(MaskedImage):
         masked_image = MaskedImage.deserialize(model, archive, bbox=bbox)
         psf = model.deserialize_psf(archive)
         projection = Projection.deserialize(model.projection, archive)
-        result = VisitImage(
+        return VisitImage(
             masked_image.image,
             mask=masked_image.mask,
             variance=masked_image.variance,
             psf=psf,
             projection=projection,
             obs_info=model.obs_info,
-            metadata=model.metadata,
-        )
-        return result
+        )._finish_deserialize(model)
 
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](

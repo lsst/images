@@ -247,8 +247,8 @@ class MaskedImage(GeneralizedImage):
         projection = (
             Projection.deserialize(model.projection, archive) if model.projection is not None else None
         )
-        return MaskedImage(
-            image, mask=mask, variance=variance, projection=projection, metadata=model.metadata
+        return MaskedImage(image, mask=mask, variance=variance, projection=projection)._finish_deserialize(
+            model
         )
 
     @staticmethod
@@ -307,7 +307,7 @@ class MaskedImage(GeneralizedImage):
         bbox
             Bounding box of a subimage to read instead.
         """
-        return fits.read(cls, url, bbox=bbox)
+        return fits.read(cls, url, bbox=bbox).deserialized
 
     @staticmethod
     def from_legacy(

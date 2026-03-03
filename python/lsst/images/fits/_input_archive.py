@@ -14,6 +14,7 @@ from __future__ import annotations
 __all__ = (
     "FitsInputArchive",
     "FitsOpaqueMetadata",
+    "ReadResult",
     "read",
 )
 
@@ -23,7 +24,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import cached_property
 from types import EllipsisType
-from typing import IO, Any, Self
+from typing import IO, Any, NamedTuple, Self
 
 import astropy.io.fits
 import astropy.table
@@ -36,6 +37,7 @@ from .._transforms import FrameSet
 from ..serialization import (
     ArchiveTree,
     ArrayReferenceModel,
+    ButlerInfo,
     InputArchive,
     MetadataValue,
     TableCellReferenceModel,
@@ -45,15 +47,27 @@ from ..serialization import (
 from ._common import ExtensionHDU, ExtensionKey, FitsOpaqueMetadata, InvalidFitsArchiveError
 
 
+class ReadResult[T: Any](NamedTuple):
+    """Struct used as the return value for `read`."""
+
+    deserialized: T
+    """The deserialized object itself."""
+
+    metadata: dict[str, MetadataValue]
+    """Additional flexible metadata stored with the object."""
+
+    butler_info: ButlerInfo | None
+    """Butler provenance information for the dataset this file backs."""
+
+
 def read[T: Any](
     cls: type[T],
     path: ResourcePathExpression,
     *,
     page_size: int = 2880 * 50,
     partial: bool | None = None,
-    metadata: dict[str, MetadataValue] | None = None,
     **kwargs: Any,
-) -> T:
+) -> ReadResult[T]:
     """Read an object from a FITS file.
 
     Parameters
@@ -70,16 +84,14 @@ def read[T: Any](
         `True` if any extra ``**kwargs`` are passed with values other than
         `None`, since those usually indicate that only some of the original
         object will be loaded.
-    metadata
-        Flexible metadata dictionary to update with what is found in the
-        top-level object in the file.
     **kwargs
         Extra keyword arguments passed to ``cls.deserialize``.
 
     Returns
     -------
-    object
-        The loaded object.
+    ReadResult
+        A named tuple containing the deserialized object and any additional
+        metadata or butler information saved alongside it.
 
     Notes
     -----
@@ -90,11 +102,9 @@ def read[T: Any](
         partial = any(v is not None for v in kwargs.values())
     with FitsInputArchive.open(path, page_size=page_size, partial=partial) as archive:
         tree = archive.get_tree(cls._get_archive_tree_type(TableCellReferenceModel))
-        if metadata is not None:
-            metadata.update(tree.metadata)
         obj = cls.deserialize(tree, archive, **kwargs)
         obj._opaque_metadata = archive.get_opaque_metadata()
-        return obj
+        return ReadResult(obj, tree.metadata, tree.butler_info)
 
 
 class FitsInputArchive(InputArchive[TableCellReferenceModel]):

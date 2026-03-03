@@ -697,7 +697,6 @@ class Mask(GeneralizedImage):
             bbox=bbox,
             projection=projection,
             obs_info=model.obs_info,
-            metadata=model.metadata,
         )
         schemas_2d = schema.split(np.int32)
         if len(schemas_2d) != len(model.data):
@@ -709,7 +708,7 @@ class Mask(GeneralizedImage):
                 ref, schema_2d, bbox.start, archive, strip_header=strip_header, slices=slices
             )
             result.update(mask_2d)
-        return result
+        return result._finish_deserialize(model)
 
     @classmethod
     def _deserialize_2d(
@@ -776,7 +775,7 @@ class Mask(GeneralizedImage):
         bbox
             Bounding box of a subimage to read instead.
         """
-        return fits.read(Mask, url, bbox=bbox)
+        return fits.read(Mask, url, bbox=bbox).deserialized
 
     @staticmethod
     def from_legacy(

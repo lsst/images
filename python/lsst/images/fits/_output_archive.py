@@ -28,6 +28,7 @@ from .._transforms import FrameSet
 from ..serialization import (
     ArchiveTree,
     ArrayReferenceModel,
+    ButlerInfo,
     ColumnDefinitionModel,
     MetadataValue,
     NestedOutputArchive,
@@ -47,6 +48,7 @@ def write(
     update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     compression_seed: int | None = None,
     metadata: dict[str, MetadataValue] | None = None,
+    butler_info: ButlerInfo | None = None,
 ) -> Any:
     """Write an object with a ``serialize`` method to a FITS file.
 
@@ -68,6 +70,8 @@ def write(
     metadata
         Additional metadata to save with the object.  This will override any
         flexible metadata carried by the object itself with the same keys.
+    butler_info
+        Butler information to store in the file.
 
     Returns
     -------
@@ -86,6 +90,8 @@ def write(
         tree = archive.serialize_direct(name, obj.serialize) if name is not None else obj.serialize(archive)
         if metadata is not None:
             tree.metadata.update(metadata)
+        if butler_info is not None:
+            tree.butler_info = butler_info
         archive.add_tree(tree)
     return tree
 

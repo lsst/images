@@ -374,8 +374,7 @@ class Image(GeneralizedImage):
             unit=unit,
             projection=projection,
             obs_info=model.obs_info,
-            metadata=model.metadata,
-        )
+        )._finish_deserialize(model)
 
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
@@ -427,7 +426,7 @@ class Image(GeneralizedImage):
         bbox
             Bounding box of a subimage to read instead.
         """
-        return fits.read(Image, url, bbox=bbox)
+        return fits.read(Image, url, bbox=bbox).deserialized
 
     @staticmethod
     def from_legacy(legacy: Any, unit: astropy.units.Unit | None = None) -> Image:

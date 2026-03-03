@@ -16,13 +16,17 @@ __all__ = ("AbsoluteSliceProxy", "GeneralizedImage", "LocalSliceProxy")
 from abc import ABC, abstractmethod
 from functools import cached_property
 from types import EllipsisType
-from typing import Any, Self, TypeVar
+from typing import TYPE_CHECKING, Any, Self, TypeVar
 
 import astropy.wcs
 
 from ._geom import Box
 from ._transforms import Projection, ProjectionAstropyView
-from .serialization import MetadataValue, OpaqueArchiveMetadata
+from .serialization import ArchiveTree, ButlerInfo, MetadataValue, OpaqueArchiveMetadata
+
+if TYPE_CHECKING:
+    from lsst.daf.butler import DatasetProvenance, SerializedDatasetRef
+
 
 T = TypeVar("T", bound="GeneralizedImage")  # for sphinx
 
@@ -40,6 +44,7 @@ class GeneralizedImage(ABC):
     def __init__(self, metadata: dict[str, MetadataValue] | None = None):
         self._metadata = metadata if metadata is not None else {}
         self._opaque_metadata: OpaqueArchiveMetadata | None = None
+        self._butler_info: ButlerInfo | None = None
 
     @property
     @abstractmethod
@@ -181,6 +186,35 @@ class GeneralizedImage(ABC):
         """
         raise NotImplementedError()
 
+    @property
+    def butler_dataset(self) -> SerializedDatasetRef | None:
+        """The butler dataset reference for this image
+        (`lsst.daf.butler.SerializedDatasetRef` | `None`).
+        """
+        if self._butler_info is None:
+            return None
+        from lsst.daf.butler import SerializedDatasetRef
+
+        # Guard against the unlikely case where the dataset was deserialized as
+        # Any because `lsst.daf.butler` couldn't be imported before, but can be
+        # imported now (*anything* can happen in Jupyter).
+        return SerializedDatasetRef.model_validate(self._butler_info.dataset)
+
+    @property
+    def butler_provenance(self) -> DatasetProvenance | None:
+        """The butler inputs and ID of the task quantum that produced this
+        dataset (`lsst.daf.butler.DatasetProvenance` | `None`)
+        """
+        if self._butler_info is None:
+            return None
+
+        # Guard against the unlikely case where the provenance was deserialized
+        # as Any because `lsst.daf.butler` couldn't be imported before, but can
+        # be imported now (*anything* can happen in Jupyter).
+        from lsst.daf.butler import DatasetProvenance
+
+        return DatasetProvenance.model_validate(self._butler_info.provenance)
+
     def _transfer_metadata(self, new: Self, copy: bool = False, bbox: Box | None = None) -> Self:
         """Transfer metadata held by this base class to a new instance.
 
@@ -215,7 +249,16 @@ class GeneralizedImage(ABC):
             opaque_metadata = opaque_metadata.copy() if opaque_metadata is not None else None
         new._metadata = metadata
         new._opaque_metadata = opaque_metadata
+        new._butler_info = self._butler_info
         return new
+
+    def _finish_deserialize(self, model: ArchiveTree) -> Self:
+        """Attach generic information from `ArchiveTree` to this instance
+        at the end of deserialization.
+        """
+        self._metadata = model.metadata
+        self._butler_info = model.butler_info
+        return self
 
 
 class LocalSliceProxy[T: GeneralizedImage]:
