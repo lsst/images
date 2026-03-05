@@ -27,7 +27,7 @@ import numpy as np
 import pydantic
 
 from ._asdf_utils import ArrayReferenceModel
-from ._common import no_header_updates
+from ._common import ArchiveTree, no_header_updates
 from ._tables import TableModel
 
 if TYPE_CHECKING:
@@ -84,7 +84,7 @@ class OutputArchive[P](ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def serialize_pointer[T: pydantic.BaseModel](
+    def serialize_pointer[T: ArchiveTree](
         self, name: str, serializer: Callable[[OutputArchive], T], key: Hashable
     ) -> T | P:
         """Use a serializer function to save a nested object that may be
@@ -125,7 +125,7 @@ class OutputArchive[P](ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def serialize_frame_set[T: pydantic.BaseModel](
+    def serialize_frame_set[T: ArchiveTree](
         self, name: str, frame_set: FrameSet, serializer: Callable[[OutputArchive], T], key: Hashable
     ) -> T | P:
         """Serialize a frame set and make it available to objects saved later.
@@ -328,12 +328,12 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
     ) -> T:
         return self._parent.serialize_direct(self._join_path(name), serializer)
 
-    def serialize_pointer[T: pydantic.BaseModel](
+    def serialize_pointer[T: ArchiveTree](
         self, name: str, serializer: Callable[[OutputArchive[P]], T], key: Hashable
     ) -> T | P:
         return self._parent.serialize_pointer(self._join_path(name), serializer, key)
 
-    def serialize_frame_set[T: pydantic.BaseModel](
+    def serialize_frame_set[T: ArchiveTree](
         self, name: str, frame_set: FrameSet, serializer: Callable[[OutputArchive], T], key: Hashable
     ) -> T | P:
         return self._parent.serialize_frame_set(self._join_path(name), frame_set, serializer, key)

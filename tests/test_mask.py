@@ -86,7 +86,7 @@ class MaskTestCase(unittest.TestCase):
         planes = self.make_mask_planes(35, n_placeholders=5)
         schema = MaskSchema(planes, dtype=np.uint8)
         bbox = Box.factory[5:50, 6:60]
-        mask = Mask(0, schema=schema, bbox=bbox)
+        mask = Mask(0, schema=schema, bbox=bbox, metadata={"four_and_a_half": 4.5})
         shape = bbox.shape
         for plane in schema:
             if plane is not None:

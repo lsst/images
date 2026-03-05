@@ -28,7 +28,9 @@ from .._transforms import FrameSet
 from ..serialization import (
     ArchiveTree,
     ArrayReferenceModel,
+    ButlerInfo,
     ColumnDefinitionModel,
+    MetadataValue,
     NestedOutputArchive,
     NumberType,
     OutputArchive,
@@ -45,6 +47,8 @@ def write(
     compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
     update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     compression_seed: int | None = None,
+    metadata: dict[str, MetadataValue] | None = None,
+    butler_info: ButlerInfo | None = None,
 ) -> Any:
     """Write an object with a ``serialize`` method to a FITS file.
 
@@ -63,6 +67,11 @@ def write(
         A FITS tile compression seed to use whenever the configured
         compression seed is `None` or (for backwards compatibility) ``0``.
         This value is then incremented every time it is used.
+    metadata
+        Additional metadata to save with the object.  This will override any
+        flexible metadata carried by the object itself with the same keys.
+    butler_info
+        Butler information to store in the file.
 
     Returns
     -------
@@ -79,6 +88,10 @@ def write(
         compression_seed=compression_seed,
     ) as archive:
         tree = archive.serialize_direct(name, obj.serialize) if name is not None else obj.serialize(archive)
+        if metadata is not None:
+            tree.metadata.update(metadata)
+        if butler_info is not None:
+            tree.butler_info = butler_info
         archive.add_tree(tree)
     return tree
 
@@ -194,7 +207,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         nested = NestedOutputArchive[TableCellReferenceModel](name, self)
         return serializer(nested)
 
-    def serialize_pointer[T: pydantic.BaseModel](
+    def serialize_pointer[T: ArchiveTree](
         self, name: str, serializer: Callable[[OutputArchive[TableCellReferenceModel]], T], key: Hashable
     ) -> TableCellReferenceModel:
         if (pointer := self._pointers_by_key.get(key)) is not None:
@@ -207,7 +220,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         self._pointers_by_key[key] = pointer
         return pointer
 
-    def serialize_frame_set[T: pydantic.BaseModel](
+    def serialize_frame_set[T: ArchiveTree](
         self, name: str, frame_set: FrameSet, serializer: Callable[[OutputArchive], T], key: Hashable
     ) -> TableCellReferenceModel:
         # Docstring inherited.

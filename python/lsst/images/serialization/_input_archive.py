@@ -25,7 +25,7 @@ import numpy as np
 import pydantic
 
 from ._asdf_utils import ArrayReferenceModel
-from ._common import OpaqueArchiveMetadata, no_header_updates
+from ._common import ArchiveTree, OpaqueArchiveMetadata, no_header_updates
 from ._tables import TableModel
 
 if TYPE_CHECKING:
@@ -53,7 +53,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
     """
 
     @abstractmethod
-    def deserialize_pointer[U: pydantic.BaseModel, V](
+    def deserialize_pointer[U: ArchiveTree, V](
         self, pointer: P, model_type: type[U], deserializer: Callable[[U, InputArchive[P]], V]
     ) -> V:
         """Deserialize an object that was saved by

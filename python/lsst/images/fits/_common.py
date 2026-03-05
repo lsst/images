@@ -315,6 +315,7 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
             if ver is None:
                 ver = header.get("EXTVER", 1)
             key = ExtensionKey(name, ver)
+            strip_butler_cards(header)
         if key not in self.headers:
             header.remove("EXTNAME", ignore_missing=True)
             header.remove("EXTVER", ignore_missing=True)

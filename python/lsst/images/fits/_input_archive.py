@@ -14,6 +14,7 @@ from __future__ import annotations
 __all__ = (
     "FitsInputArchive",
     "FitsOpaqueMetadata",
+    "ReadResult",
     "read",
 )
 
@@ -23,13 +24,12 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import cached_property
 from types import EllipsisType
-from typing import IO, Any, Self
+from typing import IO, Any, NamedTuple, Self
 
 import astropy.io.fits
 import astropy.table
 import fsspec
 import numpy as np
-import pydantic
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
@@ -37,12 +37,27 @@ from .._transforms import FrameSet
 from ..serialization import (
     ArchiveTree,
     ArrayReferenceModel,
+    ButlerInfo,
     InputArchive,
+    MetadataValue,
     TableCellReferenceModel,
     TableModel,
     no_header_updates,
 )
 from ._common import ExtensionHDU, ExtensionKey, FitsOpaqueMetadata, InvalidFitsArchiveError
+
+
+class ReadResult[T: Any](NamedTuple):
+    """Struct used as the return value for `read`."""
+
+    deserialized: T
+    """The deserialized object itself."""
+
+    metadata: dict[str, MetadataValue]
+    """Additional flexible metadata stored with the object."""
+
+    butler_info: ButlerInfo | None
+    """Butler provenance information for the dataset this file backs."""
 
 
 def read[T: Any](
@@ -52,7 +67,7 @@ def read[T: Any](
     page_size: int = 2880 * 50,
     partial: bool | None = None,
     **kwargs: Any,
-) -> T:
+) -> ReadResult[T]:
     """Read an object from a FITS file.
 
     Parameters
@@ -74,8 +89,9 @@ def read[T: Any](
 
     Returns
     -------
-    object
-        The loaded object.
+    ReadResult
+        A named tuple containing the deserialized object and any additional
+        metadata or butler information saved alongside it.
 
     Notes
     -----
@@ -88,7 +104,7 @@ def read[T: Any](
         tree = archive.get_tree(cls._get_archive_tree_type(TableCellReferenceModel))
         obj = cls.deserialize(tree, archive, **kwargs)
         obj._opaque_metadata = archive.get_opaque_metadata()
-        return obj
+        return ReadResult(obj, tree.metadata, tree.butler_info)
 
 
 class FitsInputArchive(InputArchive[TableCellReferenceModel]):
@@ -118,7 +134,7 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         # Save the remaining primary header keys so we can propagate them on
         # rewrite.
         self._opaque_metadata = FitsOpaqueMetadata()
-        self._opaque_metadata.headers[ExtensionKey()] = self._primary_hdu.header.copy(strip=True)
+        self._opaque_metadata.add_header(self._primary_hdu.header.copy(strip=True), name="", ver=1)
         # Read the JSON and index HDUs from the end.
         stream.seek(json_address)
         tail_data = stream.read(json_size + index_size)
@@ -189,7 +205,7 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         json_bytes = self._readers[ExtensionKey("JSON")].data[0]["JSON"].tobytes()
         return model_type.model_validate_json(json_bytes)
 
-    def deserialize_pointer[U: pydantic.BaseModel, V](
+    def deserialize_pointer[U: ArchiveTree, V](
         self,
         pointer: TableCellReferenceModel,
         model_type: type[U],

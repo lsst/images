@@ -23,6 +23,7 @@ nitpick_ignore = [
   ["py:class", "F"],  # type variables don't resolve
   ["py:class", "I"],  # type variables don't resolve
   ["py:class", "O"],  # type variables don't resolve
+  ["py:class", "MetadataValue"]  # type aliases don't resolve
 ]
 nitpick_ignore_regex = [
   ['py:.*', 'lsst\..*'],  # Ignore warnings from links to other lsst packages.

@@ -16,12 +16,17 @@ __all__ = ("AbsoluteSliceProxy", "GeneralizedImage", "LocalSliceProxy")
 from abc import ABC, abstractmethod
 from functools import cached_property
 from types import EllipsisType
-from typing import Any, Self, TypeVar
+from typing import TYPE_CHECKING, Any, Self, TypeVar
 
 import astropy.wcs
 
 from ._geom import Box
 from ._transforms import Projection, ProjectionAstropyView
+from .serialization import ArchiveTree, ButlerInfo, MetadataValue, OpaqueArchiveMetadata
+
+if TYPE_CHECKING:
+    from lsst.daf.butler import DatasetProvenance, SerializedDatasetRef
+
 
 T = TypeVar("T", bound="GeneralizedImage")  # for sphinx
 
@@ -29,7 +34,17 @@ T = TypeVar("T", bound="GeneralizedImage")  # for sphinx
 class GeneralizedImage(ABC):
     """A base class for types that represent one or more 2-d image-like arrays
     with the same pixel grid and projection.
+
+    Parameters
+    ----------
+    metadata
+        Arbitrary flexible metadata to associate with the image.
     """
+
+    def __init__(self, metadata: dict[str, MetadataValue] | None = None):
+        self._metadata = metadata if metadata is not None else {}
+        self._opaque_metadata: OpaqueArchiveMetadata | None = None
+        self._butler_info: ButlerInfo | None = None
 
     @property
     @abstractmethod
@@ -134,6 +149,23 @@ class GeneralizedImage(ABC):
         """
         return AbsoluteSliceProxy(self)
 
+    @property
+    def metadata(self) -> dict[str, MetadataValue]:
+        """Arbitrary flexible metadata associated with the image (`dict`).
+
+        Notes
+        -----
+        Metadata is shared with subimages and other views.  It can be
+        disconnected by reassigning to a copy explicitly:
+
+            image.metadata = image.metadata.copy()
+        """
+        return self._metadata
+
+    @metadata.setter
+    def metadata(self, value: dict[str, MetadataValue]) -> None:
+        self._metadata = value
+
     # Subclasses should delegate to super().__getitem__ for some user-friendly
     # argument type-checking before providing their own implementation.
     @abstractmethod
@@ -147,8 +179,86 @@ class GeneralizedImage(ABC):
 
     @abstractmethod
     def copy(self) -> Self:
-        """Deep-copy the image."""
+        """Deep-copy the image and metadata.
+
+        Attached immutable objects (like `Projection` instances) are not
+        copied.
+        """
         raise NotImplementedError()
+
+    @property
+    def butler_dataset(self) -> SerializedDatasetRef | None:
+        """The butler dataset reference for this image
+        (`lsst.daf.butler.SerializedDatasetRef` | `None`).
+        """
+        if self._butler_info is None:
+            return None
+        from lsst.daf.butler import SerializedDatasetRef
+
+        # Guard against the unlikely case where the dataset was deserialized as
+        # Any because `lsst.daf.butler` couldn't be imported before, but can be
+        # imported now (*anything* can happen in Jupyter).
+        return SerializedDatasetRef.model_validate(self._butler_info.dataset)
+
+    @property
+    def butler_provenance(self) -> DatasetProvenance | None:
+        """The butler inputs and ID of the task quantum that produced this
+        dataset (`lsst.daf.butler.DatasetProvenance` | `None`)
+        """
+        if self._butler_info is None:
+            return None
+
+        # Guard against the unlikely case where the provenance was deserialized
+        # as Any because `lsst.daf.butler` couldn't be imported before, but can
+        # be imported now (*anything* can happen in Jupyter).
+        from lsst.daf.butler import DatasetProvenance
+
+        return DatasetProvenance.model_validate(self._butler_info.provenance)
+
+    def _transfer_metadata(self, new: Self, copy: bool = False, bbox: Box | None = None) -> Self:
+        """Transfer metadata held by this base class to a new instance.
+
+        Parameters
+        ----------
+        new
+            New instance to modify and return.
+        copy
+            Whether the new instance is a deep-copy of ``self``.
+        bbox
+            Bounding box used to construct ``new`` as a subset of ``self``.
+
+        Returns
+        -------
+        GeneralizedImage
+            The new object passed in, modified in place.
+
+        Notes
+        -----
+        This is a utility method for subclasses to use when finishing
+        construction of a new one.
+        """
+        if bbox is not None:
+            opaque_metadata = (
+                self._opaque_metadata.subset(bbox) if self._opaque_metadata is not None else None
+            )
+        else:
+            opaque_metadata = self._opaque_metadata
+        metadata = self._metadata
+        if copy:
+            metadata = metadata.copy()
+            opaque_metadata = opaque_metadata.copy() if opaque_metadata is not None else None
+        new._metadata = metadata
+        new._opaque_metadata = opaque_metadata
+        new._butler_info = self._butler_info
+        return new
+
+    def _finish_deserialize(self, model: ArchiveTree) -> Self:
+        """Attach generic information from `ArchiveTree` to this instance
+        at the end of deserialization.
+        """
+        self._metadata = model.metadata
+        self._butler_info = model.butler_info
+        return self
 
 
 class LocalSliceProxy[T: GeneralizedImage]:

@@ -39,7 +39,7 @@ from .psfs import (
     PSFExSerializationModel,
     PSFExWrapper,
 )
-from .serialization import ArchiveReadError, InputArchive, OutputArchive
+from .serialization import ArchiveReadError, InputArchive, MetadataValue, OutputArchive
 
 
 def _obs_info_from_md(md: MutableMapping[str, Any], visit_info: Any = None) -> ObservationInfo:
@@ -100,6 +100,8 @@ class VisitImage(MaskedImage):
         why it could not be read (to be raised if the PSF is requested later).
     obs_info
         General information about this visit in standardized form.
+    metadata
+        Arbitrary flexible metadata to associate with the image.
     """
 
     def __init__(
@@ -112,6 +114,7 @@ class VisitImage(MaskedImage):
         projection: Projection[DetectorFrame] | None = None,
         obs_info: ObservationInfo | None = None,
         psf: PointSpreadFunction | ArchiveReadError,
+        metadata: dict[str, MetadataValue] | None = None,
     ):
         super().__init__(
             image,
@@ -120,6 +123,7 @@ class VisitImage(MaskedImage):
             mask_schema=mask_schema,
             projection=projection,
             obs_info=obs_info,
+            metadata=metadata,
         )
         if self.image.unit is None:
             raise TypeError("The image component of a VisitImage must have units.")
@@ -181,17 +185,17 @@ class VisitImage(MaskedImage):
         super().__getitem__(bbox)
         if bbox is ...:
             return self
-        result = VisitImage(
-            self.image[bbox],
-            mask=self.mask[bbox],
-            variance=self.variance[bbox],
-            projection=self.projection,
-            psf=self.psf,
-            obs_info=self.obs_info,
+        return self._transfer_metadata(
+            VisitImage(
+                self.image[bbox],
+                mask=self.mask[bbox],
+                variance=self.variance[bbox],
+                projection=self.projection,
+                psf=self.psf,
+                obs_info=self.obs_info,
+            ),
+            bbox=bbox,
         )
-        if opaque_metadata := getattr(self, "_opaque_metadata", None):
-            result._opaque_metadata = opaque_metadata.subset(bbox)
-        return result
 
     def __str__(self) -> str:
         return f"VisitImage({self.image!s}, {list(self.mask.schema.names)})"
@@ -201,16 +205,16 @@ class VisitImage(MaskedImage):
 
     def copy(self) -> VisitImage:
         """Deep-copy the visit image."""
-        result = VisitImage(
-            image=self._image.copy(),
-            mask=self._mask.copy(),
-            variance=self._variance.copy(),
-            psf=self._psf,
-            obs_info=self.obs_info,
+        return self._transfer_metadata(
+            VisitImage(
+                image=self._image.copy(),
+                mask=self._mask.copy(),
+                variance=self._variance.copy(),
+                psf=self._psf,
+                obs_info=self.obs_info,
+            ),
+            copy=True,
         )
-        if self._opaque_metadata is not None:
-            result._opaque_metadata = self._opaque_metadata.copy()
-        return result
 
     def serialize(self, archive: OutputArchive[Any]) -> VisitImageSerializationModel:
         serialized_image = archive.serialize_direct(
@@ -246,6 +250,7 @@ class VisitImage(MaskedImage):
             projection=serialized_projection,
             psf=serialized_psf,
             obs_info=self.obs_info,
+            metadata=self.metadata,
         )
 
     # Type-checkers want the model argument to only require
@@ -263,15 +268,14 @@ class VisitImage(MaskedImage):
         masked_image = MaskedImage.deserialize(model, archive, bbox=bbox)
         psf = model.deserialize_psf(archive)
         projection = Projection.deserialize(model.projection, archive)
-        result = VisitImage(
+        return VisitImage(
             masked_image.image,
             mask=masked_image.mask,
             variance=masked_image.variance,
             psf=psf,
             projection=projection,
             obs_info=model.obs_info,
-        )
-        return result
+        )._finish_deserialize(model)
 
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](

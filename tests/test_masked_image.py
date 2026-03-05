@@ -40,6 +40,7 @@ class MaskedImageTestCase(unittest.TestCase):
                     MaskPlane("HUNGRY", "Pixel hasn't had enough to eat today."),
                 ]
             ),
+            metadata={"fifty": "5 * 10"},
         )
         self.masked_image.mask.array |= np.multiply.outer(
             self.masked_image.image.array < 102.0,
@@ -61,6 +62,7 @@ class MaskedImageTestCase(unittest.TestCase):
         self.assertEqual(self.masked_image.variance.array.shape, self.masked_image.bbox.shape)
         self.assertEqual(self.masked_image.unit, u.nJy)
         self.assertEqual(self.masked_image.variance.unit, u.nJy**2)
+        self.assertEqual(self.masked_image.metadata, {"fifty": "5 * 10"})
         # The checks below are subject to the vagaries of the RNG, but we want
         # the seed to be such that they all pass, or other tests will be
         # weaker.

@@ -34,12 +34,7 @@ from ._geom import Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._transforms import Frame, Projection, ProjectionSerializationModel
-from .serialization import (
-    ArchiveTree,
-    InputArchive,
-    OpaqueArchiveMetadata,
-    OutputArchive,
-)
+from .serialization import ArchiveTree, InputArchive, MetadataValue, OutputArchive
 from .utils import is_none
 
 
@@ -69,6 +64,8 @@ class MaskedImage(GeneralizedImage):
     obs_info
         General information about the associated observation in standardized
         form.
+    metadata
+        Arbitrary flexible metadata to associate with the image.
     """
 
     def __init__(
@@ -80,7 +77,9 @@ class MaskedImage(GeneralizedImage):
         mask_schema: MaskSchema | None = None,
         projection: Projection | None = None,
         obs_info: ObservationInfo | None = None,
+        metadata: dict[str, MetadataValue] | None = None,
     ):
+        super().__init__(metadata)
         if projection is None:
             projection = image.projection
         else:
@@ -124,7 +123,6 @@ class MaskedImage(GeneralizedImage):
         self._image = image
         self._mask = mask
         self._variance = variance
-        self._opaque_metadata: OpaqueArchiveMetadata | None = None
 
     @property
     def image(self) -> Image:
@@ -169,15 +167,15 @@ class MaskedImage(GeneralizedImage):
         super().__getitem__(bbox)
         if bbox is ...:
             return self
-        result = MaskedImage(
-            # Projection and obs_info propagate from the image.
-            self.image[bbox],
-            mask=self.mask[bbox],
-            variance=self.variance[bbox],
+        return self._transfer_metadata(
+            MaskedImage(
+                # Projection and obs_info propagate from the image.
+                self.image[bbox],
+                mask=self.mask[bbox],
+                variance=self.variance[bbox],
+            ),
+            bbox=bbox,
         )
-        if self._opaque_metadata is not None:
-            result._opaque_metadata = self._opaque_metadata.subset(bbox)
-        return result
 
     def __setitem__(self, bbox: Box | EllipsisType, value: MaskedImage) -> None:
         self._image[bbox] = value.image
@@ -191,11 +189,11 @@ class MaskedImage(GeneralizedImage):
         return f"MaskedImage({self.image!r}, mask_schema={self.mask.schema!r})"
 
     def copy(self) -> MaskedImage:
-        """Deep-copy the masked image."""
-        result = MaskedImage(image=self._image.copy(), mask=self._mask.copy(), variance=self._variance.copy())
-        if self._opaque_metadata is not None:
-            result._opaque_metadata = self._opaque_metadata.copy()
-        return result
+        """Deep-copy the masked image and metadata."""
+        return self._transfer_metadata(
+            MaskedImage(image=self._image.copy(), mask=self._mask.copy(), variance=self._variance.copy()),
+            copy=True,
+        )
 
     def serialize(self, archive: OutputArchive[Any]) -> MaskedImageSerializationModel:
         """Serialize the masked image to an output archive.
@@ -224,6 +222,7 @@ class MaskedImage(GeneralizedImage):
             mask=serialized_mask,
             variance=serialized_variance,
             projection=serialized_projection,
+            metadata=self.metadata,
         )
 
     @staticmethod
@@ -248,7 +247,9 @@ class MaskedImage(GeneralizedImage):
         projection = (
             Projection.deserialize(model.projection, archive) if model.projection is not None else None
         )
-        return MaskedImage(image, mask=mask, variance=variance, projection=projection)
+        return MaskedImage(image, mask=mask, variance=variance, projection=projection)._finish_deserialize(
+            model
+        )
 
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
@@ -306,7 +307,7 @@ class MaskedImage(GeneralizedImage):
         bbox
             Bounding box of a subimage to read instead.
         """
-        return fits.read(cls, url, bbox=bbox)
+        return fits.read(cls, url, bbox=bbox).deserialized
 
     @staticmethod
     def from_legacy(

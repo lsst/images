@@ -14,20 +14,42 @@ from __future__ import annotations
 __all__ = (
     "ArchiveReadError",
     "ArchiveTree",
+    "ButlerInfo",
+    "MetadataValue",
     "OpaqueArchiveMetadata",
     "no_header_updates",
 )
 
-from typing import TYPE_CHECKING, Protocol, Self
+import operator
+from typing import TYPE_CHECKING, Any, Protocol, Self
 
 import astropy.table
 import astropy.units
 import pydantic
 
 from .._geom import Box
+from ..utils import is_none
+
+try:
+    from lsst.daf.butler import DatasetProvenance, SerializedDatasetRef
+except ImportError:
+    type DatasetProvenance = Any  # type: ignore[no-redef]
+    type SerializedDatasetRef = Any  # type: ignore[no-redef]
 
 if TYPE_CHECKING:
     import astropy.io.fits
+
+
+type MetadataValue = (
+    pydantic.StrictInt | pydantic.StrictFloat | pydantic.StrictStr | pydantic.StrictBool | None
+)
+
+
+class ButlerInfo(pydantic.BaseModel):
+    """Information about a butler dataset."""
+
+    dataset: SerializedDatasetRef
+    provenance: DatasetProvenance = pydantic.Field(default_factory=DatasetProvenance)
 
 
 class ArchiveTree(
@@ -37,6 +59,15 @@ class ArchiveTree(
     for all objects that may be used as the top-level tree models written to
     archives.
     """
+
+    metadata: dict[str, MetadataValue] = pydantic.Field(
+        default_factory=dict, description="Additional unstructured metadata.", exclude_if=operator.not_
+    )
+    butler_info: ButlerInfo | None = pydantic.Field(
+        default=None,
+        description="Information aobut the butler dataset backed by this file.",
+        exclude_if=is_none,
+    )
 
 
 class ArchiveReadError(RuntimeError):
