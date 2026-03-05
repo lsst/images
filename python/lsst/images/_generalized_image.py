@@ -110,7 +110,8 @@ class GeneralizedImage(ABC):
         In this convention, the first row and column of the pixel grid is
         always at ``(0, 0)``.  This is also the convention used by
         `astropy.wcs` objects. When a subimage is created from a parent image,
-        its "local" coordinate system is offset from the original.
+        its "local" coordinate system is offset from the coordinate systems of
+        the parent image.
 
         Note that most `lsst.images` types (e.g. `~lsst.images.Box`,
         `~lsst.images.Projection`, `~lsst.images.psfs.PointSpreadFunction`)
@@ -262,8 +263,8 @@ class GeneralizedImage(ABC):
 
 
 class LocalSliceProxy[T: GeneralizedImage]:
-    """A proxy object for obtraining a generalized image subset using
-    local slicing.
+    """A proxy object for obtaining a generalized image subset using local
+    slicing.
 
     See `GeneralizedImage.local` for more information.
     """
@@ -276,8 +277,8 @@ class LocalSliceProxy[T: GeneralizedImage]:
 
 
 class AbsoluteSliceProxy[T: GeneralizedImage]:
-    """A proxy object for obtraining a generalized image subset using
-    absolute slicing.
+    """A proxy object for obtaining a generalized image subset using absolute
+    slicing.
 
     See `GeneralizedImage.absolute` for more information.
     """
