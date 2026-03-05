@@ -273,7 +273,12 @@ class LocalSliceProxy[T: GeneralizedImage]:
         self._parent = parent
 
     def __getitem__(self, slices: tuple[slice, slice]) -> T:
-        return self._parent[self._parent.bbox.local[slices]]
+        try:
+            return self._parent[self._parent.bbox.local[slices]]
+        except TypeError as err:
+            if hasattr(self._parent, "array"):
+                err.add_note("The .array attribute may provide more slicing flexibility.")
+            raise
 
 
 class AbsoluteSliceProxy[T: GeneralizedImage]:
@@ -287,4 +292,12 @@ class AbsoluteSliceProxy[T: GeneralizedImage]:
         self._parent = parent
 
     def __getitem__(self, slices: tuple[slice, slice]) -> T:
-        return self._parent[self._parent.bbox.absolute[slices]]
+        try:
+            return self._parent[self._parent.bbox.absolute[slices]]
+        except TypeError as err:
+            if hasattr(self._parent, "array"):
+                err.add_note(
+                    "The .array attribute may provide more slicing flexibility "
+                    "(but only works in local coordinates)."
+                )
+            raise
