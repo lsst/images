@@ -17,6 +17,7 @@ __all__ = (
     "assert_images_equal",
     "assert_masked_images_equal",
     "assert_masks_equal",
+    "assert_projections_equal",
     "check_astropy_wcs_interface",
     "check_projection",
     "check_transform",
@@ -32,7 +33,7 @@ __all__ = (
 
 import unittest
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import astropy.units as u
 import astropy.wcs.wcsapi
@@ -77,14 +78,18 @@ def assert_images_equal(
     *,
     rtol: float = 0.0,
     atol: float = 0.0,
-    expect_view: bool | None = None,
+    expect_view: bool | Literal["array"] | None = None,
 ) -> None:
     """Assert that two images are equal or nearly equal."""
     tc.assertEqual(a.bbox, b.bbox)
     tc.assertEqual(a.unit, b.unit)
+    assert_projections_equal(tc, a.projection, b.projection)
     if expect_view is not None:
-        tc.assertEqual(np.may_share_memory(a.array, b.array), expect_view)
-        tc.assertEqual(a.metadata is b.metadata, expect_view)
+        tc.assertEqual(np.may_share_memory(a.array, b.array), bool(expect_view))
+        if expect_view == "array":
+            tc.assertEqual(a.metadata, b.metadata)
+        else:
+            tc.assertEqual(a.metadata is b.metadata, expect_view)
     if not expect_view:
         assert_close(tc, a.array, b.array, atol=atol, rtol=rtol)
         tc.assertEqual(a.metadata, b.metadata)
@@ -95,6 +100,7 @@ def assert_masks_equal(tc: unittest.TestCase, a: Mask, b: Mask) -> None:
     tc.assertEqual(a.bbox, b.bbox)
     tc.assertEqual(a.schema, b.schema)
     tc.assertEqual(a.metadata, b.metadata)
+    assert_projections_equal(tc, a.projection, b.projection)
     np.testing.assert_array_equal(a.array, b.array)
 
 
@@ -109,6 +115,7 @@ def assert_masked_images_equal(
 ) -> None:
     """Assert that two masked images are equal or nearly equal."""
     tc.assertEqual(a.metadata, b.metadata)
+    assert_projections_equal(tc, a.projection, b.projection)
     assert_images_equal(tc, a.image, b.image, rtol=rtol, atol=atol, expect_view=expect_view)
     assert_masks_equal(tc, a.mask, b.mask)
     assert_images_equal(tc, a.variance, b.variance, rtol=rtol, atol=atol, expect_view=expect_view)
@@ -441,7 +448,7 @@ def check_projection[P: Frame](
     pixel_atol: float | None = None,
     sky_atol: u.Quantity | None = None,
 ) -> None:
-    """Test a Projection instance against known arrays of pixel and sky
+    """Test a `.Projection` instance against known arrays of pixel and sky
     coordinates.
 
     Parameters
@@ -505,6 +512,31 @@ def check_projection[P: Frame](
     # Test the Astropy interface adapter.
     check_astropy_wcs_interface(
         tc, projection.as_astropy(), pixel_xy, sky_coords, pixel_atol=pixel_atol, sky_atol=sky_atol
+    )
+
+
+def assert_projections_equal(
+    tc: unittest.TestCase,
+    a: Projection[Any] | None,
+    b: Projection[Any] | None,
+    expect_identity: bool | None = None,
+) -> None:
+    """Test that two `.Projection` instances are equivalent."""
+    if a is None and b is None:
+        return
+    assert a is not None and b is not None
+    match expect_identity:
+        case True:
+            tc.assertIs(a, b)
+            return
+        case False:
+            tc.assertIsNot(a, b)
+        case None if a is b:
+            return
+    tc.assertEqual(a.pixel_frame, b.pixel_frame)
+    tc.assertEqual(a.show(simplified=True), b.show(simplified=True))
+    assert_projections_equal(
+        tc, a.fits_approximation, cast(Projection[Any], b.fits_approximation), expect_identity=False
     )
 
 

@@ -110,7 +110,8 @@ class GeneralizedImage(ABC):
         In this convention, the first row and column of the pixel grid is
         always at ``(0, 0)``.  This is also the convention used by
         `astropy.wcs` objects. When a subimage is created from a parent image,
-        its "local" coordinate system is offset from the original.
+        its "local" coordinate system is offset from the coordinate systems of
+        the parent image.
 
         Note that most `lsst.images` types (e.g. `~lsst.images.Box`,
         `~lsst.images.Projection`, `~lsst.images.psfs.PointSpreadFunction`)
@@ -262,8 +263,8 @@ class GeneralizedImage(ABC):
 
 
 class LocalSliceProxy[T: GeneralizedImage]:
-    """A proxy object for obtraining a generalized image subset using
-    local slicing.
+    """A proxy object for obtaining a generalized image subset using local
+    slicing.
 
     See `GeneralizedImage.local` for more information.
     """
@@ -272,12 +273,17 @@ class LocalSliceProxy[T: GeneralizedImage]:
         self._parent = parent
 
     def __getitem__(self, slices: tuple[slice, slice]) -> T:
-        return self._parent[self._parent.bbox.local[slices]]
+        try:
+            return self._parent[self._parent.bbox.local[slices]]
+        except TypeError as err:
+            if hasattr(self._parent, "array"):
+                err.add_note("The .array attribute may provide more slicing flexibility.")
+            raise
 
 
 class AbsoluteSliceProxy[T: GeneralizedImage]:
-    """A proxy object for obtraining a generalized image subset using
-    absolute slicing.
+    """A proxy object for obtaining a generalized image subset using absolute
+    slicing.
 
     See `GeneralizedImage.absolute` for more information.
     """
@@ -286,4 +292,12 @@ class AbsoluteSliceProxy[T: GeneralizedImage]:
         self._parent = parent
 
     def __getitem__(self, slices: tuple[slice, slice]) -> T:
-        return self._parent[self._parent.bbox.absolute[slices]]
+        try:
+            return self._parent[self._parent.bbox.absolute[slices]]
+        except TypeError as err:
+            if hasattr(self._parent, "array"):
+                err.add_note(
+                    "The .array attribute may provide more slicing flexibility "
+                    "(but only works in local coordinates)."
+                )
+            raise
