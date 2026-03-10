@@ -17,6 +17,7 @@ __all__ = (
     "MaskPlaneBit",
     "MaskSchema",
     "MaskSerializationModel",
+    "get_legacy_deep_coadd_mask_planes",
     "get_legacy_visit_image_mask_planes",
 )
 
@@ -997,5 +998,36 @@ def get_legacy_visit_image_mask_planes() -> dict[str, MaskPlane]:
         ),
         "SPIKE": MaskPlane(
             "SPIKE", "Pixel is in the neighborhood of a diffraction spike from a bright star."
+        ),
+    }
+
+
+def get_legacy_deep_coadd_mask_planes() -> dict[str, MaskPlane]:
+    """Return a mapping from legacy mask plane name to `MaskPlane` instance
+    for LSST deep coadds, c. DP2.
+    """
+    return {
+        # TODO: reconcile this with counts from the DP2 coadds.
+        # BAD, CLIPPED, SUSPECT, PARTLY_VIGNETTED, SPIKE: should be fully
+        # rejected from (cell) coadds with no propagation.
+        "NO_DATA": MaskPlane("NO_DATA", "No data was available for this pixel."),
+        "INTRP": MaskPlane("INTERPOLATED", "Pixel value is the result of interpolating nearby good pixels."),
+        "CR": MaskPlane(
+            "COSMIC_RAY",
+            "A cosmic ray affected this pixel on at least one input image (and was interpolated).",
+        ),
+        "SAT": MaskPlane("SATURATED", "More than 10% of the potential input visits."),
+        "EDGE": MaskPlane(
+            "DETECTION_EDGE",
+            "Pixel was too close to the edge to be considered for detection, "
+            "due to the finite size of the detection kernel.",
+        ),
+        "REJECTED": MaskPlane(
+            "REJECTED", "At least one input visit was left out of the coadd for this pixel due to masking."
+        ),
+        "DETECTED": MaskPlane("DETECTED", "Pixel was part of a detected source."),
+        "INEXACT_PSF": MaskPlane(
+            "INEXACT_PSF",
+            "Pixel is on or near a cell boundary and hence its PSF may be (usually slightly) discontinuous.",
         ),
     }
