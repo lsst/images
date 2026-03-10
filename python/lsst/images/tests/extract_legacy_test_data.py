@@ -139,6 +139,19 @@ def extract_camera(butler: Butler, output_path: str, dataset_ref: DatasetRef) ->
     camera.writeFits(output_path)
 
 
+def extract_skymap(butler: Butler, output_path: str, dataset_ref: DatasetRef) -> None:
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    (path,) = butler.retrieveArtifacts(
+        [dataset_ref],
+        destination=os.path.dirname(output_path),
+        transfer="copy",
+        preserve_path=False,
+        overwrite=True,
+    )
+    if path.ospath != output_path:
+        os.rename(path.ospath, output_path)
+
+
 def find_dataset_or_raise(
     butler: Butler, dataset_type: str, *, collections: str | None = None, **kwargs
 ) -> DatasetRef:
@@ -182,6 +195,11 @@ def extract_test_data() -> None:
     default=True,
     help="Whether to extract the camera.",
 )
+@click.option(
+    "--skymap/--no-skymap",
+    default=True,
+    help="Whether to extract the skymap.",
+)
 def extract_dp2(
     butler_repo: str | None,
     testdata_dir: str | None,
@@ -191,6 +209,7 @@ def extract_dp2(
     visit_images: bool,
     coadds: bool,
     camera: bool,
+    skymap: bool,
 ) -> None:
     """Extract test data from a butler repository."""
     if butler_repo is None:
@@ -252,6 +271,17 @@ def extract_dp2(
             ),
             find_dataset_or_raise(butler, "deep_coadd_cell_predetection", **DP2_COADD_DATA_ID),
             shuffle=True,
+        )
+    if skymap:
+        extract_skymap(
+            butler,
+            os.path.join(
+                testdata_dir,
+                "dp2",
+                "legacy",
+                "skyMap.pickle",
+            ),
+            find_dataset_or_raise(butler, "skyMap", skymap=DP2_COADD_DATA_ID["skymap"]),
         )
     if camera:
         extract_camera(
