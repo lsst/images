@@ -429,7 +429,7 @@ class Image(GeneralizedImage):
         return fits.read(Image, url, bbox=bbox).deserialized
 
     @staticmethod
-    def from_legacy(legacy: Any, unit: astropy.units.Unit | None = None) -> Image:
+    def from_legacy(legacy: Any, unit: astropy.units.UnitBase | None = None) -> Image:
         """Convert from an `lsst.afw.image.Image` instance.
 
         Parameters
