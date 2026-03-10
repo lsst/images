@@ -39,7 +39,7 @@ except ImportError as err:
     raise
 
 
-from .data_ids import DP2_VISIT_DETECTOR_DATA_ID
+from ._data_ids import DP2_VISIT_DETECTOR_DATA_ID
 
 
 def extract_visit_image(
