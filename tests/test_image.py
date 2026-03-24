@@ -14,8 +14,11 @@ from __future__ import annotations
 import os
 import unittest
 
+import astropy.units as u
 import numpy as np
+from astro_metadata_translator import ObservationInfo
 
+import lsst.utils.tests
 from lsst.images import Box, Image
 from lsst.images.tests import assert_close, assert_images_equal, compare_image_to_legacy
 
@@ -49,6 +52,77 @@ class ImageTestCase(unittest.TestCase):
         assert_close(self, image.local[:3, 1:3].array, subset2.array)
         # And we can write an equivalent slice in absolute coordinates.
         assert_close(self, image.absolute[:0, 11:13].array, np.array([[2, 3], [6, 7]]))
+
+        # Test __eq__ behavior.
+        self.assertEqual(image[...], image)
+        self.assertEqual(image.__eq__(data), NotImplemented)
+        self.assertNotEqual(image, list(data))
+
+        with self.assertRaises(ValueError):
+            # bbox does not match array shape.
+            Image(np.array([[1, 2, 3], [4, 5, 6]]), bbox=Box.factory[0:2, 0:4])
+
+        with self.assertRaises(ValueError):
+            # shape does not match array shape.
+            Image(np.array([[2, 3, 4], [6, 7, 8]]), shape=[5, 2])
+
+        with self.assertRaises(TypeError):
+            # shape and bbox both None.
+            Image()
+
+        with self.assertRaises(ValueError):
+            # Shape mismatch.
+            Image(shape=[3, 6], bbox=Box.factory[-5:10, 0:10])
+
+    def test_quantity(self):
+        """Test quantities."""
+        data = np.array([[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]])
+        data2 = data.copy() * 2.0
+        image = Image(data, unit=u.mJy, bbox=Box.factory[-2:1, 3:7])
+
+        q = image.quantity
+        self.assertEqual(q[1, 0], 5.0 * u.mJy)
+        image.quantity = image.array * 10.0 * u.uJy
+        q = image.quantity
+        self.assertEqual(q[1, 0], 0.05 * u.mJy)
+
+        image2 = Image(data2, unit=u.Jy)
+        print(image2.quantity)
+        print(image2.local[1:2, 2:4].quantity)
+        image[Box.factory[-1:0, 5:7]] = image2.local[1:2, 2:4]
+        assert_close(
+            self,
+            image.array,
+            np.array([[0.01, 0.02, 0.03, 0.04], [0.05, 0.06, 14000.0, 16000.0], [0.09, 0.1, 0.11, 0.12]]),
+        )
+
+    def test_read_write(self):
+        """Round trip through file."""
+        data = np.array([[1.0, 2.0, np.nan, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]])
+        md = {"int": 1, "float": 42.0, "bool": False, "long string header": "This is a string"}
+        obsinfo = ObservationInfo(telescope="Simonyi", instrument="LSSTCam", relative_humidity=23.5)
+        image = Image(data, unit=u.nJy, metadata=md, obs_info=obsinfo, bbox=Box.factory[-2:1, 3:7])
+
+        with lsst.utils.tests.getTempFilePath(".fits") as tmpFile:
+            image.write_fits(tmpFile)
+
+            new = Image.read_fits(tmpFile)
+            self.assertEqual(new, image)
+
+            # __eq__ does not test all components.
+            self.assertEqual(new.obs_info, image.obs_info)
+            self.assertEqual(new.metadata, image.metadata)
+
+            # Read subset.
+            subset = Image.read_fits(tmpFile, bbox=Box.factory[-2:0, 5:7])
+            self.assertEqual(subset, image.absolute[-2:0, 5:7])
+            self.assertEqual(subset, image.local[0:2, 2:4])
+            self.assertEqual(str(subset), "Image([y=-2:0, x=5:7], float64)")
+            self.assertEqual(
+                repr(subset),
+                "Image(..., bbox=Box(y=Interval(start=-2, stop=0), x=Interval(start=5, stop=7)), "
+                "dtype=dtype('float64'))",
+            )
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_legacy(self) -> None:

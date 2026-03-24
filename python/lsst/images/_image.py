@@ -198,9 +198,9 @@ class Image(GeneralizedImage):
         return self._obs_info
 
     def __getitem__(self, bbox: Box | EllipsisType) -> Image:
-        super().__getitem__(bbox)
         if bbox is ...:
             return self
+        super().__getitem__(bbox)
         indices = bbox.slice_within(self._bbox)
         return self._transfer_metadata(
             Image(
