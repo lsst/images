@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import unittest
 
+import astropy.io.fits
 import astropy.units as u
 import numpy as np
 from astro_metadata_translator import ObservationInfo
@@ -503,6 +504,12 @@ class ImageTestCase(unittest.TestCase):
                 "Image(..., bbox=Box(y=Interval(start=-2, stop=0), x=Interval(start=5, stop=7)), "
                 "dtype=dtype('float64'))",
             )
+
+            # Check that WCS headers were written out.
+            with astropy.io.fits.open(tmpFile) as hdul:
+                hdu1 = hdul[1]
+                hdr1 = hdu1.header
+                self.assertEqual(hdr1["CTYPE1"], "RA---TAN-SIP")
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_legacy(self) -> None:
