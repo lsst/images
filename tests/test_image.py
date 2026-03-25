@@ -492,7 +492,8 @@ class ImageTestCase(unittest.TestCase):
             self.maxDiff = None
             # There is no Projection __eq__ but we can check that the AST
             # native representation simplifies to the same thing.
-            self.assertEqual(new.projection.show(simplified=True), image.projection.show(simplified=True))
+            if projection is not None:
+                self.assertEqual(new.projection.show(simplified=True), image.projection.show(simplified=True))
 
             # Read subset.
             subset = Image.read_fits(tmpFile, bbox=Box.factory[-2:0, 5:7])
@@ -506,10 +507,11 @@ class ImageTestCase(unittest.TestCase):
             )
 
             # Check that WCS headers were written out.
-            with astropy.io.fits.open(tmpFile) as hdul:
-                hdu1 = hdul[1]
-                hdr1 = hdu1.header
-                self.assertEqual(hdr1["CTYPE1"], "RA---TAN-SIP")
+            if projection is not None:
+                with astropy.io.fits.open(tmpFile) as hdul:
+                    hdu1 = hdul[1]
+                    hdr1 = hdu1.header
+                    self.assertEqual(hdr1["CTYPE1"], "RA---TAN-SIP")
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_legacy(self) -> None:
