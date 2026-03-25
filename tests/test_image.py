@@ -516,7 +516,8 @@ class ImageTestCase(unittest.TestCase):
         """Test Image.read_legacy, Image.to_legacy, and Image.from_legacy."""
         assert DATA_DIR is not None, "Guaranteed by decorator."
         filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
-        image = Image.read_legacy(filename, preserve_quantization=True)
+        det_frame = DetectorFrame(instrument="Inst", visit=1234, detector=1, bbox=Box.factory[1:4096, 1:4096])
+        image = Image.read_legacy(filename, preserve_quantization=True, fits_wcs_frame=det_frame)
         try:
             from lsst.afw.image import MaskedImageFitsReader
         except ImportError:
