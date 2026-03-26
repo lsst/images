@@ -24,6 +24,7 @@ from lsst.images import Box, DetectorFrame, Image
 from lsst.images.tests import (
     assert_close,
     assert_images_equal,
+    assert_projections_equal,
     compare_image_to_legacy,
     make_random_projection,
 )
@@ -107,10 +108,7 @@ class ImageTestCase(unittest.TestCase):
         obsinfo = ObservationInfo(telescope="Simonyi", instrument="LSSTCam", relative_humidity=23.5)
         det_frame = DetectorFrame(instrument="Inst", visit=1234, detector=1, bbox=Box.factory[1:4096, 1:4096])
         rng = np.random.default_rng(500)
-        try:
-            projection = make_random_projection(rng, det_frame, Box.factory[1:4096, 1:4096])
-        except ModuleNotFoundError:
-            projection = None
+        projection = make_random_projection(rng, det_frame, Box.factory[1:4096, 1:4096])
 
         image = Image(
             data,
@@ -131,10 +129,7 @@ class ImageTestCase(unittest.TestCase):
             self.assertEqual(new.obs_info, image.obs_info)
             self.assertEqual(new.metadata, image.metadata)
             self.maxDiff = None
-            # There is no Projection __eq__ but we can check that the AST
-            # native representation simplifies to the same thing.
-            if projection is not None:
-                self.assertEqual(new.projection.show(simplified=True), image.projection.show(simplified=True))
+            assert_projections_equal(self, new.projection, image.projection, expect_identity=False)
 
             # Read subset.
             subset = Image.read_fits(tmpFile, bbox=Box.factory[-2:0, 5:7])
@@ -148,11 +143,10 @@ class ImageTestCase(unittest.TestCase):
             )
 
             # Check that WCS headers were written out.
-            if projection is not None:
-                with astropy.io.fits.open(tmpFile) as hdul:
-                    hdu1 = hdul[1]
-                    hdr1 = hdu1.header
-                    self.assertEqual(hdr1["CTYPE1"], "RA---TAN")
+            with astropy.io.fits.open(tmpFile) as hdul:
+                hdu1 = hdul[1]
+                hdr1 = hdu1.header
+                self.assertEqual(hdr1["CTYPE1"], "RA---TAN")
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_legacy(self) -> None:
