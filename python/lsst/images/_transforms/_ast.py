@@ -92,9 +92,10 @@ if USING_STARLINK_PYAST:
         def __getattr__(self, name: str) -> Any:
             return _wrap_ast_object(getattr(self._obj, name))
 
-    def _serialize_ast_object(obj: Any) -> str:
+    def _serialize_ast_object(obj: Any, showComments: bool = True) -> str:
         sink = _StringStream()
-        chan = StarAst.Channel(None, sink)
+        options = "" if showComments else "Comment=0"
+        chan = StarAst.Channel(None, sink, options=options)
         chan.write(_unwrap_ast_object(obj))
         return sink.to_string()
 
@@ -148,8 +149,8 @@ if USING_STARLINK_PYAST:
                 raise TypeError(f"Serialized object is not a Mapping: {type(obj)}")
             return _Mapping._from_obj(obj)
 
-        def show(self) -> str:
-            return _serialize_ast_object(self._obj)
+        def show(self, showComments: bool = True) -> str:
+            return _serialize_ast_object(self._obj, showComments=showComments)
 
         def simplified(self) -> _Mapping:
             return _Mapping._from_obj(self._obj.simplify())
