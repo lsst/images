@@ -47,10 +47,6 @@ class TransformTestCase(unittest.TestCase):
 
     def test_identity(self) -> None:
         """Test an identity transform."""
-        try:
-            import astshim  # noqa: F401
-        except ImportError:
-            raise unittest.SkipTest("astshim could not be imported.") from None
         frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=Box.factory[:5, :4])
         xy = frame.bbox.meshgrid().map(np.ravel)
         identity = Transform.identity(frame)
