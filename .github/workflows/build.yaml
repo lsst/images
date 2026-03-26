@@ -48,7 +48,7 @@ jobs:
       - name: Run tests
         shell: bash -l {0}
         run: |
-          pytest -r a -v -n 3 --cov=tests --cov=lsst.utils --cov-report=xml --cov-report=term \
+          pytest -r a -v -n 3 --cov=tests --cov=lsst.images --cov-report=xml --cov-report=term \
             --junitxml=junit.xml -o junit_family=legacy
 
       - name: Upload coverage to codecov
