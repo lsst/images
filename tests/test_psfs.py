@@ -16,6 +16,7 @@ import unittest
 
 from lsst.images import Box
 from lsst.images.psfs import (
+    ConstantPointSpreadFunction,
     PiffWrapper,
     PointSpreadFunction,
     PSFExWrapper,
@@ -27,6 +28,16 @@ DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
 class PointSpreadFunctionTestCase(unittest.TestCase):
     """Tests for the PointSpreadFunction classes."""
+
+    def test_constant(self) -> None:
+        """Test simplest possible PSF."""
+        bounds = Box.factory[-1024:1024, -2048:2048]
+        psf = ConstantPointSpreadFunction(42.0, bounds=bounds, stamp_size=33)
+        self.assertEqual(psf.bounds, bounds)
+        kernel = psf.compute_kernel_image(x=5.0, y=3.0)
+        self.assertEqual(kernel.array[0, 0], 42.0)
+        with RoundtripFits(self, psf) as roundtrip:
+            self.assertEqual(roundtrip.result, psf, f"{roundtrip.result} != {psf}")
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_piff(self) -> None:

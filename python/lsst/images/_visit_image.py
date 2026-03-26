@@ -32,6 +32,8 @@ from ._masked_image import MaskedImage, MaskedImageSerializationModel
 from ._transforms import DetectorFrame, Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .fits import FitsOpaqueMetadata
 from .psfs import (
+    ConstantPointSpreadFunction,
+    ConstantPSFSerializationModel,
     PiffSerializationModel,
     PiffWrapper,
     PointSpreadFunction,
@@ -230,13 +232,15 @@ class VisitImage(MaskedImage):
             if self.projection is not None
             else None
         )
-        serialized_psf: PiffSerializationModel | PSFExSerializationModel
+        serialized_psf: PiffSerializationModel | PSFExSerializationModel | ConstantPSFSerializationModel
         match self._psf:
             # MyPy is able to figure things out here with this match statement,
             # but not a single isinstance check on both types.
             case PiffWrapper():
                 serialized_psf = archive.serialize_direct("psf", self._psf.serialize)
             case PSFExWrapper():
+                serialized_psf = archive.serialize_direct("psf", self._psf.serialize)
+            case ConstantPointSpreadFunction():
                 serialized_psf = archive.serialize_direct("psf", self._psf.serialize)
             case _:
                 raise TypeError(
