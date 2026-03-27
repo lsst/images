@@ -166,6 +166,21 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         # keys we don't want.
         header = self.visit_image._opaque_metadata.headers[ExtensionKey()]
         self.assertIn("EXPTIME", header)
+        self.assertEqual(header["PLATFORM"], "lsstcam")
+        self.assertNotIn("LSST BUTLER ID", header)
+        self.assertNotIn("AR HDU", header)
+        self.assertNotIn("A_ORDER", header)
+        # Check that the extension HDUs do not have any custom headers.
+        self.assertFalse(self.visit_image._opaque_metadata.headers[ExtensionKey("IMAGE")])
+        self.assertFalse(self.visit_image._opaque_metadata.headers[ExtensionKey("MASK")])
+        self.assertFalse(self.visit_image._opaque_metadata.headers[ExtensionKey("VARIANCE")])
+
+    def test_from_legacy_headers(self) -> None:
+        """Test that from_legacy handles headers properly."""
+        legacy = VisitImage.from_legacy(self.legacy_exposure, plane_map=self.plane_map)
+        header = legacy._opaque_metadata.headers[ExtensionKey()]
+        self.assertIn("EXPTIME", header)
+        self.assertEqual(header["PLATFORM"], "lsstcam")
         self.assertNotIn("LSST BUTLER ID", header)
         self.assertNotIn("AR HDU", header)
         self.assertNotIn("A_ORDER", header)
@@ -205,6 +220,7 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("IMAGE")])
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("MASK")])
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("VARIANCE")])
+        self.assertEqual(roundtrip.result._opaque_metadata.headers[ExtensionKey()]["PLATFORM"], "lsstcam")
         with self.subTest():
             if self.legacy_exposure is None:
                 raise unittest.SkipTest("'lsst.afw.image' could not be imported.") from None
