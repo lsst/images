@@ -259,6 +259,11 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         )
         self.assertEqual(visit.unit, u.nJy)
 
+        with self.assertRaises(ValueError):
+            VisitImage.read_legacy(self.filename, instrument="HSC")
+        with self.assertRaises(ValueError):
+            VisitImage.read_legacy(self.filename, visit=123456)
+
     def test_component_reads(self) -> None:
         """Test reads of components from legacy file."""
         visit = VisitImage.read_legacy(self.filename)

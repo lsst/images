@@ -508,20 +508,10 @@ class VisitImage(MaskedImage):
         assert component in (None, "image", "mask", "variance", "projection"), component  # for MyPy
         with astropy.io.fits.open(filename) as hdu_list:
             primary_header = hdu_list[0].header
-            if instrument is None:
-                try:
-                    instrument = primary_header["LSST BUTLER DATAID INSTRUMENT"]
-                except LookupError:
-                    raise ValueError(
-                        "Instrument could not be found in butler data ID FITS headers and must be provided."
-                    ) from None
-            if visit is None:
-                try:
-                    visit = primary_header["LSST BUTLER DATAID VISIT"]
-                except LookupError:
-                    raise ValueError(
-                        "Visit ID could not be found in butler data ID FITS headers and must be provided."
-                    ) from None
+            instrument = _extract_or_check_header(
+                "LSST BUTLER DATAID INSTRUMENT", instrument, primary_header, str
+            )
+            visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, primary_header, int)
             projection = Projection.from_legacy(
                 legacy_wcs,
                 DetectorFrame(
