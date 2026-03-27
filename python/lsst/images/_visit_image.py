@@ -183,9 +183,9 @@ class VisitImage(MaskedImage):
         return self._psf
 
     def __getitem__(self, bbox: Box | EllipsisType) -> VisitImage:
-        super().__getitem__(bbox)
         if bbox is ...:
             return self
+        super().__getitem__(bbox)
         return self._transfer_metadata(
             VisitImage(
                 self.image[bbox],

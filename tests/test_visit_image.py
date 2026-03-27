@@ -68,6 +68,7 @@ class VisitImageTestCase(unittest.TestCase):
         )
         # Default fill of variance.
         self.assertEqual(visit.variance.array[0, 0], 1.0)
+        self.assertIs(visit[...], visit)
 
         with self.assertRaises(TypeError):
             # Requires a PSF.
