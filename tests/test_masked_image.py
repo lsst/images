@@ -18,6 +18,7 @@ import unittest
 import astropy.io.fits
 import astropy.units as u
 import numpy as np
+from astro_metadata_translator import ObservationInfo
 
 from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema, get_legacy_visit_image_mask_planes
 from lsst.images.fits import FitsCompressionOptions
@@ -32,6 +33,7 @@ class MaskedImageTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.maxDiff = None
         self.rng = np.random.default_rng(500)
+        self.obs_info = ObservationInfo(instrument="LSSTCam", detector_num=4)
         self.masked_image = MaskedImage(
             Image(self.rng.normal(100.0, 8.0, size=(200, 251)), dtype=np.float64, unit=u.nJy, start=(5, 8)),
             mask_schema=MaskSchema(
@@ -41,6 +43,7 @@ class MaskedImageTestCase(unittest.TestCase):
                 ]
             ),
             metadata={"fifty": "5 * 10"},
+            obs_info=self.obs_info,
         )
         self.masked_image.mask.array |= np.multiply.outer(
             self.masked_image.image.array < 102.0,
@@ -63,6 +66,7 @@ class MaskedImageTestCase(unittest.TestCase):
         self.assertEqual(self.masked_image.unit, u.nJy)
         self.assertEqual(self.masked_image.variance.unit, u.nJy**2)
         self.assertEqual(self.masked_image.metadata, {"fifty": "5 * 10"})
+        self.assertEqual(self.masked_image.obs_info.instrument, "LSSTCam")
         # The checks below are subject to the vagaries of the RNG, but we want
         # the seed to be such that they all pass, or other tests will be
         # weaker.
@@ -75,6 +79,68 @@ class MaskedImageTestCase(unittest.TestCase):
         self.assertGreater(
             np.sum(self.masked_image.mask.array == self.masked_image.mask.schema.bitmask("BAD", "HUNGRY")), 0
         )
+
+        self.assertIs(self.masked_image[...], self.masked_image)
+        self.assertEqual(
+            str(self.masked_image), "MaskedImage(Image([y=5:205, x=8:259], float64), ['BAD', 'HUNGRY'])"
+        )
+        self.assertEqual(
+            repr(self.masked_image),
+            "MaskedImage(Image(..., bbox=Box(y=Interval(start=5, stop=205), x=Interval(start=8, stop=259)), "
+            "dtype=dtype('float64')), mask_schema=MaskSchema([MaskPlane(name='BAD', description='Pixel is "
+            "very bad, possibly downright evil.'), MaskPlane(name='HUNGRY', description=\"Pixel hasn't had "
+            "enough to eat today.\")], dtype=dtype('uint8')))",
+        )
+        copy = self.masked_image.copy()
+        original = self.masked_image.image.array[0, 0]
+        copy.image.array[0, 0] = 38.0
+        self.assertEqual(self.masked_image.image.array[0, 0], original)
+        self.assertEqual(copy.image.array[0, 0], 38.0)
+
+        # Test error conditions.
+        with self.assertRaises(ValueError):
+            # Disagreement over mask bbox.
+            MaskedImage(Image(42.0, shape=(5, 6)), mask=self.masked_image.mask)
+        with self.assertRaises(TypeError):
+            # No mask definition.
+            MaskedImage(self.masked_image.image, variance=self.masked_image.variance)
+        with self.assertRaises(TypeError):
+            # Can not provide mask and mask schema.
+            MaskedImage(
+                Image(42.0, shape=(5, 5)),
+                mask=self.masked_image.mask,
+                mask_schema=self.masked_image.mask.schema,
+            )
+        with self.assertRaises(ValueError):
+            # image and variance bbox disagreement.
+            MaskedImage(
+                Image(42.0, shape=(5, 5)),
+                mask_schema=self.masked_image.mask.schema,
+                variance=self.masked_image.variance,
+            )
+        with self.assertRaises(ValueError):
+            # no image unit but there is variance unit.
+            MaskedImage(
+                Image(42.0, shape=(5, 5)),
+                mask_schema=self.masked_image.mask.schema,
+                variance=Image(1.0, shape=(5, 5), unit=u.nJy),
+            )
+        with self.assertRaises(ValueError):
+            # image and variance units disagree.
+            MaskedImage(
+                Image(42.0, shape=(5, 5), unit=u.nJy),
+                mask_schema=self.masked_image.mask.schema,
+                variance=Image(1.0, shape=(5, 5), unit=u.nJy),
+            )
+
+    def test_subset(self) -> None:
+        """Test assignment of subset."""
+        copy = self.masked_image.copy()
+        subset = copy.local[0:10, 20:30].copy()
+        subset.image[...] = Image(42.0, shape=(10, 10), unit=u.nJy)
+        copy[subset.bbox] = subset
+        self.assertEqual(copy.image.array[0, 20], 42.0)
+        self.assertEqual(copy.image.array[0, 0], self.masked_image.image.array[0, 0])
 
     def test_fits_roundtrip(self) -> None:
         """Test that we can round-trip the MaskedImage through FITS, including

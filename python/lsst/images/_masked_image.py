@@ -164,9 +164,9 @@ class MaskedImage(GeneralizedImage):
         return self._image.obs_info
 
     def __getitem__(self, bbox: Box | EllipsisType) -> MaskedImage:
-        super().__getitem__(bbox)
         if bbox is ...:
             return self
+        super().__getitem__(bbox)
         return self._transfer_metadata(
             MaskedImage(
                 # Projection and obs_info propagate from the image.
