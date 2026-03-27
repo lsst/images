@@ -16,23 +16,119 @@ import unittest
 from typing import Any
 
 import astropy.io.fits
+import astropy.units as u
+import numpy as np
+from astro_metadata_translator import ObservationInfo
 
-from lsst.images import Box, VisitImage, get_legacy_visit_image_mask_planes
+from lsst.images import (
+    Box,
+    DetectorFrame,
+    Image,
+    MaskPlane,
+    MaskSchema,
+    VisitImage,
+    get_legacy_visit_image_mask_planes,
+)
 from lsst.images.fits import ExtensionKey
+from lsst.images.psfs import ConstantPointSpreadFunction
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
     TemporaryButler,
     assert_masked_images_equal,
     compare_visit_image_to_legacy,
+    make_random_projection,
 )
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
 
-@unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
 class VisitImageTestCase(unittest.TestCase):
-    """Tests for the VisitImage class and the basics of the archive system."""
+    """Basic Tests for VisitImage."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.rng = np.random.default_rng(500)
+        det_frame = DetectorFrame(instrument="Inst", visit=1234, detector=1, bbox=Box.factory[1:4096, 1:4096])
+        cls.projection = make_random_projection(cls.rng, det_frame, Box.factory[1:4096, 1:4096])
+        cls.mask_schema = MaskSchema([MaskPlane("M1", "D1")])
+        cls.obs_info = ObservationInfo(instrument="LSSTCam", detector_num=4)
+
+    def test_basics(self) -> None:
+        """Test basic constructor patterns."""
+        image = Image(42, shape=(5, 5), unit=u.nJy)
+        # API signature suggests projection and obs_info can be None but they
+        # are required.
+        visit = VisitImage(
+            image,
+            psf=ConstantPointSpreadFunction(constant=42.0, stamp_size=33, bounds=Box.factory[-10:10, -12:13]),
+            mask_schema=self.mask_schema,
+            projection=self.projection,
+            obs_info=self.obs_info,
+        )
+        # Default fill of variance.
+        self.assertEqual(visit.variance.array[0, 0], 1.0)
+
+        with self.assertRaises(TypeError):
+            # Requires a PSF.
+            VisitImage(
+                image,
+                mask_schema=self.mask_schema,
+                projection=self.projection,
+                obs_info=self.obs_info,
+            )
+
+        with self.assertRaises(TypeError):
+            # Requires ObservationInfo.
+            VisitImage(
+                image,
+                psf=ConstantPointSpreadFunction(
+                    constant=42.0, stamp_size=33, bounds=Box.factory[-10:10, -12:13]
+                ),
+                mask_schema=self.mask_schema,
+                projection=self.projection,
+            )
+
+        with self.assertRaises(TypeError):
+            # Requires a projection.
+            VisitImage(
+                image,
+                psf=ConstantPointSpreadFunction(
+                    constant=42.0, stamp_size=33, bounds=Box.factory[-10:10, -12:13]
+                ),
+                mask_schema=self.mask_schema,
+                obs_info=self.obs_info,
+            )
+
+        with self.assertRaises(TypeError):
+            # Requires some form of mask.
+            VisitImage(
+                image,
+                psf=ConstantPointSpreadFunction(
+                    constant=42.0, stamp_size=33, bounds=Box.factory[-10:10, -12:13]
+                ),
+                projection=self.projection,
+                obs_info=self.obs_info,
+            )
+
+        with self.assertRaises(TypeError):
+            VisitImage(
+                Image(42, shape=(5, 5)),
+                psf=ConstantPointSpreadFunction(
+                    constant=42.0, stamp_size=33, bounds=Box.factory[-10:10, -12:13]
+                ),
+                mask_schema=self.mask_schema,
+                projection=self.projection,
+                obs_info=self.obs_info,
+            )
+
+
+@unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
+class VisitImageLegacyTestCase(unittest.TestCase):
+    """Tests for the VisitImage class and the basics of the archive system.
+
+    Requires legacy code.
+    """
 
     @classmethod
     def setUpClass(cls) -> None:
