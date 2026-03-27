@@ -434,9 +434,9 @@ class Mask(GeneralizedImage):
         return self._obs_info
 
     def __getitem__(self, bbox: Box | EllipsisType) -> Mask:
-        super().__getitem__(bbox)
         if bbox is ...:
             return self
+        super().__getitem__(bbox)
         return self._transfer_metadata(
             Mask(
                 self.array[bbox.y.slice_within(self._bbox.y), bbox.x.slice_within(self._bbox.x), :],
