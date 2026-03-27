@@ -577,8 +577,8 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     projection: ProjectionSerializationModel[P] = pydantic.Field(
         description="Projection that maps the pixel grid to the sky.",
     )
-    psf: PiffSerializationModel | PSFExSerializationModel | Any = pydantic.Field(
-        union_mode="left_to_right", description="PSF model for the image."
+    psf: PiffSerializationModel | PSFExSerializationModel | ConstantPSFSerializationModel | Any = (
+        pydantic.Field(union_mode="left_to_right", description="PSF model for the image.")
     )
     obs_info: ObservationInfo = pydantic.Field(
         description="Standardized description of visit metadata",
@@ -594,6 +594,8 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
                     return PiffWrapper.deserialize(self.psf, archive)
                 case PSFExSerializationModel():
                     return PSFExWrapper.deserialize(self.psf, archive)
+                case ConstantPSFSerializationModel():
+                    return ConstantPointSpreadFunction.deserialize(self.psf, archive)
                 case _:
                     raise ArchiveReadError("PSF model type not recognized.")
         except ArchiveReadError as err:
