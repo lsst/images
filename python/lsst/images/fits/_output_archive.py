@@ -265,9 +265,10 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
             raise RuntimeError("Cannot save table with name=None unless it is nested.")
         extname = name.upper()
         hdu: astropy.io.fits.BinTableHDU = astropy.io.fits.table_to_hdu(table, name=extname)
-        columns = ColumnDefinitionModel.from_record_dtype(hdu.data.dtype)
-        for c in columns:
-            c.update_from_table(table)
+        # Extract column information directly from the input array, not the
+        # data in the binary table HDU, because we want to assume as little as
+        # possible about where Astropy does uint -> TZERO stuff.
+        columns = ColumnDefinitionModel.from_table(table)
         key = self._add_hdu(hdu, update_header)
         return TableReferenceModel(source=str(key), columns=columns)
 
@@ -283,8 +284,11 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         if name is None:
             raise RuntimeError("Cannot save structured array with name=None unless it is nested.")
         extname = name.upper()
+        # Extract column information directly from the input array, not the
+        # data in the binary table HDU, because we want to assume as little as
+        # possible about where Astropy does uint -> TZERO stuff.
+        columns = ColumnDefinitionModel.from_record_dtype(array.dtype)
         hdu = astropy.io.fits.BinTableHDU(array, name=extname)
-        columns = ColumnDefinitionModel.from_record_dtype(hdu.data.dtype)
         if units is not None:
             for c in columns:
                 c.unit = units.get(c.name)

@@ -412,7 +412,7 @@ class _ExtensionReader:
             bintable_hdu = astropy.io.fits.BinTableHDU.readfrom(self._stream, memmap=False, cache=False)
             return self._hdu_cls(bintable=bintable_hdu)
         else:
-            return self._hdu_cls.readfrom(self._stream, memmap=False, cache=False)
+            return self._hdu_cls.readfrom(self._stream, memmap=False, cache=False, uint=True)
 
     @property
     def header(self) -> astropy.io.fits.Header:

@@ -27,6 +27,7 @@ import numpy.typing as npt
 import pydantic
 
 from ._asdf_utils import Unit
+from ._common import ArchiveReadError
 from ._dtypes import NumberType
 
 if TYPE_CHECKING:
@@ -85,13 +86,26 @@ class ColumnDefinitionModel(pydantic.BaseModel):
             result.append(ColumnDefinitionModel.model_construct(name=name, datatype=datatype, shape=shape))
         return result
 
-    def update_from_table(self, table: astropy.table.Table) -> None:
-        """Update the unit and description of this column from an astropy
-        table.
-        """
-        astropy_column: astropy.table.Column = table.columns[self.name]
-        self.unit = astropy.units.Unit(astropy_column.unit) if astropy_column.unit is not None else None
-        self.description = astropy_column.description
+    @classmethod
+    def from_table(cls, table: astropy.table.Table) -> list[ColumnDefinitionModel]:
+        """Extract column definitions from an Astropy table."""
+        return [cls.from_column(c) for c in table.columns.values()]
+
+    @classmethod
+    def from_column(cls, column: astropy.table.Column) -> ColumnDefinitionModel:
+        """Extract a column definition from an Astropy column."""
+        # TODO: support string and variable-length array columns here.
+        try:
+            datatype = NumberType.from_numpy(column.dtype)
+        except TypeError:
+            raise UnsupportedTableError(f"Column type {column.dtype} is not supported.") from None
+        return ColumnDefinitionModel(
+            name=column.name,
+            datatype=datatype,
+            shape=column.shape[1:],
+            unit=astropy.units.Unit(column.unit) if column.unit is not None else None,
+            description=column.description or "",
+        )
 
     def update_table(self, table: astropy.table.Table) -> None:
         """Update the unit and description of an astropy column from this
@@ -100,6 +114,10 @@ class ColumnDefinitionModel(pydantic.BaseModel):
         astropy_column: astropy.table.Column = table.columns[self.name]
         astropy_column.unit = self.unit
         astropy_column.description = self.description
+        if (datatype := NumberType.from_numpy(astropy_column.dtype)) != self.datatype:
+            raise ArchiveReadError(f"Table column {self.name} has type {datatype}; expected {self.datatype}.")
+        if (shape := astropy_column.shape[1:]) != self.shape:
+            raise ArchiveReadError(f"Table column {self.name} has shape {shape}; expected {self.shape}.")
 
 
 class TableReferenceModel(pydantic.BaseModel):
