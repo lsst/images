@@ -32,6 +32,8 @@ from ._masked_image import MaskedImage, MaskedImageSerializationModel
 from ._transforms import DetectorFrame, Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .fits import FitsOpaqueMetadata
 from .psfs import (
+    GaussianPointSpreadFunction,
+    GaussianPSFSerializationModel,
     PiffSerializationModel,
     PiffWrapper,
     PointSpreadFunction,
@@ -181,9 +183,9 @@ class VisitImage(MaskedImage):
         return self._psf
 
     def __getitem__(self, bbox: Box | EllipsisType) -> VisitImage:
-        super().__getitem__(bbox)
         if bbox is ...:
             return self
+        super().__getitem__(bbox)
         return self._transfer_metadata(
             VisitImage(
                 self.image[bbox],
@@ -230,13 +232,15 @@ class VisitImage(MaskedImage):
             if self.projection is not None
             else None
         )
-        serialized_psf: PiffSerializationModel | PSFExSerializationModel
+        serialized_psf: PiffSerializationModel | PSFExSerializationModel | GaussianPSFSerializationModel
         match self._psf:
             # MyPy is able to figure things out here with this match statement,
             # but not a single isinstance check on both types.
             case PiffWrapper():
                 serialized_psf = archive.serialize_direct("psf", self._psf.serialize)
             case PSFExWrapper():
+                serialized_psf = archive.serialize_direct("psf", self._psf.serialize)
+            case GaussianPointSpreadFunction():
                 serialized_psf = archive.serialize_direct("psf", self._psf.serialize)
             case _:
                 raise TypeError(
@@ -321,9 +325,13 @@ class VisitImage(MaskedImage):
             plane_map = get_legacy_visit_image_mask_planes()
         md = legacy.getMetadata()
         obs_info = _obs_info_from_md(md, visit_info=legacy.info.getVisitInfo())
-        instrument = _extract_or_check_header("LSST BUTLER DATAID INSTRUMENT", instrument, md, str)
-        visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, int)
-        unit = _extract_or_check_header("BUNIT", unit, md, lambda x: astropy.units.Unit(x, format="fits"))
+        instrument = _extract_or_check_header(
+            "LSST BUTLER DATAID INSTRUMENT", instrument, md, obs_info.instrument, str
+        )
+        visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, None, int)
+        unit = _extract_or_check_header(
+            "BUNIT", unit, md, None, lambda x: astropy.units.Unit(x, format="fits")
+        )
         legacy_wcs = legacy.getWcs()
         if legacy_wcs is None:
             raise ValueError("Exposure does not have a SkyWcs.")
@@ -360,7 +368,8 @@ class VisitImage(MaskedImage):
             psf=psf,
             obs_info=obs_info,
         )
-        result._opaque_metadata = masked_image._opaque_metadata
+
+        result._opaque_metadata = opaque_fits_metadata
         return result
 
     @overload  # type: ignore[override]
@@ -427,6 +436,14 @@ class VisitImage(MaskedImage):
     def read_legacy(
         filename: str,
         *,
+        component: Literal["obs_info"],
+    ) -> ObservationInfo: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
         preserve_quantization: bool = False,
         plane_map: Mapping[str, MaskPlane] | None = None,
         instrument: str | None = None,
@@ -442,7 +459,8 @@ class VisitImage(MaskedImage):
         plane_map: Mapping[str, MaskPlane] | None = None,
         instrument: str | None = None,
         visit: int | None = None,
-        component: Literal["bbox", "image", "mask", "variance", "projection", "psf"] | None = None,
+        component: Literal["bbox", "image", "mask", "variance", "projection", "psf", "obs_info"]
+        | None = None,
     ) -> Any:
         """Read a FITS file written by `lsst.afw.image.Exposure.writeFits`.
 
@@ -479,6 +497,7 @@ class VisitImage(MaskedImage):
         if legacy_detector is None:
             raise ValueError(f"Exposure file {filename!r} does not have a Detector.")
         detector_bbox = Box.from_legacy(legacy_detector.getBBox())
+        legacy_wcs = None
         if component in (None, "image", "mask", "variance", "projection"):
             legacy_wcs = reader.readWcs()
             if legacy_wcs is None:
@@ -490,23 +509,18 @@ class VisitImage(MaskedImage):
             psf = PointSpreadFunction.from_legacy(legacy_psf, bounds=detector_bbox)
             if component == "psf":
                 return psf
-        assert component in (None, "image", "mask", "variance", "projection"), component  # for MyPy
+        assert component in (None, "image", "mask", "variance", "projection", "obs_info"), (
+            component
+        )  # for MyPy
         with astropy.io.fits.open(filename) as hdu_list:
             primary_header = hdu_list[0].header
-            if instrument is None:
-                try:
-                    instrument = primary_header["LSST BUTLER DATAID INSTRUMENT"]
-                except LookupError:
-                    raise ValueError(
-                        "Instrument could not be found in butler data ID FITS headers and must be provided."
-                    ) from None
-            if visit is None:
-                try:
-                    visit = primary_header["LSST BUTLER DATAID VISIT"]
-                except LookupError:
-                    raise ValueError(
-                        "Visit ID could not be found in butler data ID FITS headers and must be provided."
-                    ) from None
+            obs_info = _obs_info_from_md(primary_header)
+            if component == "obs_info":
+                return obs_info
+            instrument = _extract_or_check_header(
+                "LSST BUTLER DATAID INSTRUMENT", instrument, primary_header, obs_info.instrument, str
+            )
+            visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, primary_header, None, int)
             projection = Projection.from_legacy(
                 legacy_wcs,
                 DetectorFrame(
@@ -528,7 +542,6 @@ class VisitImage(MaskedImage):
                 plane_map=plane_map,
                 component=component,
             )
-        obs_info = _obs_info_from_md(primary_header)
         if component is not None:
             # This is the image, mask, or variance; attach the projection
             # and return
@@ -562,8 +575,8 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     projection: ProjectionSerializationModel[P] = pydantic.Field(
         description="Projection that maps the pixel grid to the sky.",
     )
-    psf: PiffSerializationModel | PSFExSerializationModel | Any = pydantic.Field(
-        union_mode="left_to_right", description="PSF model for the image."
+    psf: PiffSerializationModel | PSFExSerializationModel | GaussianPSFSerializationModel | Any = (
+        pydantic.Field(union_mode="left_to_right", description="PSF model for the image.")
     )
     obs_info: ObservationInfo = pydantic.Field(
         description="Standardized description of visit metadata",
@@ -579,25 +592,46 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
                     return PiffWrapper.deserialize(self.psf, archive)
                 case PSFExSerializationModel():
                     return PSFExWrapper.deserialize(self.psf, archive)
+                case GaussianPSFSerializationModel():
+                    return GaussianPointSpreadFunction.deserialize(self.psf, archive)
                 case _:
                     raise ArchiveReadError("PSF model type not recognized.")
         except ArchiveReadError as err:
             return err
 
 
+def _extract_or_check_value[T](
+    key: str,
+    given_value: T | None,
+    *sources: tuple[str, T | None],
+) -> T:
+    # Compare given value against multiple sources. If given value is not
+    # supplied return the first non-None value in the reference sources.
+    if given_value is not None:
+        for source_name, source_value in sources:
+            if source_value is not None and source_value != given_value:
+                raise ValueError(
+                    f"Given value {given_value!r} does not match {source_value!r} from {source_name}."
+                )
+            if source_value is not None:
+                # Only check the first non-None source rather than checking
+                # all supplied values.
+                break
+        return given_value
+
+    for _, source_value in sources:
+        if source_value is not None:
+            return source_value
+
+    raise ValueError(f"No value found for {key}.")
+
+
 def _extract_or_check_header[T](
-    key: str, given_value: T | None, header: Any, coerce: Callable[[Any], T]
+    key: str, given_value: T | None, header: Any, obs_info_value: T | None, coerce: Callable[[Any], T]
 ) -> T:
     hdr_value: T | None = None
     if (hdr_raw_value := header.get(key)) is not None:
         hdr_value = coerce(hdr_raw_value)
-    if given_value is not None:
-        if hdr_value is not None and hdr_value != given_value:
-            raise ValueError(
-                f"Given value {given_value!r} does not match {hdr_value!r} from header key {key}."
-            )
-        return given_value
-    else:
-        if hdr_value is None:
-            raise ValueError(f"No FITS header key {key} found.")
-        return hdr_value
+    return _extract_or_check_value(
+        key, given_value, ("ObservationInfo", obs_info_value), (f"header key {key}", hdr_value)
+    )

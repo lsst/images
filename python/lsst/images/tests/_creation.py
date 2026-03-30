@@ -49,7 +49,7 @@ def make_random_projection[F: Frame](rng: np.random.Generator, pixel_frame: F, b
         "CRVAL2": rng.uniform(low=-np.pi, high=np.pi),
         "CDELT1": (rng.uniform(low=0.18, high=0.22) * u.arcsec).to_value(u.deg),
         "CDELT2": (rng.uniform(low=0.18, high=0.22) * u.arcsec).to_value(u.deg),
-        "CROTA": rng.uniform(low=0.0, high=2 * np.pi),
+        "CROTA1": rng.uniform(low=0.0, high=2 * np.pi),
     }
     fits_wcs = astropy.wcs.WCS(header)
     return Projection.from_fits_wcs(

@@ -418,6 +418,8 @@ def strip_wcs_cards(header: astropy.io.fits.Header) -> None:
     header.remove("LONPOLE", ignore_missing=True)
     header.remove("LATPOLE", ignore_missing=True)
     header.remove("MJDREF", ignore_missing=True)
+    header.remove("PV1_3", ignore_missing=True)
+    header.remove("PV1_4", ignore_missing=True)
 
 
 def _strip_sip_poly(header: astropy.io.fits.Header, wcsname: str, which: str) -> None:

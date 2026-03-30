@@ -19,6 +19,7 @@ import json
 from typing import Any, ClassVar
 
 import astropy.io.fits
+from astro_metadata_translator import ObservationInfo
 
 from lsst.daf.butler import DatasetProvenance, FormatterV2
 from lsst.resources import ResourcePath
@@ -205,6 +206,11 @@ class ImageFormatter(GenericFormatter):
             case "bbox":
                 if isinstance(bbox := getattr(tree, "bbox", None), Box):
                     return bbox
+                else:
+                    return ComponentSentinel.INVALID_COMPONENT_MODEL
+            case "obs_info":
+                if isinstance(obs_info := getattr(tree, "obs_info", None), ObservationInfo):
+                    return obs_info
                 else:
                     return ComponentSentinel.INVALID_COMPONENT_MODEL
         return ComponentSentinel.UNRECOGNIZED_COMPONENT
