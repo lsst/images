@@ -325,9 +325,13 @@ class VisitImage(MaskedImage):
             plane_map = get_legacy_visit_image_mask_planes()
         md = legacy.getMetadata()
         obs_info = _obs_info_from_md(md, visit_info=legacy.info.getVisitInfo())
-        instrument = _extract_or_check_header("LSST BUTLER DATAID INSTRUMENT", instrument, md, str)
-        visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, int)
-        unit = _extract_or_check_header("BUNIT", unit, md, lambda x: astropy.units.Unit(x, format="fits"))
+        instrument = _extract_or_check_header(
+            "LSST BUTLER DATAID INSTRUMENT", instrument, md, obs_info.instrument, str
+        )
+        visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, None, int)
+        unit = _extract_or_check_header(
+            "BUNIT", unit, md, None, lambda x: astropy.units.Unit(x, format="fits")
+        )
         legacy_wcs = legacy.getWcs()
         if legacy_wcs is None:
             raise ValueError("Exposure does not have a SkyWcs.")
@@ -514,9 +518,9 @@ class VisitImage(MaskedImage):
             if component == "obs_info":
                 return obs_info
             instrument = _extract_or_check_header(
-                "LSST BUTLER DATAID INSTRUMENT", instrument, primary_header, str
+                "LSST BUTLER DATAID INSTRUMENT", instrument, primary_header, obs_info.instrument, str
             )
-            visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, primary_header, int)
+            visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, primary_header, None, int)
             projection = Projection.from_legacy(
                 legacy_wcs,
                 DetectorFrame(
@@ -596,19 +600,38 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
             return err
 
 
+def _extract_or_check_value[T](
+    key: str,
+    given_value: T | None,
+    *sources: tuple[str, T | None],
+) -> T:
+    # Compare given value against multiple sources. If given value is not
+    # supplied return the first non-None value in the reference sources.
+    if given_value is not None:
+        for source_name, source_value in sources:
+            if source_value is not None and source_value != given_value:
+                raise ValueError(
+                    f"Given value {given_value!r} does not match {source_value!r} from {source_name}."
+                )
+            if source_value is not None:
+                # Only check the first non-None source rather than checking
+                # all supplied values.
+                break
+        return given_value
+
+    for _, source_value in sources:
+        if source_value is not None:
+            return source_value
+
+    raise ValueError(f"No value found for {key}.")
+
+
 def _extract_or_check_header[T](
-    key: str, given_value: T | None, header: Any, coerce: Callable[[Any], T]
+    key: str, given_value: T | None, header: Any, obs_info_value: T | None, coerce: Callable[[Any], T]
 ) -> T:
     hdr_value: T | None = None
     if (hdr_raw_value := header.get(key)) is not None:
         hdr_value = coerce(hdr_raw_value)
-    if given_value is not None:
-        if hdr_value is not None and hdr_value != given_value:
-            raise ValueError(
-                f"Given value {given_value!r} does not match {hdr_value!r} from header key {key}."
-            )
-        return given_value
-    else:
-        if hdr_value is None:
-            raise ValueError(f"No FITS header key {key} found.")
-        return hdr_value
+    return _extract_or_check_value(
+        key, given_value, ("ObservationInfo", obs_info_value), (f"header key {key}", hdr_value)
+    )
