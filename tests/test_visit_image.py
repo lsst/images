@@ -34,7 +34,7 @@ from lsst.images import (
     get_legacy_visit_image_mask_planes,
 )
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
-from lsst.images.psfs import ConstantPointSpreadFunction, PointSpreadFunction
+from lsst.images.psfs import GaussianPointSpreadFunction, PointSpreadFunction
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
@@ -58,9 +58,7 @@ class VisitImageTestCase(unittest.TestCase):
         cls.projection = make_random_projection(cls.rng, det_frame, Box.factory[1:4096, 1:4096])
         cls.mask_schema = MaskSchema([MaskPlane("M1", "D1")])
         cls.obs_info = ObservationInfo(instrument="LSSTCam", detector_num=4)
-        cls.constant_psf = ConstantPointSpreadFunction(
-            constant=42.0, stamp_size=33, bounds=Box.factory[-10:10, -12:13]
-        )
+        cls.gaussian_psf = GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13])
 
         opaque = FitsOpaqueMetadata()
         hdr = astropy.io.fits.Header()
@@ -77,7 +75,7 @@ class VisitImageTestCase(unittest.TestCase):
         cls.visit_image = VisitImage(
             cls.image,
             variance=cls.variance,
-            psf=ConstantPointSpreadFunction(constant=42.0, stamp_size=33, bounds=Box.factory[-10:10, -12:13]),
+            psf=GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13]),
             mask_schema=cls.mask_schema,
             projection=cls.projection,
             obs_info=cls.obs_info,
@@ -85,7 +83,7 @@ class VisitImageTestCase(unittest.TestCase):
         cls.visit_image._opaque_metadata = opaque
         cls.simplest_visit_image = VisitImage(
             cls.image,
-            psf=ConstantPointSpreadFunction(constant=42.0, stamp_size=33, bounds=Box.factory[-10:10, -12:13]),
+            psf=GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13]),
             mask_schema=cls.mask_schema,
             projection=cls.projection,
             obs_info=cls.obs_info,
@@ -129,7 +127,7 @@ class VisitImageTestCase(unittest.TestCase):
             # Requires ObservationInfo.
             VisitImage(
                 self.image,
-                psf=self.constant_psf,
+                psf=self.gaussian_psf,
                 mask_schema=self.mask_schema,
                 projection=self.projection,
             )
@@ -138,7 +136,7 @@ class VisitImageTestCase(unittest.TestCase):
             # Requires a projection.
             VisitImage(
                 self.image,
-                psf=self.constant_psf,
+                psf=self.gaussian_psf,
                 mask_schema=self.mask_schema,
                 obs_info=self.obs_info,
             )
@@ -147,7 +145,7 @@ class VisitImageTestCase(unittest.TestCase):
             # Requires some form of mask.
             VisitImage(
                 self.image,
-                psf=self.constant_psf,
+                psf=self.gaussian_psf,
                 projection=self.projection,
                 obs_info=self.obs_info,
             )
@@ -155,7 +153,7 @@ class VisitImageTestCase(unittest.TestCase):
         with self.assertRaises(TypeError):
             VisitImage(
                 Image(42, shape=(5, 5)),
-                psf=self.constant_psf,
+                psf=self.gaussian_psf,
                 mask_schema=self.mask_schema,
                 projection=self.projection,
                 obs_info=self.obs_info,
@@ -168,7 +166,7 @@ class VisitImageTestCase(unittest.TestCase):
             VisitImage(
                 self.image,
                 projection=tract_proj,
-                psf=self.constant_psf,
+                psf=self.gaussian_psf,
                 mask_schema=self.mask_schema,
                 obs_info=self.obs_info,
             )
@@ -178,7 +176,7 @@ class VisitImageTestCase(unittest.TestCase):
             VisitImage(
                 self.image,
                 variance=self.image,
-                psf=self.constant_psf,
+                psf=self.gaussian_psf,
                 mask_schema=self.mask_schema,
                 projection=self.projection,
                 obs_info=self.obs_info,

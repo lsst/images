@@ -32,8 +32,8 @@ from ._masked_image import MaskedImage, MaskedImageSerializationModel
 from ._transforms import DetectorFrame, Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .fits import FitsOpaqueMetadata
 from .psfs import (
-    ConstantPointSpreadFunction,
-    ConstantPSFSerializationModel,
+    GaussianPointSpreadFunction,
+    GaussianPSFSerializationModel,
     PiffSerializationModel,
     PiffWrapper,
     PointSpreadFunction,
@@ -232,7 +232,7 @@ class VisitImage(MaskedImage):
             if self.projection is not None
             else None
         )
-        serialized_psf: PiffSerializationModel | PSFExSerializationModel | ConstantPSFSerializationModel
+        serialized_psf: PiffSerializationModel | PSFExSerializationModel | GaussianPSFSerializationModel
         match self._psf:
             # MyPy is able to figure things out here with this match statement,
             # but not a single isinstance check on both types.
@@ -240,7 +240,7 @@ class VisitImage(MaskedImage):
                 serialized_psf = archive.serialize_direct("psf", self._psf.serialize)
             case PSFExWrapper():
                 serialized_psf = archive.serialize_direct("psf", self._psf.serialize)
-            case ConstantPointSpreadFunction():
+            case GaussianPointSpreadFunction():
                 serialized_psf = archive.serialize_direct("psf", self._psf.serialize)
             case _:
                 raise TypeError(
@@ -557,7 +557,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     projection: ProjectionSerializationModel[P] = pydantic.Field(
         description="Projection that maps the pixel grid to the sky.",
     )
-    psf: PiffSerializationModel | PSFExSerializationModel | ConstantPSFSerializationModel | Any = (
+    psf: PiffSerializationModel | PSFExSerializationModel | GaussianPSFSerializationModel | Any = (
         pydantic.Field(union_mode="left_to_right", description="PSF model for the image.")
     )
     obs_info: ObservationInfo = pydantic.Field(
@@ -574,8 +574,8 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
                     return PiffWrapper.deserialize(self.psf, archive)
                 case PSFExSerializationModel():
                     return PSFExWrapper.deserialize(self.psf, archive)
-                case ConstantPSFSerializationModel():
-                    return ConstantPointSpreadFunction.deserialize(self.psf, archive)
+                case GaussianPSFSerializationModel():
+                    return GaussianPointSpreadFunction.deserialize(self.psf, archive)
                 case _:
                     raise ArchiveReadError("PSF model type not recognized.")
         except ArchiveReadError as err:
