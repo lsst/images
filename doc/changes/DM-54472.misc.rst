@@ -1,0 +1,2 @@
+Improved the test coverage of the image classes.
+This uncovered some minor bugs that have also been fixed.
