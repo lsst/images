@@ -86,15 +86,12 @@ class GaussianPointSpreadFunction(PointSpreadFunction):
         return Image(self._kernel_array.copy(), bbox=self.kernel_bbox)
 
     def compute_stellar_image(self, *, x: float, y: float) -> Image:
-        x0 = round(x)
-        y0 = round(y)
-        # Calculate the profiles accounting for subpixel shifts.
-        x_profile = np.exp(-0.5 * np.square(self._centered_coordinates - (x - x0)) / self._sigma2)
-        y_profile = np.exp(-0.5 * np.square(self._centered_coordinates - (y - y0)) / self._sigma2)
+        bbox = self.compute_stellar_bbox(x=x, y=y)
+        x_profile = np.exp(-0.5 * np.square(bbox.x.arange - x) / self._sigma2)
+        y_profile = np.exp(-0.5 * np.square(bbox.y.arange - y) / self._sigma2)
         image = np.multiply.outer(y_profile, x_profile)
         image /= image.sum()
-        r = self._stamp_size // 2
-        return Image(image, start=(y0 - r, x0 - r))
+        return Image(image, bbox=bbox)
 
     def compute_stellar_bbox(self, *, x: float, y: float) -> Box:
         r = self._stamp_size // 2
