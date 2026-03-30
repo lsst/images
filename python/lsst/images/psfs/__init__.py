@@ -17,4 +17,4 @@ and detector.
 from ._base import *
 from ._legacy import *
 from ._piff import *
-from ._constant import *
+from ._gaussian import *
