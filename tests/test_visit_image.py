@@ -275,6 +275,8 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         self.assertEqual(mask, visit.mask)
         psf = VisitImage.read_legacy(self.filename, component="psf")
         self.assertIsInstance(psf, PointSpreadFunction)
+        obs_info = VisitImage.read_legacy(self.filename, component="obs_info")
+        self.assertIsInstance(obs_info, ObservationInfo)
 
     def test_obs_info(self) -> None:
         """Check that ObservationInfo has been constructed."""

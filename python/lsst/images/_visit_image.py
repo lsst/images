@@ -432,6 +432,14 @@ class VisitImage(MaskedImage):
     def read_legacy(
         filename: str,
         *,
+        component: Literal["obs_info"],
+    ) -> ObservationInfo: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
         preserve_quantization: bool = False,
         plane_map: Mapping[str, MaskPlane] | None = None,
         instrument: str | None = None,
@@ -447,7 +455,8 @@ class VisitImage(MaskedImage):
         plane_map: Mapping[str, MaskPlane] | None = None,
         instrument: str | None = None,
         visit: int | None = None,
-        component: Literal["bbox", "image", "mask", "variance", "projection", "psf"] | None = None,
+        component: Literal["bbox", "image", "mask", "variance", "projection", "psf", "obs_info"]
+        | None = None,
     ) -> Any:
         """Read a FITS file written by `lsst.afw.image.Exposure.writeFits`.
 
@@ -484,6 +493,7 @@ class VisitImage(MaskedImage):
         if legacy_detector is None:
             raise ValueError(f"Exposure file {filename!r} does not have a Detector.")
         detector_bbox = Box.from_legacy(legacy_detector.getBBox())
+        legacy_wcs = None
         if component in (None, "image", "mask", "variance", "projection"):
             legacy_wcs = reader.readWcs()
             if legacy_wcs is None:
@@ -495,9 +505,14 @@ class VisitImage(MaskedImage):
             psf = PointSpreadFunction.from_legacy(legacy_psf, bounds=detector_bbox)
             if component == "psf":
                 return psf
-        assert component in (None, "image", "mask", "variance", "projection"), component  # for MyPy
+        assert component in (None, "image", "mask", "variance", "projection", "obs_info"), (
+            component
+        )  # for MyPy
         with astropy.io.fits.open(filename) as hdu_list:
             primary_header = hdu_list[0].header
+            obs_info = _obs_info_from_md(primary_header)
+            if component == "obs_info":
+                return obs_info
             instrument = _extract_or_check_header(
                 "LSST BUTLER DATAID INSTRUMENT", instrument, primary_header, str
             )
@@ -523,7 +538,6 @@ class VisitImage(MaskedImage):
                 plane_map=plane_map,
                 component=component,
             )
-        obs_info = _obs_info_from_md(primary_header)
         if component is not None:
             # This is the image, mask, or variance; attach the projection
             # and return
