@@ -208,6 +208,11 @@ class VisitImageTestCase(unittest.TestCase):
             assert_masked_images_equal(self, subimage, self.visit_image[subbox], expect_view=False)
             with self.subTest():
                 self.assertEqual(roundtrip.get("bbox"), self.visit_image.bbox)
+            with self.subTest():
+                obs_info = roundtrip.get("obs_info")
+                self.assertIsInstance(obs_info, ObservationInfo)
+                self.assertEqual(obs_info, self.visit_image.obs_info)
+
         assert_masked_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
         # Check that the round-tripped headers are the same (up to card order).
         self.assertEqual(len(roundtrip.result._opaque_metadata.headers[ExtensionKey()]), 1)
