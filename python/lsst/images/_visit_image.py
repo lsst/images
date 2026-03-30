@@ -25,8 +25,6 @@ import astropy.wcs
 import pydantic
 from astro_metadata_translator import ObservationInfo, VisitInfoTranslator
 
-from lsst.images.fits import ExtensionKey
-
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_legacy_visit_image_mask_planes
@@ -366,14 +364,6 @@ class VisitImage(MaskedImage):
             psf=psf,
             obs_info=obs_info,
         )
-        if (opaque_md := masked_image._opaque_metadata) is not None:
-            # We have already read the primary header but if the masked
-            # image read added more we should copy them over.
-            primary = ExtensionKey()
-            assert isinstance(opaque_md, FitsOpaqueMetadata)
-            for extension, header in opaque_md.headers[ExtensionKey()].items():
-                if extension != primary and header is not None:
-                    opaque_fits_metadata.add_header(header, key=extension)
 
         result._opaque_metadata = opaque_fits_metadata
         return result
