@@ -53,6 +53,18 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         with RoundtripFits(self, psf) as roundtrip:
             self.assertEqual(roundtrip.result, psf, f"{roundtrip.result} != {psf}")
 
+        with self.assertRaises(ValueError):
+            # Even stamp size.
+            GaussianPointSpreadFunction(2.5, bounds=bounds, stamp_size=32)
+
+        with self.assertRaises(ValueError):
+            # Negative stamp size.
+            GaussianPointSpreadFunction(2.5, bounds=bounds, stamp_size=-33)
+
+        with self.assertRaises(ValueError):
+            # Negative sigma.
+            GaussianPointSpreadFunction(-2.5, bounds=bounds, stamp_size=33)
+
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_piff(self) -> None:
         """Test that we can:
