@@ -134,12 +134,18 @@ def extract_cell_coadd(
 
 
 def extract_camera(butler: Butler, output_path: str, dataset_ref: DatasetRef) -> None:
+    """Read camera geometry from a butler repository and save it to
+    testdata_images.
+    """
     camera = butler.get(dataset_ref)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     camera.writeFits(output_path)
 
 
 def extract_skymap(butler: Butler, output_path: str, dataset_ref: DatasetRef) -> None:
+    """Read a skymap definition from a butler repository and save it to
+    testdata_images.
+    """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     (path,) = butler.retrieveArtifacts(
         [dataset_ref],
@@ -155,6 +161,9 @@ def extract_skymap(butler: Butler, output_path: str, dataset_ref: DatasetRef) ->
 def find_dataset_or_raise(
     butler: Butler, dataset_type: str, *, collections: str | None = None, **kwargs
 ) -> DatasetRef:
+    """Call `lsst.daf.butler.Butler.find_dataset` with the given arguments and
+    raise `LookupError` if it returns `None`.
+    """
     ref = butler.find_dataset(dataset_type, collections=collections, **kwargs)
     if ref is None:
         raise LookupError(f"Could not find dataset {dataset_type} with data ID {kwargs}.")
