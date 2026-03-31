@@ -107,15 +107,15 @@ class PointSpreadFunction(ABC):
 
         Returns
         -------
-        PointSpreadFunction
-            A `PointSpreadFunction` instance.
+        `~lsst.images.psfs.PointSpreadFunction`
+            The converted PSF object.
 
         Notes
         -----
         This base class method is a factory dispatch function that
-        automatically selects the right `PointSpreadFunction` subclass to
-        use.  When that is already known, a subclass `from_legacy` method can
-        be called instead.
+        automatically selects the right
+        `~lsst.images.psfs.PointSpreadFunction` subclass to use.  When that is
+        already known, a subclass `from_legacy` method can be called instead.
         """
         from lsst.afw.detection import Psf
         from lsst.meas.extensions.piff.piffPsf import PiffPsf
