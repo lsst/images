@@ -40,7 +40,7 @@ except ImportError as err:
     raise
 
 
-from ._data_ids import DP2_COADD_DATA_ID, DP2_VISIT_DETECTOR_DATA_ID
+from ._data_ids import DP2_COADD_DATA_ID, DP2_COADD_MISSING_CELL, DP2_VISIT_DETECTOR_DATA_ID
 
 
 def extract_visit_image(
@@ -109,7 +109,12 @@ def extract_cell_coadd(
     """
     full_cell_coadd = butler.get(dataset_ref)
     cell_coadd = MultipleCellCoadd(
-        [full_cell_coadd.cells[i, j] for j in range(7, 11) for i in range(5, 8)],
+        [
+            full_cell_coadd.cells[x, y]
+            for y in range(7, 11)
+            for x in range(5, 8)
+            if {"i": y, "j": x} != DP2_COADD_MISSING_CELL
+        ],
         grid=full_cell_coadd.grid,
         outer_cell_size=full_cell_coadd.outer_cell_size,
         psf_image_size=full_cell_coadd.psf_image_size,

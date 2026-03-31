@@ -11,9 +11,10 @@
 
 from __future__ import annotations
 
-__all__ = ("DP2_COADD_DATA_ID", "DP2_VISIT_DETECTOR_DATA_ID")
+__all__ = ("DP2_COADD_DATA_ID", "DP2_COADD_MISSING_CELL", "DP2_VISIT_DETECTOR_DATA_ID")
 
 from typing import Any
 
 DP2_VISIT_DETECTOR_DATA_ID: dict[str, Any] = {"instrument": "LSSTCam", "visit": 2025052000177, "detector": 85}
 DP2_COADD_DATA_ID: dict[str, Any] = {"skymap": "lsst_cells_v2", "tract": 9813, "patch": 43, "band": "r"}
+DP2_COADD_MISSING_CELL: dict[str, int] = {"i": 8, "j": 6}
