@@ -350,6 +350,19 @@ class VisitImageLegacyTestCase(unittest.TestCase):
                     k: roundtrip.get(k)
                     for k in ["projection", "image", "mask", "variance", "psf", "obs_info"]
                 }
+            # Try to do a butler get of a component with storage class
+            # override.
+            with self.subTest():
+                if self.legacy_exposure is not None:
+                    import lsst.afw.image
+
+                    # We have VisitInfo available.
+                    visit_info = roundtrip.get("obs_info", storageClass="VisitInfo")
+                    self.assertIsInstance(visit_info, lsst.afw.image.VisitInfo)
+                    self.assertEqual(visit_info.getInstrumentLabel(), "LSSTCam")
+                else:
+                    raise unittest.SkipTest("Can not test VisitInfo conversion without afw")
+
         assert_masked_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
         # Check that the round-tripped headers are the same (up to card order).
         self.assertEqual(

@@ -187,7 +187,7 @@ class RoundtripFits[T]:
             astropy.io.fits.open(self.filename, disable_image_compression=True)
         )
 
-    def get(self, component: str | None = None, **kwargs: Any) -> Any:
+    def get(self, component: str | None = None, storageClass: str | None = None, **kwargs: Any) -> Any:
         """Perform a partial read.
 
         Parameters
@@ -197,6 +197,9 @@ class RoundtripFits[T]:
             roundtrip to use a butler, raising `unittest.SkipTest` otherwise;
             this generally means these tests should be nested within a
             `~unittest.TestCase.subTest` context.
+        storageClass
+            Override storage class name to affect the type returned by
+            the get. Only used if a butler is active.
         **kwargs
             Keyword arguments either passed directly to `.fits.read` or used
             as ``parameters`` for a `~lsst.daf.butler.Butler.get`.
@@ -209,13 +212,15 @@ class RoundtripFits[T]:
         if self.butler is None:
             if component is not None:
                 raise unittest.SkipTest("Cannot test component reads without a butler.")
+            if storageClass is not None:
+                raise unittest.SkipTest("Cannot test storage class override without a butler")
             result = fits.read(type(self._original), self.filename, **kwargs)
         else:
             assert self.ref is not None, "butler and ref should be None or not together"
             ref = self.ref
             if component is not None:
                 ref = ref.makeComponentRef(component)
-            result = self.butler.get(ref, parameters=kwargs)
+            result = self.butler.get(ref, parameters=kwargs, storageClass=storageClass)
         if isinstance(result, GeneralizedImage):
             # The metadata the RoundtripFits object added for the test may or
             # may not be present; strip it if it does so comparisons to the
