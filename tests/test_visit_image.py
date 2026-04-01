@@ -346,7 +346,10 @@ class VisitImageLegacyTestCase(unittest.TestCase):
             alternates: dict[str, Any] = {}
             with self.subTest():
                 self.assertEqual(roundtrip.get("bbox"), self.visit_image.bbox)
-                alternates = {k: roundtrip.get(k) for k in ["projection", "image", "mask", "variance", "psf"]}
+                alternates = {
+                    k: roundtrip.get(k)
+                    for k in ["projection", "image", "mask", "variance", "psf", "obs_info"]
+                }
         assert_masked_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
         # Check that the round-tripped headers are the same (up to card order).
         self.assertEqual(
@@ -395,11 +398,11 @@ class VisitImageLegacyTestCase(unittest.TestCase):
             self.assertEqual(bbox, visit_image.bbox)
             alternates = {
                 k: helper.butler.get(visit_image_ref.makeComponentRef(k))
-                # TODO: including "projection" here fails because there's
-                # code in daf_butler that expects any component to be valid
-                # for the *internal* storage class, not the requested one,
-                # and that's difficult to fix because it's tied up with the
-                # data ID standardization logic.
+                # TODO: including "projection" or "obs_info" here fails because
+                # there's code in daf_butler that expects any component to be
+                # valid for the *internal* storage class, not the requested
+                # one, and that's difficult to fix because it's tied up with
+                # the data ID standardization logic.
                 for k in ["image", "mask", "variance", "psf"]
             }
             compare_visit_image_to_legacy(

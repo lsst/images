@@ -258,6 +258,10 @@ def compare_visit_image_to_legacy(
         if psf := alternates.get("psf"):
             compare_psf_to_legacy(tc, psf, legacy_exposure.getPsf())
 
+        if obs_info := alternates.get("obs_info"):
+            visitInfo = legacy_exposure.visitInfo
+            tc.assertEqual(obs_info.instrument, visitInfo.getInstrumentLabel())
+
 
 def compare_psf_to_legacy(
     tc: unittest.TestCase, psf: PointSpreadFunction, legacy_psf: Any, subimage_bbox: Box | None = None
