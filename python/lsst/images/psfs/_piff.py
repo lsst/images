@@ -27,8 +27,10 @@ import numpy as np
 import pydantic
 
 from .. import serialization
-from .._geom import Bounds, Box, SerializableBounds
+from .._concrete_bounds import SerializableBounds
+from .._geom import Bounds, Box
 from .._image import Image
+from ..utils import round_half_up
 from ._base import PointSpreadFunction
 
 if TYPE_CHECKING:
@@ -77,14 +79,14 @@ class PiffWrapper(PointSpreadFunction):
             raise NotImplementedError("Chromatic PSFs are not yet supported.")
         gs_image = self._impl.draw(x, y, stamp_size=self._stamp_size, center=None)
         r = self._stamp_size // 2
-        result = Image(gs_image.array.copy(), start=(round(y) - r, round(x) - r))
+        result = Image(gs_image.array.copy(), start=(round_half_up(y) - r, round_half_up(x) - r))
         result.array /= np.sum(result.array)
         return result
 
     def compute_stellar_bbox(self, *, x: float, y: float) -> Box:
         r = self._stamp_size // 2
-        xi = round(x)
-        yi = round(y)
+        xi = round_half_up(x)
+        yi = round_half_up(y)
         return Box.factory[yi - r : yi + r + 1, xi - r : xi + r + 1]
 
     @property
@@ -97,7 +99,7 @@ class PiffWrapper(PointSpreadFunction):
 
     @classmethod
     def from_legacy(cls, legacy_psf: Any, bounds: Bounds) -> PiffWrapper:
-        return cls(impl=legacy_psf._piffResult, bounds=bounds, stamp_size=legacy_psf.width)
+        return cls(impl=legacy_psf._piffResult, bounds=bounds, stamp_size=int(legacy_psf.width))
 
     def serialize(self, archive: serialization.OutputArchive[Any]) -> PiffSerializationModel:
         """Serialize the PSF to an archive.
@@ -215,7 +217,7 @@ class PiffTableModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     """
 
     metadata: PiffDict
-    table: serialization.TableModel
+    table: serialization.TableReferenceModel
 
 
 class PiffObjectModel(pydantic.BaseModel, ser_json_inf_nan="constants"):

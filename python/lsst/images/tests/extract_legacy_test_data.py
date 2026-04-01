@@ -39,7 +39,7 @@ except ImportError as err:
     raise
 
 
-from .data_ids import DP2_VISIT_DETECTOR_DATA_ID
+from ._data_ids import DP2_VISIT_DETECTOR_DATA_ID
 
 
 def extract_visit_image(
@@ -49,8 +49,8 @@ def extract_visit_image(
     shuffle: bool,
     wcs_dataset_ref: DatasetRef | None = None,
 ) -> None:
-    """Load a subimage of a processed visit image from the ci_hsc output
-    repository and save it to testdata_images.
+    """Load a subimage of a processed visit image from a butler repository
+    and save it to testdata_images.
     """
     visit_image = butler.get(dataset_ref, parameters={"bbox": Box2I(Point2I(5, 4), Extent2I(256, 250))})
     if shuffle:

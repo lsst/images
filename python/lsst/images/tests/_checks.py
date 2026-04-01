@@ -259,17 +259,43 @@ def compare_visit_image_to_legacy(
             compare_psf_to_legacy(tc, psf, legacy_exposure.getPsf())
 
 
-def compare_psf_to_legacy(tc: unittest.TestCase, psf: PointSpreadFunction, legacy_psf: Any) -> None:
+def compare_psf_to_legacy(
+    tc: unittest.TestCase, psf: PointSpreadFunction, legacy_psf: Any, subimage_bbox: Box | None = None
+) -> int:
     """Compare a PSF model object to its legacy interface.
 
     Parameters
     ----------
     tc
         Test case object with assert methods to use.
-    """
-    from lsst.geom import Point2D
+    psf
+        Point-spread function to test.
+    legacy_psf
+        Legacy `lsst.afw.detection.Psf` instance to compare with.
+    subimage_bbox
+        Bounding box to draw test points from.  Defaults to ``psf.bounds``.
 
-    for p in [Point2D(50.0, 60.0), Point2D(801.2, 322.8), Point2D(33.5, 22.1)]:
+    Returns
+    -------
+    `int`
+        The number of points actually tested.
+    """
+    if subimage_bbox is None:
+        if isinstance(psf.bounds, Box):
+            subimage_bbox = psf.bounds
+        elif hasattr(psf.bounds, "bbox"):
+            subimage_bbox = cast(Box, psf.bounds.bbox)
+        else:
+            raise TypeError("No usable PSF bounds found; 'subimage_bbox' must be provided.")
+
+    # Pixel coordinates to test on over the subimage region of interest:
+    pixel_xy = subimage_bbox.meshgrid(step=50).map(np.ravel)
+    legacy_points = arrays_to_legacy_points(pixel_xy.x, pixel_xy.y)
+
+    n_points_tested: int = 0
+    for p in legacy_points:
+        if not psf.bounds.contains(x=p.x, y=p.y):
+            continue
         tc.assertEqual(psf.kernel_bbox, Box.from_legacy(legacy_psf.computeKernelBBox(p)))
         tc.assertEqual(
             psf.compute_kernel_image(x=p.x, y=p.y), Image.from_legacy(legacy_psf.computeKernelImage(p))
@@ -278,6 +304,8 @@ def compare_psf_to_legacy(tc: unittest.TestCase, psf: PointSpreadFunction, legac
             psf.compute_stellar_bbox(x=p.x, y=p.y), Box.from_legacy(legacy_psf.computeImageBBox(p))
         )
         tc.assertEqual(psf.compute_stellar_image(x=p.x, y=p.y), Image.from_legacy(legacy_psf.computeImage(p)))
+        n_points_tested += 1
+    return n_points_tested
 
 
 def compare_projection_to_legacy_wcs[F: Frame](

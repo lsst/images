@@ -25,7 +25,9 @@ import pydantic
 from lsst.images._image import Image
 
 from .. import serialization
-from .._geom import Bounds, Box, SerializableBounds
+from .._concrete_bounds import SerializableBounds
+from .._geom import Bounds, Box
+from ..utils import round_half_up
 from ._base import PointSpreadFunction
 
 
@@ -95,8 +97,8 @@ class GaussianPointSpreadFunction(PointSpreadFunction):
 
     def compute_stellar_bbox(self, *, x: float, y: float) -> Box:
         r = self._stamp_size // 2
-        xi = round(x)
-        yi = round(y)
+        xi = round_half_up(x)
+        yi = round_half_up(y)
         return Box.factory[yi - r : yi + r + 1, xi - r : xi + r + 1]
 
     def serialize(self, archive: serialization.OutputArchive[Any]) -> GaussianPSFSerializationModel:

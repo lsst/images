@@ -35,7 +35,7 @@ from ..serialization import (
     NumberType,
     OutputArchive,
     TableCellReferenceModel,
-    TableModel,
+    TableReferenceModel,
     no_header_updates,
 )
 from ._common import ExtensionHDU, ExtensionKey, FitsCompressionOptions, FitsOpaqueMetadata
@@ -260,16 +260,17 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> TableModel:
+    ) -> TableReferenceModel:
         if name is None:
             raise RuntimeError("Cannot save table with name=None unless it is nested.")
         extname = name.upper()
         hdu: astropy.io.fits.BinTableHDU = astropy.io.fits.table_to_hdu(table, name=extname)
-        columns = ColumnDefinitionModel.from_record_dtype(hdu.data.dtype)
-        for c in columns:
-            c.update_from_table(table)
+        # Extract column information directly from the input array, not the
+        # data in the binary table HDU, because we want to assume as little as
+        # possible about where Astropy does uint -> TZERO stuff.
+        columns = ColumnDefinitionModel.from_table(table)
         key = self._add_hdu(hdu, update_header)
-        return TableModel(source=str(key), columns=columns)
+        return TableReferenceModel(source=str(key), columns=columns)
 
     def add_structured_array(
         self,
@@ -279,12 +280,15 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         units: Mapping[str, astropy.units.Unit] | None = None,
         descriptions: Mapping[str, str] | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> TableModel:
+    ) -> TableReferenceModel:
         if name is None:
             raise RuntimeError("Cannot save structured array with name=None unless it is nested.")
         extname = name.upper()
+        # Extract column information directly from the input array, not the
+        # data in the binary table HDU, because we want to assume as little as
+        # possible about where Astropy does uint -> TZERO stuff.
+        columns = ColumnDefinitionModel.from_record_dtype(array.dtype)
         hdu = astropy.io.fits.BinTableHDU(array, name=extname)
-        columns = ColumnDefinitionModel.from_record_dtype(hdu.data.dtype)
         if units is not None:
             for c in columns:
                 c.unit = units.get(c.name)
@@ -292,7 +296,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
             for c in columns:
                 c.description = descriptions.get(c.name, "")
         key = self._add_hdu(hdu, update_header)
-        return TableModel(source=str(key), columns=columns)
+        return TableReferenceModel(source=str(key), columns=columns)
 
     def _add_hdu(
         self,

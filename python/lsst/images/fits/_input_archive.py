@@ -41,7 +41,7 @@ from ..serialization import (
     InputArchive,
     MetadataValue,
     TableCellReferenceModel,
-    TableModel,
+    TableReferenceModel,
     no_header_updates,
 )
 from ._common import ExtensionHDU, ExtensionKey, FitsOpaqueMetadata, InvalidFitsArchiveError
@@ -257,7 +257,7 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
 
     def get_table(
         self,
-        ref: TableModel,
+        ref: TableReferenceModel,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> astropy.table.Table:
         # Docstring inherited.
@@ -269,7 +269,7 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
 
     def get_structured_array(
         self,
-        ref: TableModel,
+        ref: TableReferenceModel,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> np.ndarray:
         # Docstring inherited.
@@ -285,7 +285,7 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         return self._opaque_metadata
 
     def _get_source_reader(
-        self, ref: ArrayReferenceModel | TableCellReferenceModel | TableModel
+        self, ref: ArrayReferenceModel | TableCellReferenceModel | TableReferenceModel
     ) -> tuple[ExtensionKey, _ExtensionReader]:
         """Get a reader for the extension referenced by a model.
 
@@ -412,7 +412,7 @@ class _ExtensionReader:
             bintable_hdu = astropy.io.fits.BinTableHDU.readfrom(self._stream, memmap=False, cache=False)
             return self._hdu_cls(bintable=bintable_hdu)
         else:
-            return self._hdu_cls.readfrom(self._stream, memmap=False, cache=False)
+            return self._hdu_cls.readfrom(self._stream, memmap=False, cache=False, uint=True)
 
     @property
     def header(self) -> astropy.io.fits.Header:
