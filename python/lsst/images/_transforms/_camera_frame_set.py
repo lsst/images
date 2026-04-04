@@ -43,8 +43,8 @@ class CameraFrameSet(FrameSet):
     #        Should have frames with Ident values FOCAL_PLANE, FIELD_ANGLE
     #        and DETECTOR_${ID}, and the focal plane frame must know its
     #        units.
-    def __init__(self, instrument: str, ast: Any):
-        self._ast = astshim.wrap_frame_set(ast)
+    def __init__(self, instrument: str, ast: astshim.FrameSet):
+        self._ast = ast
         self._focal_plane_frame_id: int = 0
         self._field_angle_frame_id: int = 0
         self._detector_frame_ids: dict[int, int] = {}

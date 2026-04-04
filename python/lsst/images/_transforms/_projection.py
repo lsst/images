@@ -335,7 +335,7 @@ class ProjectionAstropyView(BaseLowLevelWCS, HighLevelWCSMixin):
     only supports FITS WCS representations (see `Projection.as_fits_wcs`).
     """
 
-    def __init__(self, ast_pixel_to_sky: Any, bbox: Box | None):
+    def __init__(self, ast_pixel_to_sky: astshim.Mapping, bbox: Box | None):
         self._bbox = bbox
         if bbox is not None:
             ast_pixel_to_sky = astshim.ShiftMap(list(bbox.start.xy)).then(ast_pixel_to_sky)

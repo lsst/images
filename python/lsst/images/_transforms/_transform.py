@@ -73,14 +73,14 @@ class Transform[I: Frame, O: Frame]:
         self,
         in_frame: I,
         out_frame: O,
-        ast_mapping: Any,
+        ast_mapping: astshim.Mapping,
         in_bounds: Bounds | None = None,
         out_bounds: Bounds | None = None,
         components: Iterable[Transform[Any, Any]] = (),
     ):
         self._in_frame = in_frame
         self._out_frame = out_frame
-        self._ast_mapping = astshim.wrap_mapping(ast_mapping)
+        self._ast_mapping = ast_mapping
         self._in_bounds = in_bounds or getattr(in_frame, "bbox", None)
         self._out_bounds = out_bounds or getattr(out_frame, "bbox", None)
         self._components = list(components)
