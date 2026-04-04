@@ -311,11 +311,14 @@ class Projection[F: Frame]:
         """
         fits_approximation: Transform[F, SkyFrame] | None = None
         if (legacy_fits_approximation := sky_wcs.getFitsApproximation()) is not None:
-            fits_approximation = Transform.from_legacy(
-                legacy_fits_approximation.getTransform(), pixel_frame, SkyFrame.ICRS, in_bounds=pixel_bounds
+            fits_approximation = Transform(
+                pixel_frame,
+                SkyFrame.ICRS,
+                legacy_fits_approximation.getFrameDict(),
+                pixel_bounds,
             )
         return Projection(
-            Transform.from_legacy(sky_wcs.getTransform(), pixel_frame, SkyFrame.ICRS, in_bounds=pixel_bounds),
+            Transform(pixel_frame, SkyFrame.ICRS, sky_wcs.getFrameDict(), pixel_bounds),
             fits_approximation=fits_approximation,
         )
 

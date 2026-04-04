@@ -371,6 +371,10 @@ def compare_projection_to_legacy_wcs[F: Frame](
             pixel_frame,
             pixel_atol=1e-5,
         )
+        # We want Projections we create from a FITS WCS to be backed by an
+        # AST FrameSet so we can convert them into legacy
+        # `lsst.afw.geom.SkyWcs` objects if desired.
+        tc.assertIn("Begin FrameSet", fits_projection.show())
     else:
         tc.assertIsNone(projection.as_fits_wcs(subimage_bbox, allow_approximation=False))
         # The legacy SkyWcs should instead have a FITS approximation

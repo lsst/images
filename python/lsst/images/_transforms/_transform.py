@@ -129,13 +129,13 @@ class Transform[I: Frame, O: Frame]:
         Projection.from_fits_wcs
         """
         ast_stream = astshim.StringStream(fits_wcs.to_header_string(relax=True))
-        ast_fits_chan = astshim.FitsChan(ast_stream, "Encoding=FITS-WCS, SipReplace=0")
+        ast_fits_chan = astshim.FitsChan(ast_stream, "Encoding=FITS-WCS, SipReplace=0, IWC=1")
         ast_frame_set = ast_fits_chan.read()
         _prepend_ast_shift(ast_frame_set, x=x0 - 1.0, y=y0 - 1.0, ast_domain="PIXEL")
         return Transform(
             in_frame,
             out_frame,
-            ast_frame_set.getMapping(),
+            ast_frame_set,
             in_bounds=in_bounds,
             out_bounds=out_bounds,
         )
@@ -179,12 +179,17 @@ class Transform[I: Frame, O: Frame]:
         simplified
             Whether to ask AST to simplify the mapping before showing it.
             This will make it much more likely that two equivalent transforms
-            have the same `show` result.
+            have the same `show` result.  If the internal mapping is actually
+            a frame set (as needed to round-trip legacy
+            `lsst.afw.geom.SkyWcs` objects), this will also just show the
+            mapping with no frame set information.
         comments
             Whether to include descriptive comments.
         """
         ast_mapping = self._ast_mapping
         if simplified:
+            if isinstance(ast_mapping, astshim.FrameSet):
+                ast_mapping = ast_mapping.getMapping()
             ast_mapping = ast_mapping.simplified()
         return ast_mapping.show(comments)
 
@@ -437,27 +442,33 @@ class Transform[I: Frame, O: Frame]:
                 f"Inconsistent lengths for 'frames' ({len(model.frames)}) and "
                 f"'mappings' ({len(model.mappings)}; should be one less)."
             )
-        transform = Transform.identity(Frame.deserialize(model.frames[0]))
+        # We can't just compose onto an identity Transform if we want to
+        # preserve the FrameSet-ness of any of these mappings.
+        transform: Transform | None = None
         for n, mapping in enumerate(model.mappings):
             match mapping:
                 case MappingSerializationModel(ast=serialized_mapping):
                     ast_mapping = astshim.Mapping.fromString(serialized_mapping)
                     in_bounds = model.bounds[n]
                     out_bounds = model.bounds[n + 1]
-                    transform = transform.then(
-                        Transform(
-                            Frame.deserialize(model.frames[n]),
-                            Frame.deserialize(model.frames[n + 1]),
-                            ast_mapping,
-                            Bounds.deserialize(in_bounds) if in_bounds is not None else None,
-                            Bounds.deserialize(out_bounds) if out_bounds is not None else None,
-                        )
+                    new_transform = Transform(
+                        Frame.deserialize(model.frames[n]),
+                        Frame.deserialize(model.frames[n + 1]),
+                        ast_mapping,
+                        Bounds.deserialize(in_bounds) if in_bounds is not None else None,
+                        Bounds.deserialize(out_bounds) if out_bounds is not None else None,
                     )
                 case reference:
                     frame_set = archive.get_frame_set(reference)
-                    transform = transform.then(
-                        frame_set[Frame.deserialize(model.frames[n]), Frame.deserialize(model.frames[n + 1])]
-                    )
+                    new_transform = frame_set[
+                        Frame.deserialize(model.frames[n]), Frame.deserialize(model.frames[n + 1])
+                    ]
+            if transform is None:
+                transform = new_transform
+            else:
+                transform = transform.then(new_transform)
+        if transform is None:
+            transform = Transform.identity(Frame.deserialize(model.frames[0]))
         return transform
 
     @staticmethod

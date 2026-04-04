@@ -52,6 +52,9 @@ class TransformTestCase(unittest.TestCase):
         identity = Transform.identity(frame)
         check_transform(self, identity, xy, xy, frame, frame)
         self.assertEqual(identity.decompose(), [])
+        with RoundtripFits(self, identity) as roundtrip:
+            pass
+        check_transform(self, roundtrip.result, xy, xy, frame, frame)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_camera(self) -> None:
@@ -165,10 +168,17 @@ class TransformTestCase(unittest.TestCase):
         subimage_bbox = Box.from_legacy(reader.readBBox())
         detector_frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=wcs_bbox)
         projection = Projection.from_legacy(legacy_wcs, detector_frame)
+        assert projection.fits_approximation is not None
         compare_projection_to_legacy_wcs(self, projection, legacy_wcs, detector_frame, subimage_bbox)
+        # When we convert from a legacy SkyWcs, the internal AST Mapping needs
+        # to really be an AST FrameSet in order to be able to convert back.
+        self.assertIn("Begin FrameSet", projection.show())
+        self.assertIn("Begin FrameSet", projection.fits_approximation.show())
         with RoundtripFits(self, projection, "Projection") as roundtrip:
             pass
         compare_projection_to_legacy_wcs(self, roundtrip.result, legacy_wcs, detector_frame, subimage_bbox)
+        # The AST FrameSet-ness needs to propagate through serialization.
+        self.assertIn("Begin FrameSet", roundtrip.result.show())
         with RoundtripFits(self, projection.fits_approximation, "Projection") as roundtrip:
             pass
         compare_projection_to_legacy_wcs(
@@ -179,6 +189,7 @@ class TransformTestCase(unittest.TestCase):
             subimage_bbox,
             is_fits=True,
         )
+        self.assertIn("Begin FrameSet", roundtrip.result.show())
 
 
 @dataclasses.dataclass
