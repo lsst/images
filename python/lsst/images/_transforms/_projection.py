@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("Projection", "ProjectionAstropyView", "ProjectionSerializationModel")
 
 import functools
-from typing import Any, Self, TypeVar, final
+from typing import TYPE_CHECKING, Any, Self, TypeVar, final
 
 import astropy.units as u
 import astropy.wcs
@@ -29,6 +29,13 @@ from ..utils import is_none
 from . import _ast as astshim
 from ._frames import Frame, SkyFrame
 from ._transform import Transform, TransformSerializationModel, _ast_apply
+
+if TYPE_CHECKING:
+    try:
+        from lsst.afw.geom import SkyWcs as LegacySkyWcs
+    except ImportError:
+        type LegacySkyWcs = Any  # type: ignore[no-redef]
+
 
 # This pre-python-3.12 declaration is needed by Sphinx (probably the
 # autodoc-typehints plugin.
@@ -297,7 +304,9 @@ class Projection[F: Frame]:
         return ProjectionSerializationModel[pointer_type]  # type: ignore
 
     @staticmethod
-    def from_legacy(sky_wcs: Any, pixel_frame: F, pixel_bounds: Bounds | None = None) -> Projection[F]:
+    def from_legacy(
+        sky_wcs: LegacySkyWcs, pixel_frame: F, pixel_bounds: Bounds | None = None
+    ) -> Projection[F]:
         """Construct a transform from a legacy `lsst.afw.geom.SkyWcs`.
 
         Parameters
@@ -321,6 +330,23 @@ class Projection[F: Frame]:
             Transform(pixel_frame, SkyFrame.ICRS, sky_wcs.getFrameDict(), pixel_bounds),
             fits_approximation=fits_approximation,
         )
+
+    def to_legacy(self) -> LegacySkyWcs:
+        """Convert to a legacy `lsst.afw.geom.SkyWcs` instance."""
+        from lsst.afw.geom import SkyWcs as LegacySkyWcs
+
+        try:
+            ast_mapping = astshim.FrameDict(self._pixel_to_sky._ast_mapping)
+        except TypeError as err:
+            err.add_note(
+                "Only Projections created by from_legacy and from_fits_wcs "
+                "are guaranteed to be convertible to SkyWcs."
+            )
+            raise
+        legacy_wcs = LegacySkyWcs(ast_mapping)
+        if self.fits_approximation is not None:
+            legacy_wcs = legacy_wcs.copyWithFitsApproximation(self.fits_approximation.to_legacy())
+        return legacy_wcs
 
 
 class ProjectionAstropyView(BaseLowLevelWCS, HighLevelWCSMixin):

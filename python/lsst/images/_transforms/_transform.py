@@ -35,6 +35,11 @@ from ._frames import Frame, SerializableFrame, SkyFrame
 if TYPE_CHECKING:
     from ._projection import Projection
 
+    try:
+        from lsst.afw.geom import TransformPoint2ToPoint2 as LegacyTransform
+    except ImportError:
+        type LegacyTransform = Any  # type: ignore[no-redef]
+
 # These pre-python-3.12 declaration are needed by Sphinx (probably the
 # autodoc-typehints plugin.
 I = TypeVar("I", bound=Frame)  # noqa: E741
@@ -482,7 +487,7 @@ class Transform[I: Frame, O: Frame]:
 
     @staticmethod
     def from_legacy(
-        legacy: Any,
+        legacy: LegacyTransform,
         in_frame: I,
         out_frame: O,
         in_bounds: Bounds | None = None,
@@ -510,6 +515,14 @@ class Transform[I: Frame, O: Frame]:
             in_bounds=in_bounds,
             out_bounds=out_bounds,
         )
+
+    def to_legacy(self) -> LegacyTransform:
+        """Convert to a legacy `lsst.afw.geom.TransformPoint2ToPoint2`
+        instance.
+        """
+        from lsst.afw.geom import TransformPoint2ToPoint2 as LegacyTransform
+
+        return LegacyTransform(self._ast_mapping, False)
 
     def _get_ast_frame_set(self) -> Any:
         ast_frame_set = astshim.FrameSet(_make_ast_frame(self._in_frame))
