@@ -8,6 +8,17 @@ lsst.images
 
 Modern image types and serialization for Rubin Observatory data products.
 
+Changes
+=======
+
+.. toctree::
+   :maxdepth: 1
+
+   CHANGES.rst
+
+Design and Development
+======================
+
 .. toctree::
    :maxdepth: 1
 

@@ -15,7 +15,7 @@ doc/api
 version.py
 bin/
 *dist-info
-
+*egg-info
 # Pytest
 tests/.tests
 pytest_session.txt
