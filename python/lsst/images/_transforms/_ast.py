@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 __all__ = (
     "USING_STARLINK_PYAST",
@@ -24,37 +24,47 @@ __all__ = (
     "SkyFrame",
     "StringStream",
     "UnitMap",
-    "wrap_frame_set",
-    "wrap_mapping",
 )
 
-try:
-    import starlink.Ast as StarAst
-except ImportError:
-    StarAst = None
-    import astshim as AstShim
+if TYPE_CHECKING:
+    import starlink.Ast
 
-    USING_STARLINK_PYAST = False
-else:
-    AstShim = None
     USING_STARLINK_PYAST = True
+else:
+    try:
+        from astshim import (
+            FitsChan,
+            Frame,
+            FrameDict,
+            FrameSet,
+            Mapping,
+            Object,
+            ShiftMap,
+            SkyFrame,
+            StringStream,
+            UnitMap,
+        )
+    except ImportError:
+        import starlink.Ast
 
-# Public backend-dependent bindings.
-StringStream: Any
-FitsChan: Any
-Mapping: Any
-UnitMap: Any
-ShiftMap: Any
-Frame: Any
-SkyFrame: Any
-FrameSet: Any
+        USING_STARLINK_PYAST = True
+    else:
+        USING_STARLINK_PYAST = False
 
 
 if USING_STARLINK_PYAST:
-    assert StarAst is not None
 
-    class _StringStream:
-        """A source/sink object compatible with starlink.Ast channel APIs."""
+    class StringStream:
+        """A bridge object that mimics both astshim.StringStream and the
+        interface expected by starlink.Ast.Channel.
+
+        Notes
+        -----
+        This object can be constructed like an `astshim.StringStream`, but its
+        `astsink` and `astsource` methods actually correspond to the
+        `starlink.Ast` interface, so we can use `starlink.Ast` objects to
+        implement the `FitsChan` classes in this module
+        """
 
         def __init__(self, text: str = ""):
             if "\n" in text or "\r" in text:
@@ -79,231 +89,171 @@ if USING_STARLINK_PYAST:
                 return ""
             return "\n".join(self._lines) + "\n"
 
-    class _AstWrapper:
-        def __init__(self, obj: Any):
-            self._obj = obj
+    class Object:
+        """Bridge class that exposes the `astshim.Object` interface while
+        being backed by an `astshim.Ast.Object`.
+        """
 
-        @classmethod
-        def _from_obj(cls, obj: Any) -> Any:
-            self = cls.__new__(cls)
-            _AstWrapper.__init__(self, obj)
-            return self
+        def __init__(self, impl: starlink.Ast.Object):
+            if not isinstance(impl, self._IMPL_TYPE):
+                raise TypeError(f"{type(self).__name__} cannot wrap {type(impl).__name__}.")
+            self._impl = impl
 
-        def __getattr__(self, name: str) -> Any:
-            return _wrap_ast_object(getattr(self._obj, name))
-
-    def _serialize_ast_object(obj: Any, showComments: bool = True) -> str:
-        sink = _StringStream()
-        options = "" if showComments else "Comment=0"
-        chan = StarAst.Channel(None, sink, options=options)
-        chan.write(_unwrap_ast_object(obj))
-        return sink.to_string()
-
-    def _deserialize_ast_object(serialized: str) -> Any:
-        source = _StringStream(serialized)
-        chan = StarAst.Channel(source)
-        return chan.read()
-
-    def _coerce_to_star_ast_object(obj: Any) -> Any:
-        match obj:
-            case _AstWrapper():
-                return obj._obj
-            case StarAst.FrameSet() | StarAst.Mapping() | StarAst.Frame():
-                return obj
-            case _:
-                if hasattr(obj, "show"):
-                    try:
-                        return _deserialize_ast_object(obj.show())
-                    except Exception:
-                        return obj
-                return obj
-
-    def _unwrap_ast_object(obj: Any) -> Any:
-        return _coerce_to_star_ast_object(obj)
-
-    def _wrap_ast_object(obj: Any) -> Any:
-        match obj:
-            case None:
-                return obj
-            case _AstWrapper():
-                return obj
-            case StarAst.FrameSet():
-                return _FrameSet._from_obj(obj)
-            case StarAst.SkyFrame():
-                return _SkyFrame._from_obj(obj)
-            case StarAst.Frame():
-                return _Frame._from_obj(obj)
-            case StarAst.Mapping():
-                return _Mapping._from_obj(obj)
-            case _:
-                coerced = _coerce_to_star_ast_object(obj)
-                if coerced is not obj:
-                    return _wrap_ast_object(coerced)
-                return obj
-
-    class _Mapping(_AstWrapper):
-        @staticmethod
-        def fromString(serialized: str) -> _Mapping:
-            obj = _deserialize_ast_object(serialized)
-            if not isinstance(obj, StarAst.Mapping):
-                raise TypeError(f"Serialized object is not a Mapping: {type(obj)}")
-            return _Mapping._from_obj(obj)
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.Object]] = starlink.Ast.Object
 
         def show(self, showComments: bool = True) -> str:
-            return _serialize_ast_object(self._obj, showComments=showComments)
+            sink = StringStream()
+            options = "" if showComments else "Comment=0"
+            chan = starlink.Ast.Channel(None, sink, options=options)
+            chan.write(self._impl)
+            return sink.to_string()
 
-        def simplified(self) -> _Mapping:
-            return _Mapping._from_obj(self._obj.simplify())
+        @classmethod
+        def fromString(cls, serialized: str) -> Self:
+            source = StringStream(serialized)
+            channel = starlink.Ast.Channel(source)
+            return cls._wrap(channel.read())
+
+        @classmethod
+        def _wrap(cls, impl: starlink.Ast.Object) -> Self:
+            subcls = cls._most_derived_type(impl)
+            result = object.__new__(subcls)
+            Object.__init__(result, impl)
+            return result
+
+        @classmethod
+        def _most_derived_type(cls, impl: starlink.Ast.Object) -> type[Self]:
+            for subcls in cls.__subclasses__():
+                if isinstance(impl, subcls._IMPL_TYPE):
+                    return subcls._most_derived_type(impl)
+            return cls
+
+    class Mapping(Object):
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.Mapping]] = starlink.Ast.Mapping
+
+        def simplified(self) -> Mapping:
+            return Mapping._wrap(self._impl.simplify())
 
         def applyForward(self, xy: Any) -> Any:
-            return self._obj.tran(xy, True)
+            return self._impl.tran(xy, True)
 
         def applyInverse(self, xy: Any) -> Any:
-            return self._obj.tran(xy, False)
+            return self._impl.tran(xy, False)
 
-        def then(self, other: _Mapping) -> _Mapping:
-            return _Mapping._from_obj(StarAst.CmpMap(self._obj, _unwrap_ast_object(other), True))
+        def then(self, other: Mapping) -> Mapping:
+            return Mapping._wrap(starlink.Ast.CmpMap(self._impl, other._impl, True))
 
-        def inverted(self) -> _Mapping:
-            copy = self._obj.copy()
+        def inverted(self) -> Mapping:
+            copy = self._impl.copy()
             copy.invert()
-            return _Mapping._from_obj(copy)
+            return Mapping._wrap(copy)
 
-    class _UnitMap(_Mapping):
+    class UnitMap(Mapping):
         def __init__(self, n_coord: int):
-            super().__init__(StarAst.UnitMap(n_coord))
+            super().__init__(starlink.Ast.UnitMap(n_coord))
 
-    class _ShiftMap(_Mapping):
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.UnitMap]] = starlink.Ast.UnitMap
+
+    class ShiftMap(Mapping):
         def __init__(self, shift: Iterable[float]):
-            super().__init__(StarAst.ShiftMap(list(shift)))
+            super().__init__(starlink.Ast.ShiftMap(list(shift)))
 
-    class _Frame(_AstWrapper):
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.ShiftMap]] = starlink.Ast.ShiftMap
+
+    class Frame(Mapping):
         def __init__(self, n_axes: int, options: str = ""):
-            super().__init__(StarAst.Frame(n_axes, options))
+            super().__init__(starlink.Ast.Frame(n_axes, options))
+
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.Frame]] = starlink.Ast.Frame
 
         @property
         def ident(self) -> str:
-            return self._obj.Ident
+            return self._impl.Ident
 
         def setUnit(self, axis: int, unit: str) -> None:
-            setattr(self._obj, f"Unit_{axis}", unit)
+            setattr(self._impl, f"Unit_{axis}", unit)
 
         def getUnit(self, axis: int) -> str:
-            return getattr(self._obj, f"Unit_{axis}")
+            return getattr(self._impl, f"Unit_{axis}")
 
         def setLabel(self, axis: int, label: str) -> None:
-            setattr(self._obj, f"Label_{axis}", label)
+            setattr(self._impl, f"Label_{axis}", label)
 
         def getBottom(self, axis: int) -> float:
-            return getattr(self._obj, f"Bottom_{axis}")
+            return getattr(self._impl, f"Bottom_{axis}")
 
         def getTop(self, axis: int) -> float:
-            return getattr(self._obj, f"Top_{axis}")
+            return getattr(self._impl, f"Top_{axis}")
 
-        def show(self) -> str:
-            return _serialize_ast_object(self._obj)
-
-    class _SkyFrame(_Frame):
+    class SkyFrame(Frame):
         def __init__(self, options: str = ""):
-            _AstWrapper.__init__(self, StarAst.SkyFrame(options))
+            Object.__init__(self, starlink.Ast.SkyFrame(options))
 
-    class _FrameSet(_AstWrapper):
-        BASE = 1
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.SkyFrame]] = starlink.Ast.SkyFrame
 
-        def __init__(self, base_frame: _Frame):
-            super().__init__(StarAst.FrameSet(_unwrap_ast_object(base_frame)))
+    class FrameSet(Frame):
+        def __init__(self, base_frame: Frame):
+            Object.__init__(self, starlink.Ast.FrameSet(base_frame._impl))
+
+        BASE: ClassVar[int] = 1
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.FrameSet]] = starlink.Ast.FrameSet
 
         @property
         def nFrame(self) -> int:
-            return self._obj.Nframe
+            return self._impl.Nframe
 
         @property
         def base(self) -> int:
-            return self._obj.Base
+            return self._impl.Base
 
         @base.setter
         def base(self, value: int) -> None:
-            self._obj.Base = value
+            self._impl.Base = value
 
         @property
         def current(self) -> int:
-            return self._obj.Current
+            return self._impl.Current
 
         @current.setter
         def current(self, value: int) -> None:
-            self._obj.Current = value
+            self._impl.Current = value
 
-        def addFrame(self, iframe: int, mapping: _Mapping, frame: _Frame) -> None:
-            self._obj.addframe(iframe, _unwrap_ast_object(mapping), _unwrap_ast_object(frame))
+        def addFrame(self, iframe: int, mapping: Mapping, frame: Frame) -> None:
+            self._impl.addframe(iframe, mapping._impl, frame._impl)
 
-        def getFrame(self, iframe: int, copy: bool = True) -> _Frame:
-            del copy
-            return _wrap_ast_object(self._obj.getframe(iframe))
+        def getFrame(self, iframe: int, copy: bool = True) -> Frame:
+            result = self._impl.getframe(iframe)
+            if copy:
+                result = result.copy()
+            return Frame._wrap(result)
 
-        def getMapping(self, iframe1: int | None = None, iframe2: int | None = None) -> _Mapping:
+        def getMapping(self, iframe1: int | None = None, iframe2: int | None = None) -> Mapping:
             if iframe1 is None:
                 iframe1 = self.base
             if iframe2 is None:
                 iframe2 = self.current
-            return _wrap_ast_object(self._obj.getmapping(iframe1, iframe2))
+            return Mapping._wrap(self._impl.getmapping(iframe1, iframe2))
 
-        def show(self) -> str:
-            return _serialize_ast_object(self._obj)
+    class FrameDict(FrameSet):
+        def __init__(self, obj: Object):
+            Object.__init__(self, obj._impl)
 
-        @staticmethod
-        def fromString(serialized: str) -> _FrameSet:
-            obj = _deserialize_ast_object(serialized)
-            if not isinstance(obj, StarAst.FrameSet):
-                raise TypeError(f"Serialized object is not a FrameSet: {type(obj)}")
-            return _FrameSet._from_obj(obj)
-
-    class _FitsChan:
-        def __init__(self, stream: _StringStream | None = None, options: str = ""):
+    class FitsChan(Object):
+        def __init__(self, stream: StringStream | None = None, options: str = ""):
             source = stream if stream is not None else None
             sink = stream if stream is not None else None
-            self._obj = StarAst.FitsChan(source, sink, options)
+            super().__init__(starlink.Ast.FitsChan(source, sink, options))
+
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.FitsChan]] = starlink.Ast.FitsChan
 
         def read(self) -> Any:
-            return _wrap_ast_object(self._obj.read())
+            return Object._wrap(self._impl.read())
 
         def write(self, obj: Any) -> int:
-            return self._obj.write(_unwrap_ast_object(obj))
+            return self._impl.write(obj._impl)
 
         def setFitsI(self, keyword: str, value: int) -> None:
-            self._obj.setfitsI(keyword, value, "", 1)
+            self._impl.setfitsI(keyword, value, "", 1)
 
         def __iter__(self) -> Any:
-            return iter(self._obj)
-
-    StringStream = _StringStream
-    FitsChan = _FitsChan
-    Mapping = _Mapping
-    UnitMap = _UnitMap
-    ShiftMap = _ShiftMap
-    Frame = _Frame
-    SkyFrame = _SkyFrame
-    FrameSet = _FrameSet
-
-    def wrap_mapping(mapping: Any) -> Any:
-        return _wrap_ast_object(mapping)
-
-    def wrap_frame_set(frame_set: Any) -> Any:
-        return _wrap_ast_object(frame_set)
-
-else:
-    assert AstShim is not None
-
-    StringStream = AstShim.StringStream
-    FitsChan = AstShim.FitsChan
-    Mapping = AstShim.Mapping
-    UnitMap = AstShim.UnitMap
-    ShiftMap = AstShim.ShiftMap
-    Frame = AstShim.Frame
-    SkyFrame = AstShim.SkyFrame
-    FrameSet = AstShim.FrameSet
-
-    def wrap_mapping(mapping: Any) -> Any:
-        return mapping
-
-    def wrap_frame_set(frame_set: Any) -> Any:
-        return frame_set
+            return iter(self._impl)
