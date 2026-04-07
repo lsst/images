@@ -17,7 +17,7 @@ import unittest
 import numpy as np
 import pydantic
 
-from lsst.images import XY, YX, Box, Interval
+from lsst.images import XY, YX, Box, Interval, NoOverlapError
 from lsst.images.tests import assert_close
 
 
@@ -126,8 +126,8 @@ class IntervalTestCase(unittest.TestCase):
 
         inter = i2.intersection(i)
         self.assertEqual(inter, Interval(start=2, stop=4), msg=f"Intersection of {i2} with {i}")
-        self.assertIsNone(i.intersection(Interval.factory[20:30]))
-
+        with self.assertRaises(NoOverlapError):
+            i.intersection(Interval.factory[20:30])
         self.assertNotEqual(i, [])
 
     def test_slice(self) -> None:
@@ -314,7 +314,8 @@ class BoxTestCase(unittest.TestCase):
         box1 = Box.factory[0:20, 30:50]
         box2 = Box.factory[10:30, 40:42]
         self.assertEqual(box1.intersection(box2), Box.factory[10:20, 40:42])
-        self.assertIsNone(box1.intersection(Box.factory[50:70, -10:-5]))
+        with self.assertRaises(NoOverlapError):
+            box1.intersection(Box.factory[50:70, -10:-5])
 
     def test_slicing(self) -> None:
         """Test slicing."""

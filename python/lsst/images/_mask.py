@@ -37,7 +37,7 @@ from lsst.resources import ResourcePath, ResourcePathExpression
 
 from . import fits
 from ._generalized_image import GeneralizedImage
-from ._geom import YX, Box
+from ._geom import YX, Box, NoOverlapError
 from ._transforms import Frame, Projection, ProjectionSerializationModel
 from .serialization import (
     ArchiveReadError,
@@ -521,7 +521,9 @@ class Mask(GeneralizedImage):
         lhs = self
         rhs = other
         if other.bbox != self.bbox:
-            if (bbox := self.bbox.intersection(other.bbox)) is None:
+            try:
+                bbox = self.bbox.intersection(other.bbox)
+            except NoOverlapError:
                 return
             lhs = self[bbox]
             rhs = other[bbox]

@@ -20,6 +20,7 @@ __all__ = (
     "BoxSliceFactory",
     "Interval",
     "IntervalSliceFactory",
+    "NoOverlapError",
 )
 
 import math
@@ -344,16 +345,17 @@ class Interval:
                 return bool(result)
             return result
 
-    def intersection(self, other: Interval) -> Interval | None:
+    def intersection(self, other: Interval) -> Interval:
         """Return an interval that is contained by both ``self`` and ``other``.
 
-        When there is no overlap between the intervals, `None` is returned.
+        When there is no overlap between the intervals, `NoOverlapError` is
+        raised.
         """
         new_start = max(self.start, other.start)
         new_stop = min(self.stop, other.stop)
         if new_start < new_stop:
             return Interval(start=new_start, stop=new_stop)
-        return None
+        raise NoOverlapError(f"No overlap between {self} and {other}.")
 
     def dilated_by(self, padding: int) -> Interval:
         """Return a new interval padded by the given amount on both sides."""
@@ -707,16 +709,18 @@ class Box:
                 return bool(result)
             return result
 
-    def intersection(self, other: Box) -> Box | None:
+    def intersection(self, other: Box) -> Box:
         """Return a box that is contained by both ``self`` and ``other``.
 
-        When there is no overlap between the boxes, `None` is returned.
+        When there is no overlap between the boxes, `NoOverlapError` is raised.
         """
         intervals = []
         for a, b in zip(self._intervals, other._intervals, strict=True):
-            if (r := a.intersection(b)) is None:
-                return None
-            intervals.append(r)
+            try:
+                intervals.append(a.intersection(b))
+            except NoOverlapError as err:
+                err.add_note(f"In intersection between {a} and {b}.")
+                raise
         return Box(*intervals)
 
     def dilated_by(self, padding: int) -> Box:
@@ -910,3 +914,7 @@ class Bounds(Protocol):
 
 class BoundsError(ValueError):
     """Exception raised when an object is evaluated outside its bounds."""
+
+
+class NoOverlapError(ValueError):
+    """Exception raised when intervals or bounds do not overlap."""

@@ -287,10 +287,8 @@ def compare_psf_to_legacy(
     if subimage_bbox is None:
         if isinstance(psf.bounds, Box):
             subimage_bbox = psf.bounds
-        elif hasattr(psf.bounds, "bbox"):
-            subimage_bbox = cast(Box, psf.bounds.bbox)
         else:
-            raise TypeError("No usable PSF bounds found; 'subimage_bbox' must be provided.")
+            subimage_bbox = psf.bounds.bbox
 
     # Pixel coordinates to test on over the subimage region of interest:
     pixel_xy = subimage_bbox.meshgrid(step=50).map(np.ravel)
