@@ -709,19 +709,21 @@ class Box:
                 return bool(result)
             return result
 
-    def intersection(self, other: Box) -> Box:
-        """Return a box that is contained by both ``self`` and ``other``.
+    @overload
+    def intersection(self, other: Box) -> Box: ...
 
-        When there is no overlap between the boxes, `NoOverlapError` is raised.
+    @overload
+    def intersection(self, other: Bounds) -> Bounds: ...
+
+    def intersection(self, other: Bounds) -> Bounds:
+        """Return a bounds object that is contained by both ``self`` and
+        ``other``.
+
+        When there is no overlap, `NoOverlapError` is raised.
         """
-        intervals = []
-        for a, b in zip(self._intervals, other._intervals, strict=True):
-            try:
-                intervals.append(a.intersection(b))
-            except NoOverlapError as err:
-                err.add_note(f"In intersection between {a} and {b}.")
-                raise
-        return Box(*intervals)
+        from ._concrete_bounds import _intersect_box
+
+        return _intersect_box(self, other)
 
     def dilated_by(self, padding: int) -> Box:
         """Return a new box padded by the given amount on all sides."""
@@ -735,6 +737,14 @@ class Box:
         This assumes ``other.contains(self)``.
         """
         return YX(self.y.slice_within(other.y), self.x.slice_within(other.x))
+
+    @property
+    def bbox(self) -> Box:
+        """The box itself (`Box`).
+
+        This is provided for compatibility with the `Bounds` interface.
+        """
+        return self
 
     def boundary(self) -> Iterator[YX[int]]:
         """Iterate over the corners of the box as ``(y, x)`` tuples."""
@@ -869,6 +879,9 @@ class Bounds(Protocol):
     intended to handle both of these cases as well.
     """
 
+    @property
+    def bbox(self) -> Box: ...
+
     def boundary(self) -> Iterator[YX[int]]:
         """Iterate over points on the boundary as ``(y, x)`` tuples."""
         ...
@@ -898,6 +911,10 @@ class Bounds(Protocol):
             ``x`` and ``y`` are arrays, a boolean array with their broadcasted
             shape.
         """
+        ...
+
+    def intersection(self, bounds: Bounds) -> Bounds:
+        """Compute the intersection of this bounds object with another."""
         ...
 
     def serialize(self) -> SerializableBounds:

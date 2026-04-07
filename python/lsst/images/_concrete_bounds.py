@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("SerializableBounds", "deserialize_bounds")
 
 
-from ._geom import Bounds, Box
+from ._geom import Bounds, Box, NoOverlapError
 
 # This is expected to become a union of concrete Bounds types that we can
 # serialize via pydantic.  Right now that's only Box.
@@ -27,3 +27,30 @@ def deserialize_bounds(serialized: SerializableBounds) -> Bounds:
         case Box():
             return serialized  # type: ignore[return-value]
     raise RuntimeError(f"Cannot deserialize {serialized!r}.")
+
+
+def _intersect_box(box: Box, other: Bounds) -> Bounds:
+    """Return the intersection between a Box and an arbitrary Bounds object.
+
+    When there is no overlap, `NoOverlapError` is raised.
+    """
+    match other:
+        case Box():
+            return _intersect_box_box(box, other)
+        case _:
+            raise TypeError(f"Unrecognized bounds type: {other}.")
+
+
+def _intersect_box_box(box: Box, other: Box) -> Box:
+    """Return the intersection of two boxes.
+
+    When there is no overlap between the boxes, `NoOverlapError` is raised.
+    """
+    intervals = []
+    for a, b in zip(box._intervals, other._intervals, strict=True):
+        try:
+            intervals.append(a.intersection(b))
+        except NoOverlapError as err:
+            err.add_note(f"In intersection between {a} and {b}.")
+            raise
+    return Box(*intervals)
