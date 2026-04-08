@@ -221,7 +221,7 @@ def compare_visit_image_to_legacy(
         Expected instrument name.
     visit
         Expected visit ID.
-    detetector
+    detector
         Expected detector ID.
     alternates
         A mapping of other versions of one or more (new) components to also
@@ -410,7 +410,7 @@ def check_transform[I: Frame, O: Frame](
         Transform to test.
     input_xy
         Arrays of input points.
-    outout_xy
+    output_xy
         Arrays of output points.
     in_frame
         Expected input frame.
