@@ -291,7 +291,7 @@ def compare_psf_to_legacy(
             subimage_bbox = psf.bounds.bbox
 
     # Pixel coordinates to test on over the subimage region of interest:
-    pixel_xy = subimage_bbox.meshgrid(step=50).map(np.ravel)
+    pixel_xy = subimage_bbox.meshgrid(n=3).map(np.ravel)
     legacy_points = arrays_to_legacy_points(pixel_xy.x, pixel_xy.y)
 
     n_points_tested: int = 0
