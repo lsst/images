@@ -19,6 +19,7 @@ import numpy as np
 from lsst.images import Box
 from lsst.images.psfs import (
     GaussianPointSpreadFunction,
+    KernelPsfWrapper,
     PiffWrapper,
     PointSpreadFunction,
     PSFExWrapper,
@@ -102,7 +103,7 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         """Test that we can:
 
         - read a legacy PSFEX PSF with afw;
-        - wrap it inthe new `LegacyPointSpreadFunction` class;
+        - wrap it in the new `LegacyPointSpreadFunction` class;
         - get consistent behavior from the two.
 
         This test is skipped if legacy modules cannot be imported.
@@ -126,6 +127,38 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         with RoundtripFits(self, psf) as roundtrip:
             pass
         compare_psf_to_legacy(self, roundtrip.result, legacy_psf)
+
+    def test_kernel_psf(self) -> None:
+        """Test wrapping and round-tripping a legacy KernelPsf."""
+        try:
+            from lsst.afw.image import ImageD
+            from lsst.afw.math import FixedKernel
+            from lsst.geom import Box2I, Extent2I, Point2I
+            from lsst.meas.algorithms import KernelPsf
+        except ImportError:
+            raise unittest.SkipTest("KernelPsf dependencies could not be imported.") from None
+
+        bounds = Box.factory[-1024:1024, -2048:2048]
+        kernel_bbox = Box2I(Point2I(-2, -2), Extent2I(5, 5))
+        kernel_image = ImageD(kernel_bbox)
+        kernel = np.abs(np.random.default_rng(12345).normal(size=(5, 5)))
+        kernel /= kernel.sum()
+        kernel_image.array[:] = kernel
+        legacy_psf = KernelPsf(FixedKernel(kernel_image))
+
+        psf = PointSpreadFunction.from_legacy(legacy_psf, bounds)
+        self.assertIsInstance(psf, KernelPsfWrapper)
+        self.assertEqual(psf.bounds, bounds)
+        self.assertIsInstance(psf.legacy_psf, KernelPsf)
+
+        compare_psf_to_legacy(self, psf, legacy_psf)
+
+        with RoundtripFits(self, psf) as roundtrip:
+            pass
+        compare_psf_to_legacy(self, roundtrip.result, legacy_psf)
+
+        with self.assertRaises(TypeError):
+            KernelPsfWrapper(object(), bounds)
 
 
 if __name__ == "__main__":
