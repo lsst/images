@@ -1,0 +1,1 @@
+Added support for serializing and deserializing legacy ``KernelPsf`` models via ``KernelPsfWrapper``, so they round-trip through lsst.images FITS archives.
