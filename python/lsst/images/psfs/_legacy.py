@@ -11,7 +11,13 @@
 
 from __future__ import annotations
 
-__all__ = ("LegacyPointSpreadFunction", "PSFExSerializationModel", "PSFExWrapper")
+__all__ = (
+    "KernelPsfSerializationModel",
+    "KernelPsfWrapper",
+    "LegacyPointSpreadFunction",
+    "PSFExSerializationModel",
+    "PSFExWrapper",
+)
 
 from functools import cached_property
 from typing import Any
@@ -87,8 +93,11 @@ class LegacyPointSpreadFunction(PointSpreadFunction):
 
     @classmethod
     def from_legacy(cls, legacy_psf: Any, bounds: Bounds) -> LegacyPointSpreadFunction:
+        from lsst.meas.algorithms import KernelPsf
         from lsst.meas.extensions.psfex import PsfexPsf
 
+        if isinstance(legacy_psf, KernelPsf):
+            return KernelPsfWrapper(legacy_psf, bounds)
         if isinstance(legacy_psf, PsfexPsf):
             return PSFExWrapper(legacy_psf, bounds)
         return cls(impl=legacy_psf, bounds=bounds)
@@ -202,3 +211,63 @@ class PSFExSerializationModel(serialization.ArchiveTree):
     bounds: SerializableBounds = pydantic.Field(description="Validity range for this PSF model.")
 
     model_config = pydantic.ConfigDict(ser_json_inf_nan="constants")
+
+
+class KernelPsfWrapper(LegacyPointSpreadFunction):
+    """A specialization of LegacyPointSpreadFunction for KernelPsf objects."""
+
+    def __init__(self, impl: Any, bounds: Bounds):
+        from lsst.meas.algorithms import KernelPsf
+
+        if not isinstance(impl, KernelPsf):
+            raise TypeError(f"{impl!r} is not a KernelPsf object.")
+        super().__init__(impl, bounds)
+
+    @cached_property
+    def kernel_bbox(self) -> Box:
+        from lsst.geom import Point2D
+
+        return Box.from_legacy(self._impl.computeKernelBBox(Point2D(0, 0)))
+
+    def serialize(self, archive: serialization.OutputArchive[Any]) -> KernelPsfSerializationModel:
+        from lsst.geom import Point2D
+
+        kernel_image = self._impl.computeKernelImage(Point2D(0, 0))
+        array_ref = archive.add_array(np.array(kernel_image.array, dtype=np.float64), name="kernel")
+        return KernelPsfSerializationModel(
+            kernel=array_ref,
+            bounds=self.bounds.serialize(),
+        )
+
+    @classmethod
+    def deserialize(
+        cls, model: KernelPsfSerializationModel, archive: serialization.InputArchive[Any]
+    ) -> KernelPsfWrapper:
+        from lsst.afw.image import ImageD
+        from lsst.afw.math import FixedKernel
+        from lsst.geom import Box2I, Extent2I, Point2I
+        from lsst.meas.algorithms import KernelPsf
+
+        kernel_array = archive.get_array(model.kernel)
+        ny, nx = kernel_array.shape
+        bbox = Box2I(Point2I(-nx // 2, -ny // 2), Extent2I(nx, ny))
+        kernel_image = ImageD(bbox)
+        kernel_image.array[:] = kernel_array
+        impl = KernelPsf(FixedKernel(kernel_image))
+        return cls(impl, Bounds.deserialize(model.bounds))
+
+    @staticmethod
+    def _get_archive_tree_type(
+        pointer_type: type[pydantic.BaseModel],
+    ) -> type[KernelPsfSerializationModel]:
+        return KernelPsfSerializationModel
+
+
+class KernelPsfSerializationModel(serialization.ArchiveTree):
+    """Serialization model for KernelPsf PSFs."""
+
+    kernel: serialization.ArrayReferenceModel = pydantic.Field(
+        description="Reference to an array containing the kernel image."
+    )
+
+    bounds: SerializableBounds = pydantic.Field(description="Validity range for this PSF model.")
