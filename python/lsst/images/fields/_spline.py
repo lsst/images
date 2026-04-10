@@ -13,7 +13,7 @@ from __future__ import annotations
 
 __all__ = ("SplineField", "SplineFieldSerializationModel")
 
-from typing import TYPE_CHECKING, Any, final
+from typing import TYPE_CHECKING, Any, Literal, final
 
 import astropy.units
 import numpy as np
@@ -267,6 +267,8 @@ class SplineFieldSerializationModel(ArchiveTree):
     x: InlineArray = pydantic.Field(description="Column positions of the data points.")
 
     unit: Unit | None = pydantic.Field(default=None, description="Units of the field.")
+
+    field_type: Literal["SPLINE"] = "SPLINE"
 
     def finish_deserialize(self, archive: InputArchive) -> SplineField:
         return SplineField.deserialize(self, archive)

@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("ChebyshevField", "ChebyshevFieldSerializationModel")
 
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any, final
+from typing import TYPE_CHECKING, Any, Literal, final
 
 import astropy.units
 import numpy as np
@@ -358,3 +358,8 @@ class ChebyshevFieldSerializationModel(ArchiveTree):
     )
 
     unit: Unit | None = pydantic.Field(default=None, description="Units of the field.")
+
+    field_type: Literal["CHEBYSHEV"] = "CHEBYSHEV"
+
+    def finish_deserialize(self, archive: InputArchive) -> ChebyshevField:
+        return ChebyshevField.deserialize(self, archive)

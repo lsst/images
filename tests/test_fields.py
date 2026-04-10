@@ -18,7 +18,14 @@ import astropy.units as u
 import numpy as np
 
 from lsst.images import Box, Image
-from lsst.images.fields import BaseField, ChebyshevField, SplineField
+from lsst.images.fields import (
+    BaseField,
+    ChebyshevField,
+    ProductField,
+    SplineField,
+    field_from_legacy,
+    field_from_legacy_background,
+)
 from lsst.images.tests import (
     RoundtripFits,
     assert_images_equal,
@@ -28,6 +35,7 @@ from lsst.images.tests import (
 try:
     from lsst.afw.math import BackgroundList as LegacyBackgroundList
     from lsst.afw.math import ChebyshevBoundedField as LegacyChebyshevBoundedField
+    from lsst.afw.math import ProductBoundedField as LegacyProductBoundedField
 except ImportError:
     HAVE_LEGACY = False
 else:
@@ -49,6 +57,7 @@ class FieldTestCase(unittest.TestCase):
             y=self.box.y.linspace(6),
             x=self.box.x.linspace(7),
         )
+        self.product = ProductField([self.spline, self.cheby])
 
     def test_chebyshev_call_limits(self) -> None:
         """Test that ChebyshevField.__call__ evaluates correctly at low order
@@ -171,6 +180,23 @@ class FieldTestCase(unittest.TestCase):
     def test_spline_units(self) -> None:
         self.check_units(self.spline)
 
+    def test_product_evaluation(self) -> None:
+        """Test ProductField.__call__ against direct calls to its operands."""
+        xv, yv = self.box.meshgrid(n=3)
+        z = self.product(x=xv, y=yv)
+        np.testing.assert_array_equal(z, self.cheby(x=xv, y=yv) * self.spline(x=xv, y=yv))
+
+    def test_product_evaluation_consistency(self) -> None:
+        self.check_evaluation_consistency(self.product)
+
+    def test_product_units(self) -> None:
+        self.check_units(self.product)
+        self.assertEqual(ProductField([self.cheby, self.spline * u.nJy]).unit, u.nJy)
+        self.assertEqual(ProductField([self.cheby * u.nJy, self.spline]).unit, u.nJy)
+        self.assertEqual(
+            ProductField([self.cheby * u.nJy, self.spline / u.arcsec**2]).unit, u.nJy / u.arcsec**2
+        )
+
     def check_evaluation_consistency(self, field: BaseField) -> None:
         """Test that `BaseField.__call__` and `BaseField.render` agree on a
         concrete field.
@@ -217,12 +243,15 @@ class FieldLegacyTestCase(unittest.TestCase):
         # But we want to make sure those round-trip, too.
         self.cheby_coeffs = self.rng.random((6, 3))
         self.legacy_cheby = LegacyChebyshevBoundedField(self.box.to_legacy(), self.cheby_coeffs)
+        cheby2 = LegacyChebyshevBoundedField(self.box.to_legacy(), self.rng.standard_normal(size=(2, 2)))
+        self.legacy_product = LegacyProductBoundedField([self.legacy_cheby, cheby2])
 
     def test_chebyshev_roundtrip(self) -> None:
         """Test converting ChebyshevField from and to legacy, and serializing
         it in between.
         """
-        cheby = ChebyshevField.from_legacy(self.legacy_cheby)
+        cheby = field_from_legacy(self.legacy_cheby)
+        assert isinstance(cheby, ChebyshevField)
         compare_field_to_legacy(self, cheby, self.legacy_cheby, subimage_bbox=Box.factory[8:12, -3:2])
         with RoundtripFits(self, cheby) as roundtrip:
             pass
@@ -231,6 +260,22 @@ class FieldLegacyTestCase(unittest.TestCase):
         )
         compare_field_to_legacy(
             self, roundtrip.result, cheby.to_legacy(), subimage_bbox=Box.factory[8:12, -3:2]
+        )
+
+    def test_product_roundtrip(self) -> None:
+        """Test converting ProductField from and to legacy, and serializing
+        it in between.
+        """
+        product = field_from_legacy(self.legacy_product)
+        assert isinstance(product, ProductField)
+        compare_field_to_legacy(self, product, self.legacy_product, subimage_bbox=Box.factory[8:12, -3:2])
+        with RoundtripFits(self, product) as roundtrip:
+            pass
+        compare_field_to_legacy(
+            self, roundtrip.result, self.legacy_product, subimage_bbox=Box.factory[8:12, -3:2]
+        )
+        compare_field_to_legacy(
+            self, roundtrip.result, product.to_legacy(), subimage_bbox=Box.factory[8:12, -3:2]
         )
 
     def test_spline_simple(self) -> None:
@@ -244,7 +289,7 @@ class FieldLegacyTestCase(unittest.TestCase):
         bins.image.array[:, :] = self.rng.standard_normal(bins.image.array.shape)
         bins.variance.array[::] = 1.0
         legacy_bg = BackgroundMI(self.box.to_legacy(), bins)
-        spline = SplineField.from_legacy_background(legacy_bg)
+        spline = field_from_legacy_background(legacy_bg)
         render_bbox = self.box.padded(-3)
         assert_images_equal(
             self,
@@ -269,7 +314,7 @@ class FieldLegacyTestCase(unittest.TestCase):
         bins.image.array[3, 2] = np.nan
         bins.variance.array[::] = 1.0
         legacy_bg = BackgroundMI(self.box.to_legacy(), bins)
-        spline = SplineField.from_legacy_background(legacy_bg)
+        spline = field_from_legacy_background(legacy_bg)
         render_bbox = self.box.padded(-3)
         assert_images_equal(
             self,
@@ -286,10 +331,8 @@ class FieldLegacyTestCase(unittest.TestCase):
 
 @unittest.skipIf(DATA_DIR is None, "This test requires the TESTDATA_IMAGES_DIR envvar to be set.")
 @unittest.skipUnless(HAVE_LEGACY, "This test requires lsst.afw.math to be importable.")
-class FieldLegacyBackgroundTestCase(unittest.TestCase):
-    """Tests for using Field classes to represent lsst.afw.math.Background
-    objects.
-    """
+class FieldLegacyDataTestCase(unittest.TestCase):
+    """Tests for using Field classes using legacy datasets."""
 
     def test_chebyshev_background(self) -> None:
         assert DATA_DIR is not None, "Guaranteed by decorator."
