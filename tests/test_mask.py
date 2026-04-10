@@ -176,9 +176,9 @@ class MaskTestCase(unittest.TestCase):
             for plane in planes:
                 if plane is not None:
                     hdu = fits[1] if n < 31 else fits[2]
-                    self.assertEqual(hdu.header[f"MSKN{(n % 31) + 1:04d}"], plane.name)
-                    self.assertEqual(hdu.header[f"MSKM{(n % 31) + 1:04d}"], 1 << (n % 31))
-                    self.assertEqual(hdu.header[f"MSKD{(n % 31) + 1:04d}"], plane.description)
+                    self.assertEqual(hdu.header[f"MSKN{(n % 31):04d}"], plane.name)
+                    self.assertEqual(hdu.header[f"MSKM{(n % 31):04d}"], 1 << (n % 31))
+                    self.assertEqual(hdu.header[f"MSKD{(n % 31):04d}"], plane.description)
                     n += 1
         assert_masks_equal(self, mask, roundtrip.result)
 
