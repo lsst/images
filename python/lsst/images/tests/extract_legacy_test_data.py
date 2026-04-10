@@ -85,6 +85,18 @@ def extract_visit_image(
     )
 
 
+def extract_visit_image_background(
+    butler: Butler,
+    output_path: str,
+    dataset_ref: DatasetRef,
+) -> None:
+    """Load the background model of a processed visit image from a butler
+    repository and save it to testdata_images.
+    """
+    visit_image_background = butler.get(dataset_ref)
+    visit_image_background.writeFits(output_path)
+
+
 def extract_camera(butler: Butler, output_path: str, dataset_ref: DatasetRef) -> None:
     camera = butler.get(dataset_ref)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -132,6 +144,16 @@ def extract_dp2(butler_repo: str | None, testdata_dir: str | None, collection: s
         find_dataset_or_raise(butler, "visit_image", **DP2_VISIT_DETECTOR_DATA_ID),
         shuffle=True,
     )
+    extract_visit_image_background(
+        butler,
+        os.path.join(
+            testdata_dir,
+            "dp2",
+            "legacy",
+            "visit_image_background.fits",
+        ),
+        find_dataset_or_raise(butler, "visit_image_background", **DP2_VISIT_DETECTOR_DATA_ID),
+    )
     extract_visit_image(
         butler,
         os.path.join(
@@ -142,6 +164,16 @@ def extract_dp2(butler_repo: str | None, testdata_dir: str | None, collection: s
         ),
         find_dataset_or_raise(butler, "preliminary_visit_image", **DP2_VISIT_DETECTOR_DATA_ID),
         shuffle=True,
+    )
+    extract_visit_image_background(
+        butler,
+        os.path.join(
+            testdata_dir,
+            "dp2",
+            "legacy",
+            "preliminary_visit_image_background.fits",
+        ),
+        find_dataset_or_raise(butler, "preliminary_visit_image_background", **DP2_VISIT_DETECTOR_DATA_ID),
     )
     extract_camera(
         butler,
