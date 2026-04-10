@@ -24,6 +24,7 @@ Design and Development
 
    core-api.rst
    psfs.rst
+   fields.rst
    serialization.rst
    fits.rst
    tests.rst

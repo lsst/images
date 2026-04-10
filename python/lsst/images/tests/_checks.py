@@ -21,6 +21,7 @@ __all__ = (
     "check_astropy_wcs_interface",
     "check_projection",
     "check_transform",
+    "compare_field_to_legacy",
     "compare_image_to_legacy",
     "compare_mask_to_legacy",
     "compare_masked_image_to_legacy",
@@ -46,6 +47,7 @@ from .._mask import Mask, MaskPlane
 from .._masked_image import MaskedImage
 from .._transforms import DetectorFrame, Frame, Projection, SkyFrame, Transform
 from .._visit_image import VisitImage
+from ..fields import BaseField
 from ..psfs import PointSpreadFunction
 
 
@@ -308,6 +310,35 @@ def compare_psf_to_legacy(
         tc.assertEqual(psf.compute_stellar_image(x=p.x, y=p.y), Image.from_legacy(legacy_psf.computeImage(p)))
         n_points_tested += 1
     return n_points_tested
+
+
+def compare_field_to_legacy(
+    tc: unittest.TestCase,
+    field: BaseField,
+    legacy_field: Any,
+    subimage_bbox: Box,
+) -> None:
+    """Test a Field object by comparing it to an equivalent
+    `lsst.afw.math.BoundedField`.
+
+    Parameters
+    ----------
+    tc
+        Test case object with assert methods to use.
+    field
+        Field to test.
+    legacy_field : ``lsst.afw.math.BoundedField``
+        Equivalent legacy bounded field.
+    subimage_bbox
+        Bounding box for full-image tests.
+    """
+    tc.assertEqual(field.bounds.bbox, Box.from_legacy(legacy_field.getBBox()))
+    # Pixel coordinates to test the numpy array interface with.
+    pixel_xy = field.bounds.bbox.meshgrid(n=5).map(np.ravel)
+    assert_close(tc, field(x=pixel_xy.x, y=pixel_xy.y), legacy_field.evaluate(pixel_xy.x, pixel_xy.y))
+    legacy_image_1 = Image(0, bbox=subimage_bbox, dtype=np.float64).to_legacy()
+    legacy_field.addToImage(legacy_image_1, overlapOnly=True)
+    assert_images_equal(tc, field.render(subimage_bbox), Image.from_legacy(legacy_image_1), rtol=1e-13)
 
 
 def compare_projection_to_legacy_wcs[F: Frame](
