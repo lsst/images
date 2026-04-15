@@ -593,6 +593,7 @@ class Mask(GeneralizedImage):
         *,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
         save_projection: bool = True,
+        save_obs_info: bool = True,
         add_offset_wcs: str | None = "A",
     ) -> MaskSerializationModel[P]:
         """Serialize the mask to an output archive.
@@ -610,6 +611,9 @@ class Mask(GeneralizedImage):
         save_projection
             If `True`, save the `Projection` attached to the mask, if there
             is one.
+        save_obs_info
+            If `True`, save the `ObservationInfo` attached to the image, if
+            there is one.
         add_offset_wcs
             A FITS WCS single-character suffix to use when adding a linear
             WCS that maps the FITS array to the logical pixel coordinates
@@ -633,7 +637,7 @@ class Mask(GeneralizedImage):
             planes=list(self.schema),
             dtype=serialized_dtype,
             projection=serialized_projection,
-            obs_info=self._obs_info,
+            obs_info=self._obs_info if save_obs_info else None,
             metadata=self.metadata,
         )
 

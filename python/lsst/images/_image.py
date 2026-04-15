@@ -270,6 +270,7 @@ class Image(GeneralizedImage):
         *,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
         save_projection: bool = True,
+        save_obs_info: bool = True,
         add_offset_wcs: str | None = "A",
     ) -> ImageSerializationModel[P]:
         """Serialize the image to an output archive.
@@ -286,6 +287,9 @@ class Image(GeneralizedImage):
         save_projection
             If `True`, save the `Projection` attached to the image, if there
             is one.
+        save_obs_info
+            If `True`, save the `ObservationInfo` attached to the image, if
+            there is one.
         add_offset_wcs
             A FITS WCS single-character suffix to use when adding a linear
             WCS that maps the FITS array to the logical pixel coordinates
@@ -308,22 +312,18 @@ class Image(GeneralizedImage):
         serialized_projection: ProjectionSerializationModel[P] | None = None
         if save_projection and self.projection is not None:
             serialized_projection = archive.serialize_direct("projection", self.projection.serialize)
-        if self.unit is None:
-            return ImageSerializationModel.model_construct(
-                data=ref,
-                start=list(self.bbox.start),
-                projection=serialized_projection,
-                obs_info=self._obs_info,
-                metadata=self.metadata,
-            )
-        else:
-            return ImageSerializationModel.model_construct(
-                data=ArrayReferenceQuantityModel.model_construct(value=ref, unit=self.unit),
-                start=list(self.bbox.start),
-                projection=serialized_projection,
-                obs_info=self._obs_info,
-                metadata=self.metadata,
-            )
+        data = (
+            ref
+            if self.unit is None
+            else ArrayReferenceQuantityModel.model_construct(value=ref, unit=self.unit)
+        )
+        return ImageSerializationModel.model_construct(
+            data=data,
+            start=list(self.bbox.start),
+            projection=serialized_projection,
+            obs_info=self._obs_info if save_obs_info else None,
+            metadata=self.metadata,
+        )
 
     @staticmethod
     def deserialize(
