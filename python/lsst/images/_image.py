@@ -286,7 +286,9 @@ class Image(GeneralizedImage):
             FITS.
         save_projection
             If `True`, save the `Projection` attached to the image, if there
-            is one.
+            is one.  This does not affect whether a FITS WCS corresponding to
+            the projection is written (it always is, if available, and if
+            ``add_offset_wcs`` is not ``" "``).
         save_obs_info
             If `True`, save the `ObservationInfo` attached to the image, if
             there is one.
@@ -294,15 +296,15 @@ class Image(GeneralizedImage):
             A FITS WCS single-character suffix to use when adding a linear
             WCS that maps the FITS array to the logical pixel coordinates
             defined by ``bbox.start``.  Set to `None` to not write this WCS.
+            If this is set to ``" "``, it will prevent the `Projection` from
+            being saved as a FITS WCS.
         """
-        if save_projection and add_offset_wcs == "":
-            raise TypeError("save_projection=True is not compatible with add_offset_wcs=''.")
 
         def _update_header(header: astropy.io.fits.Header) -> None:
             update_header(header)
             if self.unit is not None:
                 header["BUNIT"] = self.unit.to_string(format="fits")
-            if self.projection is not None:
+            if self.projection is not None and add_offset_wcs != " ":
                 if self.fits_wcs:
                     header.update(self.fits_wcs.to_header(relax=True))
             if add_offset_wcs is not None:
