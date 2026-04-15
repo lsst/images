@@ -17,6 +17,7 @@ __all__ = (
     "FieldAngleFrame",
     "FocalPlaneFrame",
     "Frame",
+    "GeneralFrame",
     "SerializableFrame",
     "SkyFrame",
     "TractFrame",
@@ -262,6 +263,38 @@ class TractFrame(ArchiveTree, frozen=True):
         return f"{self.skymap}@{self.tract}"
 
 
+@final
+class GeneralFrame(ArchiveTree, frozen=True):
+    """An arbitrary Euclidean cordinate system."""
+
+    unit: Unit = pydantic.Field(description="Units of the coordinates in this frame.")
+
+    frame_type: Literal["GENERAL"] = pydantic.Field(
+        default="GENERAL", description="Descriminator for the frame type."
+    )
+
+    def standardize_x[T: float | np.ndarray](self, x: T) -> T:
+        """Coerce ``x`` coordinates into their standard range."""
+        return x
+
+    def standardize_y[T: float | np.ndarray](self, y: T) -> T:
+        """Coerce ``y`` coordinates into their standard range."""
+        return y
+
+    def serialize(self) -> SerializableFrame:
+        """Return a Pydantic-serializable version of this Frame."""
+        return cast(SerializableFrame, self)
+
+    @classmethod
+    def deserialize(cls, serialized: SerializableFrame) -> Self:
+        """Convert a serialized frame to an in-memory one."""
+        return cast(Self, serialized)
+
+    @property
+    def _ast_ident(self) -> str:
+        return "GENERAL"
+
+
 class SkyFrame(enum.StrEnum):
     """The special frame that represents the sky, in ICRS coordinates."""
 
@@ -302,7 +335,7 @@ ICRS = SkyFrame.ICRS
 type SerializableFrame = (
     SkyFrame
     | Annotated[
-        DetectorFrame | TractFrame | FocalPlaneFrame | FieldAngleFrame,
+        DetectorFrame | TractFrame | FocalPlaneFrame | FieldAngleFrame | GeneralFrame,
         pydantic.Field(discriminator="frame_type"),
     ]
 )
