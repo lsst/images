@@ -614,8 +614,9 @@ class Mask(GeneralizedImage):
             the projection is written (it always is, if available, and if
             ``add_offset_wcs`` is not ``" "``).
         save_obs_info
-            If `True`, save the `ObservationInfo` attached to the image, if
-            there is one.
+            If `True`, save the
+            `~astro_metadata_translator.ObservationInfo` attached to the
+            image, if there is one.
         add_offset_wcs
             A FITS WCS single-character suffix to use when adding a linear
             WCS that maps the FITS array to the logical pixel coordinates
