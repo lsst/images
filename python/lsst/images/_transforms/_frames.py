@@ -94,7 +94,7 @@ class DetectorFrame(ArchiveTree, frozen=True):
     detector: int = pydantic.Field(description="ID of the detector.")
     bbox: Box = pydantic.Field(description="Bounding box of the detector.")
     frame_type: Literal["DETECTOR"] = pydantic.Field(
-        default="DETECTOR", description="Descriminator for the frame type."
+        default="DETECTOR", description="Discriminator for the frame type."
     )
 
     @property
@@ -128,7 +128,7 @@ class DetectorFrame(ArchiveTree, frozen=True):
 
 @final
 class FocalPlaneFrame(ArchiveTree, frozen=True):
-    """A Euclidian coordinate frame for the focal plane of a camera."""
+    """A Euclidean coordinate frame for the focal plane of a camera."""
 
     instrument: str = pydantic.Field(description="Name of the instrument.")
     visit: int | None = pydantic.Field(
@@ -142,7 +142,7 @@ class FocalPlaneFrame(ArchiveTree, frozen=True):
     unit: Unit = pydantic.Field(description="Units of the coordinates in this frame.")
 
     frame_type: Literal["FOCAL_PLANE"] = pydantic.Field(
-        default="FOCAL_PLANE", description="Descriminator for the frame type."
+        default="FOCAL_PLANE", description="Discriminator for the frame type."
     )
 
     def standardize_x[T: float | np.ndarray](self, x: T) -> T:
@@ -188,7 +188,7 @@ class FieldAngleFrame(ArchiveTree, frozen=True):
         exclude_if=is_none,
     )
     frame_type: Literal["FIELD_ANGLE"] = pydantic.Field(
-        default="FIELD_ANGLE", description="Descriminator for the frame type."
+        default="FIELD_ANGLE", description="Discriminator for the frame type."
     )
 
     @property
@@ -231,7 +231,7 @@ class TractFrame(ArchiveTree, frozen=True):
     tract: int = pydantic.Field(description="ID of the tract within its skymap.")
     bbox: Box = pydantic.Field(description="Bounding box of the full tract.")
     frame_type: Literal["TRACT"] = pydantic.Field(
-        default="TRACT", description="Descriminator for the frame type."
+        default="TRACT", description="Discriminator for the frame type."
     )
 
     @property
@@ -265,12 +265,12 @@ class TractFrame(ArchiveTree, frozen=True):
 
 @final
 class GeneralFrame(ArchiveTree, frozen=True):
-    """An arbitrary Euclidean cordinate system."""
+    """An arbitrary Euclidean coordinate system."""
 
     unit: Unit = pydantic.Field(description="Units of the coordinates in this frame.")
 
     frame_type: Literal["GENERAL"] = pydantic.Field(
-        default="GENERAL", description="Descriminator for the frame type."
+        default="GENERAL", description="Discriminator for the frame type."
     )
 
     def standardize_x[T: float | np.ndarray](self, x: T) -> T:
