@@ -375,7 +375,7 @@ class VisitImageLegacyTestCase(unittest.TestCase):
                 self.assertEqual(roundtrip.get("bbox"), self.visit_image.bbox)
                 alternates = {
                     k: roundtrip.get(k)
-                    for k in ["projection", "image", "mask", "variance", "psf", "obs_info"]
+                    for k in ["projection", "image", "mask", "variance", "psf", "obs_info", "summary_stats"]
                 }
             # Try to do a butler get of a component with storage class
             # override.
