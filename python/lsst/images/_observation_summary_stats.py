@@ -22,15 +22,14 @@ from __future__ import annotations
 
 __all__ = ("ObservationSummaryStats",)
 
-import dataclasses
+import pydantic
 
 
 def _default_corners():
     return [float("nan")] * 4
 
 
-@dataclasses.dataclass
-class ObservationSummaryStats:
+class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
     version: int = 0
 
     psfSigma: float = float("nan")
@@ -75,10 +74,10 @@ class ObservationSummaryStats:
     meanVar: float = float("nan")
     """Mean variance of the weight plane (ADU**2)."""
 
-    raCorners: list[float] = dataclasses.field(default_factory=_default_corners)
+    raCorners: list[float] = pydantic.Field(default_factory=_default_corners)
     """Right Ascension of bounding box corners (degrees)."""
 
-    decCorners: list[float] = dataclasses.field(default_factory=_default_corners)
+    decCorners: list[float] = pydantic.Field(default_factory=_default_corners)
     """Declination of bounding box corners (degrees)."""
 
     astromOffsetMean: float = float("nan")
