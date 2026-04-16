@@ -11,3 +11,4 @@
 
 from ._base import *
 from ._chebyshev import *
+from ._spline import *

@@ -18,7 +18,7 @@ import astropy.units as u
 import numpy as np
 
 from lsst.images import Box, Image
-from lsst.images.fields import BaseField, ChebyshevField
+from lsst.images.fields import BaseField, ChebyshevField, SplineField
 from lsst.images.tests import (
     RoundtripFits,
     assert_images_equal,
@@ -43,6 +43,12 @@ class FieldTestCase(unittest.TestCase):
         self.rng = np.random.default_rng(10)
         self.box = Box.factory[6:32, -7:26]
         self.cheby = ChebyshevField(self.box, np.array([[0.5, -0.25], [0.40, 0.0]]))
+        self.spline = SplineField(
+            self.box,
+            self.rng.standard_normal(size=(6, 7)),
+            y=self.box.y.linspace(6),
+            x=self.box.x.linspace(7),
+        )
 
     def test_chebyshev_call_limits(self) -> None:
         """Test that ChebyshevField.__call__ evaluates correctly at low order
@@ -151,6 +157,20 @@ class FieldTestCase(unittest.TestCase):
     def test_chebyshev_units(self) -> None:
         self.check_units(self.cheby)
 
+    def test_spline_knot_evaluation(self) -> None:
+        """Test that SplineField.__call__ evaluates to the input data points
+        at their positions.
+        """
+        xv, yv = np.meshgrid(self.spline.x, self.spline.y)
+        result = self.spline(x=xv, y=yv)
+        np.testing.assert_array_almost_equal(result, self.spline.data)
+
+    def test_spline_evaluation_consistency(self) -> None:
+        self.check_evaluation_consistency(self.spline)
+
+    def test_spline_units(self) -> None:
+        self.check_units(self.spline)
+
     def check_evaluation_consistency(self, field: BaseField) -> None:
         """Test that `BaseField.__call__` and `BaseField.render` agree on a
         concrete field.
@@ -182,7 +202,7 @@ class FieldTestCase(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_LEGACY, "This test requires lsst.afw.math to be importable.")
 class FieldLegacyTestCase(unittest.TestCase):
-    """Test the Field classes' legacy conversions.
+    """Test the Field classes against legacy implementations.
 
     This includes many tests for correct evaluation, since the legacy types
     serve as our reference implementation.
@@ -211,6 +231,56 @@ class FieldLegacyTestCase(unittest.TestCase):
         )
         compare_field_to_legacy(
             self, roundtrip.result, cheby.to_legacy(), subimage_bbox=Box.factory[8:12, -3:2]
+        )
+
+    def test_spline_simple(self) -> None:
+        """Test SplineField against `lsst.afw.math.BackgroundMI`, when there
+        is no missing data.
+        """
+        from lsst.afw.image import MaskedImageF
+        from lsst.afw.math import BackgroundMI
+
+        bins = MaskedImageF(Box.factory[0:5, 0:6].to_legacy())
+        bins.image.array[:, :] = self.rng.standard_normal(bins.image.array.shape)
+        bins.variance.array[::] = 1.0
+        legacy_bg = BackgroundMI(self.box.to_legacy(), bins)
+        spline = SplineField.from_legacy_background(legacy_bg)
+        render_bbox = self.box.padded(-3)
+        assert_images_equal(
+            self,
+            spline.render(render_bbox),
+            Image.from_legacy(
+                legacy_bg.getImageF(
+                    render_bbox.to_legacy(), legacy_bg.getBackgroundControl().getInterpStyle()
+                )
+            ),
+            rtol=1e-7,
+        )
+
+    def test_spline_one_nan(self) -> None:
+        """Test SplineField against `lsst.afw.math.BackgroundMI`, when there
+        is missing data.
+        """
+        from lsst.afw.image import MaskedImageF
+        from lsst.afw.math import BackgroundMI
+
+        bins = MaskedImageF(Box.factory[0:7, 0:6].to_legacy())
+        bins.image.array[:, :] = self.rng.standard_normal(bins.image.array.shape)
+        bins.image.array[3, 2] = np.nan
+        bins.variance.array[::] = 1.0
+        legacy_bg = BackgroundMI(self.box.to_legacy(), bins)
+        spline = SplineField.from_legacy_background(legacy_bg)
+        render_bbox = self.box.padded(-3)
+        assert_images_equal(
+            self,
+            spline.render(render_bbox),
+            Image.from_legacy(
+                legacy_bg.getImageF(
+                    render_bbox.to_legacy(),
+                    legacy_bg.getBackgroundControl().getInterpStyle(),
+                )
+            ),
+            rtol=1e-7,
         )
 
 
