@@ -17,5 +17,6 @@ from ._geom import *
 from ._image import *
 from ._mask import *
 from ._masked_image import *
+from ._observation_summary_stats import *
 from ._transforms import *
 from ._visit_image import *
