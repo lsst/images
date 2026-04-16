@@ -12,7 +12,9 @@ from __future__ import annotations
 
 __all__ = ("ObservationSummaryStats",)
 
+import dataclasses
 import math
+from typing import Any, Self
 
 import pydantic
 
@@ -164,3 +166,13 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
             " zeroPoint, and readNoise."
         ),
     )
+
+    @classmethod
+    def from_legacy(cls, exposure_summary_stats: Any) -> Self:
+        """Return an `ObservationSummaryStats` from a legacy
+        `lsst.afw.image.ExposureSummaryStats`.
+        """
+        # Assume that all the fields in an ExposureSummaryStats dataclass
+        # are compatible with an ObservationSummaryStats.
+        summary_stats = dataclasses.asdict(exposure_summary_stats)
+        return cls.model_validate(summary_stats)
