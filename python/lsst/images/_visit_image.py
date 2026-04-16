@@ -68,6 +68,43 @@ def _obs_info_from_md(md: MutableMapping[str, Any], visit_info: Any = None) -> O
     return obs_info
 
 
+def _update_obs_info_from_legacy(
+    obs_info: ObservationInfo, detector: Any = None, filter_label: Any = None
+) -> ObservationInfo:
+    extra_md: dict[str, str | int] = {}
+
+    if filter_label is not None and filter_label.hasBandLabel():
+        extra_md["physical_filter"] = filter_label.physicalLabel
+
+    # Fill in detector metadata, check for consistency.
+    # ObsInfo detector name and group can not be derived from
+    # the getName() information without knowing how the components
+    # are separated.
+    if detector is not None:
+        detector_md = {
+            "detector_num": detector.getId(),
+            "detector_serial": detector.getSerial(),
+            "detector_unique_name": detector.getName(),
+        }
+        extra_md.update(detector_md)
+
+    obs_info_updates: dict[str, str | int] = {}
+    for k, v in extra_md.items():
+        current = getattr(obs_info, k)
+        if current is None:
+            obs_info_updates[k] = v
+            continue
+        if current != v:
+            raise RuntimeError(
+                f"ObservationInfo contains value for '{k}' that is inconsistent "
+                f"with given legacy object: {v} != {current}"
+            )
+
+    if obs_info_updates:
+        obs_info = obs_info.model_copy(update=obs_info_updates)
+    return obs_info
+
+
 class VisitImage(MaskedImage):
     """A calibrated single-visit image.
 
@@ -330,6 +367,10 @@ class VisitImage(MaskedImage):
         if legacy_detector is None:
             raise ValueError("Exposure does not have a Detector.")
         detector_bbox = Box.from_legacy(legacy_detector.getBBox())
+
+        # Update the ObservationInfo from other components.
+        obs_info = _update_obs_info_from_legacy(obs_info, legacy_detector, legacy.info.getFilter())
+
         opaque_fits_metadata = FitsOpaqueMetadata()
         primary_header = astropy.io.fits.Header()
         with warnings.catch_warnings():
@@ -506,6 +547,7 @@ class VisitImage(MaskedImage):
         with astropy.io.fits.open(filename) as hdu_list:
             primary_header = hdu_list[0].header
             obs_info = _obs_info_from_md(primary_header)
+            obs_info = _update_obs_info_from_legacy(obs_info, legacy_detector, reader.readFilter())
             if component == "obs_info":
                 return obs_info
             instrument = _extract_or_check_header(

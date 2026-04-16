@@ -282,6 +282,10 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         self.assertIsInstance(psf, PointSpreadFunction)
         obs_info = VisitImage.read_legacy(self.filename, component="obs_info")
         self.assertIsInstance(obs_info, ObservationInfo)
+        self.assertEqual(obs_info.instrument, "LSSTCam")
+        self.assertEqual(obs_info.detector_num, 85, obs_info)
+        self.assertEqual(obs_info.detector_unique_name, "R21_S11", obs_info)
+        self.assertEqual(obs_info.physical_filter, "r_57", obs_info)
 
     def test_obs_info(self) -> None:
         """Check that ObservationInfo has been constructed."""
@@ -291,6 +295,9 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         self.assertEqual(legacy.obs_info, self.visit_image.obs_info)
         assert legacy.obs_info is not None  # for mypy.
         self.assertEqual(legacy.obs_info.instrument, "LSSTCam")
+        self.assertEqual(legacy.obs_info.detector_num, 85, legacy.obs_info)
+        self.assertEqual(legacy.obs_info.detector_unique_name, "R21_S11", legacy.obs_info)
+        self.assertEqual(legacy.obs_info.physical_filter, "r_57", legacy.obs_info)
 
     def test_read_legacy_headers(self) -> None:
         """Test that headers were correctly stripped and interpreted in
