@@ -288,6 +288,12 @@ class Interval:
         """The center of the interval (`float`)."""
         return 0.5 * (self.min + self.max)
 
+    def padded(self, padding: int) -> Interval:
+        """Return a new interval expanded by the given padding on
+        either side.
+        """
+        return Interval(self.start - padding, self.stop + padding)
+
     def __str__(self) -> str:
         return f"{self.start}:{self.stop}"
 
@@ -640,6 +646,12 @@ class Box:
             case _:
                 raise ValueError(f"Unexpected values for n ({n})")
         return XY(*np.meshgrid(ax, ay))
+
+    def padded(self, padding: int) -> Box:
+        """Return a new box expanded by the given padding on
+        all sides.
+        """
+        return Box(y=self.y.padded(padding), x=self.x.padded(padding))
 
     def __eq__(self, other: object) -> bool:
         if type(other) is Box:
