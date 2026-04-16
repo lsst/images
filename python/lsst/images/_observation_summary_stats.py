@@ -25,8 +25,8 @@ __all__ = ("ObservationSummaryStats",)
 import pydantic
 
 
-def _default_corners():
-    return [float("nan")] * 4
+def _default_corners() -> tuple[float, float, float, float]:
+    return (float("nan"), float("nan"), float("nan"), float("nan"))
 
 
 class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
@@ -64,11 +64,11 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
 
     meanVar: float = pydantic.Field(float("nan"), description="Mean variance of the weight plane (ADU**2).")
 
-    raCorners: list[float] = pydantic.Field(
+    raCorners: tuple[float, float, float, float] = pydantic.Field(
         default_factory=_default_corners, description="Right Ascension of bounding box corners (degrees)."
     )
 
-    decCorners: list[float] = pydantic.Field(
+    decCorners: tuple[float, float, float, float] = pydantic.Field(
         default_factory=_default_corners, description="Declination of bounding box corners (degrees)."
     )
 
