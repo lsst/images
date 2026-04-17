@@ -28,19 +28,32 @@ from ..serialization import InputArchive
 from ._chebyshev import ChebyshevField, ChebyshevFieldSerializationModel
 from ._product import ProductField, ProductFieldSerializationModel
 from ._spline import SplineField, SplineFieldSerializationModel
+from ._sum import SumField, SumFieldSerializationModel
 
 if TYPE_CHECKING:
     try:
+        from lsst.afw.math import BackgroundList as LegacyBackgroundList
         from lsst.afw.math import BackgroundMI as LegacyBackground
         from lsst.afw.math import BoundedField as LegacyBoundedField
     except ImportError:
         type LegacyBoundedField = Any  # type: ignore[no-redef]
         type LegacyBackground = Any  # type: ignore[no-redef]
+        type LegacyBackgroundList = Any  # type: ignore[no-redef]
 
 
-type Field = ChebyshevField | ProductField | SplineField
+# Since Sphinx can't handle doc links to type aliases, whenever we annotate
+# a type as `Field`, we override the docs to say `BaseField`, since
+# `BaseField` is a base class that serves as a much more useful doc link, and
+# because the hierarchy is closed they're equivalent.  But we have to use
+# `Field` in the type annotations because there's no way to declare to MyPy
+# et all that the hierarchy is closed.
+
+type Field = ChebyshevField | ProductField | SplineField | SumField
 type FieldSerializationModel = Annotated[
-    ChebyshevFieldSerializationModel | ProductFieldSerializationModel | SplineFieldSerializationModel,
+    ChebyshevFieldSerializationModel
+    | ProductFieldSerializationModel
+    | SplineFieldSerializationModel
+    | SumFieldSerializationModel,
     pydantic.Field(discriminator="field_type"),
 ]
 
@@ -51,6 +64,7 @@ def deserialize_field(model: FieldSerializationModel, archive: InputArchive[Any]
 
 
 ProductFieldSerializationModel.model_rebuild()
+SumFieldSerializationModel.model_rebuild()
 
 
 def field_from_legacy(
@@ -73,12 +87,15 @@ def field_from_legacy(
 
 
 def field_from_legacy_background(
-    legacy_background: LegacyBackground, unit: astropy.units.UnitBase | None = None
+    legacy_background: LegacyBackground | LegacyBackgroundList, unit: astropy.units.UnitBase | None = None
 ) -> Field:
-    """Convert a legacy `lsst.afw.math.Background` instance to a `BaseField`
-    object.
+    """Convert a legacy `lsst.afw.math.Background` or
+    `lsst.afw.math.BackgroundList` instance to a `BaseField` object.
     """
-    from lsst.afw.math import ApproximateControl
+    from lsst.afw.math import ApproximateControl, BackgroundList
+
+    if isinstance(legacy_background, BackgroundList):
+        return SumField.from_legacy_background(legacy_background)
 
     approx_control = legacy_background.getBackgroundControl().getApproximateControl()
     if approx_control.getStyle() == ApproximateControl.UNKNOWN:

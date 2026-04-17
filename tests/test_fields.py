@@ -23,6 +23,7 @@ from lsst.images.fields import (
     ChebyshevField,
     ProductField,
     SplineField,
+    SumField,
     field_from_legacy,
     field_from_legacy_background,
 )
@@ -58,6 +59,7 @@ class FieldTestCase(unittest.TestCase):
             x=self.box.x.linspace(7),
         )
         self.product = ProductField([self.spline, self.cheby])
+        self.sum = SumField([self.spline, self.cheby])
 
     def test_chebyshev_call_limits(self) -> None:
         """Test that ChebyshevField.__call__ evaluates correctly at low order
@@ -197,6 +199,35 @@ class FieldTestCase(unittest.TestCase):
             ProductField([self.cheby * u.nJy, self.spline / u.arcsec**2]).unit, u.nJy / u.arcsec**2
         )
 
+    def test_sum_evaluation(self) -> None:
+        """Test sumField.__call__ against direct calls to its operands."""
+        xv, yv = self.box.meshgrid(n=3)
+        z = self.sum(x=xv, y=yv)
+        np.testing.assert_array_equal(z, self.cheby(x=xv, y=yv) + self.spline(x=xv, y=yv))
+
+    def test_sum_evaluation_consistency(self) -> None:
+        self.check_evaluation_consistency(self.sum)
+
+    def test_sum_units(self) -> None:
+        self.check_units(self.sum)
+        with self.assertRaises(u.UnitConversionError):
+            SumField([self.cheby, self.spline * u.nJy])
+        with self.assertRaises(u.UnitConversionError):
+            SumField([self.cheby * u.nJy, self.spline])
+        # Test a SumField where the operands have different but compatible
+        # units.
+        mixed = SumField([self.cheby * u.rad, self.spline * u.deg])
+        self.assertEqual(mixed.unit, u.rad)
+        small_box = Box.factory[10:12, 2:5]
+        cheby_render = self.cheby.render(small_box)
+        spline_render = self.spline.render(small_box)
+        mixed_render = mixed.render(small_box)
+        self.assertEqual(mixed_render.unit, u.rad)
+        np.testing.assert_array_almost_equal(
+            mixed_render.array, cheby_render.array + (spline_render.array * np.pi / 180.0)
+        )
+        self.check_evaluation_consistency(mixed)
+
     def check_evaluation_consistency(self, field: BaseField) -> None:
         """Test that `BaseField.__call__` and `BaseField.render` agree on a
         concrete field.
@@ -334,13 +365,12 @@ class FieldLegacyTestCase(unittest.TestCase):
 class FieldLegacyDataTestCase(unittest.TestCase):
     """Tests for using Field classes using legacy datasets."""
 
-    def test_chebyshev_background(self) -> None:
+    def test_visit_background(self) -> None:
         assert DATA_DIR is not None, "Guaranteed by decorator."
         filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image_background.fits")
         legacy_bg_list = LegacyBackgroundList.readFits(filename)
-        legacy_bg_0 = legacy_bg_list[0][0]
-        cheby_fit = ChebyshevField.from_legacy_background(legacy_bg_0)
-        assert_images_equal(self, cheby_fit.render(), Image.from_legacy(legacy_bg_0.getImageF()), rtol=1e-7)
+        bg_field = field_from_legacy_background(legacy_bg_list)
+        assert_images_equal(self, bg_field.render(), Image.from_legacy(legacy_bg_list.getImage()), rtol=1e-7)
 
 
 if __name__ == "__main__":

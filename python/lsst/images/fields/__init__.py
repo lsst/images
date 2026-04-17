@@ -13,4 +13,5 @@ from ._base import *
 from ._chebyshev import *
 from ._spline import *
 from ._product import *
+from ._sum import *
 from ._concrete import *
