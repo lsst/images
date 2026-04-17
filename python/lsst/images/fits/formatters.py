@@ -267,9 +267,7 @@ class VisitImageFormatter(MaskedImageFormatter):
             case "psf":
                 return tree.deserialize_psf(archive)
             case "summary_stats":
-                if isinstance(
-                    summary_stats := getattr(tree, "observation_summary_stats", None), ObservationSummaryStats
-                ):
+                if isinstance(summary_stats := getattr(tree, "summary_stats", None), ObservationSummaryStats):
                     return summary_stats
                 else:
                     return ComponentSentinel.INVALID_COMPONENT_MODEL

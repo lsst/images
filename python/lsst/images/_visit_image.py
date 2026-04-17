@@ -132,7 +132,7 @@ class VisitImage(MaskedImage):
         a projection is already attached to ``image``.
     obs_info
         General information about this visit in standardized form.
-    observation_summary_stats
+    summary_stats
         Optional summary statistics associated with this visit.
     psf
         Point-spread function model for this image, or an exception explaining
@@ -150,7 +150,7 @@ class VisitImage(MaskedImage):
         mask_schema: MaskSchema | None = None,
         projection: Projection[DetectorFrame] | None = None,
         obs_info: ObservationInfo | None = None,
-        observation_summary_stats: ObservationSummaryStats | None = None,
+        summary_stats: ObservationSummaryStats | None = None,
         psf: PointSpreadFunction | ArchiveReadError,
         metadata: dict[str, MetadataValue] | None = None,
     ):
@@ -171,7 +171,7 @@ class VisitImage(MaskedImage):
             raise TypeError("The observation info component of a VisitImage cannot be None.")
         if not isinstance(self.image.projection.pixel_frame, DetectorFrame):
             raise TypeError("The projection's pixel frame must be a DetectorFrame for VisitImage.")
-        self._observation_summary_stats = observation_summary_stats
+        self._summary_stats = summary_stats
         self._psf = psf
 
     @property
@@ -212,11 +212,11 @@ class VisitImage(MaskedImage):
         return cast(ProjectionAstropyView, super().astropy_wcs)
 
     @property
-    def observation_summary_stats(self) -> ObservationSummaryStats | None:
+    def summary_stats(self) -> ObservationSummaryStats | None:
         """Optional summary statistics for this observation
         (`ObservationSummaryStats`).
         """
-        return self._observation_summary_stats
+        return self._summary_stats
 
     @property
     def psf(self) -> PointSpreadFunction:
@@ -239,7 +239,7 @@ class VisitImage(MaskedImage):
                 projection=self.projection,
                 psf=self.psf,
                 obs_info=self.obs_info,
-                observation_summary_stats=self.observation_summary_stats,
+                summary_stats=self.summary_stats,
             ),
             bbox=bbox,
         )
@@ -259,7 +259,7 @@ class VisitImage(MaskedImage):
                 variance=self._variance.copy(),
                 psf=self._psf,
                 obs_info=self.obs_info,
-                observation_summary_stats=self.observation_summary_stats,
+                summary_stats=self.summary_stats,
             ),
             copy=True,
         )
@@ -296,7 +296,7 @@ class VisitImage(MaskedImage):
             projection=serialized_projection,
             psf=serialized_psf,
             obs_info=self.obs_info,
-            observation_summary_stats=self.observation_summary_stats,
+            summary_stats=self.summary_stats,
             metadata=self.metadata,
         )
 
@@ -322,7 +322,7 @@ class VisitImage(MaskedImage):
             psf=psf,
             projection=projection,
             obs_info=model.obs_info,
-            observation_summary_stats=model.observation_summary_stats,
+            summary_stats=model.summary_stats,
         )._finish_deserialize(model)
 
     @staticmethod
@@ -416,7 +416,7 @@ class VisitImage(MaskedImage):
             projection=projection,
             psf=psf,
             obs_info=obs_info,
-            observation_summary_stats=(
+            summary_stats=(
                 ObservationSummaryStats.from_legacy(legacy_summary_stats)
                 if legacy_summary_stats is not None
                 else None
@@ -626,7 +626,7 @@ class VisitImage(MaskedImage):
             projection=projection,
             psf=psf,
             obs_info=obs_info,
-            observation_summary_stats=summary_stats,
+            summary_stats=summary_stats,
         )
         result._opaque_metadata = from_masked_image._opaque_metadata
         return result
@@ -655,7 +655,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     obs_info: ObservationInfo = pydantic.Field(
         description="Standardized description of visit metadata",
     )
-    observation_summary_stats: ObservationSummaryStats | None = pydantic.Field(
+    summary_stats: ObservationSummaryStats | None = pydantic.Field(
         default=None, description="Optional summary statistics for the observation."
     )
 

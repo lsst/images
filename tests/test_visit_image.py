@@ -59,7 +59,7 @@ class VisitImageTestCase(unittest.TestCase):
         cls.projection = make_random_projection(cls.rng, det_frame, Box.factory[1:4096, 1:4096])
         cls.mask_schema = MaskSchema([MaskPlane("M1", "D1")])
         cls.obs_info = ObservationInfo(instrument="LSSTCam", detector_num=4)
-        cls.observation_summary_stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4)
+        cls.summary_stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4)
         cls.gaussian_psf = GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13])
 
         opaque = FitsOpaqueMetadata()
@@ -81,7 +81,7 @@ class VisitImageTestCase(unittest.TestCase):
             mask_schema=cls.mask_schema,
             projection=cls.projection,
             obs_info=cls.obs_info,
-            observation_summary_stats=cls.observation_summary_stats,
+            summary_stats=cls.summary_stats,
         )
         cls.visit_image._opaque_metadata = opaque
         cls.simplest_visit_image = VisitImage(
@@ -117,10 +117,8 @@ class VisitImageTestCase(unittest.TestCase):
         self.assertEqual(visit.image.array[0, 0], 42.0)
         self.assertEqual(copy.image.array[0, 0], 30.0)
         # Check that summary stats survives a slice and a copy.
-        self.assertEqual(copy.observation_summary_stats, visit.observation_summary_stats)
-        self.assertEqual(
-            visit[Box.factory[0:5, 0:5]].observation_summary_stats, visit.observation_summary_stats
-        )
+        self.assertEqual(copy.summary_stats, visit.summary_stats)
+        self.assertEqual(visit[Box.factory[0:5, 0:5]].summary_stats, visit.summary_stats)
 
         with self.assertRaises(TypeError):
             # Requires a PSF.
@@ -232,14 +230,14 @@ class VisitImageTestCase(unittest.TestCase):
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("MASK")])
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("VARIANCE")])
         self.assertEqual(roundtrip.result.obs_info, self.visit_image.obs_info)
-        self.assertIsNotNone(roundtrip.result.observation_summary_stats)
+        self.assertIsNotNone(roundtrip.result.summary_stats)
         self.assertEqual(
-            roundtrip.result.observation_summary_stats.psfSigma,
-            self.visit_image.observation_summary_stats.psfSigma,
+            roundtrip.result.summary_stats.psfSigma,
+            self.visit_image.summary_stats.psfSigma,
         )
         self.assertEqual(
-            roundtrip.result.observation_summary_stats.zeroPoint,
-            self.visit_image.observation_summary_stats.zeroPoint,
+            roundtrip.result.summary_stats.zeroPoint,
+            self.visit_image.summary_stats.zeroPoint,
         )
 
 
