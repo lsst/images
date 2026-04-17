@@ -29,6 +29,7 @@ from ._geom import Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_legacy_visit_image_mask_planes
 from ._masked_image import MaskedImage, MaskedImageSerializationModel
+from ._observation_summary_stats import ObservationSummaryStats
 from ._transforms import DetectorFrame, Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .fits import FitsOpaqueMetadata
 from .psfs import (
@@ -129,11 +130,13 @@ class VisitImage(MaskedImage):
     projection
         Projection that maps the pixel grid to the sky.  Can only be `None` if
         a projection is already attached to ``image``.
+    obs_info
+        General information about this visit in standardized form.
+    summary_stats
+        Optional summary statistics associated with this visit.
     psf
         Point-spread function model for this image, or an exception explaining
         why it could not be read (to be raised if the PSF is requested later).
-    obs_info
-        General information about this visit in standardized form.
     metadata
         Arbitrary flexible metadata to associate with the image.
     """
@@ -147,6 +150,7 @@ class VisitImage(MaskedImage):
         mask_schema: MaskSchema | None = None,
         projection: Projection[DetectorFrame] | None = None,
         obs_info: ObservationInfo | None = None,
+        summary_stats: ObservationSummaryStats | None = None,
         psf: PointSpreadFunction | ArchiveReadError,
         metadata: dict[str, MetadataValue] | None = None,
     ):
@@ -167,6 +171,7 @@ class VisitImage(MaskedImage):
             raise TypeError("The observation info component of a VisitImage cannot be None.")
         if not isinstance(self.image.projection.pixel_frame, DetectorFrame):
             raise TypeError("The projection's pixel frame must be a DetectorFrame for VisitImage.")
+        self._summary_stats = summary_stats
         self._psf = psf
 
     @property
@@ -207,6 +212,13 @@ class VisitImage(MaskedImage):
         return cast(ProjectionAstropyView, super().astropy_wcs)
 
     @property
+    def summary_stats(self) -> ObservationSummaryStats | None:
+        """Optional summary statistics for this observation
+        (`ObservationSummaryStats`).
+        """
+        return self._summary_stats
+
+    @property
     def psf(self) -> PointSpreadFunction:
         """The point-spread function model for this image
         (`.psfs.PointSpreadFunction`).
@@ -227,6 +239,7 @@ class VisitImage(MaskedImage):
                 projection=self.projection,
                 psf=self.psf,
                 obs_info=self.obs_info,
+                summary_stats=self.summary_stats,
             ),
             bbox=bbox,
         )
@@ -246,6 +259,7 @@ class VisitImage(MaskedImage):
                 variance=self._variance.copy(),
                 psf=self._psf,
                 obs_info=self.obs_info,
+                summary_stats=self.summary_stats,
             ),
             copy=True,
         )
@@ -282,6 +296,7 @@ class VisitImage(MaskedImage):
             projection=serialized_projection,
             psf=serialized_psf,
             obs_info=self.obs_info,
+            summary_stats=self.summary_stats,
             metadata=self.metadata,
         )
 
@@ -307,6 +322,7 @@ class VisitImage(MaskedImage):
             psf=psf,
             projection=projection,
             obs_info=model.obs_info,
+            summary_stats=model.summary_stats,
         )._finish_deserialize(model)
 
     @staticmethod
@@ -392,6 +408,7 @@ class VisitImage(MaskedImage):
             raise ValueError("Exposure file does not have a Psf.")
         psf = PointSpreadFunction.from_legacy(legacy_psf, bounds=detector_bbox)
         masked_image = MaskedImage.from_legacy(legacy.getMaskedImage(), unit=unit, plane_map=plane_map)
+        legacy_summary_stats = legacy.info.getSummaryStats()
         result = VisitImage(
             image=masked_image.image.view(unit=unit),
             mask=masked_image.mask,
@@ -399,6 +416,11 @@ class VisitImage(MaskedImage):
             projection=projection,
             psf=psf,
             obs_info=obs_info,
+            summary_stats=(
+                ObservationSummaryStats.from_legacy(legacy_summary_stats)
+                if legacy_summary_stats is not None
+                else None
+            ),
         )
 
         result._opaque_metadata = opaque_fits_metadata
@@ -476,6 +498,14 @@ class VisitImage(MaskedImage):
     def read_legacy(
         filename: str,
         *,
+        component: Literal["summary_stats"],
+    ) -> ObservationSummaryStats: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
         preserve_quantization: bool = False,
         plane_map: Mapping[str, MaskPlane] | None = None,
         instrument: str | None = None,
@@ -491,7 +521,9 @@ class VisitImage(MaskedImage):
         plane_map: Mapping[str, MaskPlane] | None = None,
         instrument: str | None = None,
         visit: int | None = None,
-        component: Literal["bbox", "image", "mask", "variance", "projection", "psf", "obs_info"]
+        component: Literal[
+            "bbox", "image", "mask", "variance", "projection", "psf", "obs_info", "summary_stats"
+        ]
         | None = None,
     ) -> Any:
         """Read a FITS file written by `lsst.afw.image.Exposure.writeFits`.
@@ -534,6 +566,14 @@ class VisitImage(MaskedImage):
             legacy_wcs = reader.readWcs()
             if legacy_wcs is None:
                 raise ValueError(f"Exposure file {filename!r} does not have a SkyWcs.")
+        legacy_exposure_info = reader.readExposureInfo()
+        summary_stats = None
+        if component in (None, "summary_stats"):
+            legacy_stats = legacy_exposure_info.getSummaryStats()
+            if legacy_stats is not None:
+                summary_stats = ObservationSummaryStats.from_legacy(legacy_stats)
+            if component == "summary_stats":
+                return summary_stats
         if component in (None, "psf"):
             legacy_psf = reader.readPsf()
             if legacy_psf is None:
@@ -586,6 +626,7 @@ class VisitImage(MaskedImage):
             projection=projection,
             psf=psf,
             obs_info=obs_info,
+            summary_stats=summary_stats,
         )
         result._opaque_metadata = from_masked_image._opaque_metadata
         return result
@@ -613,6 +654,9 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     )
     obs_info: ObservationInfo = pydantic.Field(
         description="Standardized description of visit metadata",
+    )
+    summary_stats: ObservationSummaryStats | None = pydantic.Field(
+        default=None, description="Optional summary statistics for the observation."
     )
 
     def deserialize_psf(self, archive: InputArchive[Any]) -> PointSpreadFunction | ArchiveReadError:

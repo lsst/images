@@ -28,6 +28,7 @@ from .._geom import Box
 from .._image import Image
 from .._mask import Mask
 from .._masked_image import MaskedImageSerializationModel
+from .._observation_summary_stats import ObservationSummaryStats
 from .._transforms import Projection, ProjectionSerializationModel
 from .._visit_image import VisitImageSerializationModel
 from ..serialization import ButlerInfo, TableCellReferenceModel
@@ -265,4 +266,9 @@ class VisitImageFormatter(MaskedImageFormatter):
         match component:
             case "psf":
                 return tree.deserialize_psf(archive)
+            case "summary_stats":
+                if isinstance(summary_stats := getattr(tree, "summary_stats", None), ObservationSummaryStats):
+                    return summary_stats
+                else:
+                    return ComponentSentinel.INVALID_COMPONENT_MODEL
         return ComponentSentinel.UNRECOGNIZED_COMPONENT

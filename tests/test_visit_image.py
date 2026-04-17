@@ -28,6 +28,7 @@ from lsst.images import (
     Image,
     MaskPlane,
     MaskSchema,
+    ObservationSummaryStats,
     ProjectionAstropyView,
     TractFrame,
     VisitImage,
@@ -58,6 +59,7 @@ class VisitImageTestCase(unittest.TestCase):
         cls.projection = make_random_projection(cls.rng, det_frame, Box.factory[1:4096, 1:4096])
         cls.mask_schema = MaskSchema([MaskPlane("M1", "D1")])
         cls.obs_info = ObservationInfo(instrument="LSSTCam", detector_num=4)
+        cls.summary_stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4)
         cls.gaussian_psf = GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13])
 
         opaque = FitsOpaqueMetadata()
@@ -79,6 +81,7 @@ class VisitImageTestCase(unittest.TestCase):
             mask_schema=cls.mask_schema,
             projection=cls.projection,
             obs_info=cls.obs_info,
+            summary_stats=cls.summary_stats,
         )
         cls.visit_image._opaque_metadata = opaque
         cls.simplest_visit_image = VisitImage(
@@ -113,6 +116,9 @@ class VisitImageTestCase(unittest.TestCase):
         copy.image.array[0, 0] = 30.0
         self.assertEqual(visit.image.array[0, 0], 42.0)
         self.assertEqual(copy.image.array[0, 0], 30.0)
+        # Check that summary stats survives a slice and a copy.
+        self.assertEqual(copy.summary_stats, visit.summary_stats)
+        self.assertEqual(visit[Box.factory[0:5, 0:5]].summary_stats, visit.summary_stats)
 
         with self.assertRaises(TypeError):
             # Requires a PSF.
@@ -224,6 +230,15 @@ class VisitImageTestCase(unittest.TestCase):
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("MASK")])
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("VARIANCE")])
         self.assertEqual(roundtrip.result.obs_info, self.visit_image.obs_info)
+        self.assertIsNotNone(roundtrip.result.summary_stats)
+        self.assertEqual(
+            roundtrip.result.summary_stats.psfSigma,
+            self.visit_image.summary_stats.psfSigma,
+        )
+        self.assertEqual(
+            roundtrip.result.summary_stats.zeroPoint,
+            self.visit_image.summary_stats.zeroPoint,
+        )
 
 
 @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
@@ -286,6 +301,9 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         self.assertEqual(obs_info.detector_num, 85, obs_info)
         self.assertEqual(obs_info.detector_unique_name, "R21_S11", obs_info)
         self.assertEqual(obs_info.physical_filter, "r_57", obs_info)
+        summary_stats = VisitImage.read_legacy(self.filename, component="summary_stats")
+        self.assertIsInstance(summary_stats, ObservationSummaryStats)
+        self.assertEqual(summary_stats.nPsfStar, 89)
 
     def test_obs_info(self) -> None:
         """Check that ObservationInfo has been constructed."""
@@ -355,7 +373,7 @@ class VisitImageLegacyTestCase(unittest.TestCase):
                 self.assertEqual(roundtrip.get("bbox"), self.visit_image.bbox)
                 alternates = {
                     k: roundtrip.get(k)
-                    for k in ["projection", "image", "mask", "variance", "psf", "obs_info"]
+                    for k in ["projection", "image", "mask", "variance", "psf", "obs_info", "summary_stats"]
                 }
             # Try to do a butler get of a component with storage class
             # override.

@@ -1,0 +1,2 @@
+Added ``ObservationSummaryStats`` as an class analogous to the legacy ``afw`` ``ExposureSummaryStats`` class.
+This class is attached to the ``VisitImage.summary_stats`` property.
