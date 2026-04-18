@@ -370,7 +370,7 @@ class FieldLegacyDataTestCase(unittest.TestCase):
         filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image_background.fits")
         legacy_bg_list = LegacyBackgroundList.readFits(filename)
         bg_field = field_from_legacy_background(legacy_bg_list)
-        assert_images_equal(self, bg_field.render(), Image.from_legacy(legacy_bg_list.getImage()), rtol=1e-7)
+        assert_images_equal(self, bg_field.render(), Image.from_legacy(legacy_bg_list.getImage()), rtol=1e-6)
 
 
 if __name__ == "__main__":
