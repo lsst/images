@@ -275,17 +275,16 @@ class VisitImageLegacyTestCase(unittest.TestCase):
     def setUpClass(cls) -> None:
         assert DATA_DIR is not None, "Guaranteed by decorator."
         cls.filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
-        cls.plane_map = plane_map = get_legacy_visit_image_mask_planes()
-        cls.visit_image = VisitImage.read_legacy(
-            cls.filename, preserve_quantization=True, plane_map=plane_map
-        )
-        cls.legacy_exposure: Any = None
         try:
             from lsst.afw.image import ExposureFitsReader
 
             cls.legacy_exposure = ExposureFitsReader(cls.filename).read()
         except ImportError:
-            pass
+            raise unittest.SkipTest("afw not available; cannot read legacy visit images") from None
+        cls.plane_map = plane_map = get_legacy_visit_image_mask_planes()
+        cls.visit_image = VisitImage.read_legacy(
+            cls.filename, preserve_quantization=True, plane_map=plane_map
+        )
 
     def test_legacy_errors(self) -> None:
         """Legacy read failure modes."""
@@ -433,27 +432,24 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("MASK")])
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("VARIANCE")])
         self.assertEqual(roundtrip.result._opaque_metadata.headers[ExtensionKey()]["PLATFORM"], "lsstcam")
-        with self.subTest():
-            if self.legacy_exposure is None:
-                raise unittest.SkipTest("'lsst.afw.image' could not be imported.") from None
-            compare_visit_image_to_legacy(
-                self,
-                roundtrip.result,
-                self.legacy_exposure,
-                expect_view=False,
-                plane_map=self.plane_map,
-                **DP2_VISIT_DETECTOR_DATA_ID,
-                alternates=alternates,
-            )
-            # Check converting from the legacy object in-memory.
-            compare_visit_image_to_legacy(
-                self,
-                VisitImage.from_legacy(self.legacy_exposure, plane_map=self.plane_map),
-                self.legacy_exposure,
-                expect_view=True,
-                plane_map=self.plane_map,
-                **DP2_VISIT_DETECTOR_DATA_ID,
-            )
+        compare_visit_image_to_legacy(
+            self,
+            roundtrip.result,
+            self.legacy_exposure,
+            expect_view=False,
+            plane_map=self.plane_map,
+            **DP2_VISIT_DETECTOR_DATA_ID,
+            alternates=alternates,
+        )
+        # Check converting from the legacy object in-memory.
+        compare_visit_image_to_legacy(
+            self,
+            VisitImage.from_legacy(self.legacy_exposure, plane_map=self.plane_map),
+            self.legacy_exposure,
+            expect_view=True,
+            plane_map=self.plane_map,
+            **DP2_VISIT_DETECTOR_DATA_ID,
+        )
 
     def test_butler_converters(self) -> None:
         """Test that we can read a VisitImage and its components from a butler
