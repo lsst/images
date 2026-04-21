@@ -132,7 +132,8 @@ class VisitImage(MaskedImage):
     obs_info
         General information about this visit in standardized form.
     summary_stats
-        Optional summary statistics associated with this visit.
+        Summary statistics associated with this visit.  Initialized to default
+        values if not provided.
     psf
         Point-spread function model for this image, or an exception explaining
         why it could not be read (to be raised if the PSF is requested later).
@@ -170,6 +171,8 @@ class VisitImage(MaskedImage):
             raise TypeError("The observation info component of a VisitImage cannot be None.")
         if not isinstance(self.image.projection.pixel_frame, DetectorFrame):
             raise TypeError("The projection's pixel frame must be a DetectorFrame for VisitImage.")
+        if summary_stats is None:
+            summary_stats = ObservationSummaryStats()
         self._summary_stats = summary_stats
         self._psf = psf
 
@@ -211,7 +214,7 @@ class VisitImage(MaskedImage):
         return cast(ProjectionAstropyView, super().astropy_wcs)
 
     @property
-    def summary_stats(self) -> ObservationSummaryStats | None:
+    def summary_stats(self) -> ObservationSummaryStats:
         """Optional summary statistics for this observation
         (`ObservationSummaryStats`).
         """
@@ -258,7 +261,7 @@ class VisitImage(MaskedImage):
                 variance=self._variance.copy(),
                 psf=self._psf,
                 obs_info=self.obs_info,
-                summary_stats=(self.summary_stats.model_copy() if self.summary_stats is not None else None),
+                summary_stats=self.summary_stats.model_copy(),
             ),
             copy=True,
         )
@@ -646,8 +649,8 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     obs_info: ObservationInfo = pydantic.Field(
         description="Standardized description of visit metadata",
     )
-    summary_stats: ObservationSummaryStats | None = pydantic.Field(
-        default=None, description="Optional summary statistics for the observation."
+    summary_stats: ObservationSummaryStats = pydantic.Field(
+        description="Summary statistics for the observation."
     )
 
     def deserialize_psf(self, archive: InputArchive[Any]) -> PointSpreadFunction | ArchiveReadError:
