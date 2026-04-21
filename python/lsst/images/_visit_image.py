@@ -607,9 +607,9 @@ class VisitImage(MaskedImage):
                 component=component,
             )
         if component is not None:
-            # This is the image, mask, or variance; attach the projection
-            # and return
-            return from_masked_image.view(projection=projection)
+            # This is the image, mask, or variance; attach the projection and
+            # obs_info and return
+            return from_masked_image.view(projection=projection, obs_info=obs_info)
         result = VisitImage(
             from_masked_image.image,
             mask=from_masked_image.mask,

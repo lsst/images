@@ -289,24 +289,33 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         assert_projections_equal(self, proj, visit.projection, expect_identity=False)
         image = VisitImage.read_legacy(self.filename, component="image")
         self.assertEqual(image, visit.image)
+        self.check_legacy_obs_info(image.obs_info)
         assert_projections_equal(self, proj, image.projection, expect_identity=False)
         variance = VisitImage.read_legacy(self.filename, component="variance")
         self.assertEqual(variance, visit.variance)
         assert_projections_equal(self, proj, variance.projection, expect_identity=False)
+        self.check_legacy_obs_info(variance.obs_info)
         mask = VisitImage.read_legacy(self.filename, component="mask")
         self.assertEqual(mask, visit.mask)
         assert_projections_equal(self, proj, mask.projection, expect_identity=False)
+        self.check_legacy_obs_info(mask.obs_info)
         psf = VisitImage.read_legacy(self.filename, component="psf")
         self.assertIsInstance(psf, PointSpreadFunction)
         obs_info = VisitImage.read_legacy(self.filename, component="obs_info")
+        self.check_legacy_obs_info(obs_info)
+        summary_stats = VisitImage.read_legacy(self.filename, component="summary_stats")
+        self.assertIsInstance(summary_stats, ObservationSummaryStats)
+        self.assertEqual(summary_stats.nPsfStar, 93)
+
+    def check_legacy_obs_info(self, obs_info: ObservationInfo | None) -> None:
+        """Check that an `ObservationInfo` instance is not `None`, and that it
+        matches the one in the legacy test data file.
+        """
         self.assertIsInstance(obs_info, ObservationInfo)
         self.assertEqual(obs_info.instrument, "LSSTCam")
         self.assertEqual(obs_info.detector_num, 85, obs_info)
         self.assertEqual(obs_info.detector_unique_name, "R21_S11", obs_info)
         self.assertEqual(obs_info.physical_filter, "r_57", obs_info)
-        summary_stats = VisitImage.read_legacy(self.filename, component="summary_stats")
-        self.assertIsInstance(summary_stats, ObservationSummaryStats)
-        self.assertEqual(summary_stats.nPsfStar, 93)
 
     def test_obs_info(self) -> None:
         """Check that ObservationInfo has been constructed."""
