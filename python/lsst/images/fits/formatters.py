@@ -267,4 +267,6 @@ class VisitImageFormatter(MaskedImageFormatter):
                 return tree.deserialize_psf(archive)
             case "summary_stats":
                 return tree.summary_stats
+            case "aperture_corrections":
+                return tree.aperture_corrections.deserialize(archive)
         return ComponentSentinel.UNRECOGNIZED_COMPONENT

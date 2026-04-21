@@ -25,6 +25,7 @@ API Reference
    core-api.rst
    psfs.rst
    fields.rst
+   aperture_corrections.rst
    serialization.rst
    fits.rst
    tests.rst

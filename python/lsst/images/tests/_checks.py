@@ -21,6 +21,7 @@ __all__ = (
     "check_astropy_wcs_interface",
     "check_projection",
     "check_transform",
+    "compare_aperture_corrections_to_legacy",
     "compare_field_to_legacy",
     "compare_image_to_legacy",
     "compare_mask_to_legacy",
@@ -51,6 +52,7 @@ from .._masked_image import MaskedImage
 from .._observation_summary_stats import ObservationSummaryStats
 from .._transforms import DetectorFrame, Frame, Projection, SkyFrame, Transform
 from .._visit_image import VisitImage
+from ..aperture_corrections import ApertureCorrectionMap
 from ..fields import BaseField
 from ..psfs import PointSpreadFunction
 
@@ -255,6 +257,9 @@ def compare_visit_image_to_legacy(
     compare_observation_summary_stats_to_legacy(
         tc, visit_image.summary_stats, legacy_exposure.info.getSummaryStats()
     )
+    compare_aperture_corrections_to_legacy(
+        tc, visit_image.aperture_corrections, legacy_exposure.info.getApCorrMap(), detector_bbox
+    )
     if alternates:
         if projection := alternates.get("projection"):
             compare_projection_to_legacy_wcs(
@@ -273,6 +278,10 @@ def compare_visit_image_to_legacy(
         if obs_info := alternates.get("obs_info"):
             visitInfo = legacy_exposure.visitInfo
             tc.assertEqual(obs_info.instrument, visitInfo.getInstrumentLabel())
+        if aperture_corrections := alternates.get("aperture_corrections"):
+            compare_aperture_corrections_to_legacy(
+                tc, aperture_corrections, legacy_exposure.info.getApCorrMap(), detector_bbox
+            )
 
 
 def compare_psf_to_legacy(
@@ -349,6 +358,31 @@ def compare_field_to_legacy(
     legacy_image_1 = Image(0, bbox=subimage_bbox, dtype=np.float64).to_legacy()
     legacy_field.addToImage(legacy_image_1, overlapOnly=True)
     assert_images_equal(tc, field.render(subimage_bbox), Image.from_legacy(legacy_image_1), rtol=1e-13)
+
+
+def compare_aperture_corrections_to_legacy(
+    tc: unittest.TestCase,
+    aperture_corrections: ApertureCorrectionMap,
+    legacy_ap_corr_map: Any,
+    subimage_bbox: Box,
+) -> None:
+    """Test an aperture correction `dict` by comparing it to an equivalent
+    `lsst.afw.image.ApCorrMap`.
+
+    Parameters
+    ----------
+    tc
+        Test case object with assert methods to use.
+    aperture_corrections
+        Dictionary to test.
+    legacy_ap_corr_map : ``lsst.afw.image.ApCorrMap``
+        Equivalent legacy aperture correction map.
+    subimage_bbox
+        Bounding box for full-image tests.
+    """
+    tc.assertEqual(aperture_corrections.keys(), set(legacy_ap_corr_map.keys()))
+    for name, field in aperture_corrections.items():
+        compare_field_to_legacy(tc, field, legacy_ap_corr_map[name], subimage_bbox)
 
 
 def compare_observation_summary_stats_to_legacy(

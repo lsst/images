@@ -34,6 +34,8 @@ from lsst.images import (
     VisitImage,
     get_legacy_visit_image_mask_planes,
 )
+from lsst.images.aperture_corrections import ApertureCorrectionMap, aperture_corrections_to_legacy
+from lsst.images.fields import ChebyshevField
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
 from lsst.images.psfs import GaussianPointSpreadFunction, PointSpreadFunction
 from lsst.images.tests import (
@@ -42,6 +44,7 @@ from lsst.images.tests import (
     TemporaryButler,
     assert_masked_images_equal,
     assert_projections_equal,
+    compare_aperture_corrections_to_legacy,
     compare_visit_image_to_legacy,
     make_random_projection,
 )
@@ -61,6 +64,10 @@ class VisitImageTestCase(unittest.TestCase):
         cls.obs_info = ObservationInfo(instrument="LSSTCam", detector_num=4)
         cls.summary_stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4)
         cls.gaussian_psf = GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13])
+        cls.aperture_corrections: ApertureCorrectionMap = {
+            "flux1": ChebyshevField(det_frame.bbox, np.array([0.75])),
+            "flux2": ChebyshevField(det_frame.bbox, np.array([0.625])),
+        }
 
         opaque = FitsOpaqueMetadata()
         hdr = astropy.io.fits.Header()
@@ -82,6 +89,7 @@ class VisitImageTestCase(unittest.TestCase):
             projection=cls.projection,
             obs_info=cls.obs_info,
             summary_stats=cls.summary_stats,
+            aperture_corrections=cls.aperture_corrections,
         )
         cls.visit_image._opaque_metadata = opaque
         cls.simplest_visit_image = VisitImage(
@@ -194,6 +202,11 @@ class VisitImageTestCase(unittest.TestCase):
         self.assertIsNot(copy.summary_stats, visit.summary_stats)
         self.assertEqual(subvisit.summary_stats, visit.summary_stats)
         self.assertIs(subvisit.summary_stats, visit.summary_stats)
+        # Check aperture corrections.
+        self.assertEqual(copy.aperture_corrections.keys(), visit.aperture_corrections.keys())
+        self.assertIsNot(copy.aperture_corrections, visit.aperture_corrections)
+        self.assertEqual(subvisit.aperture_corrections.keys(), visit.aperture_corrections.keys())
+        self.assertIs(subvisit.aperture_corrections, visit.aperture_corrections)
 
     def test_obs_info(self) -> None:
         """Check that ObservationInfo has been constructed."""
@@ -328,6 +341,12 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         summary_stats = VisitImage.read_legacy(self.filename, component="summary_stats")
         self.assertIsInstance(summary_stats, ObservationSummaryStats)
         self.assertEqual(summary_stats.nPsfStar, 93)
+        compare_aperture_corrections_to_legacy(
+            self,
+            VisitImage.read_legacy(self.filename, component="aperture_corrections"),
+            self.legacy_exposure.info.getApCorrMap(),
+            visit.bbox,
+        )
 
     def check_legacy_obs_info(self, obs_info: ObservationInfo | None) -> None:
         """Check that an `ObservationInfo` instance is not `None`, and that it
@@ -350,6 +369,15 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         self.assertEqual(legacy.obs_info.detector_num, 85, legacy.obs_info)
         self.assertEqual(legacy.obs_info.detector_unique_name, "R21_S11", legacy.obs_info)
         self.assertEqual(legacy.obs_info.physical_filter, "r_57", legacy.obs_info)
+
+    def test_aperture_corrections_to_legacy(self) -> None:
+        """Test that we can convert an aperture correction map back to a
+        legacy `lsst.afw.image.ApCorrMap`.
+        """
+        legacy_ap_corr_map = aperture_corrections_to_legacy(self.visit_image.aperture_corrections)
+        compare_aperture_corrections_to_legacy(
+            self, self.visit_image.aperture_corrections, legacy_ap_corr_map, self.visit_image.bbox
+        )
 
     def test_read_legacy_headers(self) -> None:
         """Test that headers were correctly stripped and interpreted in
@@ -407,7 +435,16 @@ class VisitImageLegacyTestCase(unittest.TestCase):
                 self.assertEqual(roundtrip.get("bbox"), self.visit_image.bbox)
                 alternates = {
                     k: roundtrip.get(k)
-                    for k in ["projection", "image", "mask", "variance", "psf", "obs_info", "summary_stats"]
+                    for k in [
+                        "projection",
+                        "image",
+                        "mask",
+                        "variance",
+                        "psf",
+                        "obs_info",
+                        "summary_stats",
+                        "aperture_corrections",
+                    ]
                 }
             # Try to do a butler get of a component with storage class
             # override.
