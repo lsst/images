@@ -233,6 +233,14 @@ class VisitImageTestCase(unittest.TestCase):
                 obs_info = roundtrip.get("obs_info")
                 self.assertIsInstance(obs_info, ObservationInfo)
                 self.assertEqual(obs_info, self.visit_image.obs_info)
+            with self.subTest():
+                summary_stats = roundtrip.get("summary_stats")
+                self.assertIsInstance(summary_stats, ObservationSummaryStats)
+                self.assertEqual(summary_stats, self.visit_image.summary_stats)
+            with self.subTest():
+                psf = roundtrip.get("psf")
+                self.assertIsInstance(psf, GaussianPointSpreadFunction)
+                self.assertEqual(psf.kernel_bbox, self.gaussian_psf.kernel_bbox)
 
         assert_masked_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
         # Check that the round-tripped headers are the same (up to card order).
