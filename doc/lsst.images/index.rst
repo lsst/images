@@ -16,8 +16,8 @@ Changes
 
    CHANGES.rst
 
-Design and Development
-======================
+API Reference
+=============
 
 .. toctree::
    :maxdepth: 1
