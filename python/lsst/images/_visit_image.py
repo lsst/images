@@ -258,7 +258,7 @@ class VisitImage(MaskedImage):
                 variance=self._variance.copy(),
                 psf=self._psf,
                 obs_info=self.obs_info,
-                summary_stats=self.summary_stats,
+                summary_stats=(self.summary_stats.model_copy() if self.summary_stats is not None else None),
             ),
             copy=True,
         )

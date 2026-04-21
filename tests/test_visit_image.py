@@ -73,7 +73,7 @@ class VisitImageTestCase(unittest.TestCase):
         cls.image = Image(42, shape=(1024, 1024), unit=u.nJy)
         cls.variance = Image(5.0, shape=(1024, 1024), unit=u.nJy * u.nJy)
         # API signature suggests projection and obs_info can be None but they
-        # are required.
+        # are required (unless you pass them in via the image plane).
         cls.visit_image = VisitImage(
             cls.image,
             variance=cls.variance,
@@ -110,15 +110,6 @@ class VisitImageTestCase(unittest.TestCase):
         self.assertIsInstance(astropy_wcs, ProjectionAstropyView)
         approx_wcs = visit.fits_wcs
         self.assertIsInstance(approx_wcs, astropy.wcs.WCS)
-
-        # Check that it is a deep copy.
-        copy = visit.copy()
-        copy.image.array[0, 0] = 30.0
-        self.assertEqual(visit.image.array[0, 0], 42.0)
-        self.assertEqual(copy.image.array[0, 0], 30.0)
-        # Check that summary stats survives a slice and a copy.
-        self.assertEqual(copy.summary_stats, visit.summary_stats)
-        self.assertEqual(visit[Box.factory[0:5, 0:5]].summary_stats, visit.summary_stats)
 
         with self.assertRaises(TypeError):
             # Requires a PSF.
@@ -187,6 +178,22 @@ class VisitImageTestCase(unittest.TestCase):
                 projection=self.projection,
                 obs_info=self.obs_info,
             )
+
+    def test_copy_and_slice(self) -> None:
+        """Test that arrays and components are copied (when not immutable) by
+        'copy' and referenced by 'slice'.
+        """
+        visit = self.visit_image
+        copy = visit.copy()
+        copy.image.array[0, 0] = 30.0
+        self.assertEqual(visit.image.array[0, 0], 42.0)
+        self.assertEqual(copy.image.array[0, 0], 30.0)
+        subvisit = visit[Box.factory[0:5, 0:5]]
+        # Check summary stats.
+        self.assertEqual(copy.summary_stats, visit.summary_stats)
+        self.assertIsNot(copy.summary_stats, visit.summary_stats)
+        self.assertEqual(subvisit.summary_stats, visit.summary_stats)
+        self.assertIs(subvisit.summary_stats, visit.summary_stats)
 
     def test_obs_info(self) -> None:
         """Check that ObservationInfo has been constructured."""
