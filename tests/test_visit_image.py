@@ -196,7 +196,7 @@ class VisitImageTestCase(unittest.TestCase):
         self.assertIs(subvisit.summary_stats, visit.summary_stats)
 
     def test_obs_info(self) -> None:
-        """Check that ObservationInfo has been constructured."""
+        """Check that ObservationInfo has been constructed."""
         visit = self.visit_image
         self.assertIsNotNone(visit.obs_info)
         self.maxDiff = None
