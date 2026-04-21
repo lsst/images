@@ -221,6 +221,20 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
         ),
     )
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ObservationSummaryStats):
+            return NotImplemented
+        for name in self.model_fields:
+            a = getattr(self, name)
+            b = getattr(other, name)
+            if isinstance(a, tuple) and isinstance(b, tuple):
+                for ai, bi in zip(a, b):
+                    if ai != bi and not (math.isnan(ai) and math.isnan(bi)):
+                        return False
+            elif a != b and not (math.isnan(a) and math.isnan(b)):
+                return False
+        return True
+
     @classmethod
     def from_legacy(cls, exposure_summary_stats: Any) -> Self:
         """Return an `ObservationSummaryStats` from a legacy

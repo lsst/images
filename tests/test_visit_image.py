@@ -203,6 +203,14 @@ class VisitImageTestCase(unittest.TestCase):
         assert visit.obs_info is not None  # for mypy.
         self.assertEqual(visit.obs_info.instrument, "LSSTCam")
 
+    def test_summary_stats(self) -> None:
+        """Test the comparisons and attributes of ObservationSummaryStats."""
+        self.assertEqual(self.summary_stats, ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4))
+        self.assertNotEqual(self.summary_stats, ObservationSummaryStats(psfSigma=2.5))
+        self.assertNotEqual(
+            self.summary_stats, ObservationSummaryStats(psfSigma=2.5, raCorners=(5.2, 5.4, 5.4, 5.2))
+        )
+
     def test_read_write(self) -> None:
         """Test that a visit can round trip through a FITS file."""
         with RoundtripFits(self, self.visit_image, "VisitImage") as roundtrip:
