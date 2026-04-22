@@ -303,7 +303,7 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         self.assertEqual(obs_info.physical_filter, "r_57", obs_info)
         summary_stats = VisitImage.read_legacy(self.filename, component="summary_stats")
         self.assertIsInstance(summary_stats, ObservationSummaryStats)
-        self.assertEqual(summary_stats.nPsfStar, 89)
+        self.assertEqual(summary_stats.nPsfStar, 93)
 
     def test_obs_info(self) -> None:
         """Check that ObservationInfo has been constructed."""

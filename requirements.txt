@@ -6,3 +6,4 @@ lsst-resources[https,s3] @ git+https://github.com/lsst/resources@main
 lsst-daf-butler @ git+https://github.com/lsst/daf_butler@main
 astro-metadata-translator @ git+https://github.com/lsst/astro_metadata_translator@main
 starlink-pyast >= 4.0.0
+scipy >= 1.13

@@ -20,6 +20,7 @@ __all__ = (
     "BoxSliceFactory",
     "Interval",
     "IntervalSliceFactory",
+    "NoOverlapError",
 )
 
 import math
@@ -287,6 +288,12 @@ class Interval:
         """The center of the interval (`float`)."""
         return 0.5 * (self.min + self.max)
 
+    def padded(self, padding: int) -> Interval:
+        """Return a new interval expanded by the given padding on
+        either side.
+        """
+        return Interval(self.start - padding, self.stop + padding)
+
     def __str__(self) -> str:
         return f"{self.start}:{self.stop}"
 
@@ -344,16 +351,17 @@ class Interval:
                 return bool(result)
             return result
 
-    def intersection(self, other: Interval) -> Interval | None:
+    def intersection(self, other: Interval) -> Interval:
         """Return an interval that is contained by both ``self`` and ``other``.
 
-        When there is no overlap between the intervals, `None` is returned.
+        When there is no overlap between the intervals, `NoOverlapError` is
+        raised.
         """
         new_start = max(self.start, other.start)
         new_stop = min(self.stop, other.stop)
         if new_start < new_stop:
             return Interval(start=new_start, stop=new_stop)
-        return None
+        raise NoOverlapError(f"No overlap between {self} and {other}.")
 
     def dilated_by(self, padding: int) -> Interval:
         """Return a new interval padded by the given amount on both sides."""
@@ -639,6 +647,12 @@ class Box:
                 raise ValueError(f"Unexpected values for n ({n})")
         return XY(*np.meshgrid(ax, ay))
 
+    def padded(self, padding: int) -> Box:
+        """Return a new box expanded by the given padding on
+        all sides.
+        """
+        return Box(y=self.y.padded(padding), x=self.x.padded(padding))
+
     def __eq__(self, other: object) -> bool:
         if type(other) is Box:
             return self._intervals == other._intervals
@@ -707,17 +721,21 @@ class Box:
                 return bool(result)
             return result
 
-    def intersection(self, other: Box) -> Box | None:
-        """Return a box that is contained by both ``self`` and ``other``.
+    @overload
+    def intersection(self, other: Box) -> Box: ...
 
-        When there is no overlap between the boxes, `None` is returned.
+    @overload
+    def intersection(self, other: Bounds) -> Bounds: ...
+
+    def intersection(self, other: Bounds) -> Bounds:
+        """Return a bounds object that is contained by both ``self`` and
+        ``other``.
+
+        When there is no overlap, `NoOverlapError` is raised.
         """
-        intervals = []
-        for a, b in zip(self._intervals, other._intervals, strict=True):
-            if (r := a.intersection(b)) is None:
-                return None
-            intervals.append(r)
-        return Box(*intervals)
+        from ._concrete_bounds import _intersect_box
+
+        return _intersect_box(self, other)
 
     def dilated_by(self, padding: int) -> Box:
         """Return a new box padded by the given amount on all sides."""
@@ -731,6 +749,14 @@ class Box:
         This assumes ``other.contains(self)``.
         """
         return YX(self.y.slice_within(other.y), self.x.slice_within(other.x))
+
+    @property
+    def bbox(self) -> Box:
+        """The box itself (`Box`).
+
+        This is provided for compatibility with the `Bounds` interface.
+        """
+        return self
 
     def boundary(self) -> Iterator[YX[int]]:
         """Iterate over the corners of the box as ``(y, x)`` tuples."""
@@ -865,6 +891,9 @@ class Bounds(Protocol):
     intended to handle both of these cases as well.
     """
 
+    @property
+    def bbox(self) -> Box: ...
+
     def boundary(self) -> Iterator[YX[int]]:
         """Iterate over points on the boundary as ``(y, x)`` tuples."""
         ...
@@ -896,6 +925,10 @@ class Bounds(Protocol):
         """
         ...
 
+    def intersection(self, bounds: Bounds) -> Bounds:
+        """Compute the intersection of this bounds object with another."""
+        ...
+
     def serialize(self) -> SerializableBounds:
         """Convert a bounds instance into a serializable object."""
         ...
@@ -910,3 +943,7 @@ class Bounds(Protocol):
 
 class BoundsError(ValueError):
     """Exception raised when an object is evaluated outside its bounds."""
+
+
+class NoOverlapError(ValueError):
+    """Exception raised when intervals or bounds do not overlap."""

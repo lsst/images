@@ -47,7 +47,6 @@ def extract_visit_image(
     output_path: str,
     dataset_ref: DatasetRef,
     shuffle: bool,
-    wcs_dataset_ref: DatasetRef | None = None,
 ) -> None:
     """Load a subimage of a processed visit image from a butler repository
     and save it to testdata_images.
@@ -60,10 +59,6 @@ def extract_visit_image(
         visit_image.image.array[:, :] = visit_image.image.array.flat[indices].reshape(250, 256)
         visit_image.mask.array[:, :] = visit_image.mask.array.flat[indices].reshape(250, 256)
         visit_image.variance.array[:, :] = visit_image.variance.array.flat[indices].reshape(250, 256)
-    if wcs_dataset_ref is not None:
-        visit_summary = butler.get(wcs_dataset_ref)
-        visit_summary_row = visit_summary.find(dataset_ref.dataId["detector"])
-        visit_image.setWcs(visit_summary_row.getWcs())
     float_compression = CompressionOptions(
         algorithm=CompressionAlgorithm.RICE_1,
         tile_height=50,
@@ -88,6 +83,18 @@ def extract_visit_image(
         maskOptions=mask_compression,
         varianceOptions=float_compression,
     )
+
+
+def extract_visit_image_background(
+    butler: Butler,
+    output_path: str,
+    dataset_ref: DatasetRef,
+) -> None:
+    """Load the background model of a processed visit image from a butler
+    repository and save it to testdata_images.
+    """
+    visit_image_background = butler.get(dataset_ref)
+    visit_image_background.writeFits(output_path)
 
 
 def extract_camera(butler: Butler, output_path: str, dataset_ref: DatasetRef) -> None:
@@ -116,17 +123,10 @@ def extract_test_data() -> None:
 @click.option(
     "-c",
     "--collection",
-    default="LSSTCam/runs/DRP/20250515-20251214/v30_0_0_rc2/DM-53697",
+    default="LSSTCam/runs/DRP/DP2/v30_0_0/DM-53881/stage4",
     help="Collection to use for most data products.",
 )
-@click.option(
-    "--wcs-collection",
-    default="LSSTCam/runs/DRP/v30_0_0/DM-53877",
-    help="Collection to search for visit_summary datasets used to update the WCS.",
-)
-def extract_dp2(
-    butler_repo: str | None, testdata_dir: str | None, collection: str, wcs_collection: str
-) -> None:
+def extract_dp2(butler_repo: str | None, testdata_dir: str | None, collection: str) -> None:
     """Extract test data from a butler repository."""
     if butler_repo is None:
         butler_repo = "dp2_prep"
@@ -143,9 +143,16 @@ def extract_dp2(
         ),
         find_dataset_or_raise(butler, "visit_image", **DP2_VISIT_DETECTOR_DATA_ID),
         shuffle=True,
-        wcs_dataset_ref=find_dataset_or_raise(
-            butler, "visit_summary", **DP2_VISIT_DETECTOR_DATA_ID, collections=wcs_collection
+    )
+    extract_visit_image_background(
+        butler,
+        os.path.join(
+            testdata_dir,
+            "dp2",
+            "legacy",
+            "visit_image_background.fits",
         ),
+        find_dataset_or_raise(butler, "visit_image_background", **DP2_VISIT_DETECTOR_DATA_ID),
     )
     extract_visit_image(
         butler,
@@ -157,6 +164,16 @@ def extract_dp2(
         ),
         find_dataset_or_raise(butler, "preliminary_visit_image", **DP2_VISIT_DETECTOR_DATA_ID),
         shuffle=True,
+    )
+    extract_visit_image_background(
+        butler,
+        os.path.join(
+            testdata_dir,
+            "dp2",
+            "legacy",
+            "preliminary_visit_image_background.fits",
+        ),
+        find_dataset_or_raise(butler, "preliminary_visit_image_background", **DP2_VISIT_DETECTOR_DATA_ID),
     )
     extract_camera(
         butler,
