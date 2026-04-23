@@ -13,7 +13,6 @@ from __future__ import annotations
 
 __all__ = ("VisitImage", "VisitImageSerializationModel")
 
-import functools
 import warnings
 from collections.abc import Callable, Mapping, MutableMapping
 from types import EllipsisType
@@ -265,16 +264,7 @@ class VisitImage(MaskedImage):
         )
 
     def serialize(self, archive: OutputArchive[Any]) -> VisitImageSerializationModel:
-        serialized_image = archive.serialize_direct(
-            "image", functools.partial(self.image.serialize, save_projection=False)
-        )
-        serialized_mask = archive.serialize_direct(
-            "mask", functools.partial(self.mask.serialize, save_projection=False)
-        )
-        serialized_variance = archive.serialize_direct(
-            "variance", functools.partial(self.variance.serialize, save_projection=False)
-        )
-        serialized_projection = archive.serialize_direct("projection", self.projection.serialize)
+        masked_image_model = super().serialize(archive)
         serialized_psf: PiffSerializationModel | PSFExSerializationModel | GaussianPSFSerializationModel
         match self._psf:
             # MyPy is able to figure things out here with this match statement,
@@ -289,13 +279,15 @@ class VisitImage(MaskedImage):
                 raise TypeError(
                     f"Cannot serialize VisitImage with unrecognized PSF type {type(self._psf).__name__}."
                 )
+        assert masked_image_model.projection is not None, "VisitImage always has a projection."
+        assert masked_image_model.obs_info is not None, "VisitImage always has observation info."
         return VisitImageSerializationModel(
-            image=serialized_image,
-            mask=serialized_mask,
-            variance=serialized_variance,
-            projection=serialized_projection,
+            image=masked_image_model.image,
+            mask=masked_image_model.mask,
+            variance=masked_image_model.variance,
+            projection=masked_image_model.projection,
+            obs_info=masked_image_model.obs_info,
             psf=serialized_psf,
-            obs_info=self.obs_info,
             summary_stats=self.summary_stats,
             metadata=self.metadata,
         )
@@ -314,14 +306,13 @@ class VisitImage(MaskedImage):
     ) -> VisitImage:
         masked_image = MaskedImage.deserialize(model, archive, bbox=bbox)
         psf = model.deserialize_psf(archive)
-        projection = Projection.deserialize(model.projection, archive)
         return VisitImage(
             masked_image.image,
             mask=masked_image.mask,
             variance=masked_image.variance,
             psf=psf,
-            projection=projection,
-            obs_info=model.obs_info,
+            projection=masked_image.projection,
+            obs_info=masked_image.obs_info,
             summary_stats=model.summary_stats,
         )._finish_deserialize(model)
 

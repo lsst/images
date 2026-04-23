@@ -97,7 +97,7 @@ class MaskedImage(GeneralizedImage):
         else:
             if image.bbox != mask.bbox:
                 raise ValueError(f"Image ({image.bbox}) and mask ({mask.bbox}) bboxes do not agree.")
-            mask = mask.view(projection=projection)
+            mask = mask.view(projection=projection, obs_info=obs_info)
         if variance is None:
             variance = Image(
                 1.0,
@@ -204,13 +204,13 @@ class MaskedImage(GeneralizedImage):
             Archive to write to.
         """
         serialized_image = archive.serialize_direct(
-            "image", functools.partial(self.image.serialize, save_projection=False)
+            "image", functools.partial(self.image.serialize, save_projection=False, save_obs_info=False)
         )
         serialized_mask = archive.serialize_direct(
-            "mask", functools.partial(self.mask.serialize, save_projection=False)
+            "mask", functools.partial(self.mask.serialize, save_projection=False, save_obs_info=False)
         )
         serialized_variance = archive.serialize_direct(
-            "variance", functools.partial(self.variance.serialize, save_projection=False)
+            "variance", functools.partial(self.variance.serialize, save_projection=False, save_obs_info=False)
         )
         serialized_projection = (
             archive.serialize_direct("projection", self.projection.serialize)
@@ -222,6 +222,7 @@ class MaskedImage(GeneralizedImage):
             mask=serialized_mask,
             variance=serialized_variance,
             projection=serialized_projection,
+            obs_info=self.obs_info,
             metadata=self.metadata,
         )
 
@@ -247,9 +248,9 @@ class MaskedImage(GeneralizedImage):
         projection = (
             Projection.deserialize(model.projection, archive) if model.projection is not None else None
         )
-        return MaskedImage(image, mask=mask, variance=variance, projection=projection)._finish_deserialize(
-            model
-        )
+        return MaskedImage(
+            image, mask=mask, variance=variance, projection=projection, obs_info=model.obs_info
+        )._finish_deserialize(model)
 
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
@@ -515,6 +516,11 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         default=None,
         exclude_if=is_none,
         description="Projection that maps the pixel grid to the sky.",
+    )
+    obs_info: ObservationInfo | None = pydantic.Field(
+        default=None,
+        exclude_if=is_none,
+        description="Standardized description of image metadata",
     )
 
     @property
