@@ -1,0 +1,1 @@
+Added higher-order moment-based metrics (coma1[2], trefoil1[2], kurtosis, e4_1, and e4_2) to the ``ObservationSummaryStats`` class.

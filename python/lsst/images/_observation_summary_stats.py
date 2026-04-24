@@ -142,6 +142,60 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
         ),
     )
 
+    starComa1Median: float = pydantic.Field(
+        math.nan,
+        description=(
+            "Coma-like higher-order moment combination: median M30 + M12 of the stars used in the PSF model."
+        ),
+    )
+
+    starComa2Median: float = pydantic.Field(
+        math.nan,
+        description=(
+            "Coma-like higher-order moment combination: median M21 + M03 of the stars used in the PSF model."
+        ),
+    )
+
+    starTrefoil1Median: float = pydantic.Field(
+        math.nan,
+        description=(
+            "Trefoil-like higher-order moment combination: median M30 - 3*M12 "
+            "of the stars used in the PSF model."
+        ),
+    )
+
+    starTrefoil2Median: float = pydantic.Field(
+        math.nan,
+        description=(
+            "Trefoil-like higher-order moment combination: median 3*M21 - M03 "
+            "of the stars used in the PSF model."
+        ),
+    )
+
+    starKurtosisMedian: float = pydantic.Field(
+        math.nan,
+        description=(
+            "Kurtosis-like higher-order moment combination: median M40 + 2*M22 + M04 "
+            "of the stars used in the PSF model."
+        ),
+    )
+
+    starE41Median: float = pydantic.Field(
+        math.nan,
+        description=(
+            "Fourth-order ellipticity-like higher-order moment combination: median M40 - M04 "
+            "of the stars used in the PSF model."
+        ),
+    )
+
+    starE42Median: float = pydantic.Field(
+        math.nan,
+        description=(
+            "Fourth-order ellipticity-like higher-order moment combination: median 2*(M31 + M13) "
+            "of the stars used in the PSF model."
+        ),
+    )
+
     effTime: float = pydantic.Field(
         math.nan,
         description="Effective exposure time calculated from psfSigma, skyBg, and zeroPoint (seconds).",
