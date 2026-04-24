@@ -46,7 +46,6 @@ from .serialization import (
     InputArchive,
     OutputArchive,
     Quantity,
-    Unit,
 )
 
 if TYPE_CHECKING:
@@ -281,9 +280,6 @@ class AmplifierCalibrations(pydantic.BaseModel, ser_json_inf_nan="constants"):
     suspect_level: float
     linearity_coefficients: InlineArray
     linearity_type: str
-    linearity_threshold: float
-    linearity_maximum: float
-    linearity_unit: Unit
 
     @staticmethod
     def from_legacy_amplifier(legacy_amplifier: LegacyAmplifier) -> AmplifierCalibrations:
@@ -301,9 +297,6 @@ class AmplifierCalibrations(pydantic.BaseModel, ser_json_inf_nan="constants"):
             suspect_level=legacy_amplifier.getSuspectLevel(),
             linearity_coefficients=legacy_amplifier.getLinearityCoeffs(),
             linearity_type=legacy_amplifier.getLinearityType(),
-            linearity_threshold=legacy_amplifier.getLinearityThreshold(),
-            linearity_maximum=legacy_amplifier.getLinearityMaximum(),
-            linearity_unit=astropy.units.Unit(legacy_amplifier.getLinearityUnits()),
         )
 
 
@@ -400,9 +393,6 @@ class Amplifier(pydantic.BaseModel, ser_json_inf_nan="constants"):
             builder.setSuspectLevel(self.nominal_calibrations.suspect_level)
             builder.setLinearityCoeffs(self.nominal_calibrations.linearity_coefficients)
             builder.setLinearityType(self.nominal_calibrations.linearity_type)
-            builder.setLinearityThreshold(self.nominal_calibrations.linearity_threshold)
-            builder.setLinearityMaximum(self.nominal_calibrations.linearity_maximum)
-            builder.setLinearityUnits(self.nominal_calibrations.linearity_unit.to_string())
         return builder
 
     @staticmethod

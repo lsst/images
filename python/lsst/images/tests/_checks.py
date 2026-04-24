@@ -1042,16 +1042,6 @@ def compare_amplifier_to_legacy(
             legacy_amplifier.getLinearityCoeffs(), amplifier.nominal_calibrations.linearity_coefficients
         )
         tc.assertEqual(legacy_amplifier.getLinearityType(), amplifier.nominal_calibrations.linearity_type)
-        assert_equal_allow_nan(
-            tc, legacy_amplifier.getLinearityThreshold(), amplifier.nominal_calibrations.linearity_threshold
-        )
-        assert_equal_allow_nan(
-            tc, legacy_amplifier.getLinearityMaximum(), amplifier.nominal_calibrations.linearity_maximum
-        )
-        tc.assertEqual(
-            astropy.units.Unit(legacy_amplifier.getLinearityUnits()),
-            amplifier.nominal_calibrations.linearity_unit,
-        )
 
 
 def compare_detector_to_legacy(
