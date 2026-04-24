@@ -63,11 +63,23 @@ class _UnitSerialization:
 
     @classmethod
     def from_str(cls, value: str) -> astropy.units.UnitBase:
-        return astropy.units.Unit(value, format="vounit")
+        try:
+            return astropy.units.Unit(value, format="vounit")
+        except ValueError:
+            pass
+        # Some important units (e.g. "dn") are not supported by vounit, so
+        # fall back to letting astropy to infer the format.
+        return astropy.units.Unit(value)
 
     @staticmethod
     def to_str(unit: astropy.units.UnitBase) -> str:
-        return unit.to_string("vounit")
+        try:
+            return unit.to_string("vounit")
+        except ValueError:
+            pass
+        # Some important units (e.g. "dn") are not supported by vounit, so
+        # fall back to letting astropy use the default format.
+        return unit.to_string()
 
 
 type Unit = Annotated[

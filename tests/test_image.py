@@ -139,7 +139,7 @@ class ImageTestCase(unittest.TestCase):
 
         image = Image(
             data,
-            unit=u.nJy,
+            unit=u.dn,
             metadata=md,
             obs_info=obsinfo,
             bbox=Box.factory[-2:1, 3:7],
