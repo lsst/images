@@ -174,8 +174,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         """
         raise NotImplementedError()
 
-    @abstractmethod
-    def get_opaque_metadata(self) -> OpaqueArchiveMetadata:
+    def get_opaque_metadata(self) -> OpaqueArchiveMetadata | None:
         """Return opaque metadata loaded from the file that should be saved if
         another version of the object is saved to the same file format.
 
@@ -185,4 +184,4 @@ class InputArchive[P: pydantic.BaseModel](ABC):
             Opaque metadata specific to this archive type that should be
             round-tripped if it is saved in the same format.
         """
-        raise NotImplementedError()
+        return None
