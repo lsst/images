@@ -14,6 +14,7 @@ from __future__ import annotations
 __all__ = (
     "arrays_to_legacy_points",
     "assert_close",
+    "assert_equal_allow_nan",
     "assert_images_equal",
     "assert_masked_images_equal",
     "assert_masks_equal",
@@ -22,8 +23,10 @@ __all__ = (
     "check_astropy_wcs_interface",
     "check_projection",
     "check_transform",
+    "compare_amplifier_to_legacy",
     "compare_aperture_corrections_to_legacy",
     "compare_cell_coadd_to_legacy",
+    "compare_detector_to_legacy",
     "compare_field_to_legacy",
     "compare_image_to_legacy",
     "compare_mask_to_legacy",
@@ -55,6 +58,7 @@ from .._observation_summary_stats import ObservationSummaryStats
 from .._transforms import DetectorFrame, Frame, Projection, SkyFrame, TractFrame, Transform
 from .._visit_image import VisitImage
 from ..aperture_corrections import ApertureCorrectionMap
+from ..cameras import Amplifier, Detector, DetectorType, ReadoutCorner
 from ..cells import CellCoadd, CellIJ, CoaddProvenance
 from ..fields import BaseField
 from ..psfs import PointSpreadFunction
@@ -86,6 +90,15 @@ def assert_close(
         Forwarded to `astropy.units.allclose`.
     """
     tc.assertTrue(u.allclose(a, b, **kwargs), msg=f"{a} != {b}")
+
+
+def assert_equal_allow_nan(tc: unittest.TestCase, a: float, b: float) -> None:
+    """Test that two floating point values are equal, with nan == nan."""
+    try:
+        tc.assertEqual(a, b)
+    except AssertionError:
+        if not (math.isnan(a) and math.isnan(b)):
+            raise
 
 
 def assert_images_equal(
@@ -981,3 +994,120 @@ def arrays_to_legacy_points(x: np.ndarray, y: np.ndarray) -> list[Any]:
     from lsst.geom import Point2D
 
     return [Point2D(x=xv, y=yv) for xv, yv in zip(x, y)]
+
+
+def compare_amplifier_to_legacy(
+    tc: unittest.TestCase,
+    amplifier: Amplifier,
+    legacy_amplifier: Any,
+    *,
+    is_raw_assembled: bool,
+    expect_nominal_calibrations: bool = True,
+) -> None:
+    """Compare an `~.cameras.Amplifier` to a legacy
+    `lsst.afw.cameraGeom.Amplifier`.
+    """
+    tc.assertEqual(legacy_amplifier.getName(), amplifier.name)
+    tc.assertEqual(Box.from_legacy(legacy_amplifier.getBBox()), amplifier.bbox)
+    if is_raw_assembled:
+        raw_geom = amplifier.assembled_raw_geometry
+    else:
+        raw_geom = amplifier.unassembled_raw_geometry
+    assert raw_geom is not None
+    tc.assertEqual(ReadoutCorner.from_legacy(legacy_amplifier.getReadoutCorner()), raw_geom.readout_corner)
+    tc.assertEqual(Box.from_legacy(legacy_amplifier.getRawBBox()), raw_geom.bbox)
+    tc.assertEqual(Box.from_legacy(legacy_amplifier.getRawDataBBox()), raw_geom.data_bbox)
+    tc.assertEqual(legacy_amplifier.getRawFlipX(), raw_geom.flip_x)
+    tc.assertEqual(legacy_amplifier.getRawFlipY(), raw_geom.flip_y)
+    tc.assertEqual(legacy_amplifier.getRawXYOffset().getX(), raw_geom.x_offset)
+    tc.assertEqual(legacy_amplifier.getRawXYOffset().getY(), raw_geom.y_offset)
+    tc.assertEqual(
+        Box.from_legacy(legacy_amplifier.getRawHorizontalOverscanBBox()), raw_geom.horizontal_overscan_bbox
+    )
+    tc.assertEqual(
+        Box.from_legacy(legacy_amplifier.getRawVerticalOverscanBBox()), raw_geom.vertical_overscan_bbox
+    )
+    tc.assertEqual(Box.from_legacy(legacy_amplifier.getRawPrescanBBox()), raw_geom.horizontal_prescan_bbox)
+    if expect_nominal_calibrations:
+        assert amplifier.nominal_calibrations is not None
+        assert_equal_allow_nan(tc, legacy_amplifier.getGain(), amplifier.nominal_calibrations.gain)
+        assert_equal_allow_nan(tc, legacy_amplifier.getReadNoise(), amplifier.nominal_calibrations.read_noise)
+        assert_equal_allow_nan(
+            tc, legacy_amplifier.getSaturation(), amplifier.nominal_calibrations.saturation
+        )
+        assert_equal_allow_nan(
+            tc, legacy_amplifier.getSuspectLevel(), amplifier.nominal_calibrations.suspect_level
+        )
+        np.testing.assert_array_equal(
+            legacy_amplifier.getLinearityCoeffs(), amplifier.nominal_calibrations.linearity_coefficients
+        )
+        tc.assertEqual(legacy_amplifier.getLinearityType(), amplifier.nominal_calibrations.linearity_type)
+        assert_equal_allow_nan(
+            tc, legacy_amplifier.getLinearityThreshold(), amplifier.nominal_calibrations.linearity_threshold
+        )
+        assert_equal_allow_nan(
+            tc, legacy_amplifier.getLinearityMaximum(), amplifier.nominal_calibrations.linearity_maximum
+        )
+        tc.assertEqual(
+            astropy.units.Unit(legacy_amplifier.getLinearityUnits()),
+            amplifier.nominal_calibrations.linearity_unit,
+        )
+
+
+def compare_detector_to_legacy(
+    tc: unittest.TestCase,
+    detector: Detector,
+    legacy_detector: Any,
+    *,
+    is_raw_assembled: bool,
+    expect_nominal_calibrations: bool = True,
+) -> None:
+    """Compare a `~.cameras.Detector` to a `lsst.afw.cameraGeom.Detector`."""
+    from lsst.afw.cameraGeom import FIELD_ANGLE, FOCAL_PLANE, PIXELS
+
+    tc.assertEqual(legacy_detector.getName(), detector.name)
+    tc.assertEqual(legacy_detector.getId(), detector.id)
+    tc.assertEqual(DetectorType.from_legacy(legacy_detector.getType()), detector.type)
+    tc.assertEqual(Box.from_legacy(legacy_detector.getBBox()), detector.bbox)
+    tc.assertEqual(legacy_detector.getSerial(), detector.serial)
+    legacy_orientation = legacy_detector.getOrientation()
+    tc.assertEqual(legacy_orientation.getFpPosition3().getX(), detector.orientation.focal_plane_x)
+    tc.assertEqual(legacy_orientation.getFpPosition3().getY(), detector.orientation.focal_plane_y)
+    tc.assertEqual(legacy_orientation.getFpPosition3().getZ(), detector.orientation.focal_plane_z)
+    tc.assertEqual(legacy_orientation.getReferencePoint().getX(), detector.orientation.pixel_reference_x)
+    tc.assertEqual(legacy_orientation.getReferencePoint().getY(), detector.orientation.pixel_reference_y)
+    tc.assertEqual(legacy_orientation.getYaw().asRadians(), detector.orientation.yaw.to_value(u.rad))
+    tc.assertEqual(legacy_orientation.getPitch().asRadians(), detector.orientation.pitch.to_value(u.rad))
+    tc.assertEqual(legacy_orientation.getRoll().asRadians(), detector.orientation.roll.to_value(u.rad))
+    tc.assertEqual(legacy_detector.getPixelSize().getX(), detector.pixel_size)
+    tc.assertEqual(legacy_detector.getPhysicalType(), detector.physical_type)
+    for amplifier, legacy_amplifier in zip(detector.amplifiers, legacy_detector.getAmplifiers(), strict=True):
+        compare_amplifier_to_legacy(
+            tc,
+            amplifier,
+            legacy_amplifier,
+            is_raw_assembled=is_raw_assembled,
+            expect_nominal_calibrations=expect_nominal_calibrations,
+        )
+    pixel_xy = detector.bbox.meshgrid(n=3).map(lambda z: z.ravel().astype(np.float64))
+    pixel_legacy_points = arrays_to_legacy_points(y=pixel_xy.y, x=pixel_xy.x)
+    fp_legacy_points = legacy_detector.transform(pixel_legacy_points, PIXELS, FOCAL_PLANE)
+    check_transform(
+        tc,
+        detector.to_focal_plane,
+        pixel_xy,
+        legacy_points_to_xy_array(fp_legacy_points),
+        detector.frame,
+        detector.to_focal_plane.out_frame,
+        in_atol=1e-9 * u.pix,
+    )
+    fa_legacy_points = legacy_detector.transform(pixel_legacy_points, PIXELS, FIELD_ANGLE)
+    check_transform(
+        tc,
+        detector.to_field_angle,
+        pixel_xy,
+        legacy_points_to_xy_array(fa_legacy_points),
+        detector.frame,
+        detector.to_field_angle.out_frame,
+        in_atol=1e-9 * u.pix,
+    )

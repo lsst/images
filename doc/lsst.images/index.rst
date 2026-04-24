@@ -26,6 +26,7 @@ API Reference
    cells.rst
    psfs.rst
    fields.rst
+   cameras.rst
    aperture_corrections.rst
    serialization.rst
    fits.rst
