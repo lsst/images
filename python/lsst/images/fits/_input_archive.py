@@ -35,9 +35,11 @@ from lsst.resources import ResourcePath, ResourcePathExpression
 
 from .._transforms import FrameSet
 from ..serialization import (
+    ArchiveReadError,
     ArchiveTree,
     ArrayReferenceModel,
     ButlerInfo,
+    InlineArrayModel,
     InputArchive,
     MetadataValue,
     TableCellReferenceModel,
@@ -239,12 +241,14 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
 
     def get_array(
         self,
-        ref: ArrayReferenceModel,
+        model: ArrayReferenceModel | InlineArrayModel,
         *,
         slices: tuple[slice, ...] | EllipsisType = ...,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> np.ndarray:
-        key, reader = self._get_source_reader(ref)
+        if not isinstance(model, ArrayReferenceModel):
+            raise ArchiveReadError("Inline array found where a reference array was expected.")
+        key, reader = self._get_source_reader(model)
         if slices is not ...:
             array = reader.section[slices]
         else:

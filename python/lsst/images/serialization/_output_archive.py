@@ -26,7 +26,7 @@ import astropy.units
 import numpy as np
 import pydantic
 
-from ._asdf_utils import ArrayReferenceModel
+from ._asdf_utils import ArrayReferenceModel, InlineArrayModel
 from ._common import ArchiveTree, no_header_updates
 from ._tables import TableReferenceModel
 
@@ -181,7 +181,7 @@ class OutputArchive[P](ABC):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> ArrayReferenceModel:
+    ) -> ArrayReferenceModel | InlineArrayModel:
         """Add an array to the archive.
 
         Parameters
@@ -201,8 +201,9 @@ class OutputArchive[P](ABC):
 
         Returns
         -------
-        ArrayReferenceModel
-            A Pydantic model that references the stored array.
+        `~lsst.images.serialization.ArrayReferenceModel` |\
+                `~lsst.images.serialization.InlineArrayModel`
+            A Pydantic model that references or holds the stored array.
         """
         raise NotImplementedError()
 
@@ -347,7 +348,7 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> ArrayReferenceModel:
+    ) -> ArrayReferenceModel | InlineArrayModel:
         return self._parent.add_array(array, name=self._join_path(name), update_header=update_header)
 
     def add_table(

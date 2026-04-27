@@ -92,6 +92,10 @@ class ArrayReferenceModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     datatype: NumberType
     byteorder: Literal["big"] = "big"
 
+    def with_units(self, unit: astropy.units.UnitBase) -> ArrayReferenceQuantityModel:
+        """Add units, transforming this model into a Quantity model."""
+        return ArrayReferenceQuantityModel.model_construct(value=self, unit=unit)
+
     model_config = pydantic.ConfigDict(
         json_schema_extra={
             "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
@@ -110,6 +114,23 @@ class InlineArrayModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
 
     data: list[Any]
     datatype: NumberType
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        """The shape of the array (`tuple` [`int`, ...])."""
+        return self._extract_shape(self.data)
+
+    def with_units(self, unit: astropy.unit.UnitBase) -> InlineArrayQuantityModel:
+        """Add units, transforming this model in to a Quantity model."""
+        return InlineArrayQuantityModel.model_construct(value=self, unit=unit)
+
+    @classmethod
+    def _extract_shape(cls, data: list[Any], current: tuple[int, ...] = ()) -> tuple[int, ...]:
+        if not data:
+            return current + (0,)
+        if not isinstance(data[0], list):
+            return current + (len(data),)
+        return cls._extract_shape(data[0], current + (len(data),))
 
     model_config = pydantic.ConfigDict(
         json_schema_extra={
@@ -229,7 +250,7 @@ class _QuantitySerialization:
     @classmethod
     def to_model(cls, quantity: astropy.units.Quantity) -> QuantityModel:
         assert quantity.isscalar
-        return QuantityModel(value=quantity.to_value(), unit=_UnitSerialization.to_str(quantity.unit))
+        return QuantityModel(value=quantity.to_value(), unit=quantity.unit)
 
 
 type Quantity = Annotated[astropy.units.Quantity, _QuantitySerialization]
@@ -265,7 +286,7 @@ class _InlineArrayQuantitySerialization:
         assert quantity.isscalar
         return InlineArrayQuantityModel(
             value=_InlineArraySerialization.to_model(quantity.to_value()),
-            unit=_UnitSerialization.to_str(quantity.unit),
+            unit=quantity.unit,
         )
 
 

@@ -24,7 +24,7 @@ import astropy.units
 import numpy as np
 import pydantic
 
-from ._asdf_utils import ArrayReferenceModel
+from ._asdf_utils import ArrayReferenceModel, InlineArrayModel
 from ._common import ArchiveTree, OpaqueArchiveMetadata, no_header_updates
 from ._tables import TableReferenceModel
 
@@ -106,7 +106,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
     @abstractmethod
     def get_array(
         self,
-        ref: ArrayReferenceModel,
+        model: ArrayReferenceModel | InlineArrayModel,
         *,
         slices: tuple[slice, ...] | EllipsisType = ...,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
@@ -115,8 +115,8 @@ class InputArchive[P: pydantic.BaseModel](ABC):
 
         Parameters
         ----------
-        ref
-            A Pydantic model that references the array.
+        model
+            A Pydantic model that references or holds the array.
         slices
             Slices that specify a subset of the original array to read.
         strip_header
