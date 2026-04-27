@@ -65,7 +65,7 @@ class ArchiveTree(
     )
     butler_info: ButlerInfo | None = pydantic.Field(
         default=None,
-        description="Information aobut the butler dataset backed by this file.",
+        description="Information about the butler dataset backed by this file.",
         exclude_if=is_none,
     )
 
