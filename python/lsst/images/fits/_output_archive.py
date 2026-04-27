@@ -29,16 +29,21 @@ from ..serialization import (
     ArchiveTree,
     ArrayReferenceModel,
     ButlerInfo,
-    ColumnDefinitionModel,
     MetadataValue,
     NestedOutputArchive,
     NumberType,
     OutputArchive,
-    TableCellReferenceModel,
-    TableReferenceModel,
+    TableColumnModel,
+    TableModel,
     no_header_updates,
 )
-from ._common import ExtensionHDU, ExtensionKey, FitsCompressionOptions, FitsOpaqueMetadata
+from ._common import (
+    ExtensionHDU,
+    ExtensionKey,
+    FitsCompressionOptions,
+    FitsOpaqueMetadata,
+    PointerModel,
+)
 
 
 def write(
@@ -96,7 +101,7 @@ def write(
     return tree
 
 
-class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
+class FitsOutputArchive(OutputArchive[PointerModel]):
     """An implementation of the `.serialization.OutputArchive` interface that
     writes to FITS files.
 
@@ -115,7 +120,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         self._pointer_targets: list[bytes] = []
         # Mapping from user provided key (e.g. id(some object)) to a table
         # pointer to where we actually saved it:
-        self._pointers_by_key: dict[Hashable, TableCellReferenceModel] = {}
+        self._pointers_by_key: dict[Hashable, PointerModel] = {}
         self._hdu_list = hdu_list
         self._primary_hdu = astropy.io.fits.PrimaryHDU()
         # TODO: add subformat description and version to primary HDU.
@@ -133,7 +138,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
             self._primary_hdu.header.extend(opaque_primary_header)
         self._hdu_list.append(self._primary_hdu)
         self._json_hdu_added: bool = False
-        self._frame_sets: list[tuple[FrameSet, TableCellReferenceModel]] = []
+        self._frame_sets: list[tuple[FrameSet, PointerModel]] = []
 
     @classmethod
     @contextmanager
@@ -202,18 +207,21 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
             stream.write(archive._primary_hdu.header.tostring().encode())
 
     def serialize_direct[T: pydantic.BaseModel](
-        self, name: str, serializer: Callable[[OutputArchive[TableCellReferenceModel]], T]
+        self, name: str, serializer: Callable[[OutputArchive[PointerModel]], T]
     ) -> T:
-        nested = NestedOutputArchive[TableCellReferenceModel](name, self)
+        nested = NestedOutputArchive[PointerModel](name, self)
         return serializer(nested)
 
     def serialize_pointer[T: ArchiveTree](
-        self, name: str, serializer: Callable[[OutputArchive[TableCellReferenceModel]], T], key: Hashable
-    ) -> TableCellReferenceModel:
+        self, name: str, serializer: Callable[[OutputArchive[PointerModel]], T], key: Hashable
+    ) -> PointerModel:
         if (pointer := self._pointers_by_key.get(key)) is not None:
             return pointer
-        pointer = TableCellReferenceModel(
-            source="fits:JSON", column="JSON", row=len(self._pointer_targets) + 1
+        pointer = PointerModel(
+            column=TableColumnModel(
+                name="JSON", data=ArrayReferenceModel(source="fits:JSON[1]", datatype=NumberType.uint8)
+            ),
+            row=len(self._pointer_targets) + 1,
         )
         model = self.serialize_direct("", serializer)
         self._pointer_targets.append(model.model_dump_json().encode())
@@ -222,13 +230,13 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
 
     def serialize_frame_set[T: ArchiveTree](
         self, name: str, frame_set: FrameSet, serializer: Callable[[OutputArchive], T], key: Hashable
-    ) -> TableCellReferenceModel:
+    ) -> PointerModel:
         # Docstring inherited.
         pointer = self.serialize_pointer(name, serializer, key)
         self._frame_sets.append((frame_set, pointer))
         return pointer
 
-    def iter_frame_sets(self) -> Iterator[tuple[FrameSet, TableCellReferenceModel]]:
+    def iter_frame_sets(self) -> Iterator[tuple[FrameSet, PointerModel]]:
         return iter(self._frame_sets)
 
     def add_array(
@@ -260,7 +268,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> TableReferenceModel:
+    ) -> TableModel:
         if name is None:
             raise RuntimeError("Cannot save table with name=None unless it is nested.")
         extname = name.upper()
@@ -268,9 +276,12 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         # Extract column information directly from the input array, not the
         # data in the binary table HDU, because we want to assume as little as
         # possible about where Astropy does uint -> TZERO stuff.
-        columns = ColumnDefinitionModel.from_table(table)
+        columns = TableColumnModel.from_table(table)
         key = self._add_hdu(hdu, update_header)
-        return TableReferenceModel(source=str(key), columns=columns)
+        for n, c in enumerate(columns, start=1):
+            assert isinstance(c.data, ArrayReferenceModel)
+            c.data.source = f"{key}[{n}]"
+        return TableModel(columns=columns, meta=table.meta)
 
     def add_structured_array(
         self,
@@ -280,14 +291,14 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
         units: Mapping[str, astropy.units.Unit] | None = None,
         descriptions: Mapping[str, str] | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> TableReferenceModel:
+    ) -> TableModel:
         if name is None:
             raise RuntimeError("Cannot save structured array with name=None unless it is nested.")
         extname = name.upper()
         # Extract column information directly from the input array, not the
         # data in the binary table HDU, because we want to assume as little as
         # possible about where Astropy does uint -> TZERO stuff.
-        columns = ColumnDefinitionModel.from_record_dtype(array.dtype)
+        columns = TableColumnModel.from_record_dtype(array.dtype)
         hdu = astropy.io.fits.BinTableHDU(array, name=extname)
         if units is not None:
             for c in columns:
@@ -296,7 +307,10 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
             for c in columns:
                 c.description = descriptions.get(c.name, "")
         key = self._add_hdu(hdu, update_header)
-        return TableReferenceModel(source=str(key), columns=columns)
+        for n, c in enumerate(columns, start=1):
+            assert isinstance(c.data, ArrayReferenceModel)
+            c.data.source = f"{key}[{n}]"
+        return TableModel(columns=columns)
 
     def _add_hdu(
         self,
@@ -305,6 +319,7 @@ class FitsOutputArchive(OutputArchive[TableCellReferenceModel]):
     ) -> ExtensionKey:
         n_hdus = self._hdus_by_name.get(hdu.name, 0)
         key = ExtensionKey(hdu.name, n_hdus + 1)
+        key.check()
         if n_hdus:
             hdu.header["EXTVER"] = key.ver
         self._hdus_by_name[hdu.name] += 1

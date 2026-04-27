@@ -30,8 +30,8 @@ from .._mask import Mask
 from .._masked_image import MaskedImageSerializationModel
 from .._transforms import Projection, ProjectionSerializationModel
 from .._visit_image import VisitImageSerializationModel
-from ..serialization import ButlerInfo, TableCellReferenceModel
-from ._common import FitsCompressionOptions
+from ..serialization import ButlerInfo
+from ._common import FitsCompressionOptions, PointerModel
 from ._input_archive import FitsInputArchive, read
 from ._output_archive import write
 
@@ -168,7 +168,7 @@ class ImageFormatter(GenericFormatter):
             result = read(pytype, uri, bbox=self.pop_bbox_from_parameters()).deserialized
         else:
             with FitsInputArchive.open(uri, partial=True) as archive:
-                tree = archive.get_tree(pytype._get_archive_tree_type(TableCellReferenceModel))
+                tree = archive.get_tree(pytype._get_archive_tree_type(PointerModel))
                 result = self.read_component(component, tree, archive)
                 if result is ComponentSentinel.UNRECOGNIZED_COMPONENT:
                     raise NotImplementedError(

@@ -21,6 +21,7 @@ __all__ = (
     "FitsOpaqueMetadata",
     "FitsQuantizationOptions",
     "InvalidFitsArchiveError",
+    "PointerModel",
     "PrecompressedImage",
     "add_offset_wcs",
     "strip_butler_cards",
@@ -31,6 +32,7 @@ __all__ = (
 import dataclasses
 import enum
 import itertools
+import re
 import string
 from typing import ClassVar, Self, final
 
@@ -39,9 +41,11 @@ import numpy as np
 import pydantic
 
 from .._geom import Box
-from ..serialization import OpaqueArchiveMetadata
+from ..serialization import ArchiveReadError, OpaqueArchiveMetadata, TableColumnModel
 
 type ExtensionHDU = astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU
+
+FITS_SOURCE_REGEX = re.compile(r"fits:(?P<extname>[\w/\-]+)(,(?P<extver>\d+))?(\[\d+\])?")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -67,17 +71,29 @@ class ExtensionKey:
         as the 'source' field in various Pydantic models that serve as
         references to other HDUs.
         """
-        name, comma, ver = source.removeprefix("fits:").partition(",")
-        if not comma:
-            return cls(name)
-        else:
-            return cls(name, int(ver))
+        if (m := FITS_SOURCE_REGEX.fullmatch(source)) is None:
+            raise ArchiveReadError(f"Bad 'source' string for FITS: {source!r}.")
+        ver = 1
+        if m.group("extver") is not None:
+            ver = int(m.group("extver"))
+        return cls(m.group("extname"), ver)
+
+    def check(self) -> None:
+        if not FITS_SOURCE_REGEX.match(str(self)):
+            raise ValueError(
+                f"Invalid source key: '{str(self)}'; name characters must be alphanumeric, '-', '_', or '/'."
+            )
 
     def __str__(self) -> str:
         if self.ver > 1:
             return f"fits:{self.name},{self.ver}"
         else:
             return f"fits:{self.name}"
+
+
+class PointerModel(pydantic.BaseModel):
+    column: TableColumnModel = pydantic.Field(description="Table column for this cell this pointer targets.")
+    row: int = pydantic.Field(description="Zero-indexed row for cell this pointer targets.")
 
 
 class InvalidFitsArchiveError(RuntimeError):

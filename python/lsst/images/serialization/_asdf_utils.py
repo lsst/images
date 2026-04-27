@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import operator
+
 __all__ = (
     "ArrayReferenceModel",
     "ArrayReferenceQuantityModel",
@@ -25,7 +27,7 @@ __all__ = (
     "Unit",
 )
 
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, Any, Literal
 
 import astropy.time
 import astropy.units
@@ -83,14 +85,22 @@ type Unit = Annotated[
 
 
 class ArrayReferenceModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
-    """Model for the subset of the ASDF 'ndarray' schema, in the case where the
+    """Model for a subset of the ASDF 'ndarray' schema, in the case where the
     array data is stored elsewhere.
     """
 
-    source: str | int
-    shape: list[int]
-    datatype: NumberType
-    byteorder: Literal["big"] = "big"
+    source: str | int = pydantic.Field(description="Location of the underlying binary data.")
+    shape: list[int] = pydantic.Field(
+        # In (e.g.) FITS this is stored outside of the JSON as well, and it
+        # be hard to get it right if we need to make a reference to a column
+        # before all rows have been written, so unlike ASDF we allow this to
+        # be omitted.
+        default_factory=list,
+        description="Size of the array in each dimension.",
+        exclude_if=operator.not_,
+    )
+    datatype: NumberType = pydantic.Field(description="Data type of the array.")
+    byteorder: Literal["big"] = pydantic.Field(default="big", description="Byte order for the binary data.")
 
     def with_units(self, unit: astropy.units.UnitBase) -> ArrayReferenceQuantityModel:
         """Add units, transforming this model into a Quantity model."""
@@ -104,11 +114,9 @@ class ArrayReferenceModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
         }
     )
 
-    source_is_table: ClassVar[Literal[False]] = False
-
 
 class InlineArrayModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
-    """Model for the subset of the ASDF 'ndarray' schema, in the case where the
+    """Model for a subset of the ASDF 'ndarray' schema, in the case where the
     array data is stored inline.
     """
 

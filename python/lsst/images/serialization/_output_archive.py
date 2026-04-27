@@ -28,7 +28,7 @@ import pydantic
 
 from ._asdf_utils import ArrayReferenceModel, InlineArrayModel
 from ._common import ArchiveTree, no_header_updates
-from ._tables import TableReferenceModel
+from ._tables import TableModel
 
 if TYPE_CHECKING:
     from .._transforms import FrameSet
@@ -214,7 +214,7 @@ class OutputArchive[P](ABC):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> TableReferenceModel:
+    ) -> TableModel:
         """Add a table to the archive.
 
         Parameters
@@ -234,19 +234,9 @@ class OutputArchive[P](ABC):
 
         Returns
         -------
-        TableReferenceModel
-            A Pydantic model that represents the table.  Column definitions
-            are included directly in the model while the actual data is
-            stored elsewhere and referenced by the model.
+        TableModel
+            A Pydantic model that represents the table.
         """
-        # TODO: ASDF has schemas for tables and columns that we should probably
-        # adopt [a subset of].  While that can reference external per-column
-        # data (which would Just Work for a true ASDF archive), I'm not sure
-        # there's a way to reference external data in a FITS binary table
-        # column.  We could of course invent one, and since ASDF-in-FITS isn't
-        # even referenced on the ASDF standard page our existing approach for
-        # referencing FITS data in an image extension may be something only
-        # we'll be using, too.
         raise NotImplementedError()
 
     @abstractmethod
@@ -258,7 +248,7 @@ class OutputArchive[P](ABC):
         units: Mapping[str, astropy.units.Unit] | None = None,
         descriptions: Mapping[str, str] | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> TableReferenceModel:
+    ) -> TableModel:
         """Add a table to the archive.
 
         Parameters
@@ -287,19 +277,9 @@ class OutputArchive[P](ABC):
 
         Returns
         -------
-        TableReferenceModel
-            A Pydantic model that represents the table.  Column definitions
-            are included directly in the model while the actual data is
-            stored elsewhere and referenced by the model.
+        TableModel
+            A Pydantic model that represents the table.
         """
-        # TODO: ASDF has schemas for tables and columns that we should probably
-        # adopt [a subset of].  While that can reference external per-column
-        # data (which would Just Work for a true ASDF archive), I'm not sure
-        # there's a way to reference external data in a FITS binary table
-        # column.  We could of course invent one, and since ASDF-in-FITS isn't
-        # even referenced on the ASDF standard page our existing approach for
-        # referencing FITS data in an image extension may be something only
-        # we'll be using, too.
         raise NotImplementedError()
 
 
@@ -357,7 +337,7 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> TableReferenceModel:
+    ) -> TableModel:
         return self._parent.add_table(table, name=self._join_path(name), update_header=update_header)
 
     def add_structured_array(
@@ -368,7 +348,7 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         units: Mapping[str, astropy.units.Unit] | None = None,
         descriptions: Mapping[str, str] | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> TableReferenceModel:
+    ) -> TableModel:
         return self._parent.add_structured_array(
             array,
             name=self._join_path(name),

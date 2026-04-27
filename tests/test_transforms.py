@@ -30,7 +30,8 @@ from lsst.images import (
     Transform,
     TransformSerializationModel,
 )
-from lsst.images.serialization import ArchiveTree, InputArchive, OutputArchive, TableCellReferenceModel
+from lsst.images.fits import PointerModel
+from lsst.images.serialization import ArchiveTree, InputArchive, OutputArchive
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
@@ -92,7 +93,7 @@ class TransformTestCase(unittest.TestCase):
             self.assertEqual(len(roundtrip.serialized.pixels_to_fp.mappings), 1)
             # Instead of storing the AST mapping directly, we should have
             # stored a reference to the frame set:
-            self.assertIsInstance(roundtrip.serialized.pixels_to_fp.mappings[0], TableCellReferenceModel)
+            self.assertIsInstance(roundtrip.serialized.pixels_to_fp.mappings[0], PointerModel)
         self.compare_to_legacy_camera(legacy_camera, roundtrip.result.frames)
         self.assertEqual(roundtrip.result.pixels_to_fp.in_frame, frame_set.detector(detector_id))
         self.assertEqual(roundtrip.result.pixels_to_fp.out_frame, frame_set.focal_plane())

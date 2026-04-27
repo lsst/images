@@ -217,7 +217,7 @@ class PiffTableModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     """
 
     metadata: PiffDict
-    table: serialization.TableReferenceModel
+    table: serialization.TableModel
 
 
 class PiffObjectModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
