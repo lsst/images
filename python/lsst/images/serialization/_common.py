@@ -15,6 +15,7 @@ __all__ = (
     "ArchiveReadError",
     "ArchiveTree",
     "ButlerInfo",
+    "JsonRef",
     "MetadataValue",
     "OpaqueArchiveMetadata",
     "ReadResult",
@@ -53,6 +54,19 @@ class ButlerInfo(pydantic.BaseModel):
     provenance: DatasetProvenance = pydantic.Field(default_factory=DatasetProvenance)
 
 
+class JsonRef(pydantic.BaseModel, serialize_by_alias=True):
+    """Pydantic model for JSON Reference / Pointer (IETF RFC 6901).
+
+    Notes
+    -----
+    This model does not do any of the escaping or special-character
+    interpretation required by the spec; it assumes that's already been done,
+    so its job is *just* putting a ``$ref`` field inside another model.
+    """
+
+    ref: str = pydantic.Field(alias="$ref")
+
+
 class ArchiveTree(
     pydantic.BaseModel, ser_json_inf_nan="constants", ser_json_bytes="base64", val_json_bytes="base64"
 ):
@@ -68,6 +82,11 @@ class ArchiveTree(
         default=None,
         description="Information about the butler dataset backed by this file.",
         exclude_if=is_none,
+    )
+    indirect: list[Any] = pydantic.Field(
+        default_factory=list,
+        description="Serialized nested objects that may be saved or read more than once.",
+        exclude_if=operator.not_,
     )
 
 

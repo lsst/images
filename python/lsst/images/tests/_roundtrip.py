@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("RoundtripFits", "TemporaryButler")
+__all__ = ("RoundtripFits", "RoundtripJson", "TemporaryButler")
 
 import tempfile
 import unittest
@@ -21,6 +21,7 @@ from contextlib import ExitStack
 from typing import Any, Self, TypeVar
 
 import astropy.io.fits
+from pydantic_core import from_json
 
 try:
     from lsst.daf.butler import Butler, DataCoordinate, DatasetProvenance, DatasetRef, DatasetType
@@ -29,7 +30,7 @@ try:
 except ImportError:
     HAVE_BUTLER = False
 
-from .. import fits
+from .. import fits, json
 from .._generalized_image import GeneralizedImage
 from ..serialization import ArchiveTree, MetadataValue, ReadResult
 
@@ -287,3 +288,19 @@ class RoundtripFits[T](RoundtripBase[T]):
 
     def _read(self, obj_type: Any, filename: str) -> ReadResult:
         return fits.read(obj_type, filename)
+
+
+class RoundtripJson[T](RoundtripBase[T]):
+    def inspect(self) -> dict[str, Any]:
+        """Read the JSON file as a dictionary."""
+        with open(self.filename, "rb") as stream:
+            return from_json(stream.read())
+
+    def _get_extension(self) -> str:
+        return ".json"
+
+    def _write(self, obj: Any, filename: str) -> ArchiveTree:
+        return json.write(obj, filename)
+
+    def _read(self, obj_type: Any, filename: str) -> ReadResult:
+        return json.read(obj_type, filename)

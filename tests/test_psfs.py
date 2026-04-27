@@ -23,7 +23,7 @@ from lsst.images.psfs import (
     PointSpreadFunction,
     PSFExWrapper,
 )
-from lsst.images.tests import RoundtripFits, compare_psf_to_legacy
+from lsst.images.tests import RoundtripFits, RoundtripJson, compare_psf_to_legacy
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -93,9 +93,12 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         self.assertEqual(psf.bounds, bounds)
         self.assertIsInstance(psf.piff_psf, PSF)
         compare_psf_to_legacy(self, psf, legacy_psf)
-        with RoundtripFits(self, psf) as roundtrip:
+        with RoundtripFits(self, psf) as roundtrip1:
             pass
-        compare_psf_to_legacy(self, roundtrip.result, legacy_psf)
+        compare_psf_to_legacy(self, roundtrip1.result, legacy_psf)
+        with RoundtripJson(self, psf) as roundtrip2:
+            pass
+        compare_psf_to_legacy(self, roundtrip2.result, legacy_psf)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_psfex(self) -> None:
@@ -123,9 +126,12 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         self.assertIsInstance(psf.legacy_psf, PsfexPsf)
         compare_psf_to_legacy(self, psf, legacy_psf)
         compare_psf_to_legacy(self, psf, legacy_psf)
-        with RoundtripFits(self, psf) as roundtrip:
+        with RoundtripFits(self, psf) as roundtrip1:
             pass
-        compare_psf_to_legacy(self, roundtrip.result, legacy_psf)
+        compare_psf_to_legacy(self, roundtrip1.result, legacy_psf)
+        with RoundtripJson(self, psf) as roundtrip2:
+            pass
+        compare_psf_to_legacy(self, roundtrip2.result, legacy_psf)
 
 
 if __name__ == "__main__":

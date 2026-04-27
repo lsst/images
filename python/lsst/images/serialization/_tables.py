@@ -99,30 +99,76 @@ class TableColumnModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
         return result
 
     @classmethod
-    def from_table(cls, table: astropy.table.Table) -> list[TableColumnModel]:
-        """Extract column definitions from an Astropy table."""
-        return [cls.from_column(c) for c in table.columns.values()]
+    def from_record_array(cls, array: np.ndarray, inline: bool = False) -> list[TableColumnModel]:
+        """Extract a list of column definitions from a structured numpy array.
 
-    @classmethod
-    def from_column(cls, column: astropy.table.Column) -> TableColumnModel:
-        """Extract a column definition from an Astropy column.
+        Parameters
+        ----------
+        array
+            A table-like array.
+        inline
+            Whether to store the array data directly in the columns.
 
         Notes
         -----
-        This sets the `data` field to an `ArrayReferenceModel` with ``source``
-        set to an empty string.  This will need to be modified later.
+        When ``inline=False``, this sets the `data` field to an
+        `ArrayReferenceModel` with ``source`` set to an empty string.  This
+        will need to be modified later.
+        """
+        if not inline:
+            return cls.from_record_dtype(array.dtype)
+        result: list[TableColumnModel] = []
+        if array.dtype.fields is None:
+            raise TypeError(f"{array.dtype} is not a structured dtype.")
+        for name, (field_dtype, *_) in array.dtype.fields.items():
+            # TODO: support string and variable-length array columns here.
+            try:
+                datatype, shape = NumberType.from_numpy_with_shape(field_dtype)
+            except TypeError:
+                raise UnsupportedTableError(f"Column type {field_dtype} is not supported.") from None
+            result.append(
+                TableColumnModel(
+                    data=InlineArrayModel(data=array[name].tolist(), datatype=datatype),
+                    name=name,
+                )
+            )
+        return result
+
+    @classmethod
+    def from_table(cls, table: astropy.table.Table, inline: bool = False) -> list[TableColumnModel]:
+        """Extract column definitions and (optionally) data from an Astropy
+        table.
+        """
+        return [cls.from_column(c, inline=inline) for c in table.columns.values()]
+
+    @classmethod
+    def from_column(cls, column: astropy.table.Column, inline: bool = False) -> TableColumnModel:
+        """Extract a column definition and (optionally) data from an Astropy
+        column.
+
+        Notes
+        -----
+        When ``inline=False`, this sets the `data` field to an
+        `ArrayReferenceModel` with ``source`` set to an empty string.  This
+        will need to be modified later.
         """
         # TODO: support string and variable-length array columns here.
         try:
             datatype = NumberType.from_numpy(column.dtype)
         except TypeError:
             raise UnsupportedTableError(f"Column type {column.dtype} is not supported.") from None
-        return TableColumnModel(
-            data=ArrayReferenceModel(
+
+        data = (
+            InlineArrayModel(data=column.tolist(), datatype=datatype)
+            if inline
+            else ArrayReferenceModel(
                 source="",
                 datatype=datatype,
                 shape=column.shape[1:],
-            ),
+            )
+        )
+        return TableColumnModel(
+            data=data,
             name=column.name,
             unit=astropy.units.Unit(column.unit) if column.unit is not None else None,
             meta=column.meta,
