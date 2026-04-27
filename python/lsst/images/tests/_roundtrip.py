@@ -16,8 +16,9 @@ __all__ = ("RoundtripFits", "TemporaryButler")
 import tempfile
 import unittest
 import uuid
+from abc import ABC, abstractmethod
 from contextlib import ExitStack
-from typing import Any, TypeVar
+from typing import Any, Self, TypeVar
 
 import astropy.io.fits
 
@@ -30,7 +31,7 @@ except ImportError:
 
 from .. import fits
 from .._generalized_image import GeneralizedImage
-from ..serialization import MetadataValue
+from ..serialization import ArchiveTree, MetadataValue, ReadResult
 
 # We need an old-style TypeVar for Sphinx.
 T = TypeVar("T")
@@ -96,8 +97,8 @@ class TemporaryButler:
         raise AttributeError(name)
 
 
-class RoundtripFits[T]:
-    """A context manager for testing FITS-based serialization.
+class RoundtripBase[T](ABC):
+    """A context manager for testing serialization.
 
     Parameters
     ----------
@@ -109,6 +110,9 @@ class RoundtripFits[T]:
         A butler storage class name to use.  If not provided (or
         `lsst.daf.butler` cannot be imported), the roundtrip will just use
         a direct write to a temporary file.
+    format
+        Archive/file format to use when not using a butler (ignored when
+        using a butler).
 
     Notes
     -----
@@ -122,7 +126,12 @@ class RoundtripFits[T]:
     with any `.GeneralizedImage` object.
     """
 
-    def __init__(self, tc: unittest.TestCase, original: T, storage_class: str | None = None):
+    def __init__(
+        self,
+        tc: unittest.TestCase,
+        original: T,
+        storage_class: str | None = None,
+    ):
         self._original = original
         self._storage_class = storage_class
         self._serialized: Any = None
@@ -140,7 +149,7 @@ class RoundtripFits[T]:
             "roundtrip_test_5": None,
         }
 
-    def __enter__(self) -> RoundtripFits[T]:
+    def __enter__(self) -> Self:
         self._exit_stack.__enter__()
         if isinstance(self._original, GeneralizedImage):
             self._original.metadata.update(self._test_metadata)
@@ -180,12 +189,6 @@ class RoundtripFits[T]:
                 tmp.close()
                 self._serialized = fits.write(self._original, tmp.name)
         return self._serialized
-
-    def inspect(self) -> astropy.io.fits.HDUList:
-        """Open the FITS file with Astropy."""
-        return self._exit_stack.enter_context(
-            astropy.io.fits.open(self.filename, disable_image_compression=True)
-        )
 
     def get(self, component: str | None = None, storageClass: str | None = None, **kwargs: Any) -> Any:
         """Perform a partial read.
@@ -250,7 +253,36 @@ class RoundtripFits[T]:
         )
         tmp.close()
         self._filename = tmp.name
-        self._serialized = fits.write(self._original, tmp.name)
-        read_result = fits.read(type(self._original), tmp.name)
+        self._serialized = self._write(self._original, tmp.name)
+        read_result = self._read(type(self._original), tmp.name)
         self._tc.assertIsNone(read_result.butler_info)
         self.result = read_result.deserialized
+
+    @abstractmethod
+    def _get_extension(self) -> str:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def _write(self, obj: Any, filename: str) -> ArchiveTree:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def _read(self, obj_type: Any, filename: str) -> ReadResult:
+        raise NotImplementedError()
+
+
+class RoundtripFits[T](RoundtripBase[T]):
+    def inspect(self) -> astropy.io.fits.HDUList:
+        """Open the FITS file with Astropy."""
+        return self._exit_stack.enter_context(
+            astropy.io.fits.open(self.filename, disable_image_compression=True)
+        )
+
+    def _get_extension(self) -> str:
+        return ".fits"
+
+    def _write(self, obj: Any, filename: str) -> ArchiveTree:
+        return fits.write(obj, filename)
+
+    def _read(self, obj_type: Any, filename: str) -> ReadResult:
+        return fits.read(obj_type, filename)
