@@ -14,7 +14,6 @@ from __future__ import annotations
 __all__ = (
     "FitsInputArchive",
     "FitsOpaqueMetadata",
-    "ReadResult",
     "read",
 )
 
@@ -24,7 +23,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import cached_property
 from types import EllipsisType
-from typing import IO, Any, NamedTuple, Self
+from typing import IO, Any, Self
 
 import astropy.io.fits
 import astropy.table
@@ -38,10 +37,9 @@ from ..serialization import (
     ArchiveReadError,
     ArchiveTree,
     ArrayReferenceModel,
-    ButlerInfo,
     InlineArrayModel,
     InputArchive,
-    MetadataValue,
+    ReadResult,
     TableModel,
     no_header_updates,
 )
@@ -52,19 +50,6 @@ from ._common import (
     InvalidFitsArchiveError,
     PointerModel,
 )
-
-
-class ReadResult[T: Any](NamedTuple):
-    """Struct used as the return value for `read`."""
-
-    deserialized: T
-    """The deserialized object itself."""
-
-    metadata: dict[str, MetadataValue]
-    """Additional flexible metadata stored with the object."""
-
-    butler_info: ButlerInfo | None
-    """Butler provenance information for the dataset this file backs."""
 
 
 def read[T: Any](

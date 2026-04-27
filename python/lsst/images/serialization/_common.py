@@ -17,11 +17,12 @@ __all__ = (
     "ButlerInfo",
     "MetadataValue",
     "OpaqueArchiveMetadata",
+    "ReadResult",
     "no_header_updates",
 )
 
 import operator
-from typing import TYPE_CHECKING, Any, Protocol, Self
+from typing import TYPE_CHECKING, Any, NamedTuple, Protocol, Self
 
 import astropy.table
 import astropy.units
@@ -68,6 +69,22 @@ class ArchiveTree(
         description="Information about the butler dataset backed by this file.",
         exclude_if=is_none,
     )
+
+
+class ReadResult[T: Any](NamedTuple):
+    """A struct that can be used to return both a deserialized object and
+    metadata associated with it, even when the in-memory type cannot hold
+    metadata.
+    """
+
+    deserialized: T
+    """The deserialized object itself."""
+
+    metadata: dict[str, MetadataValue]
+    """Additional flexible metadata stored with the object."""
+
+    butler_info: ButlerInfo | None
+    """Butler provenance information for the dataset this file backs."""
 
 
 class ArchiveReadError(RuntimeError):
