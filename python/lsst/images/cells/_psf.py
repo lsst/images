@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("CellPointSpreadFunction", "CellPointSpreadFunctionSerializationModel")
 
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import numpy as np
 import pydantic
@@ -44,6 +44,9 @@ class CellPointSpreadFunction(PointSpreadFunction):
     bounds
         Description of the cell grid and any missing cells.  Array entries for
         missing cells should be NaN.
+    resampling_kernel
+        Name of the resampling kernel to use when shifting the kernel image
+        into the stellar image.
 
     Notes
     -----
@@ -56,9 +59,15 @@ class CellPointSpreadFunction(PointSpreadFunction):
     -
     """
 
-    def __init__(self, array: np.ndarray, bounds: CellGridBounds):
+    def __init__(
+        self,
+        array: np.ndarray,
+        bounds: CellGridBounds,
+        resampling_kernel: Literal["lanczos3", "lanczos5"] = "lanczos5",
+    ):
         self._array = array
         self._bounds: CellGridBounds = bounds
+        self._resampling_kernel = resampling_kernel
 
     @property
     def grid(self) -> CellGrid:
@@ -125,7 +134,7 @@ class CellPointSpreadFunction(PointSpreadFunction):
         dy = y - iy
         kernel_image = self.compute_kernel_image(x=x, y=y)
         if dx != 0 or dy != 0:
-            legacy_result = offsetImage(kernel_image.to_legacy(), dx, dy, "lanczos5", 5)
+            legacy_result = offsetImage(kernel_image.to_legacy(), dx, dy, self._resampling_kernel, 5)
         else:
             # This branch is equal to the other up to round-off error, but it's
             # convenient nonetheless because it maintains exact compatibility
