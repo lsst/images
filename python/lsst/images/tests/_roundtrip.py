@@ -217,7 +217,7 @@ class RoundtripBase[T](ABC):
                 raise unittest.SkipTest("Cannot test component reads without a butler.")
             if storageClass is not None:
                 raise unittest.SkipTest("Cannot test storage class override without a butler")
-            result = fits.read(type(self._original), self.filename, **kwargs)
+            result = fits.read(type(self._original), self.filename, **kwargs).deserialized
         else:
             assert self.ref is not None, "butler and ref should be None or not together"
             ref = self.ref
