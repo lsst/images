@@ -228,14 +228,14 @@ class AmplifierRawGeometry(pydantic.BaseModel):
             "assembled position of the amplifier."
         ),
     )
-    horizontal_overscan_bbox: Box = pydantic.Field(
-        description="Bounding box of the horizontal (serial) overscan region in the raw image."
+    serial_overscan_bbox: Box = pydantic.Field(
+        description="Bounding box of the serial (horizon) overscan region in the raw image."
     )
-    vertical_overscan_bbox: Box = pydantic.Field(
-        description="Bounding box of the vertical (parallel) overscan region in the raw image."
+    parallel_overscan_bbox: Box = pydantic.Field(
+        description="Bounding box of the parallel (vertical) overscan region in the raw image."
     )
-    horizontal_prescan_bbox: Box = pydantic.Field(
-        description="Bounding box of the horizontal (serial) pre-scan region in the raw image."
+    prescan_bbox: Box = pydantic.Field(
+        description="Bounding box of the serial (horizontal) pre-scan region in the raw image."
     )
     readout_corner: ReadoutCorner = pydantic.Field(
         description=(
@@ -243,6 +243,50 @@ class AmplifierRawGeometry(pydantic.BaseModel):
             "(with x increasing to the right and y increasing up)."
         )
     )
+
+    @property
+    def horizontal_overscan_bbox(self) -> Box:
+        """Bounding box of the serial (horizon) overscan region in the raw
+        image (`.Box`).
+        """
+        return self.serial_overscan_bbox
+
+    @horizontal_overscan_bbox.setter
+    def horizontal_overscan_bbox(self, value: Box) -> None:
+        self.serial_overscan_bbox = value
+
+    @property
+    def vertical_overscan_bbox(self) -> Box:
+        """Bounding box of the parallel (vertical) overscan region in the raw
+        image (`.Box`).
+        """
+        return self.parallel_overscan_bbox
+
+    @vertical_overscan_bbox.setter
+    def vertical_overscan_bbox(self, value: Box) -> None:
+        self.parallel_overscan_bbox = value
+
+    @property
+    def horizontal_prescan_bbox(self) -> Box:
+        """Bounding box of the serial (horizon) prescan region in the raw
+        image (`.Box`).
+        """
+        return self.prescan_bbox
+
+    @horizontal_prescan_bbox.setter
+    def horizontal_prescan_bbox(self, value: Box) -> None:
+        self.prescan_bbox = value
+
+    @property
+    def serial_prescan_bbox(self) -> Box:
+        """Bounding box of the serial (horizon) prescan region in the raw
+        image (`.Box`).
+        """
+        return self.prescan_bbox
+
+    @serial_prescan_bbox.setter
+    def serial_prescan_bbox(self, value: Box) -> None:
+        self.prescan_bbox = value
 
     @staticmethod
     def from_legacy_amplifier(legacy_amplifier: LegacyAmplifier) -> AmplifierRawGeometry:
@@ -261,9 +305,9 @@ class AmplifierRawGeometry(pydantic.BaseModel):
             flip_y=legacy_amplifier.getRawFlipY(),
             x_offset=x_offset,
             y_offset=y_offset,
-            horizontal_overscan_bbox=Box.from_legacy(legacy_amplifier.getRawHorizontalOverscanBBox()),
-            vertical_overscan_bbox=Box.from_legacy(legacy_amplifier.getRawVerticalOverscanBBox()),
-            horizontal_prescan_bbox=Box.from_legacy(legacy_amplifier.getRawPrescanBBox()),
+            serial_overscan_bbox=Box.from_legacy(legacy_amplifier.getRawSerialOverscanBBox()),
+            parallel_overscan_bbox=Box.from_legacy(legacy_amplifier.getRawParallelOverscanBBox()),
+            prescan_bbox=Box.from_legacy(legacy_amplifier.getRawPrescanBBox()),
             readout_corner=ReadoutCorner.from_legacy(legacy_amplifier.getReadoutCorner()),
         )
 
@@ -369,9 +413,9 @@ class Amplifier(pydantic.BaseModel, ser_json_inf_nan="constants"):
         builder.setRawFlipX(raw_geom.flip_x)
         builder.setRawFlipY(raw_geom.flip_y)
         builder.setRawXYOffset(Extent2I(raw_geom.x_offset, raw_geom.y_offset))
-        builder.setRawHorizontalOverscanBBox(raw_geom.horizontal_overscan_bbox.to_legacy())
-        builder.setRawVerticalOverscanBBox(raw_geom.vertical_overscan_bbox.to_legacy())
-        builder.setRawPrescanBBox(raw_geom.horizontal_prescan_bbox.to_legacy())
+        builder.setRawSerialOverscanBBox(raw_geom.serial_overscan_bbox.to_legacy())
+        builder.setRawParallelOverscanBBox(raw_geom.parallel_overscan_bbox.to_legacy())
+        builder.setRawPrescanBBox(raw_geom.prescan_bbox.to_legacy())
         if self.nominal_calibrations is not None:
             builder.setGain(self.nominal_calibrations.gain)
             builder.setReadNoise(self.nominal_calibrations.read_noise)
