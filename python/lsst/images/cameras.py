@@ -308,6 +308,12 @@ class Amplifier(pydantic.BaseModel, ser_json_inf_nan="constants"):
     bbox: Box = pydantic.Field(
         description="Bounding box of the amplifier data region in a trimmed, assembled detector."
     )
+    readout_corner: ReadoutCorner = pydantic.Field(
+        description=(
+            "Readout corner of the amplifier in the final assembled, trimmed "
+            "image (with x increasing to the right and y increasing up). "
+        )
+    )
     assembled_raw_geometry: AmplifierRawGeometry | None = pydantic.Field(
         None,
         description=(
@@ -326,29 +332,6 @@ class Amplifier(pydantic.BaseModel, ser_json_inf_nan="constants"):
             "Nominal calibration information that may be superseded by separate calibration datasets."
         ),
     )
-
-    @property
-    def readout_corner(self) -> ReadoutCorner:
-        """The readout corner in the final assembled, trimmed image.
-
-        Notes
-        -----
-        This definition - i.e. relative to the final assembled, trimmed image
-        - is consistent with historical
-        `lsst.afw.cameraGeom.Amplifier.getReadoutCorner` documentation, but
-        inconsistent with its behavior on unassembled images, which was to
-        report the readout corner in the image the legacy amplifier was
-        attached to (i.e. the same as `AmplifierRawGeometry.readout_corner`).
-        """
-        if self.assembled_raw_geometry is not None:
-            return self.assembled_raw_geometry.readout_corner.apply_flips(
-                y=self.assembled_raw_geometry.flip_y, x=self.assembled_raw_geometry.flip_x
-            )
-        if self.unassembled_raw_geometry is not None:
-            return self.unassembled_raw_geometry.readout_corner.apply_flips(
-                y=self.unassembled_raw_geometry.flip_y, x=self.unassembled_raw_geometry.flip_x
-            )
-        raise AttributeError("Amplifier has no raw geometry.")
 
     def to_legacy_builder(self, is_raw_assembled: bool) -> LegacyAmplifier.Builder:
         """Convert to a `lsst.afw.cameraGeom.Amplifier.Builder`.
@@ -377,6 +360,9 @@ class Amplifier(pydantic.BaseModel, ser_json_inf_nan="constants"):
                 raise ValueError(
                     f"is_raw_assembled=False but unassembled_raw_geometry is None for amp {self.name}."
                 )
+        # The afw readout corner definition corresponds to the image it is
+        # attached to (which might be a raw), not the final trimmed image
+        # (despite the docs, until a change on this ticket).
         builder.setReadoutCorner(raw_geom.readout_corner.to_legacy())
         builder.setRawBBox(raw_geom.bbox.to_legacy())
         builder.setRawDataBBox(raw_geom.data_bbox.to_legacy())
@@ -409,9 +395,11 @@ class Amplifier(pydantic.BaseModel, ser_json_inf_nan="constants"):
         """
         raw_geometry = AmplifierRawGeometry.from_legacy_amplifier(legacy_amplifier)
         nominal_calibrations = AmplifierCalibrations.from_legacy_amplifier(legacy_amplifier)
+        readout_corner = raw_geometry.readout_corner.apply_flips(y=raw_geometry.flip_y, x=raw_geometry.flip_x)
         return Amplifier(
             name=legacy_amplifier.getName(),
             bbox=Box.from_legacy(legacy_amplifier.getBBox()),
+            readout_corner=readout_corner,
             assembled_raw_geometry=raw_geometry if is_raw_assembled else None,
             unassembled_raw_geometry=raw_geometry if not is_raw_assembled else None,
             nominal_calibrations=nominal_calibrations,
