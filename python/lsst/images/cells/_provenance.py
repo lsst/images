@@ -13,7 +13,7 @@ from __future__ import annotations
 
 __all__ = ("CoaddProvenance", "CoaddProvenanceSerializationModel")
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import astropy.table
@@ -61,72 +61,63 @@ class CoaddProvenance:
         self._inputs = inputs
         self._contributions = contributions
 
-    _INPUT_TABLE_DESCRIPTIONS: ClassVar[Mapping[str, str]] = {
-        "instrument": "Name of the instrument.",
-        "visit": "ID of the visit.",
-        "detector": "ID of the detector.",
-        "physical_filter": "Full name of the bandpass filter.",
-        "day_obs": "Observation night as a YYYYMMDD integer.",
-        "polygon": (
-            "Polygon that approximates the overlap of the observation and the coadd patch, "
-            "in coadd coordinates."
+    _INPUT_TABLE_COLUMNS: ClassVar[list[tuple[str, type, str]]] = [
+        ("instrument", np.object_, "Name of the instrument."),
+        ("visit", np.uint64, "ID of the visit."),
+        ("detector", np.uint16, "ID of the detector."),
+        ("physical_filter", np.object_, "Full name of the bandpass filter."),
+        ("day_obs", np.uint32, "Observation night as a YYYYMMDD integer."),
+        (
+            "polygon",
+            np.object_,
+            (
+                "Polygon that approximates the overlap of the observation and the coadd patch, "
+                "in coadd coordinates."
+            ),
         ),
-    }
+    ]
 
-    _CONTRIBUTION_TABLE_DESCRIPTIONS: ClassVar[Mapping[str, str]] = {
-        "cell_i": "Y-axis index of the cell within the patch.",
-        "cell_j": "X-axis index of the cell within the patch.",
-        "instrument": "Name of the instrument.",
-        "visit": "ID of the visit.",
-        "detector": "ID of the detector.",
-        "overlaps_center": "Whether a this observation overlaps the center of the cell.",
-        "overlap_fraction": "Fraction of the cell that is covered by the overlap region.",
-        "weight": "Weight to be used for this input in this cell.",
-        "psf_shape_xx": "Second order moments of the PSF.",
-        "psf_shape_yy": "Second order moments of the PSF.",
-        "psf_shape_xy": "Second order moments of the PSF.",
-        "psf_shape_flag": "Flag indicating whether the PSF shape measurement was successful.",
-    }
+    _CONTRIBUTION_TABLE_COLUMNS: ClassVar[list[tuple[str, type, str, u.UnitBase | None]]] = [
+        ("cell_i", np.uint16, "Y-axis index of the cell within the patch.", None),
+        ("cell_j", np.uint16, "X-axis index of the cell within the patch.", None),
+        ("instrument", np.object_, "Name of the instrument.", None),
+        ("visit", np.uint64, "ID of the visit.", None),
+        ("detector", np.uint16, "ID of the detector.", None),
+        ("overlaps_center", np.bool_, "Whether a this observation overlaps the center of the cell.", None),
+        ("overlap_fraction", np.float64, "Fraction of the cell that is covered by the overlap region.", None),
+        ("weight", np.float64, "Weight to be used for this input in this cell.", None),
+        ("psf_shape_xx", np.float64, "Second order moments of the PSF.", u.pix**2),
+        ("psf_shape_yy", np.float64, "Second order moments of the PSF.", u.pix**2),
+        ("psf_shape_xy", np.float64, "Second order moments of the PSF.", u.pix**2),
+        (
+            "psf_shape_flag",
+            np.bool_,
+            "Flag indicating whether the PSF shape measurement was successful.",
+            None,
+        ),
+    ]
 
     @classmethod
     def make_empty_input_table(cls, n_rows: int) -> astropy.table.Table:
         """Make an empty `inputs` table with a set number of rows."""
-        result = astropy.table.Table(
+        return astropy.table.Table(
             [
-                astropy.table.Column(name="instrument", length=n_rows, dtype=np.object_),
-                astropy.table.Column(name="visit", length=n_rows, dtype=np.uint64),
-                astropy.table.Column(name="detector", length=n_rows, dtype=np.uint16),
-                astropy.table.Column(name="physical_filter", length=n_rows, dtype=np.object_),
-                astropy.table.Column(name="day_obs", length=n_rows, dtype=np.uint32),
-                astropy.table.Column(name="polygon", length=n_rows, dtype=np.object_),
+                astropy.table.Column(name=name, length=n_rows, dtype=dtype, description=description)
+                for name, dtype, description in cls._INPUT_TABLE_COLUMNS
             ]
         )
-        for k, v in cls._INPUT_TABLE_DESCRIPTIONS.items():
-            result.columns[k].description = v
-        return result
 
     @classmethod
     def make_empty_contribution_table(cls, n_rows: int) -> astropy.table.Table:
         """Make an empty `contributions` table with a set number of rows."""
-        result = astropy.table.Table(
+        return astropy.table.Table(
             [
-                astropy.table.Column(name="cell_i", length=n_rows, dtype=np.uint16),
-                astropy.table.Column(name="cell_j", length=n_rows, dtype=np.uint16),
-                astropy.table.Column(name="instrument", length=n_rows, dtype=np.object_),
-                astropy.table.Column(name="visit", length=n_rows, dtype=np.uint64),
-                astropy.table.Column(name="detector", length=n_rows, dtype=np.uint16),
-                astropy.table.Column(name="overlaps_center", length=n_rows, dtype=np.bool_),
-                astropy.table.Column(name="overlap_fraction", length=n_rows, dtype=np.float64),
-                astropy.table.Column(name="weight", length=n_rows, dtype=np.float64),
-                astropy.table.Column(name="psf_shape_xx", length=n_rows, dtype=np.float64, unit=u.pix**2),
-                astropy.table.Column(name="psf_shape_yy", length=n_rows, dtype=np.float64, unit=u.pix**2),
-                astropy.table.Column(name="psf_shape_xy", length=n_rows, dtype=np.float64, unit=u.pix**2),
-                astropy.table.Column(name="psf_shape_flag", length=n_rows, dtype=np.bool_),
+                astropy.table.Column(
+                    name=name, length=n_rows, dtype=dtype, description=description, unit=unit
+                )
+                for name, dtype, description, unit in cls._CONTRIBUTION_TABLE_COLUMNS
             ]
         )
-        for k, v in cls._CONTRIBUTION_TABLE_DESCRIPTIONS.items():
-            result.columns[k].description = v
-        return result
 
     @property
     def inputs(self) -> astropy.table.Table:
@@ -153,9 +144,9 @@ class CoaddProvenance:
             dtype=[np.uint16, np.uint16],
         )
         contributions = astropy.table.join(self._contributions, cells_to_keep)
-        assert contributions.columns.keys() == self._CONTRIBUTION_TABLE_DESCRIPTIONS.keys()
+        assert contributions.columns.keys() == {name for name, _, _, _ in self._CONTRIBUTION_TABLE_COLUMNS}
         inputs = astropy.table.join(contributions["instrument", "visit", "detector"], self._inputs)
-        assert inputs.columns.keys() == self._INPUT_TABLE_DESCRIPTIONS.keys()
+        assert inputs.columns.keys() == {name for name, _, _ in self._INPUT_TABLE_COLUMNS}
         return CoaddProvenance(inputs=inputs, contributions=contributions)
 
     def serialize(self, archive: OutputArchive[Any]) -> CoaddProvenanceSerializationModel:
@@ -216,10 +207,11 @@ class CoaddProvenance:
             "physical_filter", model.physical_filter, inputs
         )
         CoaddProvenanceSerializationModel._fix_polygon_for_deserialization(inputs)
-        for k, v in cls._INPUT_TABLE_DESCRIPTIONS.items():
-            inputs.columns[k].description = v
-        for k, v in cls._CONTRIBUTION_TABLE_DESCRIPTIONS.items():
-            contributions.columns[k].description = v
+        for name, _, description in cls._INPUT_TABLE_COLUMNS:
+            inputs.columns[name].description = description
+        for name, _, description, unit in cls._CONTRIBUTION_TABLE_COLUMNS:
+            contributions.columns[name].description = description
+            contributions.columns[name].unit = unit
         return cls(inputs=inputs, contributions=contributions)
 
     @staticmethod
