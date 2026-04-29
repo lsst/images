@@ -246,6 +246,7 @@ class RoundtripBase[T](ABC):
                 DatasetRef.from_simple(self.result.butler_dataset, universe=self.butler.dimensions), self.ref
             )
             self._tc.assertEqual(self.result.butler_provenance.quantum_id, quantum_id)
+        self._tc.assertTrue(self.filename.endswith(self._get_extension()))
 
     def _run_without_butler(self) -> None:
         tmp = self._exit_stack.enter_context(
