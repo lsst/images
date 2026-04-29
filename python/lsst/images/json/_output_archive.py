@@ -20,6 +20,8 @@ import astropy.table
 import numpy as np
 import pydantic
 
+from lsst.resources import ResourcePath, ResourcePathExpression
+
 from .._transforms import FrameSet
 from ..serialization import (
     ArchiveTree,
@@ -41,7 +43,7 @@ if TYPE_CHECKING:
 
 def write(
     obj: Any,
-    filename: str | None = None,
+    path: ResourcePathExpression | None = None,
     metadata: dict[str, MetadataValue] | None = None,
     butler_info: ButlerInfo | None = None,
 ) -> ArchiveTree:
@@ -49,9 +51,9 @@ def write(
 
     Parameters
     ----------
-    filename
-        Name of the file to write to.  If not provided, a serializable model
-        is returned but not written to disk.
+    path
+        Name of the file to write to (may be a URI).  If not provided, a
+        serializable model is returned but not written to disk.
     metadata
         Additional metadata to save with the object.  This will override any
         flexible metadata carried by the object itself with the same keys.
@@ -71,9 +73,8 @@ def write(
     if butler_info is not None:
         tree.butler_info = butler_info
     archive.finish(tree)
-    if filename is not None:
-        with open(filename, "w") as stream:
-            stream.write(tree.model_dump_json())
+    if path is not None:
+        ResourcePath(path).write(tree.model_dump_json().encode())
     return tree
 
 

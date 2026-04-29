@@ -50,7 +50,7 @@ from ._common import (
 
 def write(
     obj: Any,
-    filename: str,
+    path: str,
     compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
     update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     compression_seed: int | None = None,
@@ -61,7 +61,7 @@ def write(
 
     Parameters
     ----------
-    filename
+    path
         Name of the file to write to.  Must not already exist.
     compression_options
         Options for how to compress the FITS file, keyed by the name of
@@ -88,7 +88,7 @@ def write(
     opaque_metadata = getattr(obj, "_opaque_metadata", None)
     name = getattr(obj, "_archive_default_name", None)
     with FitsOutputArchive.open(
-        filename,
+        path,
         compression_options=compression_options,
         opaque_metadata=opaque_metadata,
         update_header=update_header,
