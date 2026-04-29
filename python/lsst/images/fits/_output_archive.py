@@ -38,6 +38,8 @@ from ..serialization import (
     no_header_updates,
 )
 from ._common import (
+    JSON_COLUMN,
+    JSON_EXTNAME,
     ExtensionHDU,
     ExtensionKey,
     FitsCompressionOptions,
@@ -219,7 +221,8 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
             return pointer
         pointer = PointerModel(
             column=TableColumnModel(
-                name="JSON", data=ArrayReferenceModel(source="fits:JSON[1]", datatype=NumberType.uint8)
+                name=JSON_COLUMN,
+                data=ArrayReferenceModel(source=f"fits:{JSON_EXTNAME}[1]", datatype=NumberType.uint8),
             ),
             row=len(self._pointer_targets) + 1,
         )
@@ -341,13 +344,13 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
             Pydantic model that represents the tree.
         """
         json_hdu = astropy.io.fits.BinTableHDU.from_columns(
-            [astropy.io.fits.Column("JSON", "PB")],
+            [astropy.io.fits.Column(JSON_COLUMN, "PB")],
             nrows=len(self._pointer_targets) + 1,
-            name="JSON",
+            name=JSON_EXTNAME,
         )
-        json_hdu.data[0]["JSON"] = np.frombuffer(tree.model_dump_json().encode(), dtype=np.byte)
+        json_hdu.data[0][JSON_COLUMN] = np.frombuffer(tree.model_dump_json().encode(), dtype=np.byte)
         for n, json_target_data in enumerate(self._pointer_targets):
-            json_hdu.data[n + 1]["JSON"] = np.frombuffer(json_target_data, dtype=np.byte)
+            json_hdu.data[n + 1][JSON_COLUMN] = np.frombuffer(json_target_data, dtype=np.byte)
         self._hdu_list.append(json_hdu)
         self._json_hdu_added = True
 

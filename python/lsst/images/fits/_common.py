@@ -13,6 +13,9 @@
 from __future__ import annotations
 
 __all__ = (
+    "FITS_SOURCE_REGEX",
+    "JSON_COLUMN",
+    "JSON_EXTNAME",
     "ExtensionHDU",
     "ExtensionKey",
     "FitsCompressionAlgorithm",
@@ -46,6 +49,9 @@ from ..serialization import ArchiveReadError, OpaqueArchiveMetadata, TableColumn
 type ExtensionHDU = astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU
 
 FITS_SOURCE_REGEX = re.compile(r"fits:(?P<extname>[\w/\-]+)(,(?P<extver>\d+))?(\[\d+\])?")
+
+JSON_EXTNAME: str = "JSON"
+JSON_COLUMN: str = "JSON"
 
 
 @dataclasses.dataclass(frozen=True)

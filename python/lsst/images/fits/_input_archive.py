@@ -44,6 +44,8 @@ from ..serialization import (
     no_header_updates,
 )
 from ._common import (
+    JSON_COLUMN,
+    JSON_EXTNAME,
     ExtensionHDU,
     ExtensionKey,
     FitsOpaqueMetadata,
@@ -136,7 +138,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
             ExtensionKey.from_index_row(row): _ExtensionReader.from_index_row(row, stream)
             for row in index_hdu.data
         }
-        self._readers[ExtensionKey("JSON")] = _ExtensionReader.from_bytes(
+        self._readers[ExtensionKey(JSON_COLUMN)] = _ExtensionReader.from_bytes(
             astropy.io.fits.BinTableHDU, tail_data[:json_size]
         )
         # Make any empty dictionary to cache deserialized objects.  Keys are
@@ -195,7 +197,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
         T
             The validated Pydantic model.
         """
-        json_bytes = self._readers[ExtensionKey("JSON")].data[0]["JSON"].tobytes()
+        json_bytes = self._readers[ExtensionKey(JSON_EXTNAME)].data[0][JSON_COLUMN].tobytes()
         return model_type.model_validate_json(json_bytes)
 
     def deserialize_pointer[U: ArchiveTree, V](
@@ -211,7 +213,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
             raise ArchiveReadError(f"Invalid pointer with inline array:\n{pointer.model_dump_json(indent=2)}")
         _, reader = self._get_source_reader(pointer.column.data.source, is_table=True)
         try:
-            json_bytes = reader.data[pointer.row]["JSON"].tobytes()
+            json_bytes = reader.data[pointer.row][JSON_COLUMN].tobytes()
         except Exception as err:
             raise InvalidFitsArchiveError(
                 f"Failed to access the table cell referenced by {pointer.model_dump_json()}."
