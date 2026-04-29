@@ -24,6 +24,7 @@ keywords=["lsst"]
 dependencies = [
     "astropy >= 7.0",
     "fsspec",
+    "h5py >= 3.10",
     "numpy >= 2.0",
     "scipy >= 1.13",
     "pydantic >= 2.12",
