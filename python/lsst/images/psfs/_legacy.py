@@ -193,7 +193,7 @@ class PSFExSerializationModel(serialization.ArchiveTree):
 
     coeff: list[float] = pydantic.Field(description="Polynomial coefficients.")
 
-    parameters: serialization.ArrayReferenceModel = pydantic.Field(
+    parameters: serialization.ArrayReferenceModel | serialization.InlineArrayModel = pydantic.Field(
         description="Reference to an array with the complete model parameters."
     )
 

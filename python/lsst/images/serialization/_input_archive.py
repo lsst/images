@@ -24,9 +24,9 @@ import astropy.units
 import numpy as np
 import pydantic
 
-from ._asdf_utils import ArrayReferenceModel
+from ._asdf_utils import ArrayReferenceModel, InlineArrayModel
 from ._common import ArchiveTree, OpaqueArchiveMetadata, no_header_updates
-from ._tables import TableReferenceModel
+from ._tables import TableModel
 
 if TYPE_CHECKING:
     from .._transforms import FrameSet
@@ -106,7 +106,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
     @abstractmethod
     def get_array(
         self,
-        ref: ArrayReferenceModel,
+        model: ArrayReferenceModel | InlineArrayModel,
         *,
         slices: tuple[slice, ...] | EllipsisType = ...,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
@@ -115,8 +115,8 @@ class InputArchive[P: pydantic.BaseModel](ABC):
 
         Parameters
         ----------
-        ref
-            A Pydantic model that references the array.
+        model
+            A Pydantic model that references or holds the array.
         slices
             Slices that specify a subset of the original array to read.
         strip_header
@@ -129,15 +129,15 @@ class InputArchive[P: pydantic.BaseModel](ABC):
     @abstractmethod
     def get_table(
         self,
-        ref: TableReferenceModel,
+        model: TableModel,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> astropy.table.Table:
         """Load a table from the archive.
 
         Parameters
         ----------
-        ref
-            A Pydantic model that references the table.
+        model
+            A Pydantic model that references or holds the table.
         strip_header
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
@@ -153,15 +153,15 @@ class InputArchive[P: pydantic.BaseModel](ABC):
     @abstractmethod
     def get_structured_array(
         self,
-        ref: TableReferenceModel,
+        model: TableModel,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> np.ndarray:
         """Load a table from the archive as a structured array.
 
         Parameters
         ----------
-        ref
-            A Pydantic model that references the table.
+        model
+            A Pydantic model that references or holds the table.
         strip_header
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
@@ -174,8 +174,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         """
         raise NotImplementedError()
 
-    @abstractmethod
-    def get_opaque_metadata(self) -> OpaqueArchiveMetadata:
+    def get_opaque_metadata(self) -> OpaqueArchiveMetadata | None:
         """Return opaque metadata loaded from the file that should be saved if
         another version of the object is saved to the same file format.
 
@@ -185,4 +184,4 @@ class InputArchive[P: pydantic.BaseModel](ABC):
             Opaque metadata specific to this archive type that should be
             round-tripped if it is saved in the same format.
         """
-        raise NotImplementedError()
+        return None

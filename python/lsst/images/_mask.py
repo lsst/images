@@ -43,6 +43,7 @@ from .serialization import (
     ArchiveReadError,
     ArchiveTree,
     ArrayReferenceModel,
+    InlineArrayModel,
     InputArchive,
     IntegerType,
     MetadataValue,
@@ -624,7 +625,7 @@ class Mask(GeneralizedImage):
             If this is set to ``" "``, it will prevent the `Projection` from
             being saved as a FITS WCS.
         """
-        data: list[ArrayReferenceModel] = []
+        data: list[ArrayReferenceModel | InlineArrayModel] = []
         for schema_2d in self.schema.split(np.int32):
             mask_2d = Mask(
                 0, bbox=self.bbox, schema=schema_2d, projection=self._projection, obs_info=self._obs_info
@@ -654,7 +655,7 @@ class Mask(GeneralizedImage):
         *,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
         add_offset_wcs: str | None = "A",
-    ) -> ArrayReferenceModel:
+    ) -> ArrayReferenceModel | InlineArrayModel:
         def _update_header(header: astropy.io.fits.Header) -> None:
             update_header(header)
             self.schema.update_header(header)
@@ -715,9 +716,9 @@ class Mask(GeneralizedImage):
             raise ArchiveReadError(
                 f"Number of mask arrays ({len(model.data)}) does not match expectation ({len(schemas_2d)})."
             )
-        for ref, schema_2d in zip(model.data, schemas_2d):
+        for array_model, schema_2d in zip(model.data, schemas_2d):
             mask_2d = cls._deserialize_2d(
-                ref, schema_2d, bbox.start, archive, strip_header=strip_header, slices=slices
+                array_model, schema_2d, bbox.start, archive, strip_header=strip_header, slices=slices
             )
             result.update(mask_2d)
         return result._finish_deserialize(model)
@@ -725,7 +726,7 @@ class Mask(GeneralizedImage):
     @classmethod
     def _deserialize_2d(
         cls,
-        ref: ArrayReferenceModel,
+        ref: ArrayReferenceModel | InlineArrayModel,
         schema_2d: MaskSchema,
         start: Sequence[int],
         archive: InputArchive[Any],
@@ -940,7 +941,9 @@ class Mask(GeneralizedImage):
 class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """Pydantic model used to represent the serialized form of a `.Mask`."""
 
-    data: list[ArrayReferenceModel] = pydantic.Field(description="References to pixel data.")
+    data: list[ArrayReferenceModel | InlineArrayModel] = pydantic.Field(
+        description="References to pixel data."
+    )
     start: list[int] = pydantic.Field(
         description="Coordinate of the first pixels in the array, ordered (y, x)."
     )

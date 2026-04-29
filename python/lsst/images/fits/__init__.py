@@ -11,8 +11,8 @@
 
 """Archive implementations for the FITS file format.
 
-The archives this package define a FITS-based meta format with the following
-layout:
+The archives in this package define a FITS-based meta format with the
+following layout:
 
 - A no-data primary HDU with the special header cards ``INDXADDR``,
   ``INDXSIZE``, ``JSONADDR``, and ``JSONSIZE``, which provide the offsets to

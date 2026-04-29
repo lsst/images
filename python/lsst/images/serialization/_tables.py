@@ -12,21 +12,20 @@
 from __future__ import annotations
 
 __all__ = (
-    "ColumnDefinitionModel",
-    "TableCellReferenceModel",
-    "TableReferenceModel",
+    "TableColumnModel",
+    "TableModel",
     "UnsupportedTableError",
 )
 
 import operator
-from typing import TYPE_CHECKING, ClassVar, Literal
+from typing import TYPE_CHECKING
 
 import astropy.units
 import numpy as np
 import numpy.typing as npt
 import pydantic
 
-from ._asdf_utils import Unit
+from ._asdf_utils import ArrayReferenceModel, InlineArrayModel, Unit
 from ._common import ArchiveReadError
 from ._dtypes import NumberType
 
@@ -40,41 +39,49 @@ class UnsupportedTableError(NotImplementedError):
     """
 
 
-class ColumnDefinitionModel(pydantic.BaseModel):
-    """A model that describes a column in a table."""
+class TableColumnModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
+    """Model for a subset of the ASDF table/column schema."""
+
+    data: InlineArrayModel | ArrayReferenceModel
+    """Column data."""
 
     name: str
     """Name of the column."""
 
-    datatype: NumberType
-    """Type of the column."""
+    description: str = pydantic.Field(default="", exclude_if=operator.not_)
+    """Extended description of the column."""
 
     unit: Unit | None = pydantic.Field(default=None, exclude_if=operator.not_)
     """Units of the column."""
 
-    description: str = pydantic.Field(default="", exclude_if=operator.not_)
-    """Extended description of the column."""
+    meta: dict[str, int | float | str | bool | None] = pydantic.Field(
+        default_factory=dict, exclude_if=operator.not_, description="Free-form metadata for the column."
+    )
 
-    shape: tuple[int, ...] = pydantic.Field(default=(), exclude_if=operator.not_)
-    """Shape of a single cell in of this column.
-
-    An empty `tuple` is used to represent a scalar column.
-    """
-
-    is_variable_length: bool = pydantic.Field(default=False, exclude_if=operator.not_)
-    """Whether this column is a variable-length array."""
+    model_config = pydantic.ConfigDict(
+        json_schema_extra={
+            "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+            "id": "http://stsci.edu/schemas/asdf/table/column-1.1.0",
+            "tag": "!table/column-1.1.0",
+        }
+    )
 
     @classmethod
-    def from_record_dtype(cls, dtype: npt.DTypeLike) -> list[ColumnDefinitionModel]:
+    def from_record_dtype(cls, dtype: npt.DTypeLike) -> list[TableColumnModel]:
         """Extract a list of column definitions from a structured numpy dtype.
 
         Parameters
         ----------
         dtype
             Object convertible to `numpy.dtype`.
+
+        Notes
+        -----
+        This sets the `data` field to an `ArrayReferenceModel` with ``source``
+        set to an empty string.  This will need to be modified later.
         """
         dtype = np.dtype(dtype)
-        result: list[ColumnDefinitionModel] = []
+        result: list[TableColumnModel] = []
         if dtype.fields is None:
             raise TypeError(f"{dtype} is not a structured dtype.")
         for name, (field_dtype, *_) in dtype.fields.items():
@@ -83,27 +90,88 @@ class ColumnDefinitionModel(pydantic.BaseModel):
                 datatype, shape = NumberType.from_numpy_with_shape(field_dtype)
             except TypeError:
                 raise UnsupportedTableError(f"Column type {field_dtype} is not supported.") from None
-            result.append(ColumnDefinitionModel.model_construct(name=name, datatype=datatype, shape=shape))
+            result.append(
+                TableColumnModel(
+                    data=ArrayReferenceModel(source="", datatype=datatype, shape=list(shape)),
+                    name=name,
+                )
+            )
         return result
 
     @classmethod
-    def from_table(cls, table: astropy.table.Table) -> list[ColumnDefinitionModel]:
-        """Extract column definitions from an Astropy table."""
-        return [cls.from_column(c) for c in table.columns.values()]
+    def from_record_array(cls, array: np.ndarray, inline: bool = False) -> list[TableColumnModel]:
+        """Extract a list of column definitions from a structured numpy array.
+
+        Parameters
+        ----------
+        array
+            A table-like array.
+        inline
+            Whether to store the array data directly in the columns.
+
+        Notes
+        -----
+        When ``inline=False``, this sets the `data` field to an
+        `ArrayReferenceModel` with ``source`` set to an empty string.  This
+        will need to be modified later.
+        """
+        if not inline:
+            return cls.from_record_dtype(array.dtype)
+        result: list[TableColumnModel] = []
+        if array.dtype.fields is None:
+            raise TypeError(f"{array.dtype} is not a structured dtype.")
+        for name, (field_dtype, *_) in array.dtype.fields.items():
+            # TODO: support string and variable-length array columns here.
+            try:
+                datatype, shape = NumberType.from_numpy_with_shape(field_dtype)
+            except TypeError:
+                raise UnsupportedTableError(f"Column type {field_dtype} is not supported.") from None
+            result.append(
+                TableColumnModel(
+                    data=InlineArrayModel(data=array[name].tolist(), datatype=datatype),
+                    name=name,
+                )
+            )
+        return result
 
     @classmethod
-    def from_column(cls, column: astropy.table.Column) -> ColumnDefinitionModel:
-        """Extract a column definition from an Astropy column."""
+    def from_table(cls, table: astropy.table.Table, inline: bool = False) -> list[TableColumnModel]:
+        """Extract column definitions and (optionally) data from an Astropy
+        table.
+        """
+        return [cls.from_column(c, inline=inline) for c in table.columns.values()]
+
+    @classmethod
+    def from_column(cls, column: astropy.table.Column, inline: bool = False) -> TableColumnModel:
+        """Extract a column definition and (optionally) data from an Astropy
+        column.
+
+        Notes
+        -----
+        When ``inline=False`, this sets the `data` field to an
+        `ArrayReferenceModel` with ``source`` set to an empty string.  This
+        will need to be modified later.
+        """
         # TODO: support string and variable-length array columns here.
         try:
             datatype = NumberType.from_numpy(column.dtype)
         except TypeError:
             raise UnsupportedTableError(f"Column type {column.dtype} is not supported.") from None
-        return ColumnDefinitionModel(
+
+        data = (
+            InlineArrayModel(data=column.tolist(), datatype=datatype)
+            if inline
+            else ArrayReferenceModel(
+                source="",
+                datatype=datatype,
+                shape=column.shape[1:],
+            )
+        )
+        return TableColumnModel(
+            data=data,
             name=column.name,
-            datatype=datatype,
-            shape=column.shape[1:],
             unit=astropy.units.Unit(column.unit) if column.unit is not None else None,
+            meta=column.meta,
             description=column.description or "",
         )
 
@@ -114,48 +182,22 @@ class ColumnDefinitionModel(pydantic.BaseModel):
         astropy_column: astropy.table.Column = table.columns[self.name]
         astropy_column.unit = self.unit
         astropy_column.description = self.description
-        if (datatype := NumberType.from_numpy(astropy_column.dtype)) != self.datatype:
-            raise ArchiveReadError(f"Table column {self.name} has type {datatype}; expected {self.datatype}.")
-        if (shape := astropy_column.shape[1:]) != self.shape:
-            raise ArchiveReadError(f"Table column {self.name} has shape {shape}; expected {self.shape}.")
+        if (datatype := NumberType.from_numpy(astropy_column.dtype)) != self.data.datatype:
+            raise ArchiveReadError(
+                f"Table column {self.name} has type {datatype}; expected {self.data.datatype}."
+            )
+        if (shape := astropy_column.shape[1:]) != self.data.shape:
+            raise ArchiveReadError(f"Table column {self.name} has shape {shape}; expected {self.data.shape}.")
 
 
-class TableReferenceModel(pydantic.BaseModel):
-    """Placeholder for an ASDF-like model for referencing binary tabular
-    data.
+class TableModel(pydantic.BaseModel):
+    """Placeholder for an ASDF-like model for referencing or holding binary
+    tabular data.
     """
 
-    source: str | int
-    """Reference to the table data.
-
-    This is analogous to the ASDF ``ndarray`` field of the same name, i.e
-    for a FITS binary table, use "fits:EXTNAME[,EXTVER]" or "fits:INDEX"
-    (zero-indexed) to identify the HDU.
-    """
-
-    columns: list[ColumnDefinitionModel] = pydantic.Field(default_factory=list)
-    """Definitions of all columns."""
-
-    source_is_table: ClassVar[Literal[True]] = True
-
-
-class TableCellReferenceModel(pydantic.BaseModel):
-    """A model that acts as a pointer to data in a table cell."""
-
-    model_config = pydantic.ConfigDict(frozen=True)
-
-    source: str | int
-    """Identifier for the table as a whole.
-
-    This is analogous to the ASDF ``ndarray`` field of the same name, i.e
-    for a FITS binary table, use "fits:EXTNAME[,EXTVER]" or "fits:INDEX"
-    (zero-indexed) to identify the HDU.
-    """
-
-    column: str
-    """Name of the column."""
-
-    row: int
-    """Row of the cell (zero-indexed)."""
-
-    source_is_table: ClassVar[Literal[True]] = True
+    columns: list[TableColumnModel] = pydantic.Field(
+        default_factory=list, description="Definitions of all columns."
+    )
+    meta: dict[str, int | float | str | bool | None] = pydantic.Field(
+        default_factory=dict, exclude_if=operator.not_, description="Free-form metadata for the table."
+    )

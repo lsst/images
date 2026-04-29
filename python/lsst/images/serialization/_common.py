@@ -15,13 +15,15 @@ __all__ = (
     "ArchiveReadError",
     "ArchiveTree",
     "ButlerInfo",
+    "JsonRef",
     "MetadataValue",
     "OpaqueArchiveMetadata",
+    "ReadResult",
     "no_header_updates",
 )
 
 import operator
-from typing import TYPE_CHECKING, Any, Protocol, Self
+from typing import TYPE_CHECKING, Any, NamedTuple, Protocol, Self
 
 import astropy.table
 import astropy.units
@@ -52,6 +54,19 @@ class ButlerInfo(pydantic.BaseModel):
     provenance: DatasetProvenance = pydantic.Field(default_factory=DatasetProvenance)
 
 
+class JsonRef(pydantic.BaseModel, serialize_by_alias=True):
+    """Pydantic model for JSON Reference / Pointer (IETF RFC 6901).
+
+    Notes
+    -----
+    This model does not do any of the escaping or special-character
+    interpretation required by the spec; it assumes that's already been done,
+    so its job is *just* putting a ``$ref`` field inside another model.
+    """
+
+    ref: str = pydantic.Field(alias="$ref")
+
+
 class ArchiveTree(
     pydantic.BaseModel, ser_json_inf_nan="constants", ser_json_bytes="base64", val_json_bytes="base64"
 ):
@@ -65,9 +80,30 @@ class ArchiveTree(
     )
     butler_info: ButlerInfo | None = pydantic.Field(
         default=None,
-        description="Information aobut the butler dataset backed by this file.",
+        description="Information about the butler dataset backed by this file.",
         exclude_if=is_none,
     )
+    indirect: list[Any] = pydantic.Field(
+        default_factory=list,
+        description="Serialized nested objects that may be saved or read more than once.",
+        exclude_if=operator.not_,
+    )
+
+
+class ReadResult[T: Any](NamedTuple):
+    """A struct that can be used to return both a deserialized object and
+    metadata associated with it, even when the in-memory type cannot hold
+    metadata.
+    """
+
+    deserialized: T
+    """The deserialized object itself."""
+
+    metadata: dict[str, MetadataValue]
+    """Additional flexible metadata stored with the object."""
+
+    butler_info: ButlerInfo | None
+    """Butler provenance information for the dataset this file backs."""
 
 
 class ArchiveReadError(RuntimeError):

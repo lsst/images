@@ -36,6 +36,8 @@ from .serialization import (
     ArchiveTree,
     ArrayReferenceModel,
     ArrayReferenceQuantityModel,
+    InlineArrayModel,
+    InlineArrayQuantityModel,
     InputArchive,
     MetadataValue,
     OutputArchive,
@@ -311,15 +313,11 @@ class Image(GeneralizedImage):
             if add_offset_wcs is not None:
                 fits.add_offset_wcs(header, x=self.bbox.x.start, y=self.bbox.y.start, key=add_offset_wcs)
 
-        ref = archive.add_array(self.array, update_header=_update_header)
+        array_model = archive.add_array(self.array, update_header=_update_header)
         serialized_projection: ProjectionSerializationModel[P] | None = None
         if save_projection and self.projection is not None:
             serialized_projection = archive.serialize_direct("projection", self.projection.serialize)
-        data = (
-            ref
-            if self.unit is None
-            else ArrayReferenceQuantityModel.model_construct(value=ref, unit=self.unit)
-        )
+        data = array_model if self.unit is None else array_model.with_units(self.unit)
         return ImageSerializationModel.model_construct(
             data=data,
             start=list(self.bbox.start),
@@ -352,13 +350,13 @@ class Image(GeneralizedImage):
             ``update_header`` argument in the corresponding call to
             `serialize`.
         """
-        ref: ArrayReferenceModel
+        array_model: ArrayReferenceModel | InlineArrayModel
         unit: astropy.units.UnitBase | None = None
-        if isinstance(model.data, ArrayReferenceQuantityModel):
-            ref = model.data.value
+        if isinstance(model.data, ArrayReferenceQuantityModel | InlineArrayQuantityModel):
+            array_model = model.data.value
             unit = model.data.unit
         else:
-            ref = model.data
+            array_model = model.data
 
         def _strip_header(header: astropy.io.fits.Header) -> None:
             if unit is not None:
@@ -367,7 +365,7 @@ class Image(GeneralizedImage):
             strip_header(header)
 
         slices = bbox.slice_within(model.bbox) if bbox is not None else ...
-        array = archive.get_array(ref, strip_header=_strip_header, slices=slices)
+        array = archive.get_array(array_model, strip_header=_strip_header, slices=slices)
         projection = (
             Projection.deserialize(model.projection, archive) if model.projection is not None else None
         )
@@ -564,8 +562,8 @@ class Image(GeneralizedImage):
 class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """Pydantic model used to represent the serialized form of an `.Image`."""
 
-    data: ArrayReferenceQuantityModel | ArrayReferenceModel = pydantic.Field(
-        description="Reference to pixel data."
+    data: ArrayReferenceQuantityModel | ArrayReferenceModel | InlineArrayModel | InlineArrayQuantityModel = (
+        pydantic.Field(description="Reference to pixel data.")
     )
     start: list[int] = pydantic.Field(
         description="Coordinate of the first pixels in the array, ordered (y, x)."
@@ -584,8 +582,9 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     @property
     def bbox(self) -> Box:
         """The bounding box of the image."""
-        if isinstance(self.data, ArrayReferenceQuantityModel):
-            shape = self.data.value.shape
-        else:
-            shape = self.data.shape
+        match self.data:
+            case ArrayReferenceQuantityModel() | InlineArrayQuantityModel():
+                shape = self.data.value.shape
+            case ArrayReferenceModel() | InlineArrayModel():
+                shape = self.data.shape
         return Box.from_shape(shape, self.start)

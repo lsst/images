@@ -14,7 +14,6 @@ from __future__ import annotations
 __all__ = (
     "FitsInputArchive",
     "FitsOpaqueMetadata",
-    "ReadResult",
     "read",
 )
 
@@ -24,7 +23,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import cached_property
 from types import EllipsisType
-from typing import IO, Any, NamedTuple, Self
+from typing import IO, Any, Self
 
 import astropy.io.fits
 import astropy.table
@@ -35,29 +34,24 @@ from lsst.resources import ResourcePath, ResourcePathExpression
 
 from .._transforms import FrameSet
 from ..serialization import (
+    ArchiveReadError,
     ArchiveTree,
     ArrayReferenceModel,
-    ButlerInfo,
+    InlineArrayModel,
     InputArchive,
-    MetadataValue,
-    TableCellReferenceModel,
-    TableReferenceModel,
+    ReadResult,
+    TableModel,
     no_header_updates,
 )
-from ._common import ExtensionHDU, ExtensionKey, FitsOpaqueMetadata, InvalidFitsArchiveError
-
-
-class ReadResult[T: Any](NamedTuple):
-    """Struct used as the return value for `read`."""
-
-    deserialized: T
-    """The deserialized object itself."""
-
-    metadata: dict[str, MetadataValue]
-    """Additional flexible metadata stored with the object."""
-
-    butler_info: ButlerInfo | None
-    """Butler provenance information for the dataset this file backs."""
+from ._common import (
+    JSON_COLUMN,
+    JSON_EXTNAME,
+    ExtensionHDU,
+    ExtensionKey,
+    FitsOpaqueMetadata,
+    InvalidFitsArchiveError,
+    PointerModel,
+)
 
 
 def read[T: Any](
@@ -101,13 +95,13 @@ def read[T: Any](
     if partial is None:
         partial = any(v is not None for v in kwargs.values())
     with FitsInputArchive.open(path, page_size=page_size, partial=partial) as archive:
-        tree = archive.get_tree(cls._get_archive_tree_type(TableCellReferenceModel))
+        tree = archive.get_tree(cls._get_archive_tree_type(PointerModel))
         obj = cls.deserialize(tree, archive, **kwargs)
         obj._opaque_metadata = archive.get_opaque_metadata()
         return ReadResult(obj, tree.metadata, tree.butler_info)
 
 
-class FitsInputArchive(InputArchive[TableCellReferenceModel]):
+class FitsInputArchive(InputArchive[PointerModel]):
     """An implementation of the `.serialization.InputArchive` interface that
     reads from FITS files.
 
@@ -144,11 +138,12 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
             ExtensionKey.from_index_row(row): _ExtensionReader.from_index_row(row, stream)
             for row in index_hdu.data
         }
-        self._readers[ExtensionKey("JSON")] = _ExtensionReader.from_bytes(
+        self._readers[ExtensionKey(JSON_COLUMN)] = _ExtensionReader.from_bytes(
             astropy.io.fits.BinTableHDU, tail_data[:json_size]
         )
-        # Make any empty dictionary to cache deserialized objects.
-        self._deserialized_pointer_cache: dict[TableCellReferenceModel, Any] = {}
+        # Make any empty dictionary to cache deserialized objects.  Keys are
+        # the zero-indexed row in the JSON table.
+        self._deserialized_pointer_cache: dict[int, Any] = {}
 
     @classmethod
     @contextmanager
@@ -202,32 +197,34 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         T
             The validated Pydantic model.
         """
-        json_bytes = self._readers[ExtensionKey("JSON")].data[0]["JSON"].tobytes()
+        json_bytes = self._readers[ExtensionKey(JSON_EXTNAME)].data[0][JSON_COLUMN].tobytes()
         return model_type.model_validate_json(json_bytes)
 
     def deserialize_pointer[U: ArchiveTree, V](
         self,
-        pointer: TableCellReferenceModel,
+        pointer: PointerModel,
         model_type: type[U],
-        deserializer: Callable[[U, InputArchive[TableCellReferenceModel]], V],
+        deserializer: Callable[[U, InputArchive[PointerModel]], V],
     ) -> V:
         # Docstring inherited.
-        if (cached := self._deserialized_pointer_cache.get(pointer)) is not None:
+        if (cached := self._deserialized_pointer_cache.get(pointer.row)) is not None:
             return cached
-        _, reader = self._get_source_reader(pointer)
+        if not isinstance(pointer.column.data, ArrayReferenceModel):
+            raise ArchiveReadError(f"Invalid pointer with inline array:\n{pointer.model_dump_json(indent=2)}")
+        _, reader = self._get_source_reader(pointer.column.data.source, is_table=True)
         try:
-            json_bytes = reader.data[pointer.row][pointer.column].tobytes()
+            json_bytes = reader.data[pointer.row][JSON_COLUMN].tobytes()
         except Exception as err:
             raise InvalidFitsArchiveError(
                 f"Failed to access the table cell referenced by {pointer.model_dump_json()}."
             ) from err
         result = deserializer(model_type.model_validate_json(json_bytes), self)
-        self._deserialized_pointer_cache[pointer] = result
+        self._deserialized_pointer_cache[pointer.row] = result
         return result
 
-    def get_frame_set(self, ref: TableCellReferenceModel) -> FrameSet:
+    def get_frame_set(self, ref: PointerModel) -> FrameSet:
         try:
-            result = self._deserialized_pointer_cache[ref]
+            result = self._deserialized_pointer_cache[ref.row]
         except KeyError:
             raise AssertionError(
                 f"Frame set at {ref.model_dump_json(indent=2)} must be deserialized "
@@ -239,12 +236,14 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
 
     def get_array(
         self,
-        ref: ArrayReferenceModel,
+        model: ArrayReferenceModel | InlineArrayModel,
         *,
         slices: tuple[slice, ...] | EllipsisType = ...,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> np.ndarray:
-        key, reader = self._get_source_reader(ref)
+        if not isinstance(model, ArrayReferenceModel):
+            raise ArchiveReadError("Inline array found where a reference array was expected.")
+        key, reader = self._get_source_reader(model.source, is_table=False)
         if slices is not ...:
             array = reader.section[slices]
         else:
@@ -257,23 +256,26 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
 
     def get_table(
         self,
-        ref: TableReferenceModel,
+        model: TableModel,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> astropy.table.Table:
         # Docstring inherited.
-        array = self.get_structured_array(ref, strip_header)
+        array = self.get_structured_array(model, strip_header)
         table = astropy.table.Table(array)
-        for c in ref.columns:
+        for c in model.columns:
             c.update_table(table)
         return table
 
     def get_structured_array(
         self,
-        ref: TableReferenceModel,
+        model: TableModel,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> np.ndarray:
         # Docstring inherited.
-        key, reader = self._get_source_reader(ref)
+        if not isinstance(model.columns[0].data, ArrayReferenceModel):
+            raise ArchiveReadError("Inline array found where a reference array was expected.")
+        # All columns should have the same data.source; just use the first.
+        key, reader = self._get_source_reader(model.columns[0].data.source, is_table=True)
         if key not in self._opaque_metadata.headers:
             opaque_header = reader.header.copy(strip=True)
             strip_header(opaque_header)
@@ -284,15 +286,17 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         # Docstring inherited.
         return self._opaque_metadata
 
-    def _get_source_reader(
-        self, ref: ArrayReferenceModel | TableCellReferenceModel | TableReferenceModel
-    ) -> tuple[ExtensionKey, _ExtensionReader]:
-        """Get a reader for the extension referenced by a model.
+    def _get_source_reader(self, source: str | int, is_table: bool) -> tuple[ExtensionKey, _ExtensionReader]:
+        """Get a reader for the extension referenced by a serialiation model's
+        ``source`` field.
 
         Parameters
         ----------
-        ref
-            A Pydantic model with a 'source' field that references a FITS HDU.
+        source
+            A ``source`` field of the form ``fits:${hdu}`` or
+            ``fits:${hdu}[${col}]``.
+        is_table
+            Whether the source should be for a table HDU.
 
         Returns
         -------
@@ -301,22 +305,20 @@ class FitsInputArchive(InputArchive[TableCellReferenceModel]):
         reader
             A reader object for the extension.
         """
-        if not isinstance(ref.source, str):
-            raise InvalidFitsArchiveError(f"Reference with source={ref.source!r} is not a string.")
-        if not ref.source.startswith("fits:"):
-            raise InvalidFitsArchiveError(
-                f"Reference with source={ref.source!r} does not start with 'fits:'."
-            )
-        key = ExtensionKey.from_str(ref.source)
+        if not isinstance(source, str):
+            raise InvalidFitsArchiveError(f"Reference with source={source!r} is not a string.")
+        if not source.startswith("fits:"):
+            raise InvalidFitsArchiveError(f"Reference with source={source!r} does not start with 'fits:'.")
+        key = ExtensionKey.from_str(source)
         try:
             reader = self._readers[key]
         except KeyError:
             raise InvalidFitsArchiveError(f"Unrecognized source value {key}.") from None
-        if ref.source_is_table and not reader.is_table:
+        if is_table and not reader.is_table:
             raise InvalidFitsArchiveError(
                 f"Extension with source={key} was expected to be be a binary table, not an image."
             )
-        elif not ref.source_is_table and reader.is_table:
+        elif not is_table and reader.is_table:
             raise InvalidFitsArchiveError(
                 f"Extension with source={key} was expected to be be an image, not a binary table."
             )

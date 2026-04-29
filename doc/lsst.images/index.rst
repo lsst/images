@@ -28,4 +28,5 @@ API Reference
    aperture_corrections.rst
    serialization.rst
    fits.rst
+   json.rst
    tests.rst

@@ -22,6 +22,8 @@ from astro_metadata_translator import ObservationInfo
 import lsst.utils.tests
 from lsst.images import Box, DetectorFrame, Image
 from lsst.images.tests import (
+    RoundtripFits,
+    RoundtripJson,
     assert_close,
     assert_images_equal,
     assert_projections_equal,
@@ -81,6 +83,27 @@ class ImageTestCase(unittest.TestCase):
             # Shape mismatch.
             Image(shape=[3, 6], bbox=Box.factory[-5:10, 0:10])
 
+    def test_json_roundtrip(self) -> None:
+        """Test saving a tiny image to pure JSON."""
+        image = Image(
+            np.arange(15).reshape(5, 3),
+            start=(2, -1),
+        )
+        with RoundtripJson(self, image) as roundtrip:
+            pass
+        assert_images_equal(self, image, roundtrip.result)
+
+    def test_fits_roundtrip(self) -> None:
+        """Test saving a tiny image to FITS generically."""
+        image = Image(
+            np.arange(15).reshape(5, 3),
+            start=(2, -1),
+        )
+        with RoundtripFits(self, image) as roundtrip:
+            subbox = Box.factory[3:5, 0:1]
+            assert_images_equal(self, image[subbox], roundtrip.get(bbox=subbox))
+        assert_images_equal(self, image, roundtrip.result)
+
     def test_quantity(self):
         """Test quantities."""
         data = np.array([[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]])
@@ -102,7 +125,11 @@ class ImageTestCase(unittest.TestCase):
         )
 
     def test_read_write(self):
-        """Round trip through file."""
+        """Round trip through file.
+
+        This uses the read_fits and write_fits methods (which RoundtripFits
+        does not use).
+        """
         data = np.array([[1.0, 2.0, np.nan, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]])
         md = {"int": 1, "float": 42.0, "bool": False, "long string header": "This is a string"}
         obsinfo = ObservationInfo(telescope="Simonyi", instrument="LSSTCam", relative_humidity=23.5)

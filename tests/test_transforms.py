@@ -30,10 +30,12 @@ from lsst.images import (
     Transform,
     TransformSerializationModel,
 )
-from lsst.images.serialization import ArchiveTree, InputArchive, OutputArchive, TableCellReferenceModel
+from lsst.images.fits import PointerModel
+from lsst.images.serialization import ArchiveTree, InputArchive, JsonRef, OutputArchive
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
+    RoundtripJson,
     check_transform,
     compare_projection_to_legacy_wcs,
     legacy_points_to_xy_array,
@@ -52,7 +54,7 @@ class TransformTestCase(unittest.TestCase):
         identity = Transform.identity(frame)
         check_transform(self, identity, xy, xy, frame, frame)
         self.assertEqual(identity.decompose(), [])
-        with RoundtripFits(self, identity) as roundtrip:
+        with RoundtripJson(self, identity) as roundtrip:
             pass
         check_transform(self, roundtrip.result, xy, xy, frame, frame)
 
@@ -86,18 +88,35 @@ class TransformTestCase(unittest.TestCase):
             frames=frame_set,
             pixels_to_fp=frame_set[frame_set.detector(detector_id), frame_set.focal_plane()],
         )
-        with RoundtripFits(self, test_holder) as roundtrip:
-            self.assertEqual(len(roundtrip.serialized.pixels_to_fp.frames), 2)
-            self.assertEqual(len(roundtrip.serialized.pixels_to_fp.bounds), 2)
-            self.assertEqual(len(roundtrip.serialized.pixels_to_fp.mappings), 1)
+        with RoundtripFits(self, test_holder) as roundtrip1:
+            self.assertEqual(len(roundtrip1.serialized.pixels_to_fp.frames), 2)
+            self.assertEqual(len(roundtrip1.serialized.pixels_to_fp.bounds), 2)
+            self.assertEqual(len(roundtrip1.serialized.pixels_to_fp.mappings), 1)
             # Instead of storing the AST mapping directly, we should have
             # stored a reference to the frame set:
-            self.assertIsInstance(roundtrip.serialized.pixels_to_fp.mappings[0], TableCellReferenceModel)
-        self.compare_to_legacy_camera(legacy_camera, roundtrip.result.frames)
-        self.assertEqual(roundtrip.result.pixels_to_fp.in_frame, frame_set.detector(detector_id))
-        self.assertEqual(roundtrip.result.pixels_to_fp.out_frame, frame_set.focal_plane())
+            self.assertIsInstance(roundtrip1.serialized.pixels_to_fp.mappings[0], PointerModel)
+        self.compare_to_legacy_camera(legacy_camera, roundtrip1.result.frames)
+        self.assertEqual(roundtrip1.result.pixels_to_fp.in_frame, frame_set.detector(detector_id))
+        self.assertEqual(roundtrip1.result.pixels_to_fp.out_frame, frame_set.focal_plane())
         self.assertEqual(
-            roundtrip.result.pixels_to_fp._ast_mapping.simplified().show(),
+            roundtrip1.result.pixels_to_fp._ast_mapping.simplified().show(),
+            test_holder.pixels_to_fp._ast_mapping.simplified().show(),
+        )
+        with RoundtripJson(self, test_holder) as roundtrip2:
+            self.assertEqual(len(roundtrip2.serialized.pixels_to_fp.frames), 2)
+            self.assertEqual(len(roundtrip2.serialized.pixels_to_fp.bounds), 2)
+            self.assertEqual(len(roundtrip2.serialized.pixels_to_fp.mappings), 1)
+            # Instead of storing the AST mapping directly, we should have
+            # stored a reference to the frame set:
+            self.assertIsInstance(roundtrip2.serialized.pixels_to_fp.mappings[0], JsonRef)
+            raw_data = roundtrip2.inspect()
+            self.assertEqual(len(raw_data["indirect"]), 1)
+            self.assertEqual(raw_data["frames"], {"$ref": "#/indirect/0"})
+        self.compare_to_legacy_camera(legacy_camera, roundtrip2.result.frames)
+        self.assertEqual(roundtrip2.result.pixels_to_fp.in_frame, frame_set.detector(detector_id))
+        self.assertEqual(roundtrip2.result.pixels_to_fp.out_frame, frame_set.focal_plane())
+        self.assertEqual(
+            roundtrip2.result.pixels_to_fp._ast_mapping.simplified().show(),
             test_holder.pixels_to_fp._ast_mapping.simplified().show(),
         )
 
@@ -185,7 +204,7 @@ class TransformTestCase(unittest.TestCase):
             subimage_bbox,
             is_fits=True,
         )
-        with RoundtripFits(self, projection, "Projection") as roundtrip:
+        with RoundtripJson(self, projection, "Projection") as roundtrip:
             pass
         compare_projection_to_legacy_wcs(self, roundtrip.result, legacy_wcs, detector_frame, subimage_bbox)
         # The AST FrameSet-ness needs to propagate through serialization.
@@ -193,7 +212,7 @@ class TransformTestCase(unittest.TestCase):
         compare_projection_to_legacy_wcs(
             self, projection, roundtrip.result.to_legacy(), detector_frame, subimage_bbox
         )
-        with RoundtripFits(self, projection.fits_approximation, "Projection") as roundtrip:
+        with RoundtripJson(self, projection.fits_approximation, "Projection") as roundtrip:
             pass
         compare_projection_to_legacy_wcs(
             self,
