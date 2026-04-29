@@ -21,10 +21,12 @@ __all__ = (
     "check_astropy_wcs_interface",
     "check_projection",
     "check_transform",
+    "compare_aperture_corrections_to_legacy",
     "compare_field_to_legacy",
     "compare_image_to_legacy",
     "compare_mask_to_legacy",
     "compare_masked_image_to_legacy",
+    "compare_observation_summary_stats_to_legacy",
     "compare_projection_to_legacy_wcs",
     "compare_psf_to_legacy",
     "compare_visit_image_to_legacy",
@@ -32,6 +34,8 @@ __all__ = (
     "legacy_points_to_xy_array",
 )
 
+import dataclasses
+import math
 import unittest
 from collections.abc import Mapping
 from typing import Any, Literal, cast
@@ -45,8 +49,10 @@ from .._geom import XY, Box
 from .._image import Image
 from .._mask import Mask, MaskPlane
 from .._masked_image import MaskedImage
+from .._observation_summary_stats import ObservationSummaryStats
 from .._transforms import DetectorFrame, Frame, Projection, SkyFrame, Transform
 from .._visit_image import VisitImage
+from ..aperture_corrections import ApertureCorrectionMap
 from ..fields import BaseField
 from ..psfs import PointSpreadFunction
 
@@ -248,6 +254,12 @@ def compare_visit_image_to_legacy(
     tc.assertIs(visit_image.projection, visit_image.mask.projection)
     tc.assertIs(visit_image.projection, visit_image.variance.projection)
     compare_psf_to_legacy(tc, visit_image.psf, legacy_exposure.getPsf())
+    compare_observation_summary_stats_to_legacy(
+        tc, visit_image.summary_stats, legacy_exposure.info.getSummaryStats()
+    )
+    compare_aperture_corrections_to_legacy(
+        tc, visit_image.aperture_corrections, legacy_exposure.info.getApCorrMap(), detector_bbox
+    )
     if alternates:
         if projection := alternates.get("projection"):
             compare_projection_to_legacy_wcs(
@@ -259,10 +271,17 @@ def compare_visit_image_to_legacy(
             )
         if psf := alternates.get("psf"):
             compare_psf_to_legacy(tc, psf, legacy_exposure.getPsf())
-
+        if summary_stats := alternates.get("summary_stats"):
+            compare_observation_summary_stats_to_legacy(
+                tc, summary_stats, legacy_exposure.info.getSummaryStats()
+            )
         if obs_info := alternates.get("obs_info"):
             visitInfo = legacy_exposure.visitInfo
             tc.assertEqual(obs_info.instrument, visitInfo.getInstrumentLabel())
+        if aperture_corrections := alternates.get("aperture_corrections"):
+            compare_aperture_corrections_to_legacy(
+                tc, aperture_corrections, legacy_exposure.info.getApCorrMap(), detector_bbox
+            )
 
 
 def compare_psf_to_legacy(
@@ -339,6 +358,58 @@ def compare_field_to_legacy(
     legacy_image_1 = Image(0, bbox=subimage_bbox, dtype=np.float64).to_legacy()
     legacy_field.addToImage(legacy_image_1, overlapOnly=True)
     assert_images_equal(tc, field.render(subimage_bbox), Image.from_legacy(legacy_image_1), rtol=1e-13)
+
+
+def compare_aperture_corrections_to_legacy(
+    tc: unittest.TestCase,
+    aperture_corrections: ApertureCorrectionMap,
+    legacy_ap_corr_map: Any,
+    subimage_bbox: Box,
+) -> None:
+    """Test an aperture correction `dict` by comparing it to an equivalent
+    `lsst.afw.image.ApCorrMap`.
+
+    Parameters
+    ----------
+    tc
+        Test case object with assert methods to use.
+    aperture_corrections
+        Dictionary to test.
+    legacy_ap_corr_map : ``lsst.afw.image.ApCorrMap``
+        Equivalent legacy aperture correction map.
+    subimage_bbox
+        Bounding box for full-image tests.
+    """
+    tc.assertEqual(aperture_corrections.keys(), set(legacy_ap_corr_map.keys()))
+    for name, field in aperture_corrections.items():
+        compare_field_to_legacy(tc, field, legacy_ap_corr_map[name], subimage_bbox)
+
+
+def compare_observation_summary_stats_to_legacy(
+    tc: unittest.TestCase,
+    summary_stats: ObservationSummaryStats,
+    legacy_summary_stats: Any,
+) -> None:
+    """Test an ObservationSummaryStats object by comparing it to an equivalent
+    `lsst.afw.image.ExposureSummaryStats`.
+
+    Parameters
+    ----------
+    tc
+        Test case object with assert methods to use.
+    summary_stats
+        Struct to test.
+    legacy : ``lsst.afw.image.ExposureSummaryStats``
+        Equivalent legacy struct.
+    """
+    for field in dataclasses.fields(legacy_summary_stats):
+        a = getattr(legacy_summary_stats, field.name)
+        b = getattr(summary_stats, field.name)
+        if isinstance(b, tuple):
+            for ai, bi in zip(a, b):
+                tc.assertTrue(ai == bi or (math.isnan(ai) and math.isnan(bi)), f"{field.name}: {a} != {b}")
+        else:
+            tc.assertTrue(a == b or (math.isnan(a) and math.isnan(b)), f"{field.name}: {a} != {b}")
 
 
 def compare_projection_to_legacy_wcs[F: Frame](

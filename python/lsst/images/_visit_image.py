@@ -30,6 +30,11 @@ from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_lega
 from ._masked_image import MaskedImage, MaskedImageSerializationModel
 from ._observation_summary_stats import ObservationSummaryStats
 from ._transforms import DetectorFrame, Projection, ProjectionAstropyView, ProjectionSerializationModel
+from .aperture_corrections import (
+    ApertureCorrectionMap,
+    ApertureCorrectionMapSerializationModel,
+    aperture_corrections_from_legacy,
+)
 from .fits import FitsOpaqueMetadata
 from .psfs import (
     GaussianPointSpreadFunction,
@@ -132,10 +137,14 @@ class VisitImage(MaskedImage):
     obs_info
         General information about this visit in standardized form.
     summary_stats
-        Optional summary statistics associated with this visit.
+        Summary statistics associated with this visit.  Initialized to default
+        values if not provided.
     psf
         Point-spread function model for this image, or an exception explaining
         why it could not be read (to be raised if the PSF is requested later).
+    aperture_corrections : `dict` [`str`, `~fields.BaseField`]
+        Mapping from photometry algorithm name to the aperture correction for
+        that algorithm.
     metadata
         Arbitrary flexible metadata to associate with the image.
     """
@@ -151,6 +160,7 @@ class VisitImage(MaskedImage):
         obs_info: ObservationInfo | None = None,
         summary_stats: ObservationSummaryStats | None = None,
         psf: PointSpreadFunction | ArchiveReadError,
+        aperture_corrections: ApertureCorrectionMap | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ):
         super().__init__(
@@ -170,8 +180,11 @@ class VisitImage(MaskedImage):
             raise TypeError("The observation info component of a VisitImage cannot be None.")
         if not isinstance(self.image.projection.pixel_frame, DetectorFrame):
             raise TypeError("The projection's pixel frame must be a DetectorFrame for VisitImage.")
+        if summary_stats is None:
+            summary_stats = ObservationSummaryStats()
         self._summary_stats = summary_stats
         self._psf = psf
+        self._aperture_corrections = aperture_corrections if aperture_corrections is not None else {}
 
     @property
     def unit(self) -> astropy.units.UnitBase:
@@ -211,7 +224,7 @@ class VisitImage(MaskedImage):
         return cast(ProjectionAstropyView, super().astropy_wcs)
 
     @property
-    def summary_stats(self) -> ObservationSummaryStats | None:
+    def summary_stats(self) -> ObservationSummaryStats:
         """Optional summary statistics for this observation
         (`ObservationSummaryStats`).
         """
@@ -226,6 +239,13 @@ class VisitImage(MaskedImage):
             raise self._psf
         return self._psf
 
+    @property
+    def aperture_corrections(self) -> ApertureCorrectionMap:
+        """A mapping from photometry algorithm name to the aperture correction
+        field for that algorithm (`dict` [`str`, `~.fields.BaseField`]).
+        """
+        return self._aperture_corrections
+
     def __getitem__(self, bbox: Box | EllipsisType) -> VisitImage:
         if bbox is ...:
             return self
@@ -239,6 +259,7 @@ class VisitImage(MaskedImage):
                 psf=self.psf,
                 obs_info=self.obs_info,
                 summary_stats=self.summary_stats,
+                aperture_corrections=self.aperture_corrections,
             ),
             bbox=bbox,
         )
@@ -258,7 +279,8 @@ class VisitImage(MaskedImage):
                 variance=self._variance.copy(),
                 psf=self._psf,
                 obs_info=self.obs_info,
-                summary_stats=self.summary_stats,
+                summary_stats=self.summary_stats.model_copy(),
+                aperture_corrections=self.aperture_corrections.copy(),
             ),
             copy=True,
         )
@@ -281,6 +303,9 @@ class VisitImage(MaskedImage):
                 )
         assert masked_image_model.projection is not None, "VisitImage always has a projection."
         assert masked_image_model.obs_info is not None, "VisitImage always has observation info."
+        serialized_aperture_corrections = ApertureCorrectionMapSerializationModel.serialize(
+            self.aperture_corrections, archive
+        )
         return VisitImageSerializationModel(
             image=masked_image_model.image,
             mask=masked_image_model.mask,
@@ -289,6 +314,7 @@ class VisitImage(MaskedImage):
             obs_info=masked_image_model.obs_info,
             psf=serialized_psf,
             summary_stats=self.summary_stats,
+            aperture_corrections=serialized_aperture_corrections,
             metadata=self.metadata,
         )
 
@@ -306,6 +332,7 @@ class VisitImage(MaskedImage):
     ) -> VisitImage:
         masked_image = MaskedImage.deserialize(model, archive, bbox=bbox)
         psf = model.deserialize_psf(archive)
+        aperture_corrections = model.aperture_corrections.deserialize(archive)
         return VisitImage(
             masked_image.image,
             mask=masked_image.mask,
@@ -314,6 +341,7 @@ class VisitImage(MaskedImage):
             projection=masked_image.projection,
             obs_info=masked_image.obs_info,
             summary_stats=model.summary_stats,
+            aperture_corrections=aperture_corrections,
         )._finish_deserialize(model)
 
     @staticmethod
@@ -400,6 +428,7 @@ class VisitImage(MaskedImage):
         psf = PointSpreadFunction.from_legacy(legacy_psf, bounds=detector_bbox)
         masked_image = MaskedImage.from_legacy(legacy.getMaskedImage(), unit=unit, plane_map=plane_map)
         legacy_summary_stats = legacy.info.getSummaryStats()
+        legacy_ap_corr_map = legacy.info.getApCorrMap()
         result = VisitImage(
             image=masked_image.image.view(unit=unit),
             mask=masked_image.mask,
@@ -410,6 +439,11 @@ class VisitImage(MaskedImage):
             summary_stats=(
                 ObservationSummaryStats.from_legacy(legacy_summary_stats)
                 if legacy_summary_stats is not None
+                else None
+            ),
+            aperture_corrections=(
+                aperture_corrections_from_legacy(legacy_ap_corr_map)
+                if legacy_ap_corr_map is not None
                 else None
             ),
         )
@@ -497,6 +531,14 @@ class VisitImage(MaskedImage):
     def read_legacy(
         filename: str,
         *,
+        component: Literal["aperture_corrections"],
+    ) -> ApertureCorrectionMap: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
         preserve_quantization: bool = False,
         plane_map: Mapping[str, MaskPlane] | None = None,
         instrument: str | None = None,
@@ -513,7 +555,15 @@ class VisitImage(MaskedImage):
         instrument: str | None = None,
         visit: int | None = None,
         component: Literal[
-            "bbox", "image", "mask", "variance", "projection", "psf", "obs_info", "summary_stats"
+            "bbox",
+            "image",
+            "mask",
+            "variance",
+            "projection",
+            "psf",
+            "obs_info",
+            "summary_stats",
+            "aperture_corrections",
         ]
         | None = None,
     ) -> Any:
@@ -572,6 +622,13 @@ class VisitImage(MaskedImage):
             psf = PointSpreadFunction.from_legacy(legacy_psf, bounds=detector_bbox)
             if component == "psf":
                 return psf
+        aperture_corrections: ApertureCorrectionMap = {}
+        if component in (None, "aperture_corrections"):
+            legacy_ap_corr_map = reader.readApCorrMap()
+            if legacy_ap_corr_map is not None:
+                aperture_corrections = aperture_corrections_from_legacy(legacy_ap_corr_map)
+            if component == "aperture_corrections":
+                return aperture_corrections
         assert component in (None, "image", "mask", "variance", "projection", "obs_info"), (
             component
         )  # for MyPy
@@ -607,9 +664,9 @@ class VisitImage(MaskedImage):
                 component=component,
             )
         if component is not None:
-            # This is the image, mask, or variance; attach the projection
-            # and return
-            return from_masked_image.view(projection=projection)
+            # This is the image, mask, or variance; attach the projection and
+            # obs_info and return
+            return from_masked_image.view(projection=projection, obs_info=obs_info)
         result = VisitImage(
             from_masked_image.image,
             mask=from_masked_image.mask,
@@ -618,6 +675,7 @@ class VisitImage(MaskedImage):
             psf=psf,
             obs_info=obs_info,
             summary_stats=summary_stats,
+            aperture_corrections=aperture_corrections,
         )
         result._opaque_metadata = from_masked_image._opaque_metadata
         return result
@@ -646,8 +704,12 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     obs_info: ObservationInfo = pydantic.Field(
         description="Standardized description of visit metadata",
     )
-    summary_stats: ObservationSummaryStats | None = pydantic.Field(
-        default=None, description="Optional summary statistics for the observation."
+    summary_stats: ObservationSummaryStats = pydantic.Field(
+        description="Summary statistics for the observation."
+    )
+    aperture_corrections: ApertureCorrectionMapSerializationModel = pydantic.Field(
+        default_factory=ApertureCorrectionMapSerializationModel,
+        description="Aperture corrections, keyed by flux algorithm.",
     )
 
     def deserialize_psf(self, archive: InputArchive[Any]) -> PointSpreadFunction | ArchiveReadError:

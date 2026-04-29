@@ -16,8 +16,8 @@ Changes
 
    CHANGES.rst
 
-Design and Development
-======================
+API Reference
+=============
 
 .. toctree::
    :maxdepth: 1
@@ -25,6 +25,7 @@ Design and Development
    core-api.rst
    psfs.rst
    fields.rst
+   aperture_corrections.rst
    serialization.rst
    fits.rst
    tests.rst
