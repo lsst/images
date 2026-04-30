@@ -84,14 +84,29 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
     def serialize_pointer[T: ArchiveTree](
         self, name: str, serializer: Callable[[OutputArchive[NdfPointerModel]], T], key: Hashable
     ) -> NdfPointerModel:
-        # Implemented in Task 9.
-        raise NotImplementedError
+        if (pointer := self._pointers.get(key)) is not None:
+            return pointer
+        json_pointer = name if name.startswith("/") else f"/{name}"
+        path = json_pointer_to_hdf5_path(json_pointer)
+        # Run the serializer first so any nested add_array / serialize_pointer
+        # calls write into the file before we dump this sub-tree to JSON.
+        model = self.serialize_direct(name, serializer)
+        json_text = model.model_dump_json()
+        parent_path, leaf = path.rsplit("/", 1)
+        parent = self._ensure_path(parent_path)
+        if leaf in parent:
+            del parent[leaf]
+        _hds.write_char_array(parent, leaf, [json_text], width=max(80, len(json_text)))
+        pointer = NdfPointerModel(ref=path)
+        self._pointers[key] = pointer
+        return pointer
 
     def serialize_frame_set[T: ArchiveTree](
         self, name: str, frame_set: FrameSet, serializer: Callable[[OutputArchive], T], key: Hashable
     ) -> NdfPointerModel:
-        # Implemented in Task 9.
-        raise NotImplementedError
+        pointer = self.serialize_pointer(name, serializer, key)
+        self._frame_sets.append((frame_set, pointer))
+        return pointer
 
     def iter_frame_sets(self) -> Iterator[tuple[FrameSet, NdfPointerModel]]:
         return iter(self._frame_sets)
