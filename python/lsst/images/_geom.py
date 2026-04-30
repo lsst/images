@@ -925,7 +925,7 @@ class Bounds(Protocol):
         """
         ...
 
-    def intersection(self, bounds: Bounds) -> Bounds:
+    def intersection(self, other: Bounds) -> Bounds:
         """Compute the intersection of this bounds object with another."""
         ...
 
