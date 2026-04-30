@@ -100,3 +100,38 @@ def read_array(dataset: h5py.Dataset) -> np.ndarray:
             f"but HDSTYPE {hdstype!r} expects {expected_dtype}."
         )
     return dataset[()]
+
+
+def write_char_array(
+    parent: h5py.Group,
+    name: str,
+    lines: Sequence[str],
+    *,
+    width: int = 80,
+) -> h5py.Dataset:
+    """Write a sequence of strings as a 1D HDS ``_CHAR*N`` primitive.
+
+    Each string is padded to ``width`` with trailing spaces (HDS
+    convention) and truncated if longer. Reader returns strings with
+    trailing spaces stripped.
+    """
+    encoded = np.array(
+        [line.encode("ascii", errors="replace").ljust(width)[:width] for line in lines],
+        dtype=f"|S{width}",
+    )
+    ds = parent.create_dataset(name, data=encoded)
+    ds.attrs["HDSTYPE"] = f"_CHAR*{width}"
+    ds.attrs["HDSNDIMS"] = 1
+    ds.attrs["HDS_DATASET_IS_DEFINED"] = True
+    return ds
+
+
+def read_char_array(dataset: h5py.Dataset) -> list[str]:
+    """Read an HDS ``_CHAR*N`` 1D primitive as a list of stripped strings."""
+    hdstype = dataset.attrs.get("HDSTYPE")
+    if isinstance(hdstype, bytes):
+        hdstype = hdstype.decode("ascii")
+    if not isinstance(hdstype, str) or not hdstype.startswith("_CHAR*"):
+        raise ValueError(f"Dataset {dataset.name!r} is not _CHAR*N (got HDSTYPE={hdstype!r}).")
+    raw = dataset[()]
+    return [item.decode("ascii").rstrip(" ") for item in raw]
