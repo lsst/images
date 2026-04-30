@@ -60,3 +60,24 @@ class HdsPrimitiveTestCase(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp, h5py.File(tmp.name, "w") as f:
             with self.assertRaises(NotImplementedError):
                 _hds.write_array(f, "X", data)
+
+    def test_char_array_round_trip(self):
+        lines = ["Begin FrameSet", "Nframe = 5", "End FrameSet"]
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                _hds.write_char_array(f, "DATA", lines, width=80)
+            with h5py.File(tmp.name, "r") as f:
+                ds = f["DATA"]
+                self.assertEqual(ds.attrs["HDSTYPE"], "_CHAR*80")
+                self.assertEqual(ds.attrs["HDSNDIMS"], 1)
+                self.assertEqual(_hds.read_char_array(ds), lines)
+
+    def test_char_array_pads_and_strips(self):
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                _hds.write_char_array(f, "X", ["short"], width=80)
+            with h5py.File(tmp.name, "r") as f:
+                # Raw data should be space-padded to 80 characters.
+                self.assertEqual(f["X"][0], b"short" + b" " * 75)
+                # read_char_array strips trailing spaces.
+                self.assertEqual(_hds.read_char_array(f["X"]), ["short"])
