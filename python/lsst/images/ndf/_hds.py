@@ -35,17 +35,17 @@ __all__ = (
     "ATTR_CLASS",
     "ATTR_ROOT_NAME",
     "ATTR_STRUCTURE_DIMS",
-    "create_structure",
-    "open_structure",
-    "set_root_name",
-    "iter_children",
-    "write_array",
-    "read_array",
-    "write_char_array",
-    "read_char_array",
-    "hds_type_for_dtype",
     "HDS_TO_NUMPY",
     "NUMPY_TO_HDS",
+    "create_structure",
+    "hds_type_for_dtype",
+    "iter_children",
+    "open_structure",
+    "read_array",
+    "read_char_array",
+    "set_root_name",
+    "write_array",
+    "write_char_array",
 )
 
 
@@ -123,9 +123,7 @@ def read_array(dataset: h5py.Dataset) -> np.ndarray:
     primitive type. Use `read_char_array` for ``_CHAR*N`` datasets.
     """
     if dataset.dtype.kind == "S":
-        raise ValueError(
-            f"Dataset {dataset.name!r} is _CHAR*N; use read_char_array instead."
-        )
+        raise ValueError(f"Dataset {dataset.name!r} is _CHAR*N; use read_char_array instead.")
     if dataset.dtype not in NUMPY_TO_HDS:
         raise NotImplementedError(
             f"Dataset {dataset.name!r} has dtype {dataset.dtype} which does not "
@@ -160,9 +158,7 @@ def read_char_array(dataset: h5py.Dataset) -> list[str]:
     Validates the dataset has a fixed-width byte-string dtype (``|S<N>``).
     """
     if dataset.dtype.kind != "S":
-        raise ValueError(
-            f"Dataset {dataset.name!r} is not _CHAR*N (dtype {dataset.dtype})."
-        )
+        raise ValueError(f"Dataset {dataset.name!r} is not _CHAR*N (dtype {dataset.dtype}).")
     raw = dataset[()]
     return [item.decode("ascii").rstrip(" ") for item in raw]
 
@@ -215,13 +211,13 @@ def open_structure(parent: h5py.Group, name: str) -> tuple[h5py.Group, str]:
     if isinstance(hds_type, bytes):
         hds_type = hds_type.decode("ascii")
     if not isinstance(hds_type, str):
-        raise ValueError(
-            f"Group {obj.name!r} has no {ATTR_CLASS!r} (or legacy HDSTYPE) attribute."
-        )
+        raise ValueError(f"Group {obj.name!r} has no {ATTR_CLASS!r} (or legacy HDSTYPE) attribute.")
     return obj, hds_type
 
 
 def iter_children(group: h5py.Group) -> Iterator[tuple[str, h5py.Group | h5py.Dataset]]:
-    """Iterate over a structure's direct children as ``(name, child)`` pairs."""
-    for name, child in group.items():
-        yield name, child
+    """Iterate over a structure's direct children.
+
+    Yields ``(name, child)`` pairs where ``child`` is a group or dataset.
+    """
+    yield from group.items()

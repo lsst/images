@@ -76,7 +76,7 @@ class HdsPrimitiveTestCase(unittest.TestCase):
     def test_unsupported_dtype_raises_on_read(self):
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
-                # Write directly with h5py, bypassing write_array's dtype check.
+                # Write directly with h5py, bypassing write_array's check.
                 f.create_dataset("X", data=np.array([1.0], dtype=np.complex128))
             with h5py.File(tmp.name, "r") as f:
                 with self.assertRaises(NotImplementedError):
@@ -157,7 +157,7 @@ class HdsStructureTestCase(unittest.TestCase):
                     _hds.open_structure(f, "BAD")
 
     def test_open_structure_accepts_legacy_hdstype(self):
-        """Files written by older HDS variants used HDSTYPE rather than CLASS."""
+        """Files from older HDS variants used HDSTYPE rather than CLASS."""
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 g = f.create_group("LEGACY")

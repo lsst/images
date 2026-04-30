@@ -17,6 +17,8 @@ from lsst.images.ndf._common import NdfPointerModel
 
 
 class NdfPointerModelTestCase(unittest.TestCase):
+    """Tests for `NdfPointerModel` and `json_pointer_to_hdf5_path`."""
+
     def test_round_trips_through_json(self):
         original = NdfPointerModel(ref="/MORE/LSST/PSF")
         json_bytes = original.model_dump_json().encode()
@@ -29,6 +31,4 @@ class NdfPointerModelTestCase(unittest.TestCase):
 
         self.assertEqual(json_pointer_to_hdf5_path(""), "/MORE/LSST/JSON")
         self.assertEqual(json_pointer_to_hdf5_path("/psf"), "/MORE/LSST/PSF")
-        self.assertEqual(
-            json_pointer_to_hdf5_path("/psf/coefficients"), "/MORE/LSST/PSF_COEFFICIENTS"
-        )
+        self.assertEqual(json_pointer_to_hdf5_path("/psf/coefficients"), "/MORE/LSST/PSF_COEFFICIENTS")
