@@ -30,6 +30,7 @@ from ..serialization import (
     NestedOutputArchive,
     NumberType,
     OutputArchive,
+    TableColumnModel,
     TableModel,
     no_header_updates,
 )
@@ -231,8 +232,8 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> TableModel:
-        # Implemented in Task 10.
-        raise NotImplementedError
+        columns = TableColumnModel.from_table(table, inline=True)
+        return TableModel(columns=columns, meta=table.meta)
 
     def add_structured_array(
         self,
@@ -243,5 +244,10 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         descriptions: Mapping[str, str] | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> TableModel:
-        # Implemented in Task 10.
-        raise NotImplementedError
+        columns = TableColumnModel.from_record_array(array, inline=True)
+        for c in columns:
+            if units and (unit := units.get(c.name)):
+                c.unit = unit
+            if descriptions and (description := descriptions.get(c.name)):
+                c.description = description
+        return TableModel(columns=columns)

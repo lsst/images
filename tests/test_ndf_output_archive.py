@@ -182,3 +182,46 @@ class NdfOutputArchivePointerTestCase(unittest.TestCase):
                 self.assertEqual(len(recorded), 1)
                 self.assertIs(recorded[0][0], sentinel)
                 self.assertEqual(recorded[0][1].ref, "/MORE/LSST/WCS_PIXEL_TO_SKY")
+
+
+class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
+    """Tests for `NdfOutputArchive.add_table` and `add_structured_array`."""
+
+    def test_add_table_returns_inline_table_model(self):
+        import astropy.table
+
+        from lsst.images.serialization import InlineArrayModel
+
+        t = astropy.table.Table({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                model = arch.add_table(t, name="some_table")
+                self.assertEqual(len(model.columns), 2)
+                # v1 stores tables inline in the JSON tree.
+                self.assertIsInstance(model.columns[0].data, InlineArrayModel)
+
+    def test_add_structured_array_returns_table_model_with_units(self):
+        import astropy.units as u
+
+        from lsst.images.serialization import InlineArrayModel
+
+        rec = np.zeros(3, dtype=[("x", np.float64), ("y", np.int32)])
+        rec["x"] = [1.0, 2.0, 3.0]
+        rec["y"] = [10, 20, 30]
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                model = arch.add_structured_array(
+                    rec,
+                    name="rec",
+                    units={"x": u.m},
+                    descriptions={"y": "the y values"},
+                )
+                self.assertEqual(len(model.columns), 2)
+                self.assertIsInstance(model.columns[0].data, InlineArrayModel)
+                # Confirm units/descriptions were applied.
+                col_x = next(c for c in model.columns if c.name == "x")
+                col_y = next(c for c in model.columns if c.name == "y")
+                self.assertEqual(col_x.unit, u.m)
+                self.assertEqual(col_y.description, "the y values")
