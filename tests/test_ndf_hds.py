@@ -173,3 +173,54 @@ class HdsStructureTestCase(unittest.TestCase):
             with h5py.File(tmp.name, "r") as f:
                 self.assertEqual(_attr_str(f["/"].attrs["HDS_ROOT_NAME"]), "MYNDF")
                 self.assertEqual(_attr_str(f["/"].attrs["CLASS"]), "NDF")
+
+
+class HdsCanonicalExampleTestCase(unittest.TestCase):
+    """Validate _hds against a canonical-format Starlink-generated NDF.
+
+    The example file is an M57 image with the modern hds-v5 layout:
+    root group with CLASS="NDF" and HDS_ROOT_NAME, DATA_ARRAY as an
+    ARRAY structure containing DATA (int16) and ORIGIN (int64), WCS as
+    a structure with an AST text-dump DATA primitive, and MORE.FITS as
+    an 80-character card array.
+    """
+
+    EXAMPLE = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
+
+    def test_root_is_ndf_with_root_name(self):
+        with h5py.File(self.EXAMPLE, "r") as f:
+            self.assertEqual(_attr_str(f["/"].attrs["CLASS"]), "NDF")
+            self.assertEqual(_attr_str(f["/"].attrs["HDS_ROOT_NAME"]), "M57")
+
+    def test_data_array_is_array_structure(self):
+        with h5py.File(self.EXAMPLE, "r") as f:
+            data_array, hds_type = _hds.open_structure(f, "DATA_ARRAY")
+            self.assertEqual(hds_type, "ARRAY")
+            data = data_array["DATA"]
+            self.assertEqual(data.dtype, np.int16)
+            self.assertEqual(data.shape, (611, 609))
+            self.assertEqual(_hds.hds_type_for_dtype(data.dtype), "_WORD")
+            arr = _hds.read_array(data)
+            self.assertEqual(arr.shape, (611, 609))
+            origin = _hds.read_array(data_array["ORIGIN"])
+            self.assertEqual(origin.dtype, np.int64)
+            self.assertEqual(origin.shape, (2,))
+
+    def test_wcs_is_structure_with_ast_text(self):
+        with h5py.File(self.EXAMPLE, "r") as f:
+            wcs, hds_type = _hds.open_structure(f, "WCS")
+            self.assertEqual(hds_type, "WCS")
+            lines = _hds.read_char_array(wcs["DATA"])
+            # AST channel text uses leading whitespace for nesting; strip it
+            # for the structural-marker checks here.
+            stripped = [line.lstrip() for line in lines]
+            self.assertTrue(any(s.startswith("Begin FrameSet") for s in stripped))
+            self.assertTrue(any(s.startswith("End FrameSet") for s in stripped))
+
+    def test_more_fits_present(self):
+        with h5py.File(self.EXAMPLE, "r") as f:
+            more, hds_type = _hds.open_structure(f, "MORE")
+            self.assertEqual(hds_type, "EXT")
+            cards = _hds.read_char_array(more["FITS"])
+            self.assertGreater(len(cards), 0)
+            self.assertTrue(any(c.startswith("NAXIS") for c in cards))
