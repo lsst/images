@@ -59,15 +59,18 @@ HDS_TO_NUMPY: dict[str, np.dtype] = {
     "_REAL": np.dtype(np.float32),
     "_DOUBLE": np.dtype(np.float64),
     "_UBYTE": np.dtype(np.uint8),
-    "_INTEGER": np.dtype(np.int32),
     "_WORD": np.dtype(np.int16),
+    "_INTEGER": np.dtype(np.int32),
+    "_INT64": np.dtype(np.int64),
 }
 
 NUMPY_TO_HDS: dict[np.dtype, str] = {
     np.dtype(np.float32): "_REAL",
     np.dtype(np.float64): "_DOUBLE",
     np.dtype(np.uint8): "_UBYTE",
+    np.dtype(np.int16): "_WORD",
     np.dtype(np.int32): "_INTEGER",
+    np.dtype(np.int64): "_INT64",
 }
 
 
