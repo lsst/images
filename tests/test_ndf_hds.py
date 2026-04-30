@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 
@@ -104,3 +105,56 @@ class HdsStructureTestCase(unittest.TestCase):
             with h5py.File(tmp.name, "r") as f:
                 with self.assertRaises(ValueError):
                     _hds.open_structure(f, "BAD")
+
+
+class HdsExampleNdfTestCase(unittest.TestCase):
+    """Validate _hds against a Starlink-generated NDF.
+
+    The example file was produced by CCDPACK and contains a single
+    top-level NDF structure named BIAS1 with DATA_ARRAY, WCS, and MORE.FITS
+    components.
+    """
+
+    EXAMPLE = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
+
+    def test_top_level_structure(self):
+        with h5py.File(self.EXAMPLE, "r") as f:
+            # The example wraps a single NDF in a top-level container; verify
+            # we can iterate the root and find the BIAS1 NDF.
+            children = dict(_hds.iter_children(f))
+            self.assertIn("BIAS1", children)
+            bias1, hdstype = _hds.open_structure(f, "BIAS1")
+            self.assertEqual(hdstype, "NDF")
+
+    def test_data_array_present(self):
+        with h5py.File(self.EXAMPLE, "r") as f:
+            bias1, _ = _hds.open_structure(f, "BIAS1")
+            # DATA_ARRAY is a dataset, not a structure
+            data = bias1["DATA_ARRAY"]
+            self.assertEqual(data.shape, (128, 128))
+            self.assertEqual(data.dtype, np.float32)
+            # Verify we can read the data directly
+            array_data = data[:]
+            self.assertEqual(array_data.shape, (128, 128))
+
+    def test_wcs_present(self):
+        with h5py.File(self.EXAMPLE, "r") as f:
+            bias1, _ = _hds.open_structure(f, "BIAS1")
+            wcs, hdstype = _hds.open_structure(bias1, "WCS")
+            self.assertEqual(hdstype, "WCS")
+            # WCS/DATA is a dataset with string data; read directly since
+            # the file doesn't have HDSTYPE attributes on leaf datasets
+            wcs_data = wcs["DATA"]
+            lines = [s.decode() if isinstance(s, bytes) else s for s in wcs_data[:]]
+            self.assertTrue(any("Begin FrameSet" in line for line in lines))
+            self.assertTrue(any("End FrameSet" in line for line in lines))
+
+    def test_more_fits_present(self):
+        with h5py.File(self.EXAMPLE, "r") as f:
+            bias1, _ = _hds.open_structure(f, "BIAS1")
+            more, _ = _hds.open_structure(bias1, "MORE")
+            fits_data = more["FITS"]
+            cards = [s.decode() if isinstance(s, bytes) else s for s in fits_data[:]]
+            # Sample a few cards we know are in the example.
+            self.assertTrue(any(c.startswith("NAXIS") for c in cards))
+            self.assertTrue(len(cards) > 0)
