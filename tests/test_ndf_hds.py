@@ -81,3 +81,26 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 self.assertEqual(f["X"][0], b"short" + b" " * 75)
                 # read_char_array strips trailing spaces.
                 self.assertEqual(_hds.read_char_array(f["X"]), ["short"])
+
+
+class HdsStructureTestCase(unittest.TestCase):
+    def test_create_open_structure(self):
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                ndf = _hds.create_structure(f, "ROOT", "NDF")
+                _hds.create_structure(ndf, "DATA_ARRAY", "ARRAY")
+            with h5py.File(tmp.name, "r") as f:
+                root, root_type = _hds.open_structure(f, "ROOT")
+                self.assertEqual(root_type, "NDF")
+                child_names = sorted(name for name, _ in _hds.iter_children(root))
+                self.assertEqual(child_names, ["DATA_ARRAY"])
+                _, child_type = _hds.open_structure(root, "DATA_ARRAY")
+                self.assertEqual(child_type, "ARRAY")
+
+    def test_open_structure_missing_hdstype_raises(self):
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                f.create_group("BAD")
+            with h5py.File(tmp.name, "r") as f:
+                with self.assertRaises(ValueError):
+                    _hds.open_structure(f, "BAD")
