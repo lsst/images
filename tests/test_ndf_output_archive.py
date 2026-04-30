@@ -113,3 +113,72 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 self.assertIn("MORE", f)
                 self.assertIn("LSST", f["/MORE"])
                 self.assertIn("PSF_COEFFICIENTS", f["/MORE/LSST"])
+
+
+class NdfOutputArchivePointerTestCase(unittest.TestCase):
+    """Tests for `NdfOutputArchive.serialize_pointer` and
+    `serialize_frame_set`.
+    """
+
+    def test_serialize_pointer_writes_subtree_and_returns_pointer(self):
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                ptr = arch.serialize_pointer(
+                    "psf",
+                    lambda nested: TinyTree(name="gaussian"),
+                    key=("psf", 1),
+                )
+                self.assertEqual(ptr.ref, "/MORE/LSST/PSF")
+            with h5py.File(tmp.name, "r") as f:
+                # The hoisted sub-tree is stored as a _CHAR*N dataset
+                # (1D byte-string array). Read it back and parse.
+                raw = f["/MORE/LSST/PSF"][()]
+                # Concatenate and decode (it may be a single padded line).
+                joined = b"".join(raw).decode("ascii").rstrip(" ")
+                self.assertIn('"name":"gaussian"', joined.replace(" ", ""))
+
+    def test_serialize_pointer_caches_by_key(self):
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                ptr1 = arch.serialize_pointer(
+                    "psf",
+                    lambda nested: TinyTree(name="first"),
+                    key=("psf", 1),
+                )
+                # Same key -> returns cached pointer; serializer not re-run
+                # (we'd otherwise overwrite the file content with "second").
+                ptr2 = arch.serialize_pointer(
+                    "psf",
+                    lambda nested: TinyTree(name="second"),
+                    key=("psf", 1),
+                )
+                self.assertEqual(ptr1, ptr2)
+            with h5py.File(tmp.name, "r") as f:
+                raw = f["/MORE/LSST/PSF"][()]
+                joined = b"".join(raw).decode("ascii").rstrip(" ")
+                self.assertIn("first", joined)
+                self.assertNotIn("second", joined)
+
+    def test_serialize_frame_set_records_for_iter(self):
+        # serialize_frame_set is delegated to serialize_pointer plus
+        # recording the (FrameSet, pointer) pair for iter_frame_sets,
+        # mirroring how FITS and JSON archives behave. The frame_set
+        # itself is opaque here -- we just check it round-trips through
+        # the recording.
+        sentinel = object()
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                ptr = arch.serialize_frame_set(
+                    "wcs/pixel_to_sky",
+                    sentinel,
+                    lambda nested: TinyTree(name="proj"),
+                    key=("frame_set", 1),
+                )
+                self.assertEqual(ptr.ref, "/MORE/LSST/WCS_PIXEL_TO_SKY")
+                recorded = list(arch.iter_frame_sets())
+                self.assertEqual(len(recorded), 1)
+                self.assertIs(recorded[0][0], sentinel)
+                self.assertEqual(recorded[0][1].ref, "/MORE/LSST/WCS_PIXEL_TO_SKY")
