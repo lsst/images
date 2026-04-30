@@ -27,14 +27,14 @@ from ..fits._common import FitsOpaqueMetadata
 from ..serialization import (
     ArchiveTree,
     ArrayReferenceModel,
-    InlineArrayModel,
     NestedOutputArchive,
+    NumberType,
     OutputArchive,
     TableModel,
     no_header_updates,
 )
 from . import _hds
-from ._common import NdfPointerModel
+from ._common import NdfPointerModel, json_pointer_to_hdf5_path
 
 if TYPE_CHECKING:
     import astropy.io.fits
@@ -96,15 +96,118 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
     def iter_frame_sets(self) -> Iterator[tuple[FrameSet, NdfPointerModel]]:
         return iter(self._frame_sets)
 
+    _COMPATIBLE_MASK_DTYPES = (np.dtype(np.uint8),)
+
     def add_array(
         self,
         array: np.ndarray,
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> ArrayReferenceModel | InlineArrayModel:
-        # Implemented in Task 8.
-        raise NotImplementedError
+    ) -> ArrayReferenceModel:
+        # Recognised top-level names go to standard NDF locations.
+        # Anything else hoists under /MORE/LSST.
+        if name == "image":
+            self._ensure_array_structure("/DATA_ARRAY")
+            path = "/DATA_ARRAY/DATA"
+            self._write_origin_for_array("/DATA_ARRAY", array)
+        elif name == "variance":
+            self._ensure_array_structure("/VARIANCE")
+            path = "/VARIANCE/DATA"
+            self._write_origin_for_array("/VARIANCE", array)
+        elif name == "mask":
+            if array.ndim == 2 and array.dtype in self._COMPATIBLE_MASK_DTYPES:
+                self._ensure_quality_structure()
+                path = "/QUALITY/QUALITY"
+            else:
+                self._ensure_struct("/MORE/LSST/MASK", "STRUCT")
+                path = "/MORE/LSST/MASK/DATA"
+        else:
+            if name is None:
+                raise ValueError("Anonymous arrays are not supported in the NDF archive.")
+            json_pointer = name if name.startswith("/") else f"/{name}"
+            path = json_pointer_to_hdf5_path(json_pointer)
+        parent_path, leaf = path.rsplit("/", 1)
+        parent = self._ensure_path(parent_path)
+        _hds.write_array(
+            parent,
+            leaf,
+            array,
+            compression=self._compression_options.get("compression"),
+        )
+        return ArrayReferenceModel(
+            source=f"ndf:{path}",
+            datatype=NumberType.from_numpy(array.dtype),
+        )
+
+    def _ensure_path(self, path: str) -> h5py.Group:
+        """Walk/create groups for an HDF5 absolute path.
+
+        Intermediate groups created on demand are tagged with
+        ``CLASS="EXT"``, the HDS type for general-purpose extension
+        containers (matches what hds-v5 writes for ``MORE``).
+        """
+        if path in ("", "/"):
+            return self._file["/"]
+        parts = path.lstrip("/").split("/")
+        cursor: h5py.Group = self._file["/"]
+        for part in parts:
+            if part not in cursor:
+                cursor = _hds.create_structure(cursor, part, "EXT")
+            else:
+                cursor = cursor[part]
+        return cursor
+
+    def _ensure_struct(self, path: str, hds_type: str) -> h5py.Group:
+        """Ensure a structure exists at ``path`` with the given HDS type."""
+        if path in self._file:
+            return self._file[path]
+        parent_path, leaf = path.rsplit("/", 1)
+        parent = self._ensure_path(parent_path or "/")
+        return _hds.create_structure(parent, leaf, hds_type)
+
+    def _ensure_array_structure(self, path: str) -> h5py.Group:
+        """Ensure an HDS ``ARRAY`` structure exists at ``path``."""
+        return self._ensure_struct(path, "ARRAY")
+
+    def _ensure_quality_structure(self) -> h5py.Group:
+        """Ensure ``/QUALITY`` exists with ``CLASS="QUALITY"`` and BADBITS.
+
+        BADBITS defaults to 0xFF (treat all defined plane bits as
+        "bad"); a future enhancement may make this configurable.
+        """
+        if "/QUALITY" in self._file:
+            return self._file["/QUALITY"]
+        group = _hds.create_structure(self._file, "QUALITY", "QUALITY")
+        _hds.write_array(group, "BADBITS", np.array(0xFF, dtype=np.uint8))
+        return group
+
+    def _write_origin_for_array(self, struct_path: str, array: np.ndarray) -> None:
+        """Write a placeholder ORIGIN of zeros (int64).
+
+        The top-level ``write()`` function (Task 11) overwrites this
+        with bbox-derived values via :meth:`set_array_origin` once the
+        bbox is known.
+        """
+        struct = self._file[struct_path]
+        if "ORIGIN" not in struct:
+            _hds.write_array(struct, "ORIGIN", np.zeros(array.ndim, dtype=np.int64))
+
+    def set_array_origin(self, struct_path: str, origin: tuple[int, ...]) -> None:
+        """Overwrite the ORIGIN of an ARRAY structure.
+
+        Parameters
+        ----------
+        struct_path
+            HDF5 path to the ARRAY structure (e.g. ``"/DATA_ARRAY"``).
+        origin
+            Origin in NDF/Fortran axis order (e.g. ``(x_min, y_min)``
+            for a 2D image with bbox lower bound ``(x_min, y_min)``).
+        """
+        struct = self._file[struct_path]
+        if "ORIGIN" in struct:
+            del struct["ORIGIN"]
+        _hds.write_array(struct, "ORIGIN", np.asarray(origin, dtype=np.int64))
 
     def add_table(
         self,
