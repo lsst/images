@@ -309,8 +309,11 @@ def compare_visit_image_to_legacy(
     compare_observation_summary_stats_to_legacy(
         tc, visit_image.summary_stats, legacy_exposure.info.getSummaryStats()
     )
+    # Make a tiny box for Field comparisons that need to make arrays; that can
+    # get expensive otherwisre.
+    tiny_bbox = detector_bbox.local[2:4, 3:6]
     compare_aperture_corrections_to_legacy(
-        tc, visit_image.aperture_corrections, legacy_exposure.info.getApCorrMap(), detector_bbox
+        tc, visit_image.aperture_corrections, legacy_exposure.info.getApCorrMap(), tiny_bbox
     )
     if alternates:
         if projection := alternates.get("projection"):
@@ -332,7 +335,7 @@ def compare_visit_image_to_legacy(
             tc.assertEqual(obs_info.instrument, visitInfo.getInstrumentLabel())
         if aperture_corrections := alternates.get("aperture_corrections"):
             compare_aperture_corrections_to_legacy(
-                tc, aperture_corrections, legacy_exposure.info.getApCorrMap(), detector_bbox
+                tc, aperture_corrections, legacy_exposure.info.getApCorrMap(), tiny_bbox
             )
 
 
