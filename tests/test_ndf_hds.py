@@ -21,7 +21,18 @@ import numpy as np
 from lsst.images.ndf import _hds
 
 
+def _attr_str(value: object) -> str | None:
+    """Decode an h5py attribute value (bytes or str) to a Python str."""
+    if isinstance(value, bytes):
+        return value.decode("ascii")
+    if isinstance(value, str):
+        return value
+    return None
+
+
 class HdsPrimitiveTestCase(unittest.TestCase):
+    """Primitives are bare HDF5 datasets with no HDS-specific attributes."""
+
     def test_real_array_round_trip(self):
         data = np.arange(12, dtype=np.float32).reshape(3, 4)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
@@ -29,9 +40,9 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 _hds.write_array(f, "DATA", data)
             with h5py.File(tmp.name, "r") as f:
                 ds = f["DATA"]
-                self.assertEqual(ds.attrs["HDSTYPE"], "_REAL")
-                self.assertEqual(ds.attrs["HDSNDIMS"], 2)
-                self.assertEqual(ds.attrs["HDS_DATASET_IS_DEFINED"], True)
+                self.assertEqual(ds.dtype, np.float32)
+                self.assertEqual(ds.shape, (3, 4))
+                self.assertEqual(dict(ds.attrs), {})
                 np.testing.assert_array_equal(_hds.read_array(ds), data)
 
     def test_double_array_round_trip(self):
@@ -40,7 +51,7 @@ class HdsPrimitiveTestCase(unittest.TestCase):
             with h5py.File(tmp.name, "w") as f:
                 _hds.write_array(f, "DATA", data)
             with h5py.File(tmp.name, "r") as f:
-                self.assertEqual(f["DATA"].attrs["HDSTYPE"], "_DOUBLE")
+                self.assertEqual(f["DATA"].dtype, np.float64)
                 np.testing.assert_array_equal(_hds.read_array(f["DATA"]), data)
 
     def test_ubyte_and_integer(self):
@@ -51,16 +62,33 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 _hds.write_array(f, "Q", data_u)
                 _hds.write_array(f, "I", data_i)
             with h5py.File(tmp.name, "r") as f:
-                self.assertEqual(f["Q"].attrs["HDSTYPE"], "_UBYTE")
-                self.assertEqual(f["I"].attrs["HDSTYPE"], "_INTEGER")
+                self.assertEqual(f["Q"].dtype, np.uint8)
+                self.assertEqual(f["I"].dtype, np.int32)
                 np.testing.assert_array_equal(_hds.read_array(f["Q"]), data_u)
                 np.testing.assert_array_equal(_hds.read_array(f["I"]), data_i)
 
-    def test_unsupported_dtype_raises(self):
+    def test_unsupported_dtype_raises_on_write(self):
         data = np.array([1.0], dtype=np.complex128)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp, h5py.File(tmp.name, "w") as f:
             with self.assertRaises(NotImplementedError):
                 _hds.write_array(f, "X", data)
+
+    def test_unsupported_dtype_raises_on_read(self):
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                # Write directly with h5py, bypassing write_array's dtype check.
+                f.create_dataset("X", data=np.array([1.0], dtype=np.complex128))
+            with h5py.File(tmp.name, "r") as f:
+                with self.assertRaises(NotImplementedError):
+                    _hds.read_array(f["X"])
+
+    def test_read_array_rejects_char_dataset(self):
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                _hds.write_char_array(f, "WCS", ["hello", "world"], width=16)
+            with h5py.File(tmp.name, "r") as f:
+                with self.assertRaises(ValueError):
+                    _hds.read_array(f["WCS"])
 
     def test_char_array_round_trip(self):
         lines = ["Begin FrameSet", "Nframe = 5", "End FrameSet"]
@@ -69,8 +97,9 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 _hds.write_char_array(f, "DATA", lines, width=80)
             with h5py.File(tmp.name, "r") as f:
                 ds = f["DATA"]
-                self.assertEqual(ds.attrs["HDSTYPE"], "_CHAR*80")
-                self.assertEqual(ds.attrs["HDSNDIMS"], 1)
+                self.assertEqual(ds.dtype, np.dtype("|S80"))
+                self.assertEqual(ds.shape, (3,))
+                self.assertEqual(dict(ds.attrs), {})
                 self.assertEqual(_hds.read_char_array(ds), lines)
 
     def test_char_array_pads_and_strips(self):
@@ -83,14 +112,35 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 # read_char_array strips trailing spaces.
                 self.assertEqual(_hds.read_char_array(f["X"]), ["short"])
 
+    def test_read_char_array_rejects_numeric_dataset(self):
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                _hds.write_array(f, "DATA", np.zeros((2,), dtype=np.float32))
+            with h5py.File(tmp.name, "r") as f:
+                with self.assertRaises(ValueError):
+                    _hds.read_char_array(f["DATA"])
+
+    def test_hds_type_for_dtype(self):
+        self.assertEqual(_hds.hds_type_for_dtype(np.dtype(np.float32)), "_REAL")
+        self.assertEqual(_hds.hds_type_for_dtype(np.dtype(np.float64)), "_DOUBLE")
+        self.assertEqual(_hds.hds_type_for_dtype(np.dtype(np.uint8)), "_UBYTE")
+        self.assertEqual(_hds.hds_type_for_dtype(np.dtype(np.int32)), "_INTEGER")
+        self.assertEqual(_hds.hds_type_for_dtype(np.dtype("|S80")), "_CHAR*80")
+        with self.assertRaises(NotImplementedError):
+            _hds.hds_type_for_dtype(np.dtype(np.complex128))
+
 
 class HdsStructureTestCase(unittest.TestCase):
+    """Structures are HDF5 groups with a CLASS attribute."""
+
     def test_create_open_structure(self):
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 ndf = _hds.create_structure(f, "ROOT", "NDF")
                 _hds.create_structure(ndf, "DATA_ARRAY", "ARRAY")
             with h5py.File(tmp.name, "r") as f:
+                root_obj = f["ROOT"]
+                self.assertEqual(_attr_str(root_obj.attrs["CLASS"]), "NDF")
                 root, root_type = _hds.open_structure(f, "ROOT")
                 self.assertEqual(root_type, "NDF")
                 child_names = sorted(name for name, _ in _hds.iter_children(root))
@@ -98,7 +148,7 @@ class HdsStructureTestCase(unittest.TestCase):
                 _, child_type = _hds.open_structure(root, "DATA_ARRAY")
                 self.assertEqual(child_type, "ARRAY")
 
-    def test_open_structure_missing_hdstype_raises(self):
+    def test_open_structure_missing_class_raises(self):
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 f.create_group("BAD")
@@ -106,55 +156,20 @@ class HdsStructureTestCase(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     _hds.open_structure(f, "BAD")
 
+    def test_open_structure_accepts_legacy_hdstype(self):
+        """Files written by older HDS variants used HDSTYPE rather than CLASS."""
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                g = f.create_group("LEGACY")
+                g.attrs["HDSTYPE"] = b"NDF"
+            with h5py.File(tmp.name, "r") as f:
+                _, t = _hds.open_structure(f, "LEGACY")
+                self.assertEqual(t, "NDF")
 
-class HdsExampleNdfTestCase(unittest.TestCase):
-    """Validate _hds against a Starlink-generated NDF.
-
-    The example file was produced by CCDPACK and contains a single
-    top-level NDF structure named BIAS1 with DATA_ARRAY, WCS, and MORE.FITS
-    components.
-    """
-
-    EXAMPLE = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
-
-    def test_top_level_structure(self):
-        with h5py.File(self.EXAMPLE, "r") as f:
-            # The example wraps a single NDF in a top-level container; verify
-            # we can iterate the root and find the BIAS1 NDF.
-            children = dict(_hds.iter_children(f))
-            self.assertIn("BIAS1", children)
-            bias1, hdstype = _hds.open_structure(f, "BIAS1")
-            self.assertEqual(hdstype, "NDF")
-
-    def test_data_array_present(self):
-        with h5py.File(self.EXAMPLE, "r") as f:
-            bias1, _ = _hds.open_structure(f, "BIAS1")
-            # DATA_ARRAY is a dataset, not a structure
-            data = bias1["DATA_ARRAY"]
-            self.assertEqual(data.shape, (128, 128))
-            self.assertEqual(data.dtype, np.float32)
-            # Verify we can read the data directly
-            array_data = data[:]
-            self.assertEqual(array_data.shape, (128, 128))
-
-    def test_wcs_present(self):
-        with h5py.File(self.EXAMPLE, "r") as f:
-            bias1, _ = _hds.open_structure(f, "BIAS1")
-            wcs, hdstype = _hds.open_structure(bias1, "WCS")
-            self.assertEqual(hdstype, "WCS")
-            # WCS/DATA is a dataset with string data; read directly since
-            # the file doesn't have HDSTYPE attributes on leaf datasets
-            wcs_data = wcs["DATA"]
-            lines = [s.decode() if isinstance(s, bytes) else s for s in wcs_data[:]]
-            self.assertTrue(any("Begin FrameSet" in line for line in lines))
-            self.assertTrue(any("End FrameSet" in line for line in lines))
-
-    def test_more_fits_present(self):
-        with h5py.File(self.EXAMPLE, "r") as f:
-            bias1, _ = _hds.open_structure(f, "BIAS1")
-            more, _ = _hds.open_structure(bias1, "MORE")
-            fits_data = more["FITS"]
-            cards = [s.decode() if isinstance(s, bytes) else s for s in fits_data[:]]
-            # Sample a few cards we know are in the example.
-            self.assertTrue(any(c.startswith("NAXIS") for c in cards))
-            self.assertTrue(len(cards) > 0)
+    def test_set_root_name(self):
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                _hds.set_root_name(f, "MYNDF", "NDF")
+            with h5py.File(tmp.name, "r") as f:
+                self.assertEqual(_attr_str(f["/"].attrs["HDS_ROOT_NAME"]), "MYNDF")
+                self.assertEqual(_attr_str(f["/"].attrs["CLASS"]), "NDF")

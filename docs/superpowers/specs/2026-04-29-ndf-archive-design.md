@@ -48,11 +48,12 @@ python/lsst/images/ndf/
 
 Two layers:
 
-- **`_hds.py`** knows only the HDS-on-HDF5 conventions: structures as h5py
-  groups with `HDSTYPE` attributes, primitives as h5py datasets with
-  `HDSTYPE`/`HDSNDIMS` attributes, dimension reversal between NDF (Fortran)
-  and HDF5 (C), `_CHAR*N` storage, the `HDS_DATASET_IS_DEFINED` marker.
-  No knowledge of NDF semantics, `lsst.images`, or pydantic.
+- **`_hds.py`** knows only the HDS-on-HDF5 conventions (per the
+  canonical `hds-v5` library): structures as h5py groups with `CLASS`
+  attributes, primitives as bare h5py datasets (HDS type inferred from
+  HDF5 dtype), dimension reversal between NDF (Fortran) and HDF5 (C),
+  `|S<N>`-encoded `_CHAR*N` arrays, the `HDS_ROOT_NAME` marker on the
+  file root. No knowledge of NDF semantics, `lsst.images`, or pydantic.
 - **`_output_archive.py` / `_input_archive.py`** know NDF semantics and
   LSST-side conventions (which structure means `DATA_ARRAY`, where mask
   plane names go, the `MORE/LSST/*` hoisting policy). They call `_hds`
@@ -73,21 +74,35 @@ arrays of a fixed primitive type).
 
 ### HDF5 mapping
 
-- **Structure** → `h5py.Group` with attribute `HDSTYPE` ∈
+Conventions follow the canonical Starlink `hds-v5` library
+(`reference/hds-v5/dat1.h:137-140` and `dat1New.c:202`):
+
+- **Structure** → `h5py.Group` with attribute `CLASS` ∈
   `{"NDF", "WCS", "ARRAY", "EXT", "QUALITY", "STRUCT", ...}`. Children
   named by HDS component name in uppercase.
-- **Primitive** → `h5py.Dataset` with attributes `HDSTYPE`
-  (`"_REAL"`, `"_DOUBLE"`, `"_UBYTE"`, `"_INTEGER"`, `"_CHAR*N"`, ...) and
-  `HDSNDIMS` (NDF dimensionality).
-- **Dimension order**: NDF/Fortran dims `(N1, N2, …, Nk)` map to HDF5 dims
-  `(Nk, …, N2, N1)`. Callers always pass and receive C-order numpy arrays;
-  the byte stream on disk matches Fortran storage by virtue of the
-  reversal.
-- **`HDS_DATASET_IS_DEFINED`** marker attribute set on every primitive we
-  write. Absence is treated by the reader as "no data" (surfaced as
-  `None`).
-- **Top level**: file root is itself a structure with `HDSTYPE="NDF"` for
-  the simple `Image`/`MaskedImage`/`VisitImage` cases.
+- **Arrays of structures** (deferred from v1; we only handle scalar
+  structures): additionally carry `HDS_STRUCTURE_DIMS` and store
+  per-element groups under the `ARRAY_OF_STRUCTURES_CELL` prefix.
+- **File root**: when the root represents a top-level HDS structure, the
+  root group carries an `HDS_ROOT_NAME` attribute (HDS object name) plus
+  the same `CLASS` attribute as any other structure. We don't support
+  the `HDS_ROOT_IS_PRIMITIVE` case (root group holding a primitive).
+- **Primitive** → bare `h5py.Dataset`, no HDS-specific attributes. The
+  HDS type is inferred from the HDF5 dtype:
+  `H5T_NATIVE_FLOAT` → `_REAL`, `H5T_NATIVE_DOUBLE` → `_DOUBLE`,
+  `H5T_NATIVE_UCHAR` → `_UBYTE`, `H5T_NATIVE_INT` → `_INTEGER`,
+  `H5T_NATIVE_SHORT` → `_WORD`, `|S<N>` → `_CHAR*<N>`. (HDS `_LOGICAL`
+  is not in the supported set; on read we warn-and-drop.)
+- **Dimension order**: NDF/Fortran dims `(N1, N2, …, Nk)` map to HDF5
+  dims `(Nk, …, N2, N1)`. Callers always pass and receive C-order numpy
+  arrays; the byte stream on disk matches Fortran storage by virtue of
+  the reversal.
+- **Legacy compatibility on read**: `_hds.open_structure` accepts the
+  older `HDSTYPE` attribute as a fallback when `CLASS` is absent, so
+  files produced by pre-canonical HDS variants can still be inspected.
+- **Top level**: file root group has `CLASS="NDF"` and
+  `HDS_ROOT_NAME=<some-name>` for the simple
+  `Image`/`MaskedImage`/`VisitImage` cases.
 
 ### Type system
 
@@ -110,20 +125,26 @@ component.
 FITS cards and AST WCS text dumps are stored as 1D `_CHAR*N` (typically
 `_CHAR*80`) arrays. `_hds.write_char_array(...)` pads/truncates each
 string to fixed width with trailing spaces (HDS convention) and writes a
-1D dataset with dtype `|S{width}` and `HDSTYPE="_CHAR*{width}"`. The
-reader strips trailing spaces.
+1D dataset with dtype `|S{width}`; no HDS-specific attributes are
+written, since the HDF5 dtype encodes the type directly. The reader
+strips trailing spaces.
 
 ### Public surface
 
 ```python
+# Canonical attribute names (per hds-v5 dat1.h)
+ATTR_CLASS = "CLASS"
+ATTR_STRUCTURE_DIMS = "HDS_STRUCTURE_DIMS"
+ATTR_ROOT_NAME = "HDS_ROOT_NAME"
+
 # Structures
-def create_structure(parent: h5py.Group, name: str, hdstype: str) -> h5py.Group: ...
+def create_structure(parent: h5py.Group, name: str, hds_type: str) -> h5py.Group: ...
 def open_structure(parent: h5py.Group, name: str) -> tuple[h5py.Group, str]: ...
+def set_root_name(file: h5py.File, hds_name: str, hds_type: str) -> None: ...
 def iter_children(group: h5py.Group) -> Iterator[tuple[str, h5py.Group | h5py.Dataset]]: ...
 
-# Primitives
+# Primitives (no HDS-specific attributes; HDS type inferred from HDF5 dtype)
 def write_array(parent: h5py.Group, name: str, data: np.ndarray, *,
-                hdstype: str | None = None,
                 compression: str | None = None) -> h5py.Dataset: ...
 def read_array(dataset: h5py.Dataset) -> np.ndarray: ...
 
@@ -132,6 +153,7 @@ def write_char_array(parent: h5py.Group, name: str,
 def read_char_array(dataset: h5py.Dataset) -> list[str]: ...
 
 # Type helpers
+def hds_type_for_dtype(dtype: np.dtype) -> str: ...
 HDS_TO_NUMPY: Mapping[str, np.dtype]
 NUMPY_TO_HDS: Mapping[np.dtype, str]
 ```
@@ -149,15 +171,15 @@ NUMPY_TO_HDS: Mapping[np.dtype, str]
 ### `Image`
 
 ```
-/                                  HDSTYPE="NDF"
-  DATA_ARRAY/                      HDSTYPE="ARRAY"
+/                                  CLASS="NDF"
+  DATA_ARRAY/                      CLASS="ARRAY"
     DATA                           _REAL|_DOUBLE, NDF shape (NX, NY)
     ORIGIN                         _INTEGER, shape (2,)   — bbox lower bounds
-  WCS/                             HDSTYPE="WCS"
+  WCS/                             CLASS="WCS"
     DATA                           _CHAR*N — AST FrameSet text dump
-  MORE/                            HDSTYPE="EXT"
+  MORE/                            CLASS="EXT"
     FITS                           _CHAR*80 — opaque FITS cards (if any)
-    LSST/                          HDSTYPE="EXT"
+    LSST/                          CLASS="EXT"
       JSON                         _CHAR*N — main Pydantic tree as JSON
       <NAME>...                    hoisted blobs (none for plain Image)
 ```
@@ -167,10 +189,10 @@ NUMPY_TO_HDS: Mapping[np.dtype, str]
 Add to the `Image` layout:
 
 ```
-  VARIANCE/                        HDSTYPE="ARRAY"
+  VARIANCE/                        CLASS="ARRAY"
     DATA                           _REAL|_DOUBLE
     ORIGIN                         _INTEGER, (2,)
-  QUALITY/                         HDSTYPE="QUALITY"
+  QUALITY/                         CLASS="QUALITY"
     QUALITY                        _UBYTE, NDF shape (NX, NY)
     BADBITS                        _UBYTE, scalar — 0xFF means all defined
                                    plane bits flag bad pixels (tunable later)
@@ -191,7 +213,7 @@ Drop `/QUALITY`; the full mask array goes into `MORE/LSST/MASK`:
 ```
   MORE/LSST/
     JSON                           main tree (with JSON-Pointer to MASK)
-    MASK/                          HDSTYPE="STRUCT"
+    MASK/                          CLASS="STRUCT"
       DATA                         raw mask array (possibly 3D, dtype as written)
 ```
 
@@ -251,7 +273,7 @@ Plain English:
 
 ### Routing rules — reader
 
-1. Open the root group; verify `HDSTYPE="NDF"` (or fall back to
+1. Open the root group; verify `CLASS="NDF"` (or fall back to
    best-effort with a warning if the top is some other HDS type).
 2. Read `DATA_ARRAY`, `VARIANCE` (if present), `QUALITY` (if present),
    `WCS`, `MORE/FITS` in that order.
@@ -275,7 +297,7 @@ Plain English:
 - **Write**: serialize the `FrameSet` to a list of text lines using
   `starlink.Ast.Channel`; write via `_hds.write_char_array(wcs_group,
   "DATA", lines, width=max(80, max_line_length))`. Set `wcs_group`
-  `HDSTYPE="WCS"`.
+  `CLASS="WCS"`.
 - **Read**: `_hds.read_char_array(...)` → feed lines to `Channel` reader
   → `FrameSet` → wrap in `Projection` via `_transforms/_ast.py`.
 
@@ -350,7 +372,7 @@ Uses the existing `ArchiveReadError` from `serialization/_common.py`.
 
 - Not an HDF5 file → `ArchiveReadError("not an HDF5 file")`.
 - Root group not a recognisable HDS structure → `ArchiveReadError`.
-- Recognised component malformed (wrong `HDSTYPE`, dtype, NDIMS) →
+- Recognised component malformed (wrong `CLASS`, dtype, dimensionality) →
   `ArchiveReadError` with path and expectation.
 - `MORE/LSST/JSON` present but not parseable / Pydantic discriminator
   unknown → `ArchiveReadError`.
@@ -373,12 +395,15 @@ per-type test files.
   dimension reversal verified.
 - `_CHAR*N` round-trip with padding/stripping.
 - Structure creation, child iteration, nested structures.
-- `HDS_DATASET_IS_DEFINED` marker behaviour.
-- Read against the checked-in `example.sdf` (moved under
-  `tests/data/`): traverse the tree and assert expected `HDSTYPE`s,
-  dtypes, and shapes for `BIAS1.DATA_ARRAY`, `BIAS1.WCS`,
-  `BIAS1.MORE.FITS`. Pins format conventions to a real
-  Starlink-generated file independently of any NDF-archive logic.
+- `set_root_name` writes both `HDS_ROOT_NAME` and `CLASS` on the file
+  root.
+- Legacy-fallback `open_structure`: a group with the older `HDSTYPE`
+  attribute (no `CLASS`) is still recognised as a structure.
+- A canonical-format Starlink NDF fixture (added under `tests/data/`
+  once available) read with `_hds`: traverse the tree and assert
+  expected `CLASS` values, dtypes, and shapes for the primary
+  components. Pins format conventions to a real Starlink-generated
+  file independently of any NDF-archive logic.
 
 ### Round-trip tests
 
@@ -394,7 +419,7 @@ AST), opaque FITS metadata, bbox/origin, top-level type identity.
 
 Open files written by `NdfOutputArchive` with raw h5py and assert the
 on-disk structure matches the layout section exactly: group paths,
-`HDSTYPE` attributes, `HDSNDIMS`, primitive types, dimension reversal.
+`CLASS` attributes, primitive HDF5 dtypes, dimension reversal.
 Catches drift if the writer stops following HDS conventions.
 
 ### Read-only ingest test (`tests/test_ndf_starlink_ingest.py`, new)
