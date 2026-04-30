@@ -135,3 +135,31 @@ def read_char_array(dataset: h5py.Dataset) -> list[str]:
         raise ValueError(f"Dataset {dataset.name!r} is not _CHAR*N (got HDSTYPE={hdstype!r}).")
     raw = dataset[()]
     return [item.decode("ascii").rstrip(" ") for item in raw]
+
+
+def create_structure(parent: h5py.Group, name: str, hdstype: str) -> h5py.Group:
+    """Create a named HDS structure (h5py group with HDSTYPE attribute)."""
+    group = parent.create_group(name)
+    group.attrs["HDSTYPE"] = hdstype
+    return group
+
+
+def open_structure(parent: h5py.Group, name: str) -> tuple[h5py.Group, str]:
+    """Open a child structure by name. Returns (group, hdstype). Raises
+    ``ValueError`` if the child is not a group with an ``HDSTYPE`` attribute.
+    """
+    obj = parent[name]
+    if not isinstance(obj, h5py.Group):
+        raise ValueError(f"{parent.name}/{name} is a dataset, not a structure.")
+    hdstype = obj.attrs.get("HDSTYPE")
+    if isinstance(hdstype, bytes):
+        hdstype = hdstype.decode("ascii")
+    if not isinstance(hdstype, str):
+        raise ValueError(f"Group {obj.name!r} has no HDSTYPE attribute.")
+    return obj, hdstype
+
+
+def iter_children(group: h5py.Group) -> Iterator[tuple[str, h5py.Group | h5py.Dataset]]:
+    """Iterate over a structure's direct children as ``(name, child)`` pairs."""
+    for name, child in group.items():
+        yield name, child
