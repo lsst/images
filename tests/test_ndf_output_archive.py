@@ -21,17 +21,19 @@ from lsst.images.ndf._output_archive import NdfOutputArchive
 
 
 class TinyTree(pydantic.BaseModel):
+    """A trivial Pydantic model used as a serialization stand-in."""
+
     name: str
 
 
 class NdfOutputArchiveBasicsTestCase(unittest.TestCase):
+    """Tests for `NdfOutputArchive` constructor and `serialize_direct`."""
+
     def test_serialize_direct_calls_serializer_with_nested_archive(self):
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 arch = NdfOutputArchive(f)
-                tree = arch.serialize_direct(
-                    "top", lambda nested: TinyTree(name="hello")
-                )
+                tree = arch.serialize_direct("top", lambda nested: TinyTree(name="hello"))
                 self.assertEqual(tree.name, "hello")
 
     def test_constructor_marks_root_as_ndf(self):
