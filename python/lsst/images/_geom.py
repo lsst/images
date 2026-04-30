@@ -894,10 +894,6 @@ class Bounds(Protocol):
     @property
     def bbox(self) -> Box: ...
 
-    def boundary(self) -> Iterator[YX[int]]:
-        """Iterate over points on the boundary as ``(y, x)`` tuples."""
-        ...
-
     @overload
     def contains(self, *, x: int, y: int) -> bool: ...
 
