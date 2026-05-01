@@ -260,7 +260,9 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
         if "QUALITY" in q and isinstance(q["QUALITY"], h5py.Dataset):
             quality_arr = _hds.read_array(q["QUALITY"])
 
-    # WCS is dropped in v1 with a warning.
+    # WCS is dropped in v1 with a warning.  The write-side companion
+    # (writing /WCS/DATA from the Projection's AST FrameSet) landed in
+    # DM-54817; the read-side reconstruction is a separate follow-up ticket.
     if "WCS" in ndf_group:
         _LOG.warning(
             "Starlink WCS present in %s but auto-detect ingest does not yet "

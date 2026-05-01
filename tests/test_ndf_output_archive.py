@@ -227,6 +227,53 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
                 self.assertEqual(col_y.description, "the y values")
 
 
+class NdfWriteWcsTestCase(unittest.TestCase):
+    """Tests for /WCS/DATA serialization in ndf.write()."""
+
+    def test_write_with_projection_creates_wcs_component(self):
+        from lsst.images import Box, Image
+        from lsst.images._transforms._frames import DetectorFrame
+        from lsst.images.ndf._output_archive import write
+        from lsst.images.tests._creation import make_random_projection
+
+        rng = np.random.default_rng(42)
+        det_frame = DetectorFrame(instrument="TestInst", detector=4, bbox=Box.factory[1:4096, 1:4096])
+        bbox = Box.factory[10:14, 20:25]
+        projection = make_random_projection(rng, det_frame, Box.factory[1:4096, 1:4096])
+        image = Image(
+            np.arange(20, dtype=np.float32).reshape(4, 5),
+            bbox=bbox,
+            projection=projection,
+        )
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(image, tmp.name)
+            with h5py.File(tmp.name, "r") as f:
+                self.assertIn("WCS", f)
+                self.assertEqual(f["/WCS"].attrs["CLASS"], "WCS")
+                wcs_data = f["/WCS/DATA"]
+                self.assertEqual(wcs_data.dtype.kind, "S")  # _CHAR*N
+                lines = [s.decode("ascii").rstrip(" ") for s in wcs_data[()]]
+                # AST FrameSet text dumps start with "Begin FrameSet" and
+                # end with "End FrameSet" (possibly with a leading
+                # whitespace indentation, like the canonical example file).
+                stripped = [line.lstrip() for line in lines]
+                self.assertTrue(any(s.startswith("Begin FrameSet") for s in stripped))
+                self.assertTrue(any(s.startswith("End FrameSet") for s in stripped))
+
+    def test_write_without_projection_omits_wcs_component(self):
+        from lsst.images import Image
+        from lsst.images.ndf._output_archive import write
+
+        # Image with no projection -> no /WCS in the file.
+        image = Image(np.zeros((2, 2), dtype=np.float32))
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(image, tmp.name)
+            with h5py.File(tmp.name, "r") as f:
+                self.assertNotIn("WCS", f)
+
+
 class NdfWriteFunctionTestCase(unittest.TestCase):
     """End-to-end tests for the module-level `write()` function."""
 

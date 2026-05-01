@@ -111,6 +111,23 @@ def write(
         if butler_info is not None:
             tree.butler_info = butler_info
 
+        # Write the canonical NDF /WCS component (HDS structure containing
+        # an AST channel text dump) when the object has a non-None
+        # projection. This is what KAPPA / hdstrace expect for an NDF's
+        # WCS; it lives alongside the projection's Pydantic model in
+        # /MORE/LSST/JSON, which is the source of truth for our own
+        # symmetric round-trip. Auto-detect read of /WCS/DATA is a
+        # deferred follow-up: building a typed Projection from a bare
+        # FrameSet requires new infrastructure in _transforms/.
+        projection = getattr(obj, "projection", None)
+        if projection is not None:
+            ast_frame_set = projection._pixel_to_sky._get_ast_frame_set()
+            text = ast_frame_set.show(False)
+            lines = text.splitlines()
+            width = max(80, max((len(line) for line in lines), default=0) + 1)
+            wcs_group = _hds.create_structure(h5_file, "WCS", "WCS")
+            _hds.write_char_array(wcs_group, "DATA", lines, width=width)
+
         # Main JSON tree.
         json_text = tree.model_dump_json()
         more_lsst = archive._ensure_path("/MORE/LSST")
