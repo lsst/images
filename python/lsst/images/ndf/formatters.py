@@ -29,7 +29,6 @@ from lsst.resources import ResourcePath
 
 from .._geom import Box
 from .._masked_image import MaskedImageSerializationModel
-from .._observation_summary_stats import ObservationSummaryStats
 from .._transforms import ProjectionSerializationModel
 from .._visit_image import VisitImageSerializationModel
 from ..serialization import ButlerInfo
@@ -229,7 +228,7 @@ class VisitImageFormatter(MaskedImageFormatter):
             case "psf":
                 return tree.deserialize_psf(archive)
             case "summary_stats":
-                if isinstance(ss := getattr(tree, "summary_stats", None), ObservationSummaryStats):
-                    return ss
-                return ComponentSentinel.INVALID_COMPONENT_MODEL
+                return tree.summary_stats
+            case "aperture_corrections":
+                return tree.aperture_corrections.deserialize(archive)
         return ComponentSentinel.UNRECOGNIZED_COMPONENT

@@ -98,6 +98,7 @@ def write_array(
     data: np.ndarray,
     *,
     compression: str | None = None,
+    compression_opts: int | None = None,
 ) -> h5py.Dataset:
     """Write a numpy C-order array as an HDS primitive.
 
@@ -117,6 +118,8 @@ def write_array(
     kwargs: dict = {}
     if compression is not None:
         kwargs["compression"] = compression
+    if compression_opts is not None:
+        kwargs["compression_opts"] = compression_opts
     return parent.create_dataset(name, data=data, **kwargs)
 
 
