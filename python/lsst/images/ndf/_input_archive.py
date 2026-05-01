@@ -17,7 +17,7 @@ import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from types import EllipsisType
-from typing import TYPE_CHECKING, Any, Self
+from typing import Any, Self
 
 import astropy.io.fits
 import astropy.table
@@ -40,10 +40,6 @@ from ..serialization import (
 )
 from . import _hds
 from ._common import NdfPointerModel
-
-if TYPE_CHECKING:
-    pass
-
 
 _LOG = logging.getLogger(__name__)
 
