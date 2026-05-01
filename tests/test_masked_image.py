@@ -212,6 +212,14 @@ class MaskedImageTestCase(unittest.TestCase):
         with RoundtripNdf(self, wide) as roundtrip:
             assert_masked_images_equal(self, roundtrip.result, wide, expect_view=False)
 
+    def test_fits_ndf_consistency(self):
+        """FITS and NDF backends produce equal MaskedImages on round-trip."""
+        with RoundtripFits(self, self.masked_image) as fits_rt, \
+             RoundtripNdf(self, self.masked_image) as ndf_rt:
+            assert_masked_images_equal(self, self.masked_image, fits_rt.result, expect_view=False)
+            assert_masked_images_equal(self, self.masked_image, ndf_rt.result, expect_view=False)
+            assert_masked_images_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
+
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_legacy(self) -> None:
         """Test MaskedImage.read_legacy, MaskedImage.to_legacy, and

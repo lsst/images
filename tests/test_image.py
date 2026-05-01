@@ -115,6 +115,20 @@ class ImageTestCase(unittest.TestCase):
             pass
         assert_images_equal(self, image, roundtrip.result)
 
+    def test_fits_ndf_consistency(self):
+        """Writing via FITS and via NDF, then reading back, produces equal Images."""
+        rng = np.random.default_rng(321)
+        image = Image(
+            rng.normal(100.0, 8.0, size=(60, 80)),
+            dtype=np.float64,
+            unit=u.nJy,
+            start=(0, 0),
+        )
+        with RoundtripFits(self, image) as fits_rt, RoundtripNdf(self, image) as ndf_rt:
+            assert_images_equal(self, image, fits_rt.result)
+            assert_images_equal(self, image, ndf_rt.result)
+            assert_images_equal(self, fits_rt.result, ndf_rt.result)
+
     def test_quantity(self):
         """Test quantities."""
         data = np.array([[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]])

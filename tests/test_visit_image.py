@@ -234,6 +234,14 @@ class VisitImageTestCase(unittest.TestCase):
             self.assertEqual(roundtrip.result.summary_stats, self.visit_image.summary_stats)
             self.assertEqual(type(roundtrip.result.psf), type(self.visit_image.psf))
 
+    def test_fits_ndf_consistency(self):
+        """FITS and NDF backends produce equal VisitImages on round-trip."""
+        with RoundtripFits(self, self.visit_image) as fits_rt, \
+             RoundtripNdf(self, self.visit_image) as ndf_rt:
+            assert_masked_images_equal(self, self.visit_image, fits_rt.result, expect_view=False)
+            assert_masked_images_equal(self, self.visit_image, ndf_rt.result, expect_view=False)
+            assert_masked_images_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
+
     def test_read_write(self) -> None:
         """Test that a visit can round trip through a FITS file."""
         with RoundtripFits(self, self.visit_image, "VisitImage") as roundtrip:
