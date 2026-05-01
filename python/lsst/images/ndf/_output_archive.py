@@ -276,6 +276,9 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             array,
             compression=self._compression_options.get("compression"),
         )
+        # Shape is stored in the JSON tree (matching the FITS archive) because
+        # MaskSerializationModel.bbox needs it before any arrays are read.
+        # Future work: resolve shape from the HDF5 dataset on read instead.
         return ArrayReferenceModel(
             source=f"ndf:{path}",
             shape=list(array.shape),
