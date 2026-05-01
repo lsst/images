@@ -167,9 +167,10 @@ def write(
                     archive.set_array_origin(struct_path, origin)
 
         # Mark the root group with HDS_ROOT_NAME (CLASS=NDF was set by the
-        # archive constructor in Task 7).
+        # archive constructor in Task 7) using fixed-length ASCII bytes
+        # so KAPPA / hdstrace can decode the attribute.
         root_name = archive_default_name or type(obj).__name__
-        h5_file["/"].attrs[_hds.ATTR_ROOT_NAME] = root_name
+        _hds.set_root_name(h5_file, root_name, "NDF")
 
         return tree
     finally:
@@ -230,7 +231,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         self._pointers: dict[Hashable, NdfPointerModel] = {}
         # Mark the root group as a top-level NDF if not already marked.
         if _hds.ATTR_CLASS not in self._file["/"].attrs:
-            self._file["/"].attrs[_hds.ATTR_CLASS] = "NDF"
+            _hds.set_ascii_attr(self._file["/"], _hds.ATTR_CLASS, "NDF")
 
     def serialize_direct[T: pydantic.BaseModel](
         self, name: str, serializer: Callable[[OutputArchive[NdfPointerModel]], T]

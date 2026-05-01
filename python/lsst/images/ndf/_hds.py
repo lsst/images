@@ -43,6 +43,7 @@ __all__ = (
     "open_structure",
     "read_array",
     "read_char_array",
+    "set_ascii_attr",
     "set_root_name",
     "write_array",
     "write_char_array",
@@ -163,6 +164,22 @@ def read_char_array(dataset: h5py.Dataset) -> list[str]:
     return [item.decode("ascii").rstrip(" ") for item in raw]
 
 
+def set_ascii_attr(target: h5py.Group | h5py.Dataset, name: str, value: str) -> None:
+    """Write a fixed-length ASCII byte attribute.
+
+    Canonical ``hds-v5`` stores ``CLASS`` and ``HDS_ROOT_NAME`` as
+    fixed-length ASCII byte strings (e.g. ``|S5`` for ``"ARRAY"``).
+    h5py's default for Python ``str`` is variable-length UTF-8, which
+    Starlink tools (KAPPA, ``hdstrace``) can't decode — they show
+    garbage in the type-tag column. Writing as fixed-length bytes
+    matches the canonical layout.
+    """
+    encoded = value.encode("ascii")
+    if name in target.attrs:
+        del target.attrs[name]
+    target.attrs.create(name, encoded, dtype=f"|S{len(encoded)}")
+
+
 def create_structure(parent: h5py.Group, name: str, hds_type: str) -> h5py.Group:
     """Create a named HDS structure (h5py group with ``CLASS`` attribute).
 
@@ -178,7 +195,7 @@ def create_structure(parent: h5py.Group, name: str, hds_type: str) -> h5py.Group
         ``"ARRAY"``, ``"EXT"``).
     """
     group = parent.create_group(name)
-    group.attrs[ATTR_CLASS] = hds_type
+    set_ascii_attr(group, ATTR_CLASS, hds_type)
     return group
 
 
@@ -189,8 +206,8 @@ def set_root_name(file: h5py.File, hds_name: str, hds_type: str) -> None:
     type) on the root group, matching what ``hds-v5`` writes for a root
     structure created via :c:func:`dat1New`.
     """
-    file["/"].attrs[ATTR_ROOT_NAME] = hds_name
-    file["/"].attrs[ATTR_CLASS] = hds_type
+    set_ascii_attr(file["/"], ATTR_ROOT_NAME, hds_name)
+    set_ascii_attr(file["/"], ATTR_CLASS, hds_type)
 
 
 def open_structure(parent: h5py.Group, name: str) -> tuple[h5py.Group, str]:
