@@ -148,7 +148,11 @@ def write(
         bbox = getattr(obj, "bbox", None)
         if bbox is not None:
             origin = _origin_from_bbox(bbox)
-            for struct_path in ("/DATA_ARRAY", "/VARIANCE"):
+            for struct_path in (
+                "/DATA_ARRAY",
+                "/VARIANCE",
+                "/MORE/LSST/MASK/DATA_ARRAY",
+            ):
                 if struct_path in h5_file:
                     archive.set_array_origin(struct_path, origin)
 
@@ -278,8 +282,17 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
                 self._ensure_quality_structure()
                 path = "/QUALITY/QUALITY"
             else:
-                self._ensure_struct("/MORE/LSST/MASK", "STRUCT")
-                path = "/MORE/LSST/MASK/DATA"
+                # Incompatible masks (wider dtype OR >8 planes -> 3D array)
+                # are hoisted as a sub-NDF inside /MORE/LSST/MASK so that
+                # standard Starlink tools (KAPPA `display`, `hdstrace`,
+                # etc.) can visualise the mask as an image or cube. The
+                # sub-NDF has the canonical layout: a top-level group
+                # with CLASS="NDF" containing a DATA_ARRAY structure
+                # (CLASS="ARRAY") with DATA + ORIGIN primitives.
+                self._ensure_struct("/MORE/LSST/MASK", "NDF")
+                self._ensure_array_structure("/MORE/LSST/MASK/DATA_ARRAY")
+                path = "/MORE/LSST/MASK/DATA_ARRAY/DATA"
+                self._write_origin_for_array("/MORE/LSST/MASK/DATA_ARRAY", array)
         else:
             if name is None:
                 raise ValueError("Anonymous arrays are not supported in the NDF archive.")
