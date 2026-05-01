@@ -19,7 +19,8 @@ Notes on mask routing
 ``Mask.serialize`` always calls ``schema.split(np.int32)`` before writing,
 which converts mask planes to ``int32`` regardless of the original schema
 dtype.  Consequently all masks written through ``ndf.write()`` land in
-``/MORE/LSST/MASK/DATA`` as a 2-D ``_INTEGER`` array rather than in the
+``/MORE/LSST/MASK`` as a sub-NDF with a 2-D ``_INTEGER`` DATA
+primitive rather than in the
 NDF ``QUALITY`` component.  The QUALITY component can only be populated by
 calling ``NdfOutputArchive.add_array`` directly with a 2-D ``uint8`` array
 (see ``test_ndf_output_archive.py``).
@@ -112,7 +113,9 @@ class NdfCompatibleMaskLayoutTestCase(unittest.TestCase):
     NDF QUALITY byte), ``Mask.serialize`` uses ``schema.split(np.int32)`` which
     converts the mask to int32.  The resulting 2-D int32 array is not
     compatible with the NDF QUALITY component (which requires uint8), so the
-    mask is stored in ``/MORE/LSST/MASK/DATA`` instead.
+    mask is hoisted as a sub-NDF inside ``/MORE/LSST/MASK`` instead — that
+    way standard Starlink tools (KAPPA `display`, `hdstrace`, etc.) can
+    visualise it as an image.
     """
 
     def test_masked_image_compatible_mask_layout(self) -> None:
@@ -143,17 +146,23 @@ class NdfCompatibleMaskLayoutTestCase(unittest.TestCase):
                     msg="QUALITY must not be written for masks serialised via MaskedImage.write()",
                 )
 
-                # The mask lands in /MORE/LSST/MASK as a STRUCT with a 2-D
-                # _INTEGER (int32) DATA primitive.
+                # /MORE/LSST/MASK is a sub-NDF (CLASS="NDF") with a
+                # canonical DATA_ARRAY structure containing DATA + ORIGIN.
                 self.assertIn("MORE", f)
                 self.assertIn("LSST", f["/MORE"])
                 self.assertIn("MASK", f["/MORE/LSST"])
-                self.assertEqual(_cls(f["/MORE/LSST/MASK"]), "STRUCT")
-                self.assertIn("DATA", f["/MORE/LSST/MASK"])
-                mask_ds = f["/MORE/LSST/MASK/DATA"]
+                self.assertEqual(_cls(f["/MORE/LSST/MASK"]), "NDF")
+                self.assertEqual(_cls(f["/MORE/LSST/MASK/DATA_ARRAY"]), "ARRAY")
+                mask_ds = f["/MORE/LSST/MASK/DATA_ARRAY/DATA"]
                 self.assertEqual(_hds_type(mask_ds), "_INTEGER")
                 self.assertEqual(mask_ds.ndim, 2)
                 self.assertEqual(mask_ds.shape, (4, 5))
+                origin = f["/MORE/LSST/MASK/DATA_ARRAY/ORIGIN"]
+                self.assertEqual(origin.dtype, np.int64)
+                # The mask shares the parent image's bbox, so its ORIGIN
+                # should match what /DATA_ARRAY/ORIGIN got: (x_min, y_min)
+                # in NDF/Fortran order = (20, 10) for the test bbox.
+                self.assertEqual(list(origin[()]), [20, 10])
 
                 # VARIANCE is an ARRAY structure whose DATA is _DOUBLE
                 # (float64).
@@ -168,8 +177,9 @@ class NdfIncompatibleMaskLayoutTestCase(unittest.TestCase):
 
     A 12-plane uint8 mask has ``mask_size=2`` (two bytes per pixel).  After
     ``schema.split(np.int32)`` the 12 planes still fit in a single int32
-    element, so the on-disk layout remains a 2-D _INTEGER array in
-    ``/MORE/LSST/MASK/DATA``.  The NDF QUALITY component is absent.
+    element, so the on-disk layout is a 2-D _INTEGER array stored as the
+    DATA primitive of a sub-NDF at ``/MORE/LSST/MASK``.  The NDF QUALITY
+    component is absent.
     """
 
     def test_masked_image_incompatible_mask_layout(self) -> None:
@@ -192,16 +202,16 @@ class NdfIncompatibleMaskLayoutTestCase(unittest.TestCase):
                 # (uint8 only holds 8 planes); QUALITY must be absent.
                 self.assertNotIn("QUALITY", f, msg="12-plane mask must not produce /QUALITY")
 
-                # The mask is stored in /MORE/LSST/MASK as a STRUCT.
+                # /MORE/LSST/MASK is a sub-NDF.
                 self.assertIn("MORE", f)
                 self.assertIn("LSST", f["/MORE"])
                 self.assertIn("MASK", f["/MORE/LSST"])
-                self.assertEqual(_cls(f["/MORE/LSST/MASK"]), "STRUCT")
+                self.assertEqual(_cls(f["/MORE/LSST/MASK"]), "NDF")
+                self.assertEqual(_cls(f["/MORE/LSST/MASK/DATA_ARRAY"]), "ARRAY")
 
                 # DATA is a 2-D _INTEGER (int32) array.  schema.split(np.int32)
                 # folds the 12 planes into a single int32 element per pixel.
-                self.assertIn("DATA", f["/MORE/LSST/MASK"])
-                ds = f["/MORE/LSST/MASK/DATA"]
+                ds = f["/MORE/LSST/MASK/DATA_ARRAY/DATA"]
                 self.assertEqual(_hds_type(ds), "_INTEGER")
                 self.assertEqual(ds.ndim, 2)
                 rows, cols = image.array.shape

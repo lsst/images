@@ -91,16 +91,24 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 self.assertEqual(f["/QUALITY/BADBITS"][()], 0xFF)
 
     def test_top_level_incompatible_mask_routes_to_more_lsst(self):
-        # 3D mask array (multi-plane uint8) doesn't fit NDF QUALITY.
+        # 3D mask array (multi-plane uint8) doesn't fit NDF QUALITY, so
+        # it's hoisted as a sub-NDF inside /MORE/LSST/MASK so that
+        # standard Starlink tools can visualise it.
         data = np.zeros((3, 4, 2), dtype=np.uint8)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 arch = NdfOutputArchive(f)
                 ref = arch.add_array(data, name="mask")
-                self.assertEqual(ref.source, "ndf:/MORE/LSST/MASK/DATA")
+                self.assertEqual(ref.source, "ndf:/MORE/LSST/MASK/DATA_ARRAY/DATA")
             with h5py.File(tmp.name, "r") as f:
-                self.assertEqual(f["/MORE/LSST/MASK"].attrs["CLASS"], "STRUCT")
-                self.assertEqual(f["/MORE/LSST/MASK/DATA"].shape, (3, 4, 2))
+                # /MORE/LSST/MASK is a real NDF: top-level CLASS="NDF"
+                # containing a DATA_ARRAY structure with DATA + ORIGIN.
+                self.assertEqual(f["/MORE/LSST/MASK"].attrs["CLASS"], "NDF")
+                self.assertEqual(f["/MORE/LSST/MASK/DATA_ARRAY"].attrs["CLASS"], "ARRAY")
+                self.assertEqual(f["/MORE/LSST/MASK/DATA_ARRAY/DATA"].shape, (3, 4, 2))
+                origin = f["/MORE/LSST/MASK/DATA_ARRAY/ORIGIN"]
+                self.assertEqual(origin.dtype, np.int64)
+                self.assertEqual(origin.shape, (3,))
 
     def test_nested_array_hoists(self):
         data = np.array([[1.0, 2.0]], dtype=np.float32)
