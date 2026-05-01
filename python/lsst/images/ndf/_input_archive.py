@@ -255,14 +255,19 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
     data_arr, bbox = _read_data_array_with_bbox(ndf_group["DATA_ARRAY"])
 
     # VARIANCE / QUALITY are optional.
-    variance_arr = _read_data_array_with_bbox(ndf_group["VARIANCE"])[0] if "VARIANCE" in ndf_group else None
+    variance_arr: np.ndarray | None = None
+    variance_bbox: Any | None = None
+    if "VARIANCE" in ndf_group:
+        variance_arr, variance_bbox = _read_data_array_with_bbox(ndf_group["VARIANCE"])
     quality_arr: np.ndarray | None = None
+    quality_bbox: Any | None = None
     if "QUALITY" in ndf_group and isinstance(ndf_group["QUALITY"], h5py.Group):
         q = ndf_group["QUALITY"]
         if "QUALITY" in q and isinstance(q["QUALITY"], h5py.Dataset):
             quality_arr = _hds.read_array(q["QUALITY"])
+            quality_bbox = _make_bbox(0, 0, quality_arr)
         elif "QUALITY" in q and isinstance(q["QUALITY"], h5py.Group):
-            quality_arr = _read_data_array_with_bbox(q["QUALITY"])[0]
+            quality_arr, quality_bbox = _read_data_array_with_bbox(q["QUALITY"])
 
     # WCS is dropped in v1 with a warning.  The write-side companion
     # (writing /WCS/DATA from the Projection's AST FrameSet) landed in
@@ -296,25 +301,30 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
                 name,
             )
 
-    # Build the in-memory object.
+    # Build the requested in-memory object. Any NDF can be read as an Image;
+    # MaskedImage construction uses whatever VARIANCE/QUALITY are present and
+    # lets the MaskedImage constructor provide defaults for missing planes.
+    image = Image(data_arr, bbox=bbox)
     obj: Any
-    if variance_arr is not None or quality_arr is not None:
-        if quality_arr is None:
-            quality_arr = np.zeros(data_arr.shape, dtype=np.uint8)
-        if variance_arr is None:
-            variance_arr = np.zeros_like(data_arr, dtype=np.float64)
+    if cls is Image:
+        obj = image
+    elif issubclass(cls, MaskedImage):
         schema = MaskSchema([MaskPlane(name="BAD", description="Bad pixel.")])
-        obj = MaskedImage(
-            image=Image(data_arr, bbox=bbox),
-            mask=Mask(quality_arr[:, :, np.newaxis], schema=schema, bbox=bbox),
-            variance=Image(variance_arr, bbox=bbox),
+        mask = (
+            Mask(quality_arr[:, :, np.newaxis], schema=schema, bbox=quality_bbox)
+            if quality_arr is not None
+            else None
+        )
+        variance = Image(variance_arr, bbox=variance_bbox) if variance_arr is not None else None
+        obj = cls(
+            image=image,
+            mask=mask,
+            mask_schema=schema if mask is None else None,
+            variance=variance,
         )
     else:
-        obj = Image(data_arr, bbox=bbox)
-
-    if not isinstance(obj, cls):
         raise ArchiveReadError(
-            f"Auto-detect produced {type(obj).__name__} but caller asked for {cls.__name__}."
+            f"Auto-detect can produce Image or MaskedImage, but caller asked for {cls.__name__}."
         )
     obj._opaque_metadata = archive.get_opaque_metadata()
     # Auto-detect path produces no archive-tree metadata or butler_info.
