@@ -18,6 +18,7 @@ import h5py
 import numpy as np
 import pydantic
 
+from lsst.images.ndf import _hds
 from lsst.images.ndf._output_archive import NdfOutputArchive
 
 
@@ -92,8 +93,8 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 np.testing.assert_array_equal(f["/QUALITY/QUALITY/DATA"][()], data)
                 self.assertEqual(f["/QUALITY/QUALITY/ORIGIN"].dtype, np.int32)
                 self.assertEqual(f["/QUALITY/QUALITY/ORIGIN"].shape, (2,))
-                self.assertEqual(f["/QUALITY/QUALITY/BAD_PIXEL"].dtype, np.bool_)
-                self.assertFalse(f["/QUALITY/QUALITY/BAD_PIXEL"][()])
+                self.assertEqual(f["/QUALITY/QUALITY/BAD_PIXEL"].id.get_type().get_class(), h5py.h5t.BITFIELD)
+                self.assertFalse(_hds.read_array(f["/QUALITY/QUALITY/BAD_PIXEL"]))
                 self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
 
     def test_top_level_incompatible_mask_routes_to_more_lsst(self):
