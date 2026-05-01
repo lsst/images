@@ -308,7 +308,20 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             if name is None:
                 raise ValueError("Anonymous arrays are not supported in the NDF archive.")
             json_pointer = name if name.startswith("/") else f"/{name}"
-            path = json_pointer_to_hdf5_path(json_pointer)
+            # Hoisted numeric arrays are wrapped as sub-NDFs under
+            # /MORE/LSST/<UPPER_PATH> so Starlink tools (KAPPA `display`,
+            # `hdstrace`, etc.) can inspect them just like the main
+            # image. The sub-NDF has the canonical layout: top-level
+            # group with CLASS="NDF" containing a DATA_ARRAY structure
+            # (CLASS="ARRAY") with DATA + ORIGIN primitives. Hoisted
+            # JSON sub-trees from serialize_pointer stay as bare
+            # _CHAR*N datasets at /MORE/LSST/<NAME> (no NDF wrapper) —
+            # they're JSON documents, not numeric arrays.
+            sub_ndf_path = json_pointer_to_hdf5_path(json_pointer)
+            self._ensure_struct(sub_ndf_path, "NDF")
+            self._ensure_array_structure(f"{sub_ndf_path}/DATA_ARRAY")
+            path = f"{sub_ndf_path}/DATA_ARRAY/DATA"
+            self._write_origin_for_array(f"{sub_ndf_path}/DATA_ARRAY", array)
         parent_path, leaf = path.rsplit("/", 1)
         parent = self._ensure_path(parent_path)
         _hds.write_array(

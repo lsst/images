@@ -110,17 +110,27 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 self.assertEqual(origin.dtype, np.int64)
                 self.assertEqual(origin.shape, (3,))
 
-    def test_nested_array_hoists(self):
+    def test_nested_array_hoists_as_sub_ndf(self):
+        # Hoisted numeric arrays land in /MORE/LSST/<NAME> wrapped as
+        # sub-NDFs (CLASS="NDF" with a DATA_ARRAY/DATA + ORIGIN inside)
+        # so Starlink tools can inspect them as ordinary NDFs.
         data = np.array([[1.0, 2.0]], dtype=np.float32)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 arch = NdfOutputArchive(f)
                 ref = arch.add_array(data, name="psf/coefficients")
-                self.assertEqual(ref.source, "ndf:/MORE/LSST/PSF_COEFFICIENTS")
+                self.assertEqual(ref.source, "ndf:/MORE/LSST/PSF_COEFFICIENTS/DATA_ARRAY/DATA")
             with h5py.File(tmp.name, "r") as f:
                 self.assertIn("MORE", f)
                 self.assertIn("LSST", f["/MORE"])
                 self.assertIn("PSF_COEFFICIENTS", f["/MORE/LSST"])
+                sub = f["/MORE/LSST/PSF_COEFFICIENTS"]
+                self.assertEqual(sub.attrs["CLASS"], b"NDF")
+                self.assertEqual(sub["DATA_ARRAY"].attrs["CLASS"], b"ARRAY")
+                np.testing.assert_array_equal(sub["DATA_ARRAY/DATA"][()], data)
+                origin = sub["DATA_ARRAY/ORIGIN"]
+                self.assertEqual(origin.dtype, np.int64)
+                self.assertEqual(origin.shape, (data.ndim,))
 
 
 class NdfOutputArchivePointerTestCase(unittest.TestCase):
