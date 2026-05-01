@@ -97,12 +97,30 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         model_type: type[U],
         deserializer: Callable[[U, InputArchive[NdfPointerModel]], V],
     ) -> V:
-        # Implemented in Task 13.
-        raise NotImplementedError
+        # Cache by pointer.ref so repeated dereferences reuse the same
+        # deserialised result and don't re-run the deserializer.
+        if (cached := self._deserialized_pointer_cache.get(pointer.ref)) is not None:
+            return cached
+        if pointer.ref not in self._file:
+            raise ArchiveReadError(f"Pointer reference {pointer.ref!r} not found in NDF file.")
+        dataset = self._file[pointer.ref]
+        if not isinstance(dataset, h5py.Dataset):
+            raise ArchiveReadError(f"Pointer reference {pointer.ref!r} is not a primitive dataset.")
+        lines = _hds.read_char_array(dataset)
+        json_text = "".join(lines)
+        model = model_type.model_validate_json(json_text)
+        result = deserializer(model, self)
+        self._deserialized_pointer_cache[pointer.ref] = result
+        return result
 
     def get_frame_set(self, ref: NdfPointerModel) -> FrameSet:
-        # Implemented in Task 13.
-        raise NotImplementedError
+        try:
+            return self._frame_set_cache[ref.ref]
+        except KeyError:
+            raise AssertionError(
+                f"Frame set at {ref.ref!r} must be deserialised via "
+                f"deserialize_pointer before any dependent transform can be."
+            ) from None
 
     def get_array(
         self,
@@ -111,8 +129,22 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         slices: tuple[slice, ...] | EllipsisType = ...,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> np.ndarray:
-        # Implemented in Task 13.
-        raise NotImplementedError
+        if isinstance(model, InlineArrayModel):
+            data: np.ndarray = np.array(model.data, dtype=model.datatype.to_numpy())
+            return data if slices is ... else data[slices]
+        if not isinstance(model.source, str) or not model.source.startswith("ndf:"):
+            raise ArchiveReadError(
+                f"NdfInputArchive cannot resolve array source {model.source!r}; "
+                f"expected an 'ndf:<HDF5-path>' reference."
+            )
+        path = model.source[len("ndf:") :]
+        if path not in self._file:
+            raise ArchiveReadError(f"Array reference {path!r} not in file.")
+        dataset = self._file[path]
+        if not isinstance(dataset, h5py.Dataset):
+            raise ArchiveReadError(f"Array reference {path!r} is not a primitive dataset.")
+        # h5py supports lazy slicing via dataset[slices].
+        return dataset[()] if slices is ... else dataset[slices]
 
     def get_table(
         self,
