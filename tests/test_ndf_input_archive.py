@@ -156,6 +156,40 @@ class NdfInputArchiveDataTestCase(unittest.TestCase):
                 self.assertIs(first, second)
                 self.assertEqual(len(calls), 1)
 
+    def test_deserialize_pointer_caches_frame_set_for_get_frame_set(self):
+        import h5py
+        import pydantic
+
+        from lsst.images._transforms import FrameSet
+        from lsst.images.ndf._output_archive import NdfOutputArchive
+
+        class TinyTree(pydantic.BaseModel):
+            name: str
+
+        class DummyFrameSet(FrameSet):
+            def __contains__(self, frame):
+                return False
+
+            def __getitem__(self, key):
+                raise AssertionError("DummyFrameSet should not be indexed in this test.")
+
+        sentinel = DummyFrameSet()
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                ptr = arch.serialize_frame_set(
+                    "frames",
+                    sentinel,
+                    lambda nested: TinyTree(name="frames"),
+                    key=("frames", 1),
+                )
+            with NdfInputArchive.open(tmp.name) as archive:
+                result = archive.deserialize_pointer(ptr, TinyTree, lambda _m, _a: sentinel)
+                self.assertIs(result, sentinel)
+                self.assertIs(archive.get_frame_set(ptr), sentinel)
+
     def test_get_frame_set_returns_cached_value(self):
         # Exercise the cache mechanism with a sentinel object pretending
         # to be a FrameSet. Real FrameSet plumbing comes when the AST
