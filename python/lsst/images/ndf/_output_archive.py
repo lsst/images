@@ -116,17 +116,27 @@ def write(
         # projection. This is what KAPPA / hdstrace expect for an NDF's
         # WCS; it lives alongside the projection's Pydantic model in
         # /MORE/LSST/JSON, which is the source of truth for our own
-        # symmetric round-trip. Auto-detect read of /WCS/DATA is a
-        # deferred follow-up: building a typed Projection from a bare
-        # FrameSet requires new infrastructure in _transforms/.
+        # symmetric round-trip. The same WCS is also written into the
+        # mask sub-NDF at /MORE/LSST/MASK/WCS (if a sub-NDF was created
+        # for an incompatible mask) so Starlink tools displaying the
+        # mask as an image use the same projection as the parent.
+        # Auto-detect read of /WCS/DATA is a deferred follow-up: building
+        # a typed Projection from a bare FrameSet requires new
+        # infrastructure in _transforms/.
         projection = getattr(obj, "projection", None)
         if projection is not None:
             ast_frame_set = projection._pixel_to_sky._get_ast_frame_set()
             text = ast_frame_set.show(False)
             lines = text.splitlines()
             width = max(80, max((len(line) for line in lines), default=0) + 1)
-            wcs_group = _hds.create_structure(h5_file, "WCS", "WCS")
-            _hds.write_char_array(wcs_group, "DATA", lines, width=width)
+            wcs_parents: list[h5py.Group] = [h5_file["/"]]
+            if "/MORE/LSST/MASK" in h5_file:
+                wcs_parents.append(h5_file["/MORE/LSST/MASK"])
+            for parent in wcs_parents:
+                if "WCS" in parent:
+                    del parent["WCS"]
+                wcs_group = _hds.create_structure(parent, "WCS", "WCS")
+                _hds.write_char_array(wcs_group, "DATA", lines, width=width)
 
         # Main JSON tree.
         json_text = tree.model_dump_json()
