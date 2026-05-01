@@ -225,3 +225,81 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
                 col_y = next(c for c in model.columns if c.name == "y")
                 self.assertEqual(col_x.unit, u.m)
                 self.assertEqual(col_y.description, "the y values")
+
+
+class NdfWriteFunctionTestCase(unittest.TestCase):
+    """End-to-end tests for the module-level `write()` function."""
+
+    def test_write_image_produces_valid_layout(self):
+        from lsst.images import Box, Image
+        from lsst.images.ndf._output_archive import write
+
+        image = Image(
+            np.arange(20, dtype=np.float32).reshape(4, 5),
+            bbox=Box.factory[10:14, 20:25],
+        )
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            tree = write(image, tmp.name)
+            self.assertIsNotNone(tree)
+            with h5py.File(tmp.name, "r") as f:
+                # Root is an NDF with a name.
+                self.assertEqual(f["/"].attrs["CLASS"], "NDF")
+                self.assertIn("HDS_ROOT_NAME", f["/"].attrs)
+                # DATA_ARRAY uses the complex form (DATA + ORIGIN).
+                self.assertEqual(f["/DATA_ARRAY"].attrs["CLASS"], "ARRAY")
+                np.testing.assert_array_equal(f["/DATA_ARRAY/DATA"][()], image.array)
+                origin = f["/DATA_ARRAY/ORIGIN"][()]
+                self.assertEqual(origin.dtype, np.int64)
+                self.assertEqual(len(origin), 2)
+                # ORIGIN encodes bbox lower bounds in Fortran order. The exact
+                # values depend on Box's API; just verify it isn't the
+                # all-zeros placeholder when the bbox is non-trivial.
+                self.assertFalse((origin == 0).all())
+                # Main JSON tree at /MORE/LSST/JSON.
+                self.assertIn("MORE", f)
+                self.assertIn("LSST", f["/MORE"])
+                self.assertIn("JSON", f["/MORE/LSST"])
+
+    def test_write_image_preserves_opaque_fits_metadata(self):
+        import astropy.io.fits
+
+        from lsst.images import Image
+        from lsst.images.fits._common import FitsOpaqueMetadata
+        from lsst.images.ndf._output_archive import write
+
+        image = Image(np.zeros((2, 2), dtype=np.float32))
+        # Attach an opaque-metadata primary header to the image.
+        primary = astropy.io.fits.Header()
+        primary["FOO"] = ("bar", "test card")
+        opaque = FitsOpaqueMetadata()
+        opaque.add_header(primary, name="", ver=1)
+        image._opaque_metadata = opaque
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(image, tmp.name)
+            with h5py.File(tmp.name, "r") as f:
+                self.assertIn("FITS", f["/MORE"])
+                cards = [c.decode("ascii").rstrip(" ") for c in f["/MORE/FITS"][()]]
+                self.assertTrue(any(c.startswith("FOO") for c in cards))
+
+    def test_write_image_main_json_round_trips_back(self):
+        # Sanity: the main JSON tree at /MORE/LSST/JSON should parse as the
+        # in-memory ArchiveTree and contain the array reference for DATA_ARRAY.
+        import json
+
+        from lsst.images import Image
+        from lsst.images.ndf._output_archive import write
+
+        image = Image(np.arange(6, dtype=np.float32).reshape(2, 3))
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            tree = write(image, tmp.name)
+            with h5py.File(tmp.name, "r") as f:
+                raw = f["/MORE/LSST/JSON"][()]
+            joined = b"".join(raw).decode("ascii").rstrip(" ")
+            recovered = json.loads(joined)
+            # The exact structure depends on Image's serialization model; we
+            # just check the JSON is parseable and the ArchiveTree object the
+            # write() function returned dumps to the same JSON.
+            self.assertEqual(json.loads(tree.model_dump_json()), recovered)

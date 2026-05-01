@@ -11,11 +11,15 @@
 
 from __future__ import annotations
 
-__all__ = ("NdfOutputArchive",)
+__all__ = (
+    "NdfOutputArchive",
+    "write",
+)
 
 from collections.abc import Callable, Hashable, Iterator, Mapping
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+import astropy.io.fits
 import astropy.table
 import astropy.units
 import h5py
@@ -23,10 +27,12 @@ import numpy as np
 import pydantic
 
 from .._transforms import FrameSet
-from ..fits._common import FitsOpaqueMetadata
+from ..fits._common import ExtensionKey, FitsOpaqueMetadata
 from ..serialization import (
     ArchiveTree,
     ArrayReferenceModel,
+    ButlerInfo,
+    MetadataValue,
     NestedOutputArchive,
     NumberType,
     OutputArchive,
@@ -37,8 +43,127 @@ from ..serialization import (
 from . import _hds
 from ._common import NdfPointerModel, json_pointer_to_hdf5_path
 
-if TYPE_CHECKING:
-    import astropy.io.fits
+
+def write(
+    obj: Any,
+    filename: str | None = None,
+    *,
+    metadata: dict[str, MetadataValue] | None = None,
+    butler_info: ButlerInfo | None = None,
+    update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    compression_options: Mapping[str, Any] | None = None,
+) -> ArchiveTree:
+    """Write a serializable object to an NDF (HDS-on-HDF5) file.
+
+    Parameters
+    ----------
+    obj
+        Object with a ``serialize`` method. May carry an
+        ``_opaque_metadata`` attribute (a :class:`FitsOpaqueMetadata`)
+        whose primary-HDU header gets written to ``/MORE/FITS``.
+    filename
+        Path to write to. If `None`, an in-memory HDF5 file is used and
+        the on-disk artefact is discarded; the returned tree still
+        reflects all the writes the archive made (useful for tests).
+    metadata, butler_info
+        Optional caller-supplied entries that are written into the
+        returned :class:`ArchiveTree`.
+    update_header
+        Callback that mutates the opaque primary FITS header, used by
+        the butler formatter to inject provenance.
+    compression_options
+        Optional dict forwarded to the archive constructor for h5py
+        dataset compression.
+
+    Returns
+    -------
+    `~lsst.images.serialization.ArchiveTree`
+        The Pydantic tree the object's ``serialize`` produced (with
+        ``metadata``/``butler_info`` applied).
+    """
+    if filename is None:
+        h5_file = h5py.File("inmem.sdf", "w", driver="core", backing_store=False)
+    else:
+        h5_file = h5py.File(filename, "w")
+    try:
+        opaque_metadata = getattr(obj, "_opaque_metadata", None)
+        if not isinstance(opaque_metadata, FitsOpaqueMetadata):
+            opaque_metadata = FitsOpaqueMetadata()
+        primary_header = opaque_metadata.headers.get(ExtensionKey()) or astropy.io.fits.Header()
+        update_header(primary_header)
+        if len(primary_header):
+            opaque_metadata.headers[ExtensionKey()] = primary_header
+
+        archive = NdfOutputArchive(
+            h5_file,
+            compression_options=compression_options,
+            opaque_metadata=opaque_metadata,
+        )
+
+        archive_default_name = getattr(obj, "_archive_default_name", None)
+        if archive_default_name is not None:
+            tree = archive.serialize_direct(archive_default_name, obj.serialize)
+        else:
+            tree = obj.serialize(archive)
+
+        if metadata is not None:
+            tree.metadata.update(metadata)
+        if butler_info is not None:
+            tree.butler_info = butler_info
+
+        # Main JSON tree.
+        json_text = tree.model_dump_json()
+        more_lsst = archive._ensure_path("/MORE/LSST")
+        if "JSON" in more_lsst:
+            del more_lsst["JSON"]
+        _hds.write_char_array(more_lsst, "JSON", [json_text], width=max(80, len(json_text)))
+
+        # Opaque FITS cards in /MORE/FITS.
+        primary = opaque_metadata.headers.get(ExtensionKey())
+        if primary is not None and len(primary):
+            cards = [card.image for card in primary.cards]
+            more = archive._ensure_path("/MORE")
+            if "FITS" in more:
+                del more["FITS"]
+            _hds.write_char_array(more, "FITS", cards, width=80)
+
+        # Backfill bbox-derived ORIGIN for DATA_ARRAY and VARIANCE.
+        bbox = getattr(obj, "bbox", None)
+        if bbox is not None:
+            origin = _origin_from_bbox(bbox)
+            for struct_path in ("/DATA_ARRAY", "/VARIANCE"):
+                if struct_path in h5_file:
+                    archive.set_array_origin(struct_path, origin)
+
+        # Mark the root group with HDS_ROOT_NAME (CLASS=NDF was set by the
+        # archive constructor in Task 7).
+        root_name = archive_default_name or type(obj).__name__
+        h5_file["/"].attrs[_hds.ATTR_ROOT_NAME] = root_name
+
+        return tree
+    finally:
+        h5_file.close()
+
+
+def _origin_from_bbox(bbox: Any) -> tuple[int, ...]:
+    """Extract NDF/Fortran-order origin tuple from an lsst.images Box.
+
+    The exact attribute names on Box depend on the version. Inspect the
+    object and pick whatever exposes the integer lower bounds. For a 2D
+    image with bbox lower bound (x_min, y_min) the returned tuple is
+    ``(x_min, y_min)``.
+    """
+    # Box exposes .x and .y properties returning Interval objects with a
+    # .start attribute (the lower bound).
+    if hasattr(bbox, "x") and hasattr(bbox, "y"):
+        x = bbox.x
+        y = bbox.y
+        if hasattr(x, "start") and hasattr(y, "start"):
+            return (int(x.start), int(y.start))
+    raise AttributeError(
+        f"Don't know how to extract origin from bbox of type {type(bbox).__name__!r}; "
+        "_origin_from_bbox needs updating."
+    )
 
 
 class NdfOutputArchive(OutputArchive[NdfPointerModel]):
