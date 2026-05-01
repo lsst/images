@@ -281,6 +281,58 @@ class NdfWriteWcsTestCase(unittest.TestCase):
             with h5py.File(tmp.name, "r") as f:
                 self.assertNotIn("WCS", f)
 
+    def test_mask_sub_ndf_gets_matching_wcs(self):
+        # When an incompatible mask is hoisted to /MORE/LSST/MASK as a
+        # sub-NDF, it should carry the same /WCS as the top-level NDF
+        # so Starlink tools displaying it use the parent's projection.
+        from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
+        from lsst.images._transforms._frames import DetectorFrame
+        from lsst.images.ndf._output_archive import write
+        from lsst.images.tests._creation import make_random_projection
+
+        rng = np.random.default_rng(42)
+        det_frame = DetectorFrame(instrument="TestInst", detector=4, bbox=Box.factory[1:4096, 1:4096])
+        bbox = Box.factory[10:14, 20:25]
+        projection = make_random_projection(rng, det_frame, Box.factory[1:4096, 1:4096])
+        # 12-plane schema -> mask folds to int32, hoisted to /MORE/LSST/MASK.
+        planes = [MaskPlane(f"P{i}", f"Plane {i}") for i in range(12)]
+        image = Image(
+            np.arange(20, dtype=np.float32).reshape(4, 5),
+            bbox=bbox,
+            projection=projection,
+        )
+        masked = MaskedImage(image, mask_schema=MaskSchema(planes))
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(masked, tmp.name)
+            with h5py.File(tmp.name, "r") as f:
+                # Top-level WCS is present (existing behaviour).
+                self.assertIn("WCS", f)
+                top_lines = [s.decode("ascii") for s in f["/WCS/DATA"][()]]
+                # Mask sub-NDF carries an identical /WCS.
+                self.assertIn("MASK", f["/MORE/LSST"])
+                self.assertIn("WCS", f["/MORE/LSST/MASK"])
+                self.assertEqual(f["/MORE/LSST/MASK/WCS"].attrs["CLASS"], "WCS")
+                mask_lines = [s.decode("ascii") for s in f["/MORE/LSST/MASK/WCS/DATA"][()]]
+                self.assertEqual(top_lines, mask_lines)
+
+    def test_mask_sub_ndf_no_wcs_when_image_has_no_projection(self):
+        from lsst.images import Image, MaskedImage, MaskPlane, MaskSchema
+        from lsst.images.ndf._output_archive import write
+
+        planes = [MaskPlane(f"P{i}", f"Plane {i}") for i in range(12)]
+        masked = MaskedImage(
+            Image(np.zeros((4, 5), dtype=np.float32)),
+            mask_schema=MaskSchema(planes),
+        )
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(masked, tmp.name)
+            with h5py.File(tmp.name, "r") as f:
+                self.assertNotIn("WCS", f)
+                self.assertIn("MASK", f["/MORE/LSST"])
+                self.assertNotIn("WCS", f["/MORE/LSST/MASK"])
+
 
 class NdfWriteFunctionTestCase(unittest.TestCase):
     """End-to-end tests for the module-level `write()` function."""
