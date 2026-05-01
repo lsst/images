@@ -67,6 +67,19 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 np.testing.assert_array_equal(_hds.read_array(f["Q"]), data_u)
                 np.testing.assert_array_equal(_hds.read_array(f["I"]), data_i)
 
+    def test_logical_uses_hdf5_bitfield(self):
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                _hds.write_array(f, "SCALAR", np.array(False, dtype=np.bool_))
+                _hds.write_array(f, "ARRAY", np.array([True, False], dtype=np.bool_))
+            with h5py.File(tmp.name, "r") as f:
+                self.assertEqual(f["SCALAR"].id.get_type().get_class(), h5py.h5t.BITFIELD)
+                self.assertEqual(f["SCALAR"].id.get_type().get_size(), 1)
+                self.assertFalse(_hds.read_array(f["SCALAR"]))
+                self.assertEqual(f["ARRAY"].id.get_type().get_class(), h5py.h5t.BITFIELD)
+                self.assertEqual(f["ARRAY"].id.get_type().get_size(), 1)
+                np.testing.assert_array_equal(_hds.read_array(f["ARRAY"]), np.array([True, False]))
+
     def test_unsupported_dtype_raises_on_write(self):
         data = np.array([1.0], dtype=np.complex128)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp, h5py.File(tmp.name, "w") as f:

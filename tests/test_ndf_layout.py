@@ -50,8 +50,11 @@ def _cls(node: h5py.Group) -> str:
 
 def _hds_type(dataset: h5py.Dataset) -> str:
     """Return the HDS primitive type string inferred from a dataset's numpy
-    dtype.
+    dtype or low-level HDF5 type class.
     """
+    dataset_type = dataset.id.get_type()
+    if dataset_type.get_class() == h5py.h5t.BITFIELD:
+        return "_LOGICAL"
     return _hds.hds_type_for_dtype(dataset.dtype)
 
 

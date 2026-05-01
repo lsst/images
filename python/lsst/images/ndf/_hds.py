@@ -112,10 +112,47 @@ def write_array(
     """
     # Validate the dtype is supported up front so callers get a clear error.
     hds_type_for_dtype(data.dtype)
+    if data.dtype == np.dtype(np.bool_):
+        return _write_logical_array(parent, name, data, compression=compression)
     kwargs: dict = {}
     if compression is not None:
         kwargs["compression"] = compression
     return parent.create_dataset(name, data=data, **kwargs)
+
+
+def _write_logical_array(
+    parent: h5py.Group,
+    name: str,
+    data: np.ndarray,
+    *,
+    compression: str | None = None,
+) -> h5py.Dataset:
+    """Write an HDS ``_LOGICAL`` primitive using the HDF5 bitfield type.
+
+    High-level h5py writes numpy bool data as an HDF5 enum, but hds-v5
+    identifies ``_LOGICAL`` primitives by the HDF5 bitfield class.
+    """
+    if compression is not None:
+        raise NotImplementedError("Compression is not implemented for HDS _LOGICAL arrays.")
+    logical_data = np.asarray(data, dtype=np.uint8)
+    if logical_data.shape:
+        space = h5py.h5s.create_simple(logical_data.shape)
+    else:
+        space = h5py.h5s.create(h5py.h5s.SCALAR)
+    dataset_id = h5py.h5d.create(
+        parent.id,
+        name.encode("ascii"),
+        h5py.h5t.STD_B8LE,
+        space,
+    )
+    dataset_id.write(
+        h5py.h5s.ALL,
+        h5py.h5s.ALL,
+        logical_data,
+        mtype=h5py.h5t.NATIVE_B8,
+    )
+    dataset_id.close()
+    return parent[name]
 
 
 def read_array(dataset: h5py.Dataset) -> np.ndarray:
@@ -127,6 +164,17 @@ def read_array(dataset: h5py.Dataset) -> np.ndarray:
     """
     if dataset.dtype.kind == "S":
         raise ValueError(f"Dataset {dataset.name!r} is _CHAR*N; use read_char_array instead.")
+    dataset_type = dataset.id.get_type()
+    if dataset_type.get_class() == h5py.h5t.BITFIELD:
+        if dataset_type.get_size() not in {1, 4}:
+            raise NotImplementedError(
+                f"Dataset {dataset.name!r} has bitfield size {dataset_type.get_size()} "
+                "which does not map to HDS _LOGICAL."
+            )
+        data = dataset[()] != 0
+        if isinstance(data, np.ndarray):
+            return data.astype(np.bool_)
+        return np.bool_(data)
     if dataset.dtype not in NUMPY_TO_HDS:
         raise NotImplementedError(
             f"Dataset {dataset.name!r} has dtype {dataset.dtype} which does not "
