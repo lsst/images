@@ -16,6 +16,7 @@ __all__ = (
     "write",
 )
 
+import os
 from collections.abc import Callable, Hashable, Iterator, Mapping
 from typing import Any
 
@@ -62,9 +63,10 @@ def write(
         ``_opaque_metadata`` attribute (a :class:`FitsOpaqueMetadata`)
         whose primary-HDU header gets written to ``/MORE/FITS``.
     filename
-        Path to write to. If `None`, an in-memory HDF5 file is used and
-        the on-disk artefact is discarded; the returned tree still
-        reflects all the writes the archive made (useful for tests).
+        Path to write to.  Must not already exist.  If `None`, an
+        in-memory HDF5 file is used and the on-disk artefact is
+        discarded; the returned tree still reflects all the writes the
+        archive made (useful for tests).
     metadata, butler_info
         Optional caller-supplied entries that are written into the
         returned :class:`ArchiveTree`.
@@ -84,6 +86,8 @@ def write(
     if filename is None:
         h5_file = h5py.File("inmem.sdf", "w", driver="core", backing_store=False)
     else:
+        if os.path.exists(filename) and os.path.getsize(filename) > 0:
+            raise OSError(f"File {filename!r} already exists.")
         h5_file = h5py.File(filename, "w")
     try:
         opaque_metadata = getattr(obj, "_opaque_metadata", None)
@@ -329,6 +333,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             leaf,
             array,
             compression=self._compression_options.get("compression"),
+            compression_opts=self._compression_options.get("compression_opts"),
         )
         # Shape is stored in the JSON tree (matching the FITS archive) because
         # MaskSerializationModel.bbox needs it before any arrays are read.
@@ -409,6 +414,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             "DATA",
             quality,
             compression=self._compression_options.get("compression"),
+            compression_opts=self._compression_options.get("compression_opts"),
         )
 
     def _collapse_mask_to_quality(self, array: np.ndarray) -> np.ndarray:
