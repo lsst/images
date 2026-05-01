@@ -14,6 +14,8 @@ from __future__ import annotations
 import os
 import unittest
 
+import numpy as np
+
 from lsst.images import Image
 from lsst.images.fits._common import ExtensionKey
 from lsst.images.ndf import read
@@ -32,6 +34,20 @@ class StarlinkIngestTestCase(unittest.TestCase):
         result = read(Image, EXAMPLE)
         self.assertIsInstance(result.deserialized, Image)
         self.assertEqual(result.deserialized.array.shape, (611, 609))
+
+    def test_wcs_produces_projection(self):
+        """Auto-detect path builds a Projection from the NDF WCS component."""
+        result = read(Image, EXAMPLE)
+        image = result.deserialized
+        self.assertIsNotNone(image.projection)
+        # M57 (Ring Nebula) is near RA~283.4 deg, Dec~33.0 deg.
+        sky = image.projection.pixel_to_sky_transform.apply_forward(
+            x=np.array([300.0]), y=np.array([300.0]),
+        )
+        ra_deg = float(np.degrees(sky.x[0]))
+        dec_deg = float(np.degrees(sky.y[0]))
+        self.assertAlmostEqual(ra_deg, 283.4, delta=0.5)
+        self.assertAlmostEqual(dec_deg, 33.0, delta=0.5)
 
     def test_opaque_fits_metadata_recovered(self):
         """MORE/FITS cards are surfaced in ``_opaque_metadata``."""

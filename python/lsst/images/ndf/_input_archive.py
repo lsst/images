@@ -21,12 +21,15 @@ from typing import Any, Self
 
 import astropy.io.fits
 import astropy.table
+import astropy.units as u
 import h5py
 import numpy as np
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
-from .._transforms import FrameSet
+from .._transforms import FrameSet, Projection
+from .._transforms import _ast as astshim
+from .._transforms._frames import GeneralFrame
 from ..fits._common import FitsOpaqueMetadata
 from ..serialization import (
     ArchiveReadError,
@@ -265,16 +268,25 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
         elif "QUALITY" in q and isinstance(q["QUALITY"], h5py.Group):
             quality_arr, quality_bbox = _read_data_array_with_bbox(q["QUALITY"])
 
-    # WCS is dropped in v1 with a warning.  The write-side companion
-    # (writing /WCS/DATA from the Projection's AST FrameSet) landed in
-    # DM-54817; the read-side reconstruction is a separate follow-up ticket.
+    projection: Projection | None = None
     if "WCS" in ndf_group:
-        _LOG.warning(
-            "Starlink WCS present in %s but auto-detect ingest does not yet "
-            "build a Projection from it; dropping. Round-trip writes from "
-            "lsst.images.ndf preserve WCS via the Pydantic tree.",
-            f.filename,
-        )
+        try:
+            wcs_group = ndf_group["WCS"]
+            if isinstance(wcs_group, h5py.Group) and "DATA" in wcs_group:
+                wcs_lines = _hds.read_char_array(wcs_group["DATA"])
+                wcs_text = "\n".join(wcs_lines) + "\n"
+                ast_obj = astshim.Object.fromString(wcs_text)
+                if isinstance(ast_obj, astshim.FrameSet):
+                    pixel_frame = GeneralFrame(unit=u.pix)
+                    projection = Projection.from_ast_frame_set(
+                        ast_obj, pixel_frame, pixel_bounds=bbox,
+                    )
+        except Exception:
+            _LOG.warning(
+                "Could not reconstruct Projection from WCS in %s; dropping.",
+                f.filename,
+                exc_info=True,
+            )
 
     # Anything unrecognised: warn-and-drop.
     recognised = {
@@ -300,7 +312,7 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
     # Build the requested in-memory object. Any NDF can be read as an Image;
     # MaskedImage construction uses whatever VARIANCE/QUALITY are present and
     # lets the MaskedImage constructor provide defaults for missing planes.
-    image = Image(data_arr, bbox=bbox)
+    image = Image(data_arr, bbox=bbox, projection=projection)
     obj: Any
     if cls is Image:
         obj = image

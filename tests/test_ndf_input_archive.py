@@ -286,6 +286,7 @@ class NdfReadFunctionTestCase(unittest.TestCase):
         self.assertIsInstance(result.deserialized, Image)
         self.assertEqual(result.deserialized.array.shape, (611, 609))
         self.assertEqual(result.deserialized.array.dtype, np.int16)
+        self.assertIsNotNone(result.deserialized.projection)
 
     def test_read_starlink_file_recovers_opaque_fits_metadata(self):
         from lsst.images.fits._common import ExtensionKey
