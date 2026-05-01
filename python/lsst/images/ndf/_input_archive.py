@@ -279,7 +279,9 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
                 if isinstance(ast_obj, astshim.FrameSet):
                     pixel_frame = GeneralFrame(unit=u.pix)
                     projection = Projection.from_ast_frame_set(
-                        ast_obj, pixel_frame, pixel_bounds=bbox,
+                        ast_obj,
+                        pixel_frame,
+                        pixel_bounds=bbox,
                     )
         except Exception:
             _LOG.warning(
