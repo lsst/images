@@ -49,14 +49,14 @@ class GeneralizedImage(ABC):
     @property
     @abstractmethod
     def bbox(self) -> Box:
-        """Bounding box for the image (`Box`)."""
+        """Bounding box for the image (`~lsst.images.Box`)."""
         raise NotImplementedError()
 
     @property
     @abstractmethod
     def projection(self) -> Projection[Any] | None:
         """The projection that maps this image's pixel grid to the sky
-        (`Projection` | `None`).
+        (`~lsst.images.Projection` | `None`).
 
         Notes
         -----
@@ -182,8 +182,8 @@ class GeneralizedImage(ABC):
     def copy(self) -> Self:
         """Deep-copy the image and metadata.
 
-        Attached immutable objects (like `Projection` instances) are not
-        copied.
+        Attached immutable objects (like `~lsst.images.Projection` instances)
+        are not copied.
         """
         raise NotImplementedError()
 
@@ -266,7 +266,7 @@ class LocalSliceProxy[T: GeneralizedImage]:
     """A proxy object for obtaining a generalized image subset using local
     slicing.
 
-    See `GeneralizedImage.local` for more information.
+    See `~lsst.images.GeneralizedImage.local` for more information.
     """
 
     def __init__(self, parent: T):
@@ -285,7 +285,7 @@ class AbsoluteSliceProxy[T: GeneralizedImage]:
     """A proxy object for obtaining a generalized image subset using absolute
     slicing.
 
-    See `GeneralizedImage.absolute` for more information.
+    See `~lsst.images.GeneralizedImage.absolute` for more information.
     """
 
     def __init__(self, parent: T):

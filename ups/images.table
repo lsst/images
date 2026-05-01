@@ -7,5 +7,6 @@ setupOptional(daf_butler)
 setupOptional(obs_base)
 setupOptional(meas_extensions_piff)
 setupOptional(meas_extensions_psfex)
+setupOptional(cell_coadds)
 
 envPrepend(PYTHONPATH, ${PRODUCT_DIR}/python)

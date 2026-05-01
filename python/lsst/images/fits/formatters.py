@@ -11,7 +11,13 @@
 
 from __future__ import annotations
 
-__all__ = ("GenericFormatter", "ImageFormatter", "MaskedImageFormatter", "VisitImageFormatter")
+__all__ = (
+    "CellCoaddFormatter",
+    "GenericFormatter",
+    "ImageFormatter",
+    "MaskedImageFormatter",
+    "VisitImageFormatter",
+)
 
 import enum
 import hashlib
@@ -269,4 +275,33 @@ class VisitImageFormatter(MaskedImageFormatter):
                 return tree.summary_stats
             case "aperture_corrections":
                 return tree.aperture_corrections.deserialize(archive)
+        return ComponentSentinel.UNRECOGNIZED_COMPONENT
+
+
+class CellCoaddFormatter(MaskedImageFormatter):
+    """A specialized butler interface to FITS archive serialization of
+    the `..cells.CellCoadd` class.
+    """
+
+    def read_component(
+        self,
+        component: str,
+        tree: Any,
+        archive: FitsInputArchive,
+    ) -> Any:
+        from ..cells import CellCoaddSerializationModel
+
+        match super().read_component(component, tree, archive):
+            case ComponentSentinel():
+                pass
+            case handled:
+                return handled
+        if not isinstance(tree, CellCoaddSerializationModel):
+            return ComponentSentinel.INVALID_COMPONENT_MODEL
+        match component:
+            case "psf":
+                bbox = self.pop_bbox_from_parameters()
+                return tree.deserialize_psf(archive, bbox=bbox)
+            case "provenance":
+                return tree.deserialize_provenance(archive)
         return ComponentSentinel.UNRECOGNIZED_COMPONENT

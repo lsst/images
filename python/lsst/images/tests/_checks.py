@@ -18,10 +18,12 @@ __all__ = (
     "assert_masked_images_equal",
     "assert_masks_equal",
     "assert_projections_equal",
+    "assert_psfs_equal",
     "check_astropy_wcs_interface",
     "check_projection",
     "check_transform",
     "compare_aperture_corrections_to_legacy",
+    "compare_cell_coadd_to_legacy",
     "compare_field_to_legacy",
     "compare_image_to_legacy",
     "compare_mask_to_legacy",
@@ -38,23 +40,30 @@ import dataclasses
 import math
 import unittest
 from collections.abc import Mapping
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import astropy.units as u
 import astropy.wcs.wcsapi
 import numpy as np
 from astropy.coordinates import SkyCoord
 
-from .._geom import XY, Box
+from .._geom import XY, YX, BoundsError, Box
 from .._image import Image
 from .._mask import Mask, MaskPlane
 from .._masked_image import MaskedImage
 from .._observation_summary_stats import ObservationSummaryStats
-from .._transforms import DetectorFrame, Frame, Projection, SkyFrame, Transform
+from .._transforms import DetectorFrame, Frame, Projection, SkyFrame, TractFrame, Transform
 from .._visit_image import VisitImage
 from ..aperture_corrections import ApertureCorrectionMap
+from ..cells import CellCoadd, CellIJ, CoaddProvenance
 from ..fields import BaseField
 from ..psfs import PointSpreadFunction
+
+if TYPE_CHECKING:
+    try:
+        from lsst.cell_coadds import MultipleCellCoadd
+    except ImportError:
+        type MultipleCellCoadd = Any  # type: ignore[no-redef]
 
 
 def assert_close(
@@ -127,6 +136,49 @@ def assert_masked_images_equal(
     assert_images_equal(tc, a.image, b.image, rtol=rtol, atol=atol, expect_view=expect_view)
     assert_masks_equal(tc, a.mask, b.mask)
     assert_images_equal(tc, a.variance, b.variance, rtol=rtol, atol=atol, expect_view=expect_view)
+
+
+def assert_psfs_equal(
+    tc: unittest.TestCase,
+    psf1: PointSpreadFunction,
+    psf2: PointSpreadFunction,
+    points: YX[np.ndarray] | XY[np.ndarray] | None = None,
+) -> int:
+    """Compare two PSF objets.
+
+    Parameters
+    ----------
+    tc
+        Test case object with assert methods to use.
+    psf1
+        Point-spread function to test.
+    psf2
+        The other point-spread function to test.
+    points
+        Points to evaluate the PSFs at. If not provided, the intersection of
+        the PSF bounding boxes are used to generate points on a grid.
+
+    Returns
+    -------
+    `int`
+        The number of points actually tested.
+    """
+    if points is None:
+        points = psf1.bounds.bbox.intersection(psf1.bounds.bbox).meshgrid(3).map(np.ravel)
+
+    tc.assertEqual(psf1.kernel_bbox, psf2.kernel_bbox)
+
+    n_points_tested: int = 0
+    for x, y in zip(points.x, points.y):
+        if not psf1.bounds.contains(x=x, y=y):
+            with tc.assertRaises(BoundsError):
+                psf2.compute_kernel_image(x=x, y=y)
+            continue
+        tc.assertEqual(psf1.compute_kernel_image(x=x, y=y), psf2.compute_kernel_image(x=x, y=y))
+        tc.assertEqual(psf1.compute_stellar_bbox(x=x, y=y), psf2.compute_stellar_bbox(x=x, y=y))
+        tc.assertEqual(psf1.compute_stellar_image(x=x, y=y), psf2.compute_stellar_image(x=x, y=y))
+        n_points_tested += 1
+    return n_points_tested
 
 
 def compare_image_to_legacy(
@@ -257,8 +309,11 @@ def compare_visit_image_to_legacy(
     compare_observation_summary_stats_to_legacy(
         tc, visit_image.summary_stats, legacy_exposure.info.getSummaryStats()
     )
+    # Make a tiny box for Field comparisons that need to make arrays; that can
+    # get expensive otherwisre.
+    tiny_bbox = detector_bbox.local[2:4, 3:6]
     compare_aperture_corrections_to_legacy(
-        tc, visit_image.aperture_corrections, legacy_exposure.info.getApCorrMap(), detector_bbox
+        tc, visit_image.aperture_corrections, legacy_exposure.info.getApCorrMap(), tiny_bbox
     )
     if alternates:
         if projection := alternates.get("projection"):
@@ -280,12 +335,204 @@ def compare_visit_image_to_legacy(
             tc.assertEqual(obs_info.instrument, visitInfo.getInstrumentLabel())
         if aperture_corrections := alternates.get("aperture_corrections"):
             compare_aperture_corrections_to_legacy(
-                tc, aperture_corrections, legacy_exposure.info.getApCorrMap(), detector_bbox
+                tc, aperture_corrections, legacy_exposure.info.getApCorrMap(), tiny_bbox
             )
 
 
+def compare_cell_coadd_to_legacy(
+    tc: unittest.TestCase,
+    cell_coadd: CellCoadd,
+    legacy_cell_coadd: MultipleCellCoadd,
+    *,
+    tract_bbox: Box,
+    plane_map: Mapping[str, MaskPlane] | None = None,
+    alternates: Mapping[str, Any] | None = None,
+    psf_points: XY[np.ndarray] | YX[np.ndarray] | None = None,
+) -> None:
+    """Compare a `.cells.CellCoadd` object to a legacy
+    `lsst.cell_coadds.MultipleCellCoadd` object.
+
+    Parameters
+    ----------
+    tc
+        Test case to use for asserts.
+    cell_coadd
+        New coadd to test.
+    legacy_cell_coadd
+        Legacy coadd to test against.
+    tract_bbox
+        Bounding box of the full tract.
+    psf_points
+        Points to use to compare the PSFs.
+    plane_map
+        Mapping between new and legacy mask planes.
+    alternates
+        A mapping of other versions of one or more (new) components to also
+        check against the legacy versions of those components.
+    """
+    legacy_stitched = legacy_cell_coadd.stitch(cell_coadd.bbox.to_legacy())
+    compare_image_to_legacy(tc, cell_coadd.image, legacy_stitched.image, expect_view=False)
+    compare_mask_to_legacy(tc, cell_coadd.mask, legacy_stitched.mask, plane_map=plane_map)
+    compare_image_to_legacy(tc, cell_coadd.variance, legacy_stitched.variance, expect_view=False)
+    if legacy_stitched.mask_fractions is not None:
+        compare_image_to_legacy(
+            tc, cell_coadd.mask_fractions["rejected"], legacy_stitched.mask_fractions, expect_view=False
+        )
+    for n in range(legacy_stitched.n_noise_realizations):
+        compare_image_to_legacy(
+            tc, cell_coadd.noise_realizations[n], legacy_stitched.noise_realizations[n], expect_view=False
+        )
+    tc.assertEqual(cell_coadd.skymap, legacy_stitched.identifiers.skymap)
+    tc.assertEqual(cell_coadd.tract, legacy_stitched.identifiers.tract)
+    tc.assertEqual(cell_coadd.patch.index.x, legacy_stitched.identifiers.patch.x)
+    tc.assertEqual(cell_coadd.patch.index.y, legacy_stitched.identifiers.patch.y)
+    tc.assertEqual(cell_coadd.band, legacy_stitched.identifiers.band)
+    tc.assertTrue(tract_bbox.contains(cell_coadd.patch.outer_bbox))
+    tc.assertTrue(cell_coadd.patch.outer_bbox.contains(cell_coadd.patch.inner_bbox))
+    tc.assertTrue(cell_coadd.patch.outer_bbox.contains(cell_coadd.bbox))
+    tc.assertEqual(cell_coadd.unit, u.Unit(legacy_cell_coadd.common.units.value))
+    tc.assertTrue(cell_coadd.bounds.bbox.contains(cell_coadd.bbox))
+    tc.assertTrue(cell_coadd.grid.bbox.contains(cell_coadd.bbox))
+    compare_projection_to_legacy_wcs(
+        tc,
+        cell_coadd.projection,
+        legacy_cell_coadd.wcs,
+        TractFrame(
+            skymap=legacy_cell_coadd.identifiers.skymap,
+            tract=legacy_cell_coadd.identifiers.tract,
+            bbox=tract_bbox,
+        ),
+        cell_coadd.bbox,
+        is_fits=True,
+    )
+    tc.assertIs(cell_coadd.projection, cell_coadd.mask.projection)
+    tc.assertIs(cell_coadd.projection, cell_coadd.variance.projection)
+    compare_psf_to_legacy(
+        tc, cell_coadd.psf, legacy_stitched.psf, expect_legacy_raise_on_out_of_bounds=True, points=psf_points
+    )
+    compare_cell_coadd_provenance_to_legacy(tc, cell_coadd.provenance, legacy_cell_coadd)
+    if alternates:
+        if projection := alternates.get("projection"):
+            compare_projection_to_legacy_wcs(
+                tc,
+                projection,
+                legacy_stitched.wcs,
+                TractFrame(
+                    skymap=legacy_cell_coadd.identifiers.skymap,
+                    tract=legacy_cell_coadd.identifiers.tract,
+                    bbox=tract_bbox,
+                ),
+                cell_coadd.bbox,
+                is_fits=True,
+            )
+        if psf := alternates.get("psf"):
+            compare_psf_to_legacy(tc, psf, legacy_stitched.psf, points=psf_points)
+        if provenance := alternates.get("provenance"):
+            compare_cell_coadd_provenance_to_legacy(tc, provenance, legacy_cell_coadd)
+
+
+def compare_cell_coadd_provenance_to_legacy(
+    tc: unittest.TestCase, provenance: CoaddProvenance, legacy_cell_coadd: MultipleCellCoadd
+) -> None:
+    """Compare a `.cells.CoaddProvenance` object to a legacy
+    `lsst.cell_coadds.MultipleCellCoadd` object.
+
+    Parameters
+    ----------
+    tc
+        Test case to use for asserts.
+    provenance
+        New provenance object to test.
+    legacy_cell_coadd
+        Legacy coadd to test against.
+    """
+    from lsst.cell_coadds import ObservationIdentifiers
+
+    for legacy_cell in legacy_cell_coadd.cells.values():
+        cell_index = CellIJ.from_legacy(legacy_cell.identifiers.cell)
+        prov = provenance[cell_index]
+        legacy_table = astropy.table.Table(
+            rows=[
+                [
+                    ids.instrument,
+                    ids.visit,
+                    ids.detector,
+                    ids.day_obs,
+                    ids.physical_filter,
+                    legacy_input.overlaps_center,
+                    legacy_input.overlap_fraction,
+                    legacy_input.weight,
+                    legacy_input.psf_shape.getIxx(),
+                    legacy_input.psf_shape.getIyy(),
+                    legacy_input.psf_shape.getIxy(),
+                    legacy_input.psf_shape_flag,
+                ]
+                for ids, legacy_input in legacy_cell.inputs.items()
+            ],
+            dtype=[
+                np.object_,
+                np.uint64,
+                np.uint16,
+                np.uint32,
+                np.object_,
+                np.bool_,
+                np.float64,
+                np.float64,
+                np.float64,
+                np.float64,
+                np.float64,
+                np.bool_,
+            ],
+            names=[
+                "instrument",
+                "visit",
+                "detector",
+                "day_obs",
+                "physical_filter",
+                "overlaps_center",
+                "overlap_fraction",
+                "weight",
+                "psf_shape_xx",
+                "psf_shape_yy",
+                "psf_shape_xy",
+                "psf_shape_flag",
+            ],
+        )
+        # For a single cell all 'inputs' are also 'contributions'.
+        tc.assertEqual(len(legacy_cell.inputs), len(prov.inputs))
+        tc.assertEqual(len(legacy_cell.inputs), len(prov.contributions))
+        prov.inputs.sort(["instrument", "visit", "detector"])
+        prov.contributions.sort(["instrument", "visit", "detector"])
+        legacy_table.sort(["instrument", "visit", "detector"])
+        np.testing.assert_array_equal(prov.inputs["instrument"], prov.contributions["instrument"])
+        np.testing.assert_array_equal(prov.inputs["visit"], prov.contributions["visit"])
+        np.testing.assert_array_equal(prov.inputs["detector"], prov.contributions["detector"])
+        np.testing.assert_array_equal(prov.inputs["instrument"], legacy_table["instrument"])
+        np.testing.assert_array_equal(prov.inputs["visit"], legacy_table["visit"])
+        np.testing.assert_array_equal(prov.inputs["detector"], legacy_table["detector"])
+        np.testing.assert_array_equal(prov.inputs["physical_filter"], legacy_table["physical_filter"])
+        np.testing.assert_array_equal(prov.inputs["day_obs"], legacy_table["day_obs"])
+        np.testing.assert_array_equal(prov.contributions["overlaps_center"], legacy_table["overlaps_center"])
+        np.testing.assert_array_equal(
+            prov.contributions["overlap_fraction"], legacy_table["overlap_fraction"]
+        )
+        np.testing.assert_array_equal(prov.contributions["weight"], legacy_table["weight"])
+        np.testing.assert_array_equal(prov.contributions["psf_shape_xx"], legacy_table["psf_shape_xx"])
+        np.testing.assert_array_equal(prov.contributions["psf_shape_yy"], legacy_table["psf_shape_yy"])
+        np.testing.assert_array_equal(prov.contributions["psf_shape_xy"], legacy_table["psf_shape_xy"])
+        np.testing.assert_array_equal(prov.contributions["psf_shape_flag"], legacy_table["psf_shape_flag"])
+        for row in prov.inputs:
+            polygon_key = ObservationIdentifiers(**{k: row[k] for k in row.keys() if k != "polygon"})
+            legacy_polygon = legacy_cell_coadd.common.visit_polygons[polygon_key]
+            tc.assertEqual(legacy_polygon, row["polygon"].to_legacy())
+
+
 def compare_psf_to_legacy(
-    tc: unittest.TestCase, psf: PointSpreadFunction, legacy_psf: Any, subimage_bbox: Box | None = None
+    tc: unittest.TestCase,
+    psf: PointSpreadFunction,
+    legacy_psf: Any,
+    points: YX[np.ndarray] | XY[np.ndarray] | None = None,
+    expect_legacy_raise_on_out_of_bounds: bool = False,
 ) -> int:
     """Compare a PSF model object to its legacy interface.
 
@@ -297,27 +544,30 @@ def compare_psf_to_legacy(
         Point-spread function to test.
     legacy_psf
         Legacy `lsst.afw.detection.Psf` instance to compare with.
-    subimage_bbox
-        Bounding box to draw test points from.  Defaults to ``psf.bounds``.
+    points
+        Points to evaluate the PSFs at. If not provided, the intersection of
+        the PSF bounding boxes are used to generate points on a grid.
+    expect_legacy_raise_on_out_of_bounds
+        If `True`, expect ``legacy_psf`` to raise
+        `lsst.afw.detection.InvalidPsfError` when evaluated at a position
+        considered out-of-bounds by ``psf``.
 
     Returns
     -------
     `int`
         The number of points actually tested.
     """
-    if subimage_bbox is None:
-        if isinstance(psf.bounds, Box):
-            subimage_bbox = psf.bounds
-        else:
-            subimage_bbox = psf.bounds.bbox
+    from lsst.afw.detection import InvalidPsfError
 
-    # Pixel coordinates to test on over the subimage region of interest:
-    pixel_xy = subimage_bbox.meshgrid(n=3).map(np.ravel)
-    legacy_points = arrays_to_legacy_points(pixel_xy.x, pixel_xy.y)
-
+    if points is None:
+        points = psf.bounds.bbox.meshgrid(n=3).map(np.ravel)
+    legacy_points = arrays_to_legacy_points(points.x, points.y)
     n_points_tested: int = 0
     for p in legacy_points:
         if not psf.bounds.contains(x=p.x, y=p.y):
+            if expect_legacy_raise_on_out_of_bounds:
+                with tc.assertRaises(InvalidPsfError):
+                    legacy_psf.computeKernelImage(p)
             continue
         tc.assertEqual(psf.kernel_bbox, Box.from_legacy(legacy_psf.computeKernelBBox(p)))
         tc.assertEqual(

@@ -126,22 +126,24 @@ class MaskedImage(GeneralizedImage):
 
     @property
     def image(self) -> Image:
-        """The main image plane (`Image`)."""
+        """The main image plane (`~lsst.images.Image`)."""
         return self._image
 
     @property
     def mask(self) -> Mask:
-        """The mask plane (`Mask`)."""
+        """The mask plane (`~lsst.images.Mask`)."""
         return self._mask
 
     @property
     def variance(self) -> Image:
-        """The variance plane (`Image`)."""
+        """The variance plane (`~lsst.images.Image`)."""
         return self._variance
 
     @property
     def bbox(self) -> Box:
-        """The bounding box shared by all three image planes (`Box`)."""
+        """The bounding box shared by all three image planes
+        (`~lsst.images.Box`).
+        """
         return self._image.bbox
 
     @property
@@ -152,7 +154,7 @@ class MaskedImage(GeneralizedImage):
     @property
     def projection(self) -> Projection[Any] | None:
         """The projection that maps the pixel grid to the sky
-        (`Projection` | `None`).
+        (`~lsst.images.Projection` | `None`).
         """
         return self._image.projection
 
@@ -420,8 +422,8 @@ class MaskedImage(GeneralizedImage):
             exactly preserve quantization-compressed pixel values.  This causes
             the image and variance plane arrays to be marked as read-only and
             stores the original binary table data for those planes in memory.
-            If the `MaskedImage` is copied, the precompressed pixel values are
-            not transferred to the copy.
+            If the `~lsst.images.MaskedImage` is copied, the precompressed
+            pixel values are not transferred to the copy.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
             description.
@@ -429,10 +431,10 @@ class MaskedImage(GeneralizedImage):
             A component to read instead of the full image.
         fits_wcs_frame
             If not `None` and the HDU containing the image plane has a FITS
-            WCS, attach a `Projection` to the returned masked image by
-            converting that WCS.  When ``component`` is one of ``"image"``,
-            ``"mask"``, or ``"variance"``, a FITS WCS from the component HDU
-            is used instead (all three should have the same WCS).
+            WCS, attach a `~lsst.images.Projection` to the returned masked
+            image by converting that WCS.  When ``component`` is one of
+            ``"image"``, ``"mask"``, or ``"variance"``, a FITS WCS from the
+            component HDU is used instead (all three should have the same WCS).
         """
         fs, fspath = ResourcePath(uri).to_fsspec()
         with fs.open(fspath) as stream, astropy.io.fits.open(stream) as hdu_list:

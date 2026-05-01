@@ -711,10 +711,10 @@ class Box:
         """
         if other is not None:
             if x is not None or y is not None:
-                raise TypeError("Too many arguments to 'Box.contain'.")
+                raise TypeError("Too many arguments to 'Box.contains'.")
             return all(a.contains(b) for a, b in zip(self._intervals, other._intervals, strict=True))
         elif x is None or y is None:
-            raise TypeError("Not enough arguments to 'Box.contain'.")
+            raise TypeError("Not enough arguments to 'Box.contains'.")
         else:
             result = np.logical_and(self.x.contains(x), self.y.contains(y))
             if not result.shape:
@@ -894,10 +894,6 @@ class Bounds(Protocol):
     @property
     def bbox(self) -> Box: ...
 
-    def boundary(self) -> Iterator[YX[int]]:
-        """Iterate over points on the boundary as ``(y, x)`` tuples."""
-        ...
-
     @overload
     def contains(self, *, x: int, y: int) -> bool: ...
 
@@ -925,7 +921,7 @@ class Bounds(Protocol):
         """
         ...
 
-    def intersection(self, bounds: Bounds) -> Bounds:
+    def intersection(self, other: Bounds) -> Bounds:
         """Compute the intersection of this bounds object with another."""
         ...
 

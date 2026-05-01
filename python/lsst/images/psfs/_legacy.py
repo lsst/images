@@ -55,7 +55,7 @@ class LegacyPointSpreadFunction(PointSpreadFunction):
         from lsst.geom import Box2I, Point2D
 
         biggest = Box2I()
-        for y, x in self._bounds.boundary():
+        for y, x in self._bounds.bbox.boundary():
             biggest.include(self._impl.computeKernelBBox(Point2D(x, y)))
         return Box.from_legacy(biggest)
 
