@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 
@@ -220,3 +221,78 @@ class NdfInputArchiveOpaqueMetadataTestCase(unittest.TestCase):
                 # No primary header should be populated since /MORE/FITS
                 # was never written.
                 self.assertFalse(recovered.headers)
+
+
+class NdfReadFunctionTestCase(unittest.TestCase):
+    """Tests for the module-level `ndf.read()` function."""
+
+    def test_read_round_trips_image(self):
+        from lsst.images.ndf._input_archive import read
+
+        image = Image(
+            np.arange(20, dtype=np.float32).reshape(4, 5),
+            bbox=Box.factory[10:14, 20:25],
+        )
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(image, tmp.name)
+            result = read(Image, tmp.name)
+            self.assertIsInstance(result.deserialized, Image)
+            np.testing.assert_array_equal(result.deserialized.array, image.array)
+            self.assertEqual(result.deserialized.bbox, image.bbox)
+
+    def test_read_starlink_file_auto_detects_image(self):
+        # The canonical fixture has no /MORE/LSST/JSON, no QUALITY,
+        # no VARIANCE -- auto-detect should return an Image whose array
+        # shape matches the file (611x609 int16).
+        from lsst.images.ndf._input_archive import read
+
+        example_path = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
+        result = read(Image, example_path)
+        self.assertIsInstance(result.deserialized, Image)
+        self.assertEqual(result.deserialized.array.shape, (611, 609))
+        self.assertEqual(result.deserialized.array.dtype, np.int16)
+
+    def test_read_starlink_file_recovers_opaque_fits_metadata(self):
+        from lsst.images.fits._common import ExtensionKey
+        from lsst.images.ndf._input_archive import read
+
+        example_path = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
+        result = read(Image, example_path)
+        opaque = result.deserialized._opaque_metadata
+        self.assertIn(ExtensionKey(), opaque.headers)
+        # The fixture is a real Starlink M57 image; sample one card we know
+        # is present (NAXIS).
+        primary = opaque.headers[ExtensionKey()]
+        self.assertIn("NAXIS", primary)
+
+    def test_read_missing_data_array_raises(self):
+        # A file with only /MORE/LSST/JSON is fine for the symmetric
+        # path. A file with NEITHER /MORE/LSST/JSON NOR DATA_ARRAY is a
+        # malformed NDF -- auto-detect must fail clearly.
+        import h5py
+
+        from lsst.images.ndf._hds import ATTR_CLASS  # noqa: F401  (use indirectly)
+        from lsst.images.ndf._input_archive import read
+        from lsst.images.serialization import ArchiveReadError
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                f["/"].attrs["CLASS"] = "NDF"
+                # Note: no DATA_ARRAY, no /MORE/LSST/JSON.
+            with self.assertRaises(ArchiveReadError):
+                read(Image, tmp.name)
+
+    def test_read_auto_detect_wrong_target_type_raises(self):
+        # Caller asked for Image but auto-detect produces something that
+        # isn't an Image -> ArchiveReadError. (Hard to trigger with our
+        # current scope since auto-detect always returns Image without
+        # QUALITY/VARIANCE; this test documents the contract instead by
+        # asking for an unrelated type.)
+        from lsst.images.ndf._input_archive import read
+        from lsst.images.serialization import ArchiveReadError
+
+        example_path = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
+        with self.assertRaises(ArchiveReadError):
+            read(int, example_path)
