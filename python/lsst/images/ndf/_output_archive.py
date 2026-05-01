@@ -278,6 +278,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         )
         return ArrayReferenceModel(
             source=f"ndf:{path}",
+            shape=list(array.shape),
             datatype=NumberType.from_numpy(array.dtype),
         )
 
