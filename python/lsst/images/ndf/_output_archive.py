@@ -270,6 +270,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         return iter(self._frame_sets)
 
     _COMPATIBLE_MASK_DTYPES = (np.dtype(np.uint8),)
+    _prefer_native_mask_arrays = True
 
     def add_array(
         self,
@@ -293,13 +294,9 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
                 self._ensure_quality_structure()
                 path = "/QUALITY/QUALITY"
             else:
-                # Incompatible masks (wider dtype OR >8 planes -> 3D array)
-                # are hoisted as a sub-NDF inside /MORE/LSST/MASK so that
-                # standard Starlink tools (KAPPA `display`, `hdstrace`,
-                # etc.) can visualise the mask as an image or cube. The
-                # sub-NDF has the canonical layout: a top-level group
-                # with CLASS="NDF" containing a DATA_ARRAY structure
-                # (CLASS="ARRAY") with DATA + ORIGIN primitives.
+                # Native Mask serialization writes the 3-D uint8 mask here
+                # with HDF5 axes reversed from the HDS axes so Starlink sees
+                # dimensions (x, y, mask-byte).
                 self._ensure_struct("/MORE/LSST/MASK", "NDF")
                 self._ensure_array_structure("/MORE/LSST/MASK/DATA_ARRAY")
                 path = "/MORE/LSST/MASK/DATA_ARRAY/DATA"
@@ -406,7 +403,14 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         struct = self._file[struct_path]
         if "ORIGIN" in struct:
             del struct["ORIGIN"]
-        _hds.write_array(struct, "ORIGIN", np.asarray(origin, dtype=np.int64))
+        origin_array = np.asarray(origin, dtype=np.int64)
+        if (
+            "DATA" in struct
+            and isinstance(struct["DATA"], h5py.Dataset)
+            and origin_array.size < struct["DATA"].ndim
+        ):
+            origin_array = np.pad(origin_array, (0, struct["DATA"].ndim - origin_array.size))
+        _hds.write_array(struct, "ORIGIN", origin_array)
 
     def add_table(
         self,

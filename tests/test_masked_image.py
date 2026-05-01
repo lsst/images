@@ -198,7 +198,7 @@ class MaskedImageTestCase(unittest.TestCase):
             assert_masked_images_equal(self, roundtrip.result, self.masked_image, expect_view=False)
 
     def test_round_trip_ndf_incompatible_mask(self):
-        """NDF round-trip for a >8-plane mask (forces 3D mask array, hoisted
+        """NDF round-trip for a >8-plane mask (uses native 3D mask array,
         to MORE/LSST/MASK).
         """
         rng = np.random.default_rng(7)
@@ -213,6 +213,27 @@ class MaskedImageTestCase(unittest.TestCase):
             mask_schema=MaskSchema(planes),
             obs_info=self.obs_info,
         )
+        wide.variance.array = rng.normal(64.0, 0.5, size=wide.bbox.shape)
+        with RoundtripNdf(self, wide) as roundtrip:
+            assert_masked_images_equal(self, roundtrip.result, wide, expect_view=False)
+
+    def test_round_trip_ndf_many_plane_mask(self):
+        """NDF round-trip for a mask that needs more than one int32 chunk."""
+        rng = np.random.default_rng(11)
+        planes = [MaskPlane(f"P{i}", f"plane {i}") for i in range(40)]
+        wide = MaskedImage(
+            Image(
+                rng.normal(100.0, 8.0, size=(10, 12)),
+                dtype=np.float64,
+                unit=u.nJy,
+                start=(0, 0),
+            ),
+            mask_schema=MaskSchema(planes),
+            obs_info=self.obs_info,
+        )
+        wide.mask.set("P0", wide.image.array > 100.0)
+        wide.mask.set("P17", wide.image.array < 95.0)
+        wide.mask.set("P39", wide.image.array > 110.0)
         wide.variance.array = rng.normal(64.0, 0.5, size=wide.bbox.shape)
         with RoundtripNdf(self, wide) as roundtrip:
             assert_masked_images_equal(self, roundtrip.result, wide, expect_view=False)

@@ -304,7 +304,7 @@ class NdfWriteWcsTestCase(unittest.TestCase):
         det_frame = DetectorFrame(instrument="TestInst", detector=4, bbox=Box.factory[1:4096, 1:4096])
         bbox = Box.factory[10:14, 20:25]
         projection = make_random_projection(rng, det_frame, Box.factory[1:4096, 1:4096])
-        # 12-plane schema -> mask folds to int32, hoisted to /MORE/LSST/MASK.
+        # 12-plane schema -> native 3D uint8 mask, hoisted to /MORE/LSST/MASK.
         planes = [MaskPlane(f"P{i}", f"Plane {i}") for i in range(12)]
         image = Image(
             np.arange(20, dtype=np.float32).reshape(4, 5),
