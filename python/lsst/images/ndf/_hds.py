@@ -57,6 +57,7 @@ ATTR_ROOT_NAME = "HDS_ROOT_NAME"
 
 
 HDS_TO_NUMPY: dict[str, np.dtype] = {
+    "_LOGICAL": np.dtype(np.bool_),
     "_REAL": np.dtype(np.float32),
     "_DOUBLE": np.dtype(np.float64),
     "_UBYTE": np.dtype(np.uint8),
@@ -66,6 +67,7 @@ HDS_TO_NUMPY: dict[str, np.dtype] = {
 }
 
 NUMPY_TO_HDS: dict[np.dtype, str] = {
+    np.dtype(np.bool_): "_LOGICAL",
     np.dtype(np.float32): "_REAL",
     np.dtype(np.float64): "_DOUBLE",
     np.dtype(np.uint8): "_UBYTE",

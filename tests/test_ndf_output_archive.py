@@ -84,17 +84,26 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
             with h5py.File(tmp.name, "w") as f:
                 arch = NdfOutputArchive(f)
                 ref = arch.add_array(data, name="mask")
-                self.assertEqual(ref.source, "ndf:/QUALITY/QUALITY")
+                self.assertEqual(ref.source, "ndf:/QUALITY/QUALITY/DATA")
             with h5py.File(tmp.name, "r") as f:
                 self.assertEqual(f["/QUALITY"].attrs["CLASS"], b"QUALITY")
-                self.assertEqual(f["/QUALITY/QUALITY"].dtype, np.uint8)
-                self.assertEqual(f["/QUALITY/BADBITS"][()], 0xFF)
+                self.assertEqual(f["/QUALITY/QUALITY"].attrs["CLASS"], b"ARRAY")
+                self.assertEqual(f["/QUALITY/QUALITY/DATA"].dtype, np.uint8)
+                np.testing.assert_array_equal(f["/QUALITY/QUALITY/DATA"][()], data)
+                self.assertEqual(f["/QUALITY/QUALITY/ORIGIN"].dtype, np.int32)
+                self.assertEqual(f["/QUALITY/QUALITY/ORIGIN"].shape, (2,))
+                self.assertEqual(f["/QUALITY/QUALITY/BAD_PIXEL"].dtype, np.bool_)
+                self.assertFalse(f["/QUALITY/QUALITY/BAD_PIXEL"][()])
+                self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
 
     def test_top_level_incompatible_mask_routes_to_more_lsst(self):
-        # 3D mask array (multi-plane uint8) doesn't fit NDF QUALITY, so
-        # it's hoisted as a sub-NDF inside /MORE/LSST/MASK so that
-        # standard Starlink tools can visualise it.
-        data = np.zeros((3, 4, 2), dtype=np.uint8)
+        # 3D mask array in NDF storage order (mask-byte, y, x) is hoisted
+        # as a sub-NDF inside /MORE/LSST/MASK, with a compressed 2D view
+        # exposed as /QUALITY/QUALITY for standard NDF applications.
+        data = np.zeros((2, 3, 4), dtype=np.uint8)
+        data[0, 1, 2] = 4
+        data[1, 2, 3] = 8
+        expected_quality = np.any(data != 0, axis=0).astype(np.uint8)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 arch = NdfOutputArchive(f)
@@ -105,7 +114,10 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 # containing a DATA_ARRAY structure with DATA + ORIGIN.
                 self.assertEqual(f["/MORE/LSST/MASK"].attrs["CLASS"], b"NDF")
                 self.assertEqual(f["/MORE/LSST/MASK/DATA_ARRAY"].attrs["CLASS"], b"ARRAY")
-                self.assertEqual(f["/MORE/LSST/MASK/DATA_ARRAY/DATA"].shape, (3, 4, 2))
+                self.assertEqual(f["/MORE/LSST/MASK/DATA_ARRAY/DATA"].shape, data.shape)
+                self.assertEqual(f["/QUALITY/QUALITY"].attrs["CLASS"], b"ARRAY")
+                np.testing.assert_array_equal(f["/QUALITY/QUALITY/DATA"][()], expected_quality)
+                self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
                 origin = f["/MORE/LSST/MASK/DATA_ARRAY/ORIGIN"]
                 self.assertEqual(origin.dtype, np.int64)
                 self.assertEqual(origin.shape, (3,))

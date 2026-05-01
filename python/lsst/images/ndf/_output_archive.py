@@ -161,6 +161,7 @@ def write(
             for struct_path in (
                 "/DATA_ARRAY",
                 "/VARIANCE",
+                "/QUALITY/QUALITY",
                 "/MORE/LSST/MASK/DATA_ARRAY",
             ):
                 if struct_path in h5_file:
@@ -291,12 +292,14 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             self._write_origin_for_array("/VARIANCE", array)
         elif name == "mask":
             if array.ndim == 2 and array.dtype in self._COMPATIBLE_MASK_DTYPES:
-                self._ensure_quality_structure()
-                path = "/QUALITY/QUALITY"
+                self._ensure_quality_array_structure()
+                path = "/QUALITY/QUALITY/DATA"
             else:
                 # Native Mask serialization writes the 3-D uint8 mask here
                 # with HDF5 axes reversed from the HDS axes so Starlink sees
                 # dimensions (x, y, mask-byte).
+                if array.ndim == 3 and array.dtype in self._COMPATIBLE_MASK_DTYPES:
+                    self._write_quality_array(self._collapse_mask_to_quality(array))
                 self._ensure_struct("/MORE/LSST/MASK", "NDF")
                 self._ensure_array_structure("/MORE/LSST/MASK/DATA_ARRAY")
                 path = "/MORE/LSST/MASK/DATA_ARRAY/DATA"
@@ -369,14 +372,55 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
     def _ensure_quality_structure(self) -> h5py.Group:
         """Ensure ``/QUALITY`` exists with ``CLASS="QUALITY"`` and BADBITS.
 
-        BADBITS defaults to 0xFF (treat all defined plane bits as
-        "bad"); a future enhancement may make this configurable.
+        BADBITS defaults to 1 so the collapsed single-bit QUALITY plane is
+        used by NDF applications.
         """
         if "/QUALITY" in self._file:
-            return self._file["/QUALITY"]
-        group = _hds.create_structure(self._file, "QUALITY", "QUALITY")
-        _hds.write_array(group, "BADBITS", np.array(0xFF, dtype=np.uint8))
+            group = self._file["/QUALITY"]
+        else:
+            group = _hds.create_structure(self._file, "QUALITY", "QUALITY")
+        if "BADBITS" in group:
+            del group["BADBITS"]
+        _hds.write_array(group, "BADBITS", np.array(1, dtype=np.uint8))
         return group
+
+    def _ensure_quality_array_structure(self) -> h5py.Group:
+        """Ensure the nested ``/QUALITY/QUALITY`` ARRAY structure exists."""
+        quality = self._ensure_quality_structure()
+        if "QUALITY" in quality and not isinstance(quality["QUALITY"], h5py.Group):
+            del quality["QUALITY"]
+        if "QUALITY" in quality:
+            group = quality["QUALITY"]
+        else:
+            group = _hds.create_structure(quality, "QUALITY", "ARRAY")
+        if "ORIGIN" not in group:
+            _hds.write_array(group, "ORIGIN", np.zeros(2, dtype=np.int32))
+        if "BAD_PIXEL" not in group:
+            _hds.write_array(group, "BAD_PIXEL", np.array(False, dtype=np.bool_))
+        return group
+
+    def _write_quality_array(self, quality: np.ndarray) -> None:
+        """Write or replace the NDF QUALITY array."""
+        group = self._ensure_quality_array_structure()
+        if "DATA" in group:
+            del group["DATA"]
+        _hds.write_array(
+            group,
+            "DATA",
+            quality,
+            compression=self._compression_options.get("compression"),
+        )
+
+    def _collapse_mask_to_quality(self, array: np.ndarray) -> np.ndarray:
+        """Compress an NDF-native 3-D mask array into 2-D QUALITY.
+
+        The input array is in HDF5 storage order ``(mask-byte, y, x)``.
+        Single-byte masks copy directly to preserve bit values.  Wider masks
+        collapse to 1 where any byte is non-zero and 0 otherwise.
+        """
+        if array.shape[0] == 1:
+            return array[0, :, :]
+        return np.any(array != 0, axis=0).astype(np.uint8)
 
     def _write_origin_for_array(self, struct_path: str, array: np.ndarray) -> None:
         """Write a placeholder ORIGIN of zeros (int64).
@@ -403,7 +447,8 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         struct = self._file[struct_path]
         if "ORIGIN" in struct:
             del struct["ORIGIN"]
-        origin_array = np.asarray(origin, dtype=np.int64)
+        origin_dtype = np.int32 if struct_path == "/QUALITY/QUALITY" else np.int64
+        origin_array = np.asarray(origin, dtype=origin_dtype)
         if (
             "DATA" in struct
             and isinstance(struct["DATA"], h5py.Dataset)
