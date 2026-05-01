@@ -325,6 +325,66 @@ class NdfReadFunctionTestCase(unittest.TestCase):
             result = read(MaskedImage, tmp.name)
             self.assertIsInstance(result.deserialized, MaskedImage)
             np.testing.assert_array_equal(result.deserialized.mask.array[:, :, 0], quality_array)
+            image_result = read(Image, tmp.name)
+            self.assertIsInstance(image_result.deserialized, Image)
+            np.testing.assert_array_equal(image_result.deserialized.array, image_array)
+
+    def test_read_auto_detected_data_only_as_masked_image_uses_defaults(self):
+        import h5py
+
+        from lsst.images import MaskedImage
+        from lsst.images.ndf import _hds
+        from lsst.images.ndf._input_archive import read
+
+        image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                _hds.set_root_name(f, "TEST", "NDF")
+                data_array = _hds.create_structure(f, "DATA_ARRAY", "ARRAY")
+                _hds.write_array(data_array, "DATA", image_array)
+                _hds.write_array(data_array, "ORIGIN", np.array([5, 4], dtype=np.int32))
+            result = read(MaskedImage, tmp.name)
+            self.assertIsInstance(result.deserialized, MaskedImage)
+            self.assertEqual(result.deserialized.bbox, Box.factory[4:6, 5:8])
+            np.testing.assert_array_equal(result.deserialized.image.array, image_array)
+            np.testing.assert_array_equal(
+                result.deserialized.mask.array,
+                np.zeros((2, 3, 1), dtype=np.uint8),
+            )
+            np.testing.assert_array_equal(
+                result.deserialized.variance.array,
+                np.ones((2, 3), dtype=np.float32),
+            )
+
+    def test_read_auto_detected_variance_as_masked_image_keeps_variance(self):
+        import h5py
+
+        from lsst.images import MaskedImage
+        from lsst.images.ndf import _hds
+        from lsst.images.ndf._input_archive import read
+
+        image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
+        variance_array = np.full((2, 3), 2.5, dtype=np.float32)
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                _hds.set_root_name(f, "TEST", "NDF")
+                data_array = _hds.create_structure(f, "DATA_ARRAY", "ARRAY")
+                _hds.write_array(data_array, "DATA", image_array)
+                _hds.write_array(data_array, "ORIGIN", np.array([5, 4], dtype=np.int32))
+                variance = _hds.create_structure(f, "VARIANCE", "ARRAY")
+                _hds.write_array(variance, "DATA", variance_array)
+                _hds.write_array(variance, "ORIGIN", np.array([5, 4], dtype=np.int32))
+            result = read(MaskedImage, tmp.name)
+            self.assertIsInstance(result.deserialized, MaskedImage)
+            np.testing.assert_array_equal(result.deserialized.variance.array, variance_array)
+            np.testing.assert_array_equal(
+                result.deserialized.mask.array,
+                np.zeros((2, 3, 1), dtype=np.uint8),
+            )
 
     def test_read_missing_data_array_raises(self):
         # A file with only /MORE/LSST/JSON is fine for the symmetric
@@ -345,11 +405,8 @@ class NdfReadFunctionTestCase(unittest.TestCase):
                 read(Image, tmp.name)
 
     def test_read_auto_detect_wrong_target_type_raises(self):
-        # Caller asked for Image but auto-detect produces something that
-        # isn't an Image -> ArchiveReadError. (Hard to trigger with our
-        # current scope since auto-detect always returns Image without
-        # QUALITY/VARIANCE; this test documents the contract instead by
-        # asking for an unrelated type.)
+        # Auto-detect only knows how to produce Image-like objects from NDF
+        # components; unrelated target classes should fail clearly.
         from lsst.images.ndf._input_archive import read
         from lsst.images.serialization import ArchiveReadError
 
