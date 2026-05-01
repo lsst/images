@@ -182,3 +182,41 @@ class NdfInputArchiveDataTestCase(unittest.TestCase):
                 ref = NdfPointerModel(ref="/MORE/LSST/UNKNOWN")
                 with self.assertRaises(AssertionError):
                     archive.get_frame_set(ref)
+
+
+class NdfInputArchiveOpaqueMetadataTestCase(unittest.TestCase):
+    """Tests for `NdfInputArchive.get_opaque_metadata`."""
+
+    def test_more_fits_round_trips_via_opaque_metadata(self):
+        import astropy.io.fits
+
+        from lsst.images.fits._common import ExtensionKey, FitsOpaqueMetadata
+
+        image = Image(np.zeros((2, 2), dtype=np.float32))
+        primary = astropy.io.fits.Header()
+        primary["FOO"] = ("bar", "test card")
+        opaque = FitsOpaqueMetadata()
+        opaque.add_header(primary, name="", ver=1)
+        image._opaque_metadata = opaque
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(image, tmp.name)
+            with NdfInputArchive.open(tmp.name) as archive:
+                recovered = archive.get_opaque_metadata()
+                self.assertIn(ExtensionKey(), recovered.headers)
+                self.assertEqual(recovered.headers[ExtensionKey()]["FOO"], "bar")
+
+    def test_get_opaque_metadata_empty_when_no_more_fits(self):
+        from lsst.images.fits._common import FitsOpaqueMetadata
+
+        # Image with no opaque metadata -> /MORE/FITS is absent in the file.
+        image = Image(np.zeros((2, 2), dtype=np.float32))
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(image, tmp.name)
+            with NdfInputArchive.open(tmp.name) as archive:
+                recovered = archive.get_opaque_metadata()
+                self.assertIsInstance(recovered, FitsOpaqueMetadata)
+                # No primary header should be populated since /MORE/FITS
+                # was never written.
+                self.assertFalse(recovered.headers)

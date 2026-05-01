@@ -19,6 +19,7 @@ from contextlib import contextmanager
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, Self
 
+import astropy.io.fits
 import astropy.table
 import h5py
 import numpy as np
@@ -40,7 +41,7 @@ from . import _hds
 from ._common import NdfPointerModel
 
 if TYPE_CHECKING:
-    import astropy.io.fits
+    pass
 
 
 _LOG = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         # / pointer / frame-set caches will be populated then.
         self._deserialized_pointer_cache: dict[str, Any] = {}
         self._frame_set_cache: dict[str, FrameSet] = {}
+        self._read_opaque_fits_metadata()
 
     @classmethod
     @contextmanager
@@ -174,6 +176,19 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> np.ndarray:
         return self.get_table(model, strip_header).as_array()
+
+    def _read_opaque_fits_metadata(self) -> None:
+        if "/MORE/FITS" not in self._file:
+            return
+        dataset = self._file["/MORE/FITS"]
+        if not isinstance(dataset, h5py.Dataset):
+            return
+        cards = _hds.read_char_array(dataset)
+        # FITS Header.fromstring expects fixed-width 80-char cards
+        # concatenated; pad each card defensively so readers tolerate
+        # files written with shorter widths.
+        header = astropy.io.fits.Header.fromstring("".join(c.ljust(80) for c in cards))
+        self._opaque_metadata.add_header(header, name="", ver=1)
 
     def get_opaque_metadata(self) -> FitsOpaqueMetadata:
         # The opaque-FITS reader is wired up in Task 14; for v1 this just
