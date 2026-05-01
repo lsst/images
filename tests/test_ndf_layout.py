@@ -16,12 +16,10 @@ the on-disk layout matches the HDS-on-HDF5 / NDF spec.
 
 Notes on mask routing
 ---------------------
-``Mask.serialize`` always calls ``schema.split(np.int32)`` before writing,
-which converts mask planes to ``int32`` regardless of the original schema
-dtype.  Consequently all masks written through ``ndf.write()`` land in
-``/MORE/LSST/MASK`` as a sub-NDF with a 2-D ``_INTEGER`` DATA
-primitive rather than in the
-NDF ``QUALITY`` component.  The QUALITY component can only be populated by
+NDF serialization stores ``Mask`` arrays as a 3-D ``uint8`` DATA primitive
+whose HDS axes are ``(x, y, mask-byte)``.  The HDF5 dataset shape is reversed
+from that, following hds-v5 convention.  The NDF ``QUALITY`` component can
+only be populated by
 calling ``NdfOutputArchive.add_array`` directly with a 2-D ``uint8`` array
 (see ``test_ndf_output_archive.py``).
 """
@@ -56,6 +54,11 @@ def _hds_type(dataset: h5py.Dataset) -> str:
     dtype.
     """
     return _hds.hds_type_for_dtype(dataset.dtype)
+
+
+def _hds_shape(dataset: h5py.Dataset) -> tuple[int, ...]:
+    """Return the dataset shape in HDS/Fortran axis order."""
+    return tuple(reversed(dataset.shape))
 
 
 class NdfImageLayoutTestCase(unittest.TestCase):
@@ -110,12 +113,8 @@ class NdfCompatibleMaskLayoutTestCase(unittest.TestCase):
     """Layout test for a MaskedImage whose mask fits in a single uint8 byte.
 
     Even though the mask schema has only 2 planes (which would fit in a single
-    NDF QUALITY byte), ``Mask.serialize`` uses ``schema.split(np.int32)`` which
-    converts the mask to int32.  The resulting 2-D int32 array is not
-    compatible with the NDF QUALITY component (which requires uint8), so the
-    mask is hoisted as a sub-NDF inside ``/MORE/LSST/MASK`` instead — that
-    way standard Starlink tools (KAPPA `display`, `hdstrace`, etc.) can
-    visualise it as an image.
+    NDF QUALITY byte), MaskedImage writes masks as the native 3-D uint8
+    backing array in ``/MORE/LSST/MASK``.
     """
 
     def test_masked_image_compatible_mask_layout(self) -> None:
@@ -137,9 +136,6 @@ class NdfCompatibleMaskLayoutTestCase(unittest.TestCase):
             tmp.close()
             write(masked, tmp.name)
             with h5py.File(tmp.name, "r") as f:
-                # Mask is serialised as int32 via schema.split(np.int32).
-                # QUALITY is therefore absent even for a single-byte-wide
-                # mask.
                 self.assertNotIn(
                     "QUALITY",
                     f,
@@ -154,15 +150,15 @@ class NdfCompatibleMaskLayoutTestCase(unittest.TestCase):
                 self.assertEqual(_cls(f["/MORE/LSST/MASK"]), "NDF")
                 self.assertEqual(_cls(f["/MORE/LSST/MASK/DATA_ARRAY"]), "ARRAY")
                 mask_ds = f["/MORE/LSST/MASK/DATA_ARRAY/DATA"]
-                self.assertEqual(_hds_type(mask_ds), "_INTEGER")
-                self.assertEqual(mask_ds.ndim, 2)
-                self.assertEqual(mask_ds.shape, (4, 5))
+                self.assertEqual(_hds_type(mask_ds), "_UBYTE")
+                self.assertEqual(mask_ds.ndim, 3)
+                self.assertEqual(mask_ds.shape, (1, 4, 5))
+                self.assertEqual(_hds_shape(mask_ds), (5, 4, 1))
                 origin = f["/MORE/LSST/MASK/DATA_ARRAY/ORIGIN"]
                 self.assertEqual(origin.dtype, np.int64)
-                # The mask shares the parent image's bbox, so its ORIGIN
-                # should match what /DATA_ARRAY/ORIGIN got: (x_min, y_min)
-                # in NDF/Fortran order = (20, 10) for the test bbox.
-                self.assertEqual(list(origin[()]), [20, 10])
+                # The mask shares the parent image's bbox; the trailing mask
+                # byte axis keeps a zero origin.
+                self.assertEqual(list(origin[()]), [20, 10, 0])
 
                 # VARIANCE is an ARRAY structure whose DATA is _DOUBLE
                 # (float64).
@@ -175,11 +171,8 @@ class NdfCompatibleMaskLayoutTestCase(unittest.TestCase):
 class NdfIncompatibleMaskLayoutTestCase(unittest.TestCase):
     """Layout test for a MaskedImage with more than 8 mask planes.
 
-    A 12-plane uint8 mask has ``mask_size=2`` (two bytes per pixel).  After
-    ``schema.split(np.int32)`` the 12 planes still fit in a single int32
-    element, so the on-disk layout is a 2-D _INTEGER array stored as the
-    DATA primitive of a sub-NDF at ``/MORE/LSST/MASK``.  The NDF QUALITY
-    component is absent.
+    A 12-plane uint8 mask has ``mask_size=2`` (two bytes per pixel), and the
+    on-disk HDS axes are ``(x, y, mask-byte)``.
     """
 
     def test_masked_image_incompatible_mask_layout(self) -> None:
@@ -209,13 +202,34 @@ class NdfIncompatibleMaskLayoutTestCase(unittest.TestCase):
                 self.assertEqual(_cls(f["/MORE/LSST/MASK"]), "NDF")
                 self.assertEqual(_cls(f["/MORE/LSST/MASK/DATA_ARRAY"]), "ARRAY")
 
-                # DATA is a 2-D _INTEGER (int32) array.  schema.split(np.int32)
-                # folds the 12 planes into a single int32 element per pixel.
                 ds = f["/MORE/LSST/MASK/DATA_ARRAY/DATA"]
-                self.assertEqual(_hds_type(ds), "_INTEGER")
-                self.assertEqual(ds.ndim, 2)
+                self.assertEqual(_hds_type(ds), "_UBYTE")
+                self.assertEqual(ds.ndim, 3)
                 rows, cols = image.array.shape
-                self.assertEqual(ds.shape, (rows, cols))
+                self.assertEqual(ds.shape, (2, rows, cols))
+                self.assertEqual(_hds_shape(ds), (cols, rows, 2))
+
+    def test_masked_image_many_plane_mask_layout(self) -> None:
+        """Write a MaskedImage with more than 31 planes as one native mask."""
+        planes = [MaskPlane(f"P{i}", f"Plane {i}") for i in range(40)]
+        schema = MaskSchema(planes)
+        image = Image(
+            np.arange(20, dtype=np.float32).reshape(4, 5),
+            bbox=Box.factory[10:14, 20:25],
+        )
+        masked = MaskedImage(image, mask_schema=schema)
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(masked, tmp.name)
+            with h5py.File(tmp.name, "r") as f:
+                self.assertNotIn("QUALITY", f, msg="40-plane mask must not produce /QUALITY")
+                ds = f["/MORE/LSST/MASK/DATA_ARRAY/DATA"]
+                self.assertEqual(_hds_type(ds), "_UBYTE")
+                self.assertEqual(ds.ndim, 3)
+                rows, cols = image.array.shape
+                self.assertEqual(ds.shape, (5, rows, cols))
+                self.assertEqual(_hds_shape(ds), (cols, rows, 5))
 
 
 if __name__ == "__main__":
