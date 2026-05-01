@@ -300,6 +300,32 @@ class NdfReadFunctionTestCase(unittest.TestCase):
         primary = opaque.headers[ExtensionKey()]
         self.assertIn("NAXIS", primary)
 
+    def test_read_auto_detects_nested_quality_array(self):
+        import h5py
+
+        from lsst.images import MaskedImage
+        from lsst.images.ndf import _hds
+        from lsst.images.ndf._input_archive import read
+
+        image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
+        quality_array = np.array([[0, 1, 0], [1, 0, 1]], dtype=np.uint8)
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                _hds.set_root_name(f, "TEST", "NDF")
+                data_array = _hds.create_structure(f, "DATA_ARRAY", "ARRAY")
+                _hds.write_array(data_array, "DATA", image_array)
+                quality = _hds.create_structure(f, "QUALITY", "QUALITY")
+                quality_array_struct = _hds.create_structure(quality, "QUALITY", "ARRAY")
+                _hds.write_array(quality_array_struct, "DATA", quality_array)
+                _hds.write_array(quality_array_struct, "ORIGIN", np.array([0, 0], dtype=np.int32))
+                _hds.write_array(quality_array_struct, "BAD_PIXEL", np.array(False, dtype=np.bool_))
+                _hds.write_array(quality, "BADBITS", np.array(1, dtype=np.uint8))
+            result = read(MaskedImage, tmp.name)
+            self.assertIsInstance(result.deserialized, MaskedImage)
+            np.testing.assert_array_equal(result.deserialized.mask.array[:, :, 0], quality_array)
+
     def test_read_missing_data_array_raises(self):
         # A file with only /MORE/LSST/JSON is fine for the symmetric
         # path. A file with NEITHER /MORE/LSST/JSON NOR DATA_ARRAY is a

@@ -121,6 +121,7 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                     _hds.read_char_array(f["DATA"])
 
     def test_hds_type_for_dtype(self):
+        self.assertEqual(_hds.hds_type_for_dtype(np.dtype(np.bool_)), "_LOGICAL")
         self.assertEqual(_hds.hds_type_for_dtype(np.dtype(np.float32)), "_REAL")
         self.assertEqual(_hds.hds_type_for_dtype(np.dtype(np.float64)), "_DOUBLE")
         self.assertEqual(_hds.hds_type_for_dtype(np.dtype(np.uint8)), "_UBYTE")

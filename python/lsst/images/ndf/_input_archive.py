@@ -261,6 +261,8 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
         q = ndf_group["QUALITY"]
         if "QUALITY" in q and isinstance(q["QUALITY"], h5py.Dataset):
             quality_arr = _hds.read_array(q["QUALITY"])
+        elif "QUALITY" in q and isinstance(q["QUALITY"], h5py.Group):
+            quality_arr = _read_data_array_with_bbox(q["QUALITY"])[0]
 
     # WCS is dropped in v1 with a warning.  The write-side companion
     # (writing /WCS/DATA from the Projection's AST FrameSet) landed in
@@ -304,7 +306,7 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
         schema = MaskSchema([MaskPlane(name="BAD", description="Bad pixel.")])
         obj = MaskedImage(
             image=Image(data_arr, bbox=bbox),
-            mask=Mask(quality_arr, schema=schema, bbox=bbox),
+            mask=Mask(quality_arr[:, :, np.newaxis], schema=schema, bbox=bbox),
             variance=Image(variance_arr, bbox=bbox),
         )
     else:

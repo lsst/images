@@ -18,10 +18,9 @@ Notes on mask routing
 ---------------------
 NDF serialization stores ``Mask`` arrays as a 3-D ``uint8`` DATA primitive
 whose HDS axes are ``(x, y, mask-byte)``.  The HDF5 dataset shape is reversed
-from that, following hds-v5 convention.  The NDF ``QUALITY`` component can
-only be populated by
-calling ``NdfOutputArchive.add_array`` directly with a 2-D ``uint8`` array
-(see ``test_ndf_output_archive.py``).
+from that, following hds-v5 convention.  It also writes a 2-D ``QUALITY``
+view: single-byte masks are copied directly, while wider masks collapse to
+0/1 values.
 """
 
 from __future__ import annotations
@@ -113,13 +112,13 @@ class NdfCompatibleMaskLayoutTestCase(unittest.TestCase):
     """Layout test for a MaskedImage whose mask fits in a single uint8 byte.
 
     Even though the mask schema has only 2 planes (which would fit in a single
-    NDF QUALITY byte), MaskedImage writes masks as the native 3-D uint8
-    backing array in ``/MORE/LSST/MASK``.
+    NDF QUALITY byte), MaskedImage writes the native 3-D uint8 backing array
+    in ``/MORE/LSST/MASK`` and a direct 2-D copy in ``/QUALITY``.
     """
 
     def test_masked_image_compatible_mask_layout(self) -> None:
-        """Write a MaskedImage with a ≤8-plane mask; verify LSST/MASK and
-        VARIANCE.
+        """Write a MaskedImage with a ≤8-plane mask; verify QUALITY,
+        LSST/MASK, and VARIANCE.
         """
         planes = [MaskPlane("BAD", "Bad pixel"), MaskPlane("SAT", "Saturated")]
         schema = MaskSchema(planes)  # default dtype=uint8, mask_size=1
@@ -131,16 +130,28 @@ class NdfCompatibleMaskLayoutTestCase(unittest.TestCase):
         # on disk (the default variance is float32, matching the image dtype).
         variance = Image(np.ones((4, 5), dtype=np.float64), bbox=image.bbox)
         masked = MaskedImage(image, mask_schema=schema, variance=variance)
+        masked.mask.set("BAD", image.array % 2 == 0)
+        masked.mask.set("SAT", image.array > 10)
 
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
             write(masked, tmp.name)
             with h5py.File(tmp.name, "r") as f:
-                self.assertNotIn(
-                    "QUALITY",
-                    f,
-                    msg="QUALITY must not be written for masks serialised via MaskedImage.write()",
-                )
+                self.assertIn("QUALITY", f)
+                self.assertEqual(_cls(f["/QUALITY"]), "QUALITY")
+                self.assertEqual(_cls(f["/QUALITY/QUALITY"]), "ARRAY")
+                quality_ds = f["/QUALITY/QUALITY/DATA"]
+                self.assertEqual(_hds_type(quality_ds), "_UBYTE")
+                self.assertEqual(quality_ds.shape, image.array.shape)
+                self.assertEqual(_hds_shape(quality_ds), (image.array.shape[1], image.array.shape[0]))
+                np.testing.assert_array_equal(quality_ds[()], masked.mask.array[:, :, 0])
+                quality_origin = f["/QUALITY/QUALITY/ORIGIN"]
+                self.assertEqual(_hds_type(quality_origin), "_INTEGER")
+                self.assertEqual(list(quality_origin[()]), [20, 10])
+                bad_pixel = f["/QUALITY/QUALITY/BAD_PIXEL"]
+                self.assertEqual(_hds_type(bad_pixel), "_LOGICAL")
+                self.assertFalse(bad_pixel[()])
+                self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
 
                 # /MORE/LSST/MASK is a sub-NDF (CLASS="NDF") with a
                 # canonical DATA_ARRAY structure containing DATA + ORIGIN.
@@ -186,14 +197,21 @@ class NdfIncompatibleMaskLayoutTestCase(unittest.TestCase):
             bbox=Box.factory[10:14, 20:25],
         )
         masked = MaskedImage(image, mask_schema=schema)
+        masked.mask.set("P0", image.array % 2 == 0)
+        masked.mask.set("P11", image.array > 10)
+        expected_quality = np.any(masked.mask.array != 0, axis=2).astype(np.uint8)
 
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
             write(masked, tmp.name)
             with h5py.File(tmp.name, "r") as f:
-                # A 12-plane mask cannot fit in the NDF QUALITY component
-                # (uint8 only holds 8 planes); QUALITY must be absent.
-                self.assertNotIn("QUALITY", f, msg="12-plane mask must not produce /QUALITY")
+                self.assertIn("QUALITY", f)
+                self.assertEqual(_cls(f["/QUALITY/QUALITY"]), "ARRAY")
+                quality_ds = f["/QUALITY/QUALITY/DATA"]
+                self.assertEqual(_hds_type(quality_ds), "_UBYTE")
+                self.assertEqual(quality_ds.shape, image.array.shape)
+                np.testing.assert_array_equal(quality_ds[()], expected_quality)
+                self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
 
                 # /MORE/LSST/MASK is a sub-NDF.
                 self.assertIn("MORE", f)
@@ -218,12 +236,22 @@ class NdfIncompatibleMaskLayoutTestCase(unittest.TestCase):
             bbox=Box.factory[10:14, 20:25],
         )
         masked = MaskedImage(image, mask_schema=schema)
+        masked.mask.set("P0", image.array % 2 == 0)
+        masked.mask.set("P17", image.array > 10)
+        masked.mask.set("P39", image.array == 19)
+        expected_quality = np.any(masked.mask.array != 0, axis=2).astype(np.uint8)
 
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
             write(masked, tmp.name)
             with h5py.File(tmp.name, "r") as f:
-                self.assertNotIn("QUALITY", f, msg="40-plane mask must not produce /QUALITY")
+                self.assertIn("QUALITY", f)
+                self.assertEqual(_cls(f["/QUALITY/QUALITY"]), "ARRAY")
+                quality_ds = f["/QUALITY/QUALITY/DATA"]
+                self.assertEqual(_hds_type(quality_ds), "_UBYTE")
+                self.assertEqual(quality_ds.shape, image.array.shape)
+                np.testing.assert_array_equal(quality_ds[()], expected_quality)
+                self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
                 ds = f["/MORE/LSST/MASK/DATA_ARRAY/DATA"]
                 self.assertEqual(_hds_type(ds), "_UBYTE")
                 self.assertEqual(ds.ndim, 3)
