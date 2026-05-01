@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("NdfInputArchive",)
+__all__ = ("NdfInputArchive", "read")
 
 import logging
 from collections.abc import Callable, Iterator
@@ -34,6 +34,7 @@ from ..serialization import (
     ArrayReferenceModel,
     InlineArrayModel,
     InputArchive,
+    ReadResult,
     TableModel,
     no_header_updates,
 )
@@ -194,3 +195,197 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         # The opaque-FITS reader is wired up in Task 14; for v1 this just
         # returns whatever has been accumulated in __init__ (currently empty).
         return self._opaque_metadata
+
+
+def read[T: Any](cls: type[T], path: ResourcePathExpression, **kwargs: Any) -> ReadResult[T]:
+    """Read an object from an NDF (HDS-on-HDF5) file.
+
+    If the file has a ``/MORE/LSST/JSON`` tree it is used as the source
+    of truth and ``cls.deserialize`` is invoked with the parsed model.
+    Otherwise the reader falls back to auto-detection of a minimal
+    recognised-component set (``DATA_ARRAY``, ``VARIANCE``, ``QUALITY``,
+    ``MORE.FITS``); ``WCS`` is logged-and-dropped in v1.
+
+    Parameters
+    ----------
+    cls
+        Expected return type. ``Image`` and ``MaskedImage`` are the only
+        types the auto-detect path can produce. The symmetric path
+        accepts whatever the file's discriminator says.
+    path
+        File path or ``lsst.resources.ResourcePathExpression``.
+    **kwargs
+        Forwarded to ``cls.deserialize`` on the symmetric read path.
+
+    Returns
+    -------
+    `~lsst.images.serialization.ReadResult` [T]
+        Named tuple of (deserialized object, metadata, butler_info).
+    """
+    with NdfInputArchive.open(path) as archive:
+        if "/MORE/LSST/JSON" in archive._file:
+            tree_type = cls._get_archive_tree_type(NdfPointerModel)
+            tree = archive.get_tree(tree_type)
+            obj = cls.deserialize(tree, archive, **kwargs)
+            obj._opaque_metadata = archive.get_opaque_metadata()
+            return ReadResult(obj, tree.metadata, tree.butler_info)
+        return _read_auto_detect(cls, archive)
+
+
+def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadResult[T]:
+    """Reconstruct an ``Image`` (or ``MaskedImage``) from a Starlink NDF.
+
+    Recognised components: ``DATA_ARRAY`` (in either simple or complex
+    form), ``VARIANCE``, ``QUALITY``, ``MORE.FITS``. Other components
+    (``WCS``, ``HISTORY``, ``AXIS``, ``LABEL``, custom ``MORE.*``,
+    ``_LOGICAL`` primitives) are warned-and-dropped.
+    """
+    from .._image import Image
+    from .._mask import Mask, MaskPlane, MaskSchema
+    from .._masked_image import MaskedImage
+
+    f = archive._file
+    ndf_group = _locate_ndf_root(f)
+
+    # DATA_ARRAY is required.
+    if "DATA_ARRAY" not in ndf_group:
+        raise ArchiveReadError(f"Auto-detect read of {f.filename!r}: no DATA_ARRAY component.")
+    data_arr, bbox = _read_data_array_with_bbox(ndf_group["DATA_ARRAY"])
+
+    # VARIANCE / QUALITY are optional.
+    variance_arr = _read_data_array_with_bbox(ndf_group["VARIANCE"])[0] if "VARIANCE" in ndf_group else None
+    quality_arr: np.ndarray | None = None
+    if "QUALITY" in ndf_group and isinstance(ndf_group["QUALITY"], h5py.Group):
+        q = ndf_group["QUALITY"]
+        if "QUALITY" in q and isinstance(q["QUALITY"], h5py.Dataset):
+            quality_arr = _hds.read_array(q["QUALITY"])
+
+    # WCS is dropped in v1 with a warning.
+    if "WCS" in ndf_group:
+        _LOG.warning(
+            "Starlink WCS present in %s but auto-detect ingest does not yet "
+            "build a Projection from it; dropping. Round-trip writes from "
+            "lsst.images.ndf preserve WCS via the Pydantic tree.",
+            f.filename,
+        )
+
+    # Anything unrecognised: warn-and-drop.
+    recognised = {
+        "DATA_ARRAY",
+        "VARIANCE",
+        "QUALITY",
+        "WCS",
+        "MORE",
+        "TITLE",
+        "LABEL",
+        "UNITS",
+        "HISTORY",
+        "AXIS",
+    }
+    for name in ndf_group:
+        if name not in recognised:
+            _LOG.warning(
+                "Ignoring unrecognised NDF component %s/%s during auto-detect read.",
+                ndf_group.name,
+                name,
+            )
+
+    # Build the in-memory object.
+    obj: Any
+    if variance_arr is not None or quality_arr is not None:
+        if quality_arr is None:
+            quality_arr = np.zeros(data_arr.shape, dtype=np.uint8)
+        if variance_arr is None:
+            variance_arr = np.zeros_like(data_arr, dtype=np.float64)
+        schema = MaskSchema([MaskPlane(name="BAD", description="Bad pixel.")])
+        obj = MaskedImage(
+            image=Image(data_arr, bbox=bbox),
+            mask=Mask(quality_arr, schema=schema, bbox=bbox),
+            variance=Image(variance_arr, bbox=bbox),
+        )
+    else:
+        obj = Image(data_arr, bbox=bbox)
+
+    if not isinstance(obj, cls):
+        raise ArchiveReadError(
+            f"Auto-detect produced {type(obj).__name__} but caller asked for {cls.__name__}."
+        )
+    obj._opaque_metadata = archive.get_opaque_metadata()
+    # Auto-detect path produces no archive-tree metadata or butler_info.
+    return ReadResult(obj, {}, None)
+
+
+def _locate_ndf_root(f: h5py.File) -> h5py.Group:
+    """Return the group representing the top-level NDF.
+
+    Most files have the NDF at the root group itself. A few wrap it
+    in a single-child container at the root; we accept that shape
+    too. Anything more elaborate raises.
+    """
+    root_class = f["/"].attrs.get(_hds.ATTR_CLASS)
+    if isinstance(root_class, bytes):
+        root_class = root_class.decode("ascii")
+    if root_class == "NDF":
+        return f["/"]
+    # Maybe a one-level container.
+    candidates = []
+    for name, child in f["/"].items():
+        if isinstance(child, h5py.Group):
+            cls_attr = child.attrs.get(_hds.ATTR_CLASS)
+            if isinstance(cls_attr, bytes):
+                cls_attr = cls_attr.decode("ascii")
+            if cls_attr == "NDF":
+                candidates.append(name)
+    if len(candidates) == 1:
+        return f[candidates[0]]
+    raise ArchiveReadError(
+        f"Could not locate top-level NDF in {f.filename!r}; "
+        f"expected the root group or a single NDF-typed child."
+    )
+
+
+def _read_data_array_with_bbox(
+    obj: h5py.Group | h5py.Dataset,
+) -> tuple[np.ndarray, Any]:
+    """Read a DATA_ARRAY component in either simple or complex form.
+
+    The complex form (what our writer always produces) is an HDS
+    ARRAY structure (h5py group with CLASS="ARRAY") containing
+    ``DATA`` and ``ORIGIN`` primitives. The simple form is a bare
+    primitive dataset.
+
+    Returns
+    -------
+    array, bbox : tuple
+        ``array`` is the C-order numpy data (shape ``(height, width)``
+        for 2D images). ``bbox`` is constructed from the ORIGIN if
+        present, else from a default origin of (0, 0).
+    """
+    if isinstance(obj, h5py.Dataset):
+        # Simple form.
+        array = _hds.read_array(obj)
+        bbox = _make_bbox(0, 0, array)
+        return array, bbox
+    # Complex form: an HDS structure with DATA + ORIGIN.
+    data = _hds.read_array(obj["DATA"])
+    if "ORIGIN" in obj:
+        origin = _hds.read_array(obj["ORIGIN"])
+        bbox = _make_bbox(int(origin[0]), int(origin[1]), data)
+    else:
+        bbox = _make_bbox(0, 0, data)
+    return data, bbox
+
+
+def _make_bbox(x_min: int, y_min: int, array: np.ndarray) -> Any:
+    """Build an lsst.images.Box for a 2D image array.
+
+    The array is C-order ``(height, width)``. NDF stores ``ORIGIN``
+    in Fortran axis order ``(x_min, y_min)``.
+    """
+    from .._geom import Box
+
+    if array.ndim != 2:
+        raise ArchiveReadError(f"Auto-detect read only supports 2D arrays, got ndim={array.ndim}.")
+    height, width = array.shape
+    # Box.from_shape takes (height, width) and start=(y_start, x_start).
+    return Box.from_shape((height, width), start=(y_min, x_min))
