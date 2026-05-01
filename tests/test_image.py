@@ -116,7 +116,9 @@ class ImageTestCase(unittest.TestCase):
         assert_images_equal(self, image, roundtrip.result)
 
     def test_fits_ndf_consistency(self):
-        """Writing via FITS and via NDF, then reading back, produces equal Images."""
+        """Writing via FITS and via NDF, then reading back, produces equal
+        Images.
+        """
         rng = np.random.default_rng(321)
         image = Image(
             rng.normal(100.0, 8.0, size=(60, 80)),

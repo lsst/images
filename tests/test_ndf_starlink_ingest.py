@@ -15,8 +15,8 @@ import os
 import unittest
 
 from lsst.images import Image
-from lsst.images.ndf import read
 from lsst.images.fits._common import ExtensionKey
+from lsst.images.ndf import read
 
 # Starlink-generated NDF fixture (M57 image, hds-v5 HDF5).
 EXAMPLE = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
@@ -24,7 +24,8 @@ EXAMPLE = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
 
 class StarlinkIngestTestCase(unittest.TestCase):
     """Integration tests that read a real Starlink-produced NDF via the
-    auto-detect ``ndf.read()`` path."""
+    auto-detect ``ndf.read()`` path.
+    """
 
     def test_round_trips_to_image(self):
         """Auto-detect path returns an Image with the correct array shape."""
