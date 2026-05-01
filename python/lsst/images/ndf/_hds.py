@@ -177,7 +177,7 @@ def read_array(dataset: h5py.Dataset) -> np.ndarray:
         data = dataset[()] != 0
         if isinstance(data, np.ndarray):
             return data.astype(np.bool_)
-        return np.bool_(data)
+        return np.atleast_1d(np.bool_(data))
     if dataset.dtype not in NUMPY_TO_HDS:
         raise NotImplementedError(
             f"Dataset {dataset.name!r} has dtype {dataset.dtype} which does not "
