@@ -114,6 +114,8 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         model = model_type.model_validate_json(json_text)
         result = deserializer(model, self)
         self._deserialized_pointer_cache[pointer.ref] = result
+        if isinstance(result, FrameSet):
+            self._frame_set_cache[pointer.ref] = result
         return result
 
     def get_frame_set(self, ref: NdfPointerModel) -> FrameSet:
