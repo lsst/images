@@ -213,6 +213,8 @@ def read_char_array(dataset: h5py.Dataset) -> list[str]:
     """
     if dataset.dtype.kind != "S":
         raise ValueError(f"Dataset {dataset.name!r} is not _CHAR*N (dtype {dataset.dtype}).")
+    if dataset.ndim == 0:
+        raise ValueError(f"Dataset {dataset.name!r} is a scalar _CHAR*N; only 1-D arrays are supported.")
     raw = dataset[()]
     return [item.decode("ascii").rstrip(" ") for item in raw]
 

@@ -433,3 +433,18 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
             # just check the JSON is parseable and the ArchiveTree object the
             # write() function returned dumps to the same JSON.
             self.assertEqual(json.loads(tree.model_dump_json()), recovered)
+
+    def test_write_propagates_metadata(self):
+        from lsst.images import Image
+        from lsst.images.ndf import read, write
+
+        image = Image(np.arange(6, dtype=np.float32).reshape(2, 3))
+        extra = {"test_key": 42, "another": "hello"}
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            tree = write(image, tmp.name, metadata=extra)
+            self.assertEqual(tree.metadata["test_key"], 42)
+            self.assertEqual(tree.metadata["another"], "hello")
+            result = read(Image, tmp.name)
+            self.assertEqual(result.metadata["test_key"], 42)
+            self.assertEqual(result.metadata["another"], "hello")
