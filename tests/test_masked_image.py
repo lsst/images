@@ -22,7 +22,12 @@ from astro_metadata_translator import ObservationInfo
 
 from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema, get_legacy_visit_image_mask_planes
 from lsst.images.fits import FitsCompressionOptions
-from lsst.images.tests import RoundtripFits, RoundtripNdf, assert_masked_images_equal, compare_masked_image_to_legacy
+from lsst.images.tests import (
+    RoundtripFits,
+    RoundtripNdf,
+    assert_masked_images_equal,
+    compare_masked_image_to_legacy,
+)
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -190,12 +195,12 @@ class MaskedImageTestCase(unittest.TestCase):
     def test_round_trip_ndf_compatible_mask(self):
         """NDF round-trip for the default-setup MaskedImage (2 planes ≤ 8)."""
         with RoundtripNdf(self, self.masked_image) as roundtrip:
-            assert_masked_images_equal(
-                self, roundtrip.result, self.masked_image, expect_view=False
-            )
+            assert_masked_images_equal(self, roundtrip.result, self.masked_image, expect_view=False)
 
     def test_round_trip_ndf_incompatible_mask(self):
-        """NDF round-trip for a >8-plane mask (forces 3D mask array, hoisted to MORE/LSST/MASK)."""
+        """NDF round-trip for a >8-plane mask (forces 3D mask array, hoisted
+        to MORE/LSST/MASK).
+        """
         rng = np.random.default_rng(7)
         planes = [MaskPlane(f"P{i}", f"plane {i}") for i in range(12)]
         wide = MaskedImage(
@@ -214,8 +219,10 @@ class MaskedImageTestCase(unittest.TestCase):
 
     def test_fits_ndf_consistency(self):
         """FITS and NDF backends produce equal MaskedImages on round-trip."""
-        with RoundtripFits(self, self.masked_image) as fits_rt, \
-             RoundtripNdf(self, self.masked_image) as ndf_rt:
+        with (
+            RoundtripFits(self, self.masked_image) as fits_rt,
+            RoundtripNdf(self, self.masked_image) as ndf_rt,
+        ):
             assert_masked_images_equal(self, self.masked_image, fits_rt.result, expect_view=False)
             assert_masked_images_equal(self, self.masked_image, ndf_rt.result, expect_view=False)
             assert_masked_images_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
