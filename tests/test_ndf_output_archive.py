@@ -45,7 +45,7 @@ class NdfOutputArchiveBasicsTestCase(unittest.TestCase):
             with h5py.File(tmp.name, "w") as f:
                 NdfOutputArchive(f)
             with h5py.File(tmp.name, "r") as f:
-                self.assertEqual(f["/"].attrs["CLASS"], "NDF")
+                self.assertEqual(f["/"].attrs["CLASS"], b"NDF")
 
 
 class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
@@ -62,7 +62,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 ds = f["/DATA_ARRAY/DATA"]
                 self.assertEqual(ds.dtype, np.float32)
                 np.testing.assert_array_equal(ds[()], data)
-                self.assertEqual(f["/DATA_ARRAY"].attrs["CLASS"], "ARRAY")
+                self.assertEqual(f["/DATA_ARRAY"].attrs["CLASS"], b"ARRAY")
                 origin = f["/DATA_ARRAY/ORIGIN"]
                 self.assertEqual(origin.dtype, np.int64)
                 self.assertEqual(origin.shape, (2,))
@@ -75,7 +75,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 ref = arch.add_array(data, name="variance")
                 self.assertEqual(ref.source, "ndf:/VARIANCE/DATA")
             with h5py.File(tmp.name, "r") as f:
-                self.assertEqual(f["/VARIANCE"].attrs["CLASS"], "ARRAY")
+                self.assertEqual(f["/VARIANCE"].attrs["CLASS"], b"ARRAY")
                 self.assertEqual(f["/VARIANCE/DATA"].dtype, np.float64)
 
     def test_top_level_compatible_mask_routes_to_quality(self):
@@ -86,7 +86,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 ref = arch.add_array(data, name="mask")
                 self.assertEqual(ref.source, "ndf:/QUALITY/QUALITY")
             with h5py.File(tmp.name, "r") as f:
-                self.assertEqual(f["/QUALITY"].attrs["CLASS"], "QUALITY")
+                self.assertEqual(f["/QUALITY"].attrs["CLASS"], b"QUALITY")
                 self.assertEqual(f["/QUALITY/QUALITY"].dtype, np.uint8)
                 self.assertEqual(f["/QUALITY/BADBITS"][()], 0xFF)
 
@@ -103,8 +103,8 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
             with h5py.File(tmp.name, "r") as f:
                 # /MORE/LSST/MASK is a real NDF: top-level CLASS="NDF"
                 # containing a DATA_ARRAY structure with DATA + ORIGIN.
-                self.assertEqual(f["/MORE/LSST/MASK"].attrs["CLASS"], "NDF")
-                self.assertEqual(f["/MORE/LSST/MASK/DATA_ARRAY"].attrs["CLASS"], "ARRAY")
+                self.assertEqual(f["/MORE/LSST/MASK"].attrs["CLASS"], b"NDF")
+                self.assertEqual(f["/MORE/LSST/MASK/DATA_ARRAY"].attrs["CLASS"], b"ARRAY")
                 self.assertEqual(f["/MORE/LSST/MASK/DATA_ARRAY/DATA"].shape, (3, 4, 2))
                 origin = f["/MORE/LSST/MASK/DATA_ARRAY/ORIGIN"]
                 self.assertEqual(origin.dtype, np.int64)
@@ -258,7 +258,7 @@ class NdfWriteWcsTestCase(unittest.TestCase):
             write(image, tmp.name)
             with h5py.File(tmp.name, "r") as f:
                 self.assertIn("WCS", f)
-                self.assertEqual(f["/WCS"].attrs["CLASS"], "WCS")
+                self.assertEqual(f["/WCS"].attrs["CLASS"], b"WCS")
                 wcs_data = f["/WCS/DATA"]
                 self.assertEqual(wcs_data.dtype.kind, "S")  # _CHAR*N
                 lines = [s.decode("ascii").rstrip(" ") for s in wcs_data[()]]
@@ -312,7 +312,7 @@ class NdfWriteWcsTestCase(unittest.TestCase):
                 # Mask sub-NDF carries an identical /WCS.
                 self.assertIn("MASK", f["/MORE/LSST"])
                 self.assertIn("WCS", f["/MORE/LSST/MASK"])
-                self.assertEqual(f["/MORE/LSST/MASK/WCS"].attrs["CLASS"], "WCS")
+                self.assertEqual(f["/MORE/LSST/MASK/WCS"].attrs["CLASS"], b"WCS")
                 mask_lines = [s.decode("ascii") for s in f["/MORE/LSST/MASK/WCS/DATA"][()]]
                 self.assertEqual(top_lines, mask_lines)
 
@@ -351,10 +351,10 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
             self.assertIsNotNone(tree)
             with h5py.File(tmp.name, "r") as f:
                 # Root is an NDF with a name.
-                self.assertEqual(f["/"].attrs["CLASS"], "NDF")
+                self.assertEqual(f["/"].attrs["CLASS"], b"NDF")
                 self.assertIn("HDS_ROOT_NAME", f["/"].attrs)
                 # DATA_ARRAY uses the complex form (DATA + ORIGIN).
-                self.assertEqual(f["/DATA_ARRAY"].attrs["CLASS"], "ARRAY")
+                self.assertEqual(f["/DATA_ARRAY"].attrs["CLASS"], b"ARRAY")
                 np.testing.assert_array_equal(f["/DATA_ARRAY/DATA"][()], image.array)
                 origin = f["/DATA_ARRAY/ORIGIN"][()]
                 self.assertEqual(origin.dtype, np.int64)
