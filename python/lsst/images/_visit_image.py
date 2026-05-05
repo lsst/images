@@ -35,6 +35,7 @@ from .aperture_corrections import (
     ApertureCorrectionMapSerializationModel,
     aperture_corrections_from_legacy,
 )
+from .cameras import Detector, DetectorSerializationModel
 from .fits import FitsOpaqueMetadata
 from .psfs import (
     GaussianPointSpreadFunction,
@@ -142,6 +143,9 @@ class VisitImage(MaskedImage):
     psf
         Point-spread function model for this image, or an exception explaining
         why it could not be read (to be raised if the PSF is requested later).
+    detector
+        Geometry and electronic information for the detector attached to this
+        image.
     aperture_corrections : `dict` [`str`, `~fields.BaseField`]
         Mapping from photometry algorithm name to the aperture correction for
         that algorithm.
@@ -160,6 +164,7 @@ class VisitImage(MaskedImage):
         obs_info: ObservationInfo | None = None,
         summary_stats: ObservationSummaryStats | None = None,
         psf: PointSpreadFunction | ArchiveReadError,
+        detector: Detector,
         aperture_corrections: ApertureCorrectionMap | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ):
@@ -184,6 +189,7 @@ class VisitImage(MaskedImage):
             summary_stats = ObservationSummaryStats()
         self._summary_stats = summary_stats
         self._psf = psf
+        self._detector = detector
         self._aperture_corrections = aperture_corrections if aperture_corrections is not None else {}
 
     @property
@@ -240,6 +246,13 @@ class VisitImage(MaskedImage):
         return self._psf
 
     @property
+    def detector(self) -> Detector:
+        """Geometry and electronic information about the detector
+        (`.cameras.Detector`).
+        """
+        return self._detector
+
+    @property
     def aperture_corrections(self) -> ApertureCorrectionMap:
         """A mapping from photometry algorithm name to the aperture correction
         field for that algorithm (`dict` [`str`, `~.fields.BaseField`]).
@@ -259,6 +272,7 @@ class VisitImage(MaskedImage):
                 psf=self.psf,
                 obs_info=self.obs_info,
                 summary_stats=self.summary_stats,
+                detector=self._detector,
                 aperture_corrections=self.aperture_corrections,
             ),
             bbox=bbox,
@@ -270,8 +284,14 @@ class VisitImage(MaskedImage):
     def __repr__(self) -> str:
         return f"VisitImage({self.image!r}, mask_schema={self.mask.schema!r})"
 
-    def copy(self) -> VisitImage:
-        """Deep-copy the visit image."""
+    def copy(self, *, copy_detector: bool = False) -> VisitImage:
+        """Deep-copy the visit image.
+
+        Parameters
+        ----------
+        copy_detector
+            Whether to deep-copy the `detector` attribute.
+        """
         return self._transfer_metadata(
             VisitImage(
                 image=self._image.copy(),
@@ -280,6 +300,7 @@ class VisitImage(MaskedImage):
                 psf=self._psf,
                 obs_info=self.obs_info,
                 summary_stats=self.summary_stats.model_copy(),
+                detector=self._detector.copy() if copy_detector else self._detector,
                 aperture_corrections=self.aperture_corrections.copy(),
             ),
             copy=True,
@@ -303,6 +324,7 @@ class VisitImage(MaskedImage):
                 )
         assert masked_image_model.projection is not None, "VisitImage always has a projection."
         assert masked_image_model.obs_info is not None, "VisitImage always has observation info."
+        serialized_detector = self._detector.serialize(archive)
         serialized_aperture_corrections = ApertureCorrectionMapSerializationModel.serialize(
             self.aperture_corrections, archive
         )
@@ -314,6 +336,7 @@ class VisitImage(MaskedImage):
             obs_info=masked_image_model.obs_info,
             psf=serialized_psf,
             summary_stats=self.summary_stats,
+            detector=serialized_detector,
             aperture_corrections=serialized_aperture_corrections,
             metadata=self.metadata,
         )
@@ -332,6 +355,7 @@ class VisitImage(MaskedImage):
     ) -> VisitImage:
         masked_image = MaskedImage.deserialize(model, archive, bbox=bbox)
         psf = model.deserialize_psf(archive)
+        detector = Detector.deserialize(model.detector, archive)
         aperture_corrections = model.aperture_corrections.deserialize(archive)
         return VisitImage(
             masked_image.image,
@@ -341,6 +365,7 @@ class VisitImage(MaskedImage):
             projection=masked_image.projection,
             obs_info=masked_image.obs_info,
             summary_stats=model.summary_stats,
+            detector=detector,
             aperture_corrections=aperture_corrections,
         )._finish_deserialize(model)
 
@@ -441,6 +466,9 @@ class VisitImage(MaskedImage):
                 if legacy_summary_stats is not None
                 else None
             ),
+            detector=Detector.from_legacy(
+                legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
+            ),
             aperture_corrections=(
                 aperture_corrections_from_legacy(legacy_ap_corr_map)
                 if legacy_ap_corr_map is not None
@@ -515,6 +543,14 @@ class VisitImage(MaskedImage):
     def read_legacy(
         filename: str,
         *,
+        component: Literal["detector"],
+    ) -> Detector: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
         component: Literal["obs_info"],
     ) -> ObservationInfo: ...
 
@@ -561,6 +597,7 @@ class VisitImage(MaskedImage):
             "variance",
             "projection",
             "psf",
+            "detector",
             "obs_info",
             "summary_stats",
             "aperture_corrections",
@@ -629,7 +666,7 @@ class VisitImage(MaskedImage):
                 aperture_corrections = aperture_corrections_from_legacy(legacy_ap_corr_map)
             if component == "aperture_corrections":
                 return aperture_corrections
-        assert component in (None, "image", "mask", "variance", "projection", "obs_info"), (
+        assert component in (None, "image", "mask", "variance", "projection", "obs_info", "detector"), (
             component
         )  # for MyPy
         with astropy.io.fits.open(filename) as hdu_list:
@@ -642,6 +679,10 @@ class VisitImage(MaskedImage):
                 "LSST BUTLER DATAID INSTRUMENT", instrument, primary_header, obs_info.instrument, str
             )
             visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, primary_header, None, int)
+            if component == "detector":
+                return Detector.from_legacy(
+                    legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
+                )
             projection = Projection.from_legacy(
                 legacy_wcs,
                 DetectorFrame(
@@ -673,6 +714,9 @@ class VisitImage(MaskedImage):
             variance=from_masked_image.variance,
             projection=projection,
             psf=psf,
+            detector=Detector.from_legacy(
+                legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
+            ),
             obs_info=obs_info,
             summary_stats=summary_stats,
             aperture_corrections=aperture_corrections,
@@ -706,6 +750,9 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     )
     summary_stats: ObservationSummaryStats = pydantic.Field(
         description="Summary statistics for the observation."
+    )
+    detector: DetectorSerializationModel = pydantic.Field(
+        description="Geometry and electronic information for the detector."
     )
     aperture_corrections: ApertureCorrectionMapSerializationModel = pydantic.Field(
         default_factory=ApertureCorrectionMapSerializationModel,

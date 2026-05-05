@@ -322,6 +322,7 @@ def compare_visit_image_to_legacy(
     compare_observation_summary_stats_to_legacy(
         tc, visit_image.summary_stats, legacy_exposure.info.getSummaryStats()
     )
+    compare_detector_to_legacy(tc, visit_image.detector, legacy_exposure.getDetector(), is_raw_assembled=True)
     # Make a tiny box for Field comparisons that need to make arrays; that can
     # get expensive otherwisre.
     tiny_bbox = detector_bbox.local[2:4, 3:6]
@@ -343,6 +344,8 @@ def compare_visit_image_to_legacy(
             compare_observation_summary_stats_to_legacy(
                 tc, summary_stats, legacy_exposure.info.getSummaryStats()
             )
+        if detector_obj := alternates.get("detector"):
+            compare_detector_to_legacy(tc, detector_obj, legacy_exposure.getDetector(), is_raw_assembled=True)
         if obs_info := alternates.get("obs_info"):
             visitInfo = legacy_exposure.visitInfo
             tc.assertEqual(obs_info.instrument, visitInfo.getInstrumentLabel())
