@@ -36,6 +36,7 @@ from .._mask import Mask
 from .._masked_image import MaskedImageSerializationModel
 from .._transforms import Projection, ProjectionSerializationModel
 from .._visit_image import VisitImageSerializationModel
+from ..cameras import Detector
 from ..serialization import ButlerInfo
 from ._common import FitsCompressionOptions, PointerModel
 from ._input_archive import FitsInputArchive, read
@@ -273,6 +274,8 @@ class VisitImageFormatter(MaskedImageFormatter):
                 return tree.deserialize_psf(archive)
             case "summary_stats":
                 return tree.summary_stats
+            case "detector":
+                return Detector.deserialize(tree.detector, archive)
             case "aperture_corrections":
                 return tree.aperture_corrections.deserialize(archive)
         return ComponentSentinel.UNRECOGNIZED_COMPONENT
