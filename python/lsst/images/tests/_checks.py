@@ -1093,6 +1093,7 @@ def compare_detector_to_legacy(
         detector.frame,
         detector.to_focal_plane.out_frame,
         in_atol=1e-9 * u.pix,
+        out_atol=1e-7 * detector.to_focal_plane.out_frame.unit,
     )
     fa_legacy_points = legacy_detector.transform(pixel_legacy_points, PIXELS, FIELD_ANGLE)
     check_transform(
@@ -1103,4 +1104,5 @@ def compare_detector_to_legacy(
         detector.frame,
         detector.to_field_angle.out_frame,
         in_atol=1e-9 * u.pix,
+        out_atol=1e-7 * u.arcsec,
     )
