@@ -35,8 +35,10 @@ from lsst.images import (
     get_legacy_visit_image_mask_planes,
 )
 from lsst.images.aperture_corrections import ApertureCorrectionMap, aperture_corrections_to_legacy
+from lsst.images.cameras import Detector
 from lsst.images.fields import ChebyshevField
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
+from lsst.images.json import read as read_json
 from lsst.images.psfs import GaussianPointSpreadFunction, PointSpreadFunction
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
@@ -45,11 +47,13 @@ from lsst.images.tests import (
     assert_masked_images_equal,
     assert_projections_equal,
     compare_aperture_corrections_to_legacy,
+    compare_detector_to_legacy,
     compare_visit_image_to_legacy,
     make_random_projection,
 )
 
-DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
+EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
+LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
 
 class VisitImageTestCase(unittest.TestCase):
@@ -68,6 +72,7 @@ class VisitImageTestCase(unittest.TestCase):
             "flux1": ChebyshevField(det_frame.bbox, np.array([0.75])),
             "flux2": ChebyshevField(det_frame.bbox, np.array([0.625])),
         }
+        cls.detector, _, _ = read_json(Detector, os.path.join(LOCAL_DATA_DIR, "detector.json"))
 
         opaque = FitsOpaqueMetadata()
         hdr = astropy.io.fits.Header()
@@ -89,6 +94,7 @@ class VisitImageTestCase(unittest.TestCase):
             projection=cls.projection,
             obs_info=cls.obs_info,
             summary_stats=cls.summary_stats,
+            detector=cls.detector,
             aperture_corrections=cls.aperture_corrections,
         )
         cls.visit_image._opaque_metadata = opaque
@@ -97,6 +103,7 @@ class VisitImageTestCase(unittest.TestCase):
             psf=GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13]),
             mask_schema=cls.mask_schema,
             projection=cls.projection,
+            detector=cls.detector,
             obs_info=cls.obs_info,
         )
 
@@ -126,6 +133,7 @@ class VisitImageTestCase(unittest.TestCase):
                 mask_schema=self.mask_schema,
                 projection=self.projection,
                 obs_info=self.obs_info,
+                detector=self.detector,
             )
 
         with self.assertRaises(TypeError):
@@ -135,6 +143,7 @@ class VisitImageTestCase(unittest.TestCase):
                 psf=self.gaussian_psf,
                 mask_schema=self.mask_schema,
                 projection=self.projection,
+                detector=self.detector,
             )
 
         with self.assertRaises(TypeError):
@@ -143,6 +152,17 @@ class VisitImageTestCase(unittest.TestCase):
                 self.image,
                 psf=self.gaussian_psf,
                 mask_schema=self.mask_schema,
+                obs_info=self.obs_info,
+                detector=self.detector,
+            )
+
+        with self.assertRaises(TypeError):
+            # Requires a detector.
+            VisitImage(
+                self.image,
+                psf=self.gaussian_psf,
+                mask_schema=self.mask_schema,
+                projection=self.projection,
                 obs_info=self.obs_info,
             )
 
@@ -153,6 +173,7 @@ class VisitImageTestCase(unittest.TestCase):
                 psf=self.gaussian_psf,
                 projection=self.projection,
                 obs_info=self.obs_info,
+                detector=self.detector,
             )
 
         with self.assertRaises(TypeError):
@@ -162,6 +183,7 @@ class VisitImageTestCase(unittest.TestCase):
                 mask_schema=self.mask_schema,
                 projection=self.projection,
                 obs_info=self.obs_info,
+                detector=self.detector,
             )
 
         # Requires a DetectorFrame.
@@ -174,6 +196,7 @@ class VisitImageTestCase(unittest.TestCase):
                 psf=self.gaussian_psf,
                 mask_schema=self.mask_schema,
                 obs_info=self.obs_info,
+                detector=self.detector,
             )
 
         # Variance unit mismatch.
@@ -185,6 +208,7 @@ class VisitImageTestCase(unittest.TestCase):
                 mask_schema=self.mask_schema,
                 projection=self.projection,
                 obs_info=self.obs_info,
+                detector=self.detector,
             )
 
     def test_copy_and_slice(self) -> None:
@@ -277,7 +301,7 @@ class VisitImageTestCase(unittest.TestCase):
         )
 
 
-@unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
+@unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
 class VisitImageLegacyTestCase(unittest.TestCase):
     """Tests for the VisitImage class and the basics of the archive system.
 
@@ -286,8 +310,8 @@ class VisitImageLegacyTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        assert DATA_DIR is not None, "Guaranteed by decorator."
-        cls.filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
+        assert EXTERNAL_DATA_DIR is not None, "Guaranteed by decorator."
+        cls.filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
         try:
             from lsst.afw.image import ExposureFitsReader
 
@@ -347,6 +371,8 @@ class VisitImageLegacyTestCase(unittest.TestCase):
             self.legacy_exposure.info.getApCorrMap(),
             visit.bbox,
         )
+        detector = VisitImage.read_legacy(self.filename, component="detector")
+        compare_detector_to_legacy(self, detector, self.legacy_exposure.getDetector(), is_raw_assembled=True)
 
     def check_legacy_obs_info(self, obs_info: ObservationInfo | None) -> None:
         """Check that an `ObservationInfo` instance is not `None`, and that it
@@ -444,6 +470,7 @@ class VisitImageLegacyTestCase(unittest.TestCase):
                         "obs_info",
                         "summary_stats",
                         "aperture_corrections",
+                        "detector",
                     ]
                 }
             # Try to do a butler get of a component with storage class
@@ -509,7 +536,7 @@ class VisitImageLegacyTestCase(unittest.TestCase):
                 # valid for the *internal* storage class, not the requested
                 # one, and that's difficult to fix because it's tied up with
                 # the data ID standardization logic.
-                for k in ["image", "mask", "variance", "psf"]
+                for k in ["image", "mask", "variance", "psf", "detector"]
             }
             compare_visit_image_to_legacy(
                 self,
