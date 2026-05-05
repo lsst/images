@@ -1,0 +1,1 @@
+Added psf star shapelet decomposition parameters and metrics to the ``ObservationSummaryStats`` class.
