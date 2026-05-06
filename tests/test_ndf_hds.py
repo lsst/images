@@ -125,6 +125,25 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 # read_char_array strips trailing spaces.
                 self.assertEqual(_hds.read_char_array(f["X"]), ["short"])
 
+    def test_ndf_ast_data_encoding_uses_flagged_fixed_width_records(self):
+        text = (
+            " Begin FrameSet\n"
+            '#   Title = "demo"\n'
+            "    VeryLongAttribute = 12345678901234567890\n"
+            " End FrameSet\n"
+        )
+        expected = (
+            'Begin FrameSet\n#   Title = "demo"\nVeryLongAttribute = 12345678901234567890\nEnd FrameSet\n'
+        )
+
+        records = _hds.encode_ndf_ast_data(text)
+
+        self.assertTrue(all(len(record) <= _hds.NDF_AST_DATA_WIDTH for record in records))
+        self.assertTrue(all(record[0] in {" ", "+"} for record in records))
+        self.assertIn(' #   Title = "demo"', records)
+        self.assertTrue(any(record.startswith("+") for record in records))
+        self.assertEqual(_hds.decode_ndf_ast_data(records), expected)
+
     def test_read_char_array_rejects_numeric_dataset(self):
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
@@ -225,9 +244,8 @@ class HdsCanonicalExampleTestCase(unittest.TestCase):
             wcs, hds_type = _hds.open_structure(f, "WCS")
             self.assertEqual(hds_type, "WCS")
             lines = _hds.read_char_array(wcs["DATA"])
-            # AST channel text uses leading whitespace for nesting; strip it
-            # for the structural-marker checks here.
-            stripped = [line.lstrip() for line in lines]
+            text = _hds.decode_ndf_ast_data(lines)
+            stripped = [line.lstrip() for line in text.splitlines()]
             self.assertTrue(any(s.startswith("Begin FrameSet") for s in stripped))
             self.assertTrue(any(s.startswith("End FrameSet") for s in stripped))
 

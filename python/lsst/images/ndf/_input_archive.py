@@ -274,7 +274,7 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
             wcs_group = ndf_group["WCS"]
             if isinstance(wcs_group, h5py.Group) and "DATA" in wcs_group:
                 wcs_lines = _hds.read_char_array(wcs_group["DATA"])
-                wcs_text = "\n".join(wcs_lines) + "\n"
+                wcs_text = _hds.decode_ndf_ast_data(wcs_lines)
                 ast_obj = astshim.Object.fromString(wcs_text)
                 if isinstance(ast_obj, astshim.FrameSet):
                     pixel_frame = GeneralFrame(unit=u.pix)

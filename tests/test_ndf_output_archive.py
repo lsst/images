@@ -283,14 +283,18 @@ class NdfWriteWcsTestCase(unittest.TestCase):
                 self.assertIn("WCS", f)
                 self.assertEqual(f["/WCS"].attrs["CLASS"], b"WCS")
                 wcs_data = f["/WCS/DATA"]
-                self.assertEqual(wcs_data.dtype.kind, "S")  # _CHAR*N
-                lines = [s.decode("ascii").rstrip(" ") for s in wcs_data[()]]
-                # AST FrameSet text dumps start with "Begin FrameSet" and
-                # end with "End FrameSet" (possibly with a leading
-                # whitespace indentation, like the canonical example file).
-                stripped = [line.lstrip() for line in lines]
+                self.assertEqual(wcs_data.dtype, np.dtype("|S32"))
+                records = [s.decode("ascii").rstrip(" ") for s in wcs_data[()]]
+                self.assertTrue(all(record[0] in {" ", "+"} for record in records))
+                self.assertFalse(any(record.startswith("#") for record in records))
+                text = _hds.decode_ndf_ast_data(records)
+                stripped = [line.lstrip() for line in text.splitlines()]
                 self.assertTrue(any(s.startswith("Begin FrameSet") for s in stripped))
                 self.assertTrue(any(s.startswith("End FrameSet") for s in stripped))
+                self.assertIn('Domain = "GRID"', stripped)
+                self.assertIn('Domain = "PIXEL"', stripped)
+                self.assertIn("Sft1 = -19", stripped)
+                self.assertIn("Sft2 = -9", stripped)
 
     def test_write_without_projection_omits_wcs_component(self):
         from lsst.images import Image

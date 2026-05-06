@@ -38,6 +38,8 @@ __all__ = (
     "HDS_TO_NUMPY",
     "NUMPY_TO_HDS",
     "create_structure",
+    "decode_ndf_ast_data",
+    "encode_ndf_ast_data",
     "hds_type_for_dtype",
     "iter_children",
     "open_structure",
@@ -75,6 +77,10 @@ NUMPY_TO_HDS: dict[np.dtype, str] = {
     np.dtype(np.int32): "_INTEGER",
     np.dtype(np.int64): "_INT64",
 }
+
+
+NDF_AST_DATA_WIDTH = 32
+NDF_AST_DATA_MIN_WIDTH = 16
 
 
 def hds_type_for_dtype(dtype: np.dtype) -> str:
@@ -204,6 +210,64 @@ def write_char_array(
         dtype=f"|S{width}",
     )
     return parent.create_dataset(name, data=encoded)
+
+
+def encode_ndf_ast_data(text: str, *, width: int = NDF_AST_DATA_WIDTH) -> list[str]:
+    """Encode AST Channel text for an NDF ``WCS.DATA`` component.
+
+    Starlink NDF stores each AST text line in one or more fixed-width
+    ``_CHAR*32`` records. The first character of each record is a flag:
+    a space starts a new AST line and ``+`` continues the previous one.
+    The payload is the AST text line with leading indentation removed.
+    """
+    if width < NDF_AST_DATA_MIN_WIDTH:
+        raise ValueError(
+            f"NDF AST DATA record width {width} is too short; minimum is {NDF_AST_DATA_MIN_WIDTH}."
+        )
+
+    records: list[str] = []
+    payload_width = width - 1
+    for raw_line in text.splitlines():
+        line = raw_line.lstrip(" ").rstrip(" ")
+        if not line:
+            continue
+        for start in range(0, len(line), payload_width):
+            flag = " " if start == 0 else "+"
+            records.append(f"{flag}{line[start : start + payload_width]}")
+    return records
+
+
+def decode_ndf_ast_data(records: Sequence[str]) -> str:
+    """Decode an NDF ``WCS.DATA`` component into AST Channel text.
+
+    This reverses `encode_ndf_ast_data`. If the input does not look like
+    NDF AST records, it is treated as plain AST Channel text for backward
+    compatibility with earlier non-canonical files.
+    """
+    if not records:
+        return ""
+    if any(record and record[0] not in {" ", "+"} for record in records):
+        return "\n".join(records) + "\n"
+
+    lines: list[str] = []
+    current: list[str] = []
+    for record in records:
+        if not record:
+            continue
+        flag = record[0]
+        payload = record[1:]
+        if flag == "+":
+            if current:
+                current.append(payload)
+            else:
+                current = [payload]
+        else:
+            if current:
+                lines.append("".join(current).rstrip(" "))
+            current = [payload]
+    if current:
+        lines.append("".join(current).rstrip(" "))
+    return "\n".join(lines) + ("\n" if lines else "")
 
 
 def read_char_array(dataset: h5py.Dataset) -> list[str]:

@@ -127,12 +127,12 @@ def write(
         # Auto-detect read of /WCS/DATA is a deferred follow-up: building
         # a typed Projection from a bare FrameSet requires new
         # infrastructure in _transforms/.
+        bbox = getattr(obj, "bbox", None)
         projection = getattr(obj, "projection", None)
         if projection is not None:
             ast_frame_set = projection._pixel_to_sky._get_ast_frame_set()
-            text = ast_frame_set.show(False)
-            lines = text.splitlines()
-            width = max(80, max((len(line) for line in lines), default=0) + 1)
+            text = _show_ast_for_ndf(ast_frame_set, bbox)
+            lines = _hds.encode_ndf_ast_data(text)
             wcs_parents: list[h5py.Group] = [h5_file["/"]]
             if "/MORE/LSST/MASK" in h5_file:
                 wcs_parents.append(h5_file["/MORE/LSST/MASK"])
@@ -140,7 +140,7 @@ def write(
                 if "WCS" in parent:
                     del parent["WCS"]
                 wcs_group = _hds.create_structure(parent, "WCS", "WCS")
-                _hds.write_char_array(wcs_group, "DATA", lines, width=width)
+                _hds.write_char_array(wcs_group, "DATA", lines, width=_hds.NDF_AST_DATA_WIDTH)
 
         # Main JSON tree.
         json_text = tree.model_dump_json()
@@ -159,7 +159,6 @@ def write(
             _hds.write_char_array(more, "FITS", cards, width=80)
 
         # Backfill bbox-derived ORIGIN for DATA_ARRAY and VARIANCE.
-        bbox = getattr(obj, "bbox", None)
         if bbox is not None:
             origin = _origin_from_bbox(bbox)
             for struct_path in (
@@ -201,6 +200,40 @@ def _origin_from_bbox(bbox: Any) -> tuple[int, ...]:
         f"Don't know how to extract origin from bbox of type {type(bbox).__name__!r}; "
         "_origin_from_bbox needs updating."
     )
+
+
+def _show_ast_for_ndf(ast_frame_set: Any, bbox: Any | None) -> str:
+    """Return AST Channel text matching Starlink NDF WCS serialization.
+
+    Tags the original base frame with ``Domain="PIXEL"`` and prepends a
+    new ``Domain="GRID"`` base frame related to it by a `ShiftMap` whose
+    shift converts ``bbox``-origin pixel coordinates into 1-based grid
+    coordinates. The result is written via an abstraction-layer
+    ``Channel`` configured with the same options the Starlink C writer
+    uses (``Full=-1,Comment=0``; see ``ndf1Wwrt.c``) plus ``Indent=0`` so
+    each line is just the bare AST item with the single-space prefix
+    that ``ndf1Rdast`` strips back off on read.
+    """
+    from .._transforms._ast import Channel, StringStream
+    from .._transforms._transform import _prepend_ast_shift
+
+    if bbox is None:
+        x_shift = 1.0
+        y_shift = 1.0
+    else:
+        x_shift = 1.0 - float(bbox.x.start)
+        y_shift = 1.0 - float(bbox.y.start)
+
+    saved_current = ast_frame_set.current
+    ast_frame_set.current = ast_frame_set.base
+    ast_frame_set.domain = "PIXEL"
+    ast_frame_set.current = saved_current
+    _prepend_ast_shift(ast_frame_set, x=x_shift, y=y_shift, ast_domain="GRID")
+
+    stream = StringStream()
+    channel = Channel(stream, options="Full=-1,Comment=0,Indent=0")
+    channel.write(ast_frame_set)
+    return stream.getSinkData()
 
 
 class NdfOutputArchive(OutputArchive[NdfPointerModel]):
