@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("is_none", "round_half_away_from_zero", "round_half_up")
+__all__ = ("is_none", "round_half_away_from_zero", "round_half_down", "round_half_up")
 
 import math
 import operator
@@ -34,6 +34,15 @@ def round_half_up(x: float) -> int:
     conversions.
     """
     return math.floor(x + 0.5)
+
+
+def round_half_down(x: float) -> int:
+    """Round a `float` to an `int`, always rounding half down.
+
+    Note that Python's built-in `round` implements the "round half to even"
+    strategy.
+    """
+    return math.ceil(x - 0.5)
 
 
 def round_half_away_from_zero(x: float) -> int:
