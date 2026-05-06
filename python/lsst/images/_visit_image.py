@@ -24,11 +24,13 @@ import astropy.wcs
 import pydantic
 from astro_metadata_translator import ObservationInfo, VisitInfoTranslator
 
-from ._geom import Box
+from ._concrete_bounds import SerializableBounds, deserialize_bounds
+from ._geom import Bounds, Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_legacy_visit_image_mask_planes
 from ._masked_image import MaskedImage, MaskedImageSerializationModel
 from ._observation_summary_stats import ObservationSummaryStats
+from ._polygon import Polygon
 from ._transforms import DetectorFrame, Projection, ProjectionAstropyView, ProjectionSerializationModel
 from .aperture_corrections import (
     ApertureCorrectionMap,
@@ -47,6 +49,7 @@ from .psfs import (
     PSFExWrapper,
 )
 from .serialization import ArchiveReadError, InputArchive, MetadataValue, OutputArchive
+from .utils import is_none
 
 
 def _obs_info_from_md(md: MutableMapping[str, Any], visit_info: Any = None) -> ObservationInfo:
@@ -135,6 +138,14 @@ class VisitImage(MaskedImage):
     projection
         Projection that maps the pixel grid to the sky.  Can only be `None` if
         a projection is already attached to ``image``.
+    bounds
+        The region where this image's pixels and other properties are valid.
+        If not provided, the bounding box of the image is used.  Other
+        components (``psf``, ``projection``, ``aperture_corrections``, etc.)
+        are assumed to have their own bounds which may or may not be the same
+        as the image bounds.  If ``bounds`` extends beyond the image bounding
+        box, the intersection between ``bounds`` and the image bounding box
+        is used instead.
     obs_info
         General information about this visit in standardized form.
     summary_stats
@@ -161,6 +172,7 @@ class VisitImage(MaskedImage):
         variance: Image | None = None,
         mask_schema: MaskSchema | None = None,
         projection: Projection[DetectorFrame] | None = None,
+        bounds: Bounds | None = None,
         obs_info: ObservationInfo | None = None,
         summary_stats: ObservationSummaryStats | None = None,
         psf: PointSpreadFunction | ArchiveReadError,
@@ -191,6 +203,9 @@ class VisitImage(MaskedImage):
         self._psf = psf
         self._detector = detector
         self._aperture_corrections = aperture_corrections if aperture_corrections is not None else {}
+        self._bounds = bounds if bounds is not None else self.bbox
+        if not self.bbox.contains(self._bounds.bbox):
+            self._bounds = self._bounds.intersection(self.bbox)
 
     @property
     def unit(self) -> astropy.units.UnitBase:
@@ -203,6 +218,11 @@ class VisitImage(MaskedImage):
         (`Projection` [`DetectorFrame`]).
         """
         return cast(Projection[DetectorFrame], super().projection)
+
+    @property
+    def bounds(self) -> Bounds:
+        """The region where pixels are valid (`Bounds`)."""
+        return self._bounds
 
     @property
     def obs_info(self) -> ObservationInfo:
@@ -271,6 +291,7 @@ class VisitImage(MaskedImage):
                 projection=self.projection,
                 psf=self.psf,
                 obs_info=self.obs_info,
+                bounds=self._bounds,  # don't need to intersect here, because __init__ will do that.
                 summary_stats=self.summary_stats,
                 detector=self._detector,
                 aperture_corrections=self.aperture_corrections,
@@ -299,6 +320,7 @@ class VisitImage(MaskedImage):
                 variance=self._variance.copy(),
                 psf=self._psf,
                 obs_info=self.obs_info,
+                bounds=self._bounds,
                 summary_stats=self.summary_stats.model_copy(),
                 detector=self._detector.copy() if copy_detector else self._detector,
                 aperture_corrections=self.aperture_corrections.copy(),
@@ -338,6 +360,7 @@ class VisitImage(MaskedImage):
             summary_stats=self.summary_stats,
             detector=serialized_detector,
             aperture_corrections=serialized_aperture_corrections,
+            bounds=self._bounds.serialize() if self._bounds != self.bbox else None,
             metadata=self.metadata,
         )
 
@@ -367,6 +390,7 @@ class VisitImage(MaskedImage):
             summary_stats=model.summary_stats,
             detector=detector,
             aperture_corrections=aperture_corrections,
+            bounds=deserialize_bounds(model.bounds) if model.bounds is not None else None,
         )._finish_deserialize(model)
 
     @staticmethod
@@ -454,6 +478,7 @@ class VisitImage(MaskedImage):
         masked_image = MaskedImage.from_legacy(legacy.getMaskedImage(), unit=unit, plane_map=plane_map)
         legacy_summary_stats = legacy.info.getSummaryStats()
         legacy_ap_corr_map = legacy.info.getApCorrMap()
+        legacy_polygon = legacy.info.getValidPolygon()
         result = VisitImage(
             image=masked_image.image.view(unit=unit),
             mask=masked_image.mask,
@@ -474,6 +499,7 @@ class VisitImage(MaskedImage):
                 if legacy_ap_corr_map is not None
                 else None
             ),
+            bounds=Polygon.from_legacy(legacy_polygon) if legacy_polygon is not None else None,
         )
 
         result._opaque_metadata = opaque_fits_metadata
@@ -708,6 +734,7 @@ class VisitImage(MaskedImage):
             # This is the image, mask, or variance; attach the projection and
             # obs_info and return
             return from_masked_image.view(projection=projection, obs_info=obs_info)
+        legacy_polygon = reader.readValidPolygon()
         result = VisitImage(
             from_masked_image.image,
             mask=from_masked_image.mask,
@@ -720,6 +747,7 @@ class VisitImage(MaskedImage):
             obs_info=obs_info,
             summary_stats=summary_stats,
             aperture_corrections=aperture_corrections,
+            bounds=Polygon.from_legacy(legacy_polygon) if legacy_polygon is not None else None,
         )
         result._opaque_metadata = from_masked_image._opaque_metadata
         return result
@@ -757,6 +785,11 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     aperture_corrections: ApertureCorrectionMapSerializationModel = pydantic.Field(
         default_factory=ApertureCorrectionMapSerializationModel,
         description="Aperture corrections, keyed by flux algorithm.",
+    )
+    bounds: SerializableBounds | None = pydantic.Field(
+        default=None,
+        description="Pixel validity region, if different from the image bounding box.",
+        exclude_if=is_none,
     )
 
     def deserialize_psf(self, archive: InputArchive[Any]) -> PointSpreadFunction | ArchiveReadError:
