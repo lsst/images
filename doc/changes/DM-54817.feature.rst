@@ -1,0 +1,4 @@
+Added an experimental HDF5 file writer.
+The initial version supports Masked Image and Visit Image and uses the `Starlink NDF data model <https://ui.adsabs.harvard.edu/abs/2015A%26C....12..146J%2F/abstract>`_ layered on `top of HDF5 <https://ui.adsabs.harvard.edu/abs/2015A%26C....12..221J/abstract>`_.
+The files created by this writer are compatible with all the Starlink software with the caveat that the Starlink software does not understand more than 8 mask bits and the Starlink software does not understand the ``.MORE.LSST`` extensions.
+The Starlink software will understand FITS headers and our full WCS.
