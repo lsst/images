@@ -224,7 +224,7 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ObservationSummaryStats):
             return NotImplemented
-        for name in self.model_fields:
+        for name in ObservationSummaryStats.model_fields:
             a = getattr(self, name)
             b = getattr(other, name)
             if isinstance(a, tuple) and isinstance(b, tuple):
