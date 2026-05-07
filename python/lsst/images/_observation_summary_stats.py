@@ -64,6 +64,58 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
         default_factory=_default_corners, description="Declination of bounding box corners (degrees)."
     )
 
+    psfAdaptiveThresholdValue: float = pydantic.Field(
+        math.nan,
+        description="Threshold value used in the adaptive threshold detection pass for PSF modelling.",
+    )
+
+    psfAdaptiveIncludeThresholdMultiplier: float = pydantic.Field(
+        math.nan,
+        description="Threshold multiplier used in the adaptive threshold detection pass for PSF modelling.",
+    )
+
+    nShapeletStar: int = pydantic.Field(
+        0,
+        description="Number of sources used in the shapelet decomposition.",
+    )
+
+    shapeletsScore: float = pydantic.Field(
+        math.nan,
+        description=(
+            "The dimensionless image quality score as determined from the shapelets decomposition. The "
+            "score spans the range [0.0, 1.0] with lower values indicating better image quality."
+        ),
+    )
+
+    psfStarShapeletCoeffs: tuple[float, ...] = pydantic.Field(
+        default_factory=tuple,
+        description="Coefficients from the PSF star shapelet decomposition.",
+    )
+
+    centroidDiffShapeletVsSlotMedian: float = pydantic.Field(
+        math.nan,
+        description=(
+            "Median centroid difference (sqrt((slot_x - shapelet_x)**2 + (slot_y - shapelet_y)**2)) for "
+            "sources used in the shapelet decomposition (pixels)."
+        ),
+    )
+
+    shapeletStarEMedian: float = pydantic.Field(
+        math.nan,
+        description=(
+            "Median ellipticity (sqrt(starE1**2.0 + starE2**2.0)) of the sources used in the "
+            "shapelet decomposition."
+        ),
+    )
+
+    shapeletStarUnNormalizedEMedian: float = pydantic.Field(
+        math.nan,
+        description=(
+            "Median un-normalized ellipticity (sqrt((starXX - starYY)**2.0 + (2.0*starXY)**2.0)) "
+            "of the sources used in the shapelet decomposition (pixel**2)."
+        ),
+    )
+
     astromOffsetMean: float = pydantic.Field(math.nan, description="Astrometry match offset mean.")
 
     astromOffsetStd: float = pydantic.Field(math.nan, description="Astrometry match offset stddev.")
@@ -228,6 +280,8 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
             a = getattr(self, name)
             b = getattr(other, name)
             if isinstance(a, tuple) and isinstance(b, tuple):
+                if len(a) != len(b):
+                    return False
                 for ai, bi in zip(a, b):
                     if ai != bi and not (math.isnan(ai) and math.isnan(bi)):
                         return False
