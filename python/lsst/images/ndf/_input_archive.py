@@ -56,7 +56,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
     Parameters
     ----------
     file
-        Open ``h5py.File`` handle. Owned by the caller of :meth:`open`;
+        Open `h5py.File` handle. Owned by the caller of :meth:`open`;
         the archive does not close it.
     """
 
