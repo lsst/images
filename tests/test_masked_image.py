@@ -22,7 +22,12 @@ from astro_metadata_translator import ObservationInfo
 
 from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema, get_legacy_visit_image_mask_planes
 from lsst.images.fits import FitsCompressionOptions
-from lsst.images.tests import RoundtripFits, assert_masked_images_equal, compare_masked_image_to_legacy
+from lsst.images.tests import (
+    RoundtripFits,
+    RoundtripNdf,
+    assert_masked_images_equal,
+    compare_masked_image_to_legacy,
+)
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -186,6 +191,62 @@ class MaskedImageTestCase(unittest.TestCase):
                 self.assertEqual(fits[3].header["ZCMPTYPE"], "RICE_1")
         assert_masked_images_equal(self, roundtripped, self.masked_image, expect_view=False, rtol=0.01)
         assert_masked_images_equal(self, subimage, roundtripped[subbox], expect_view=False)
+
+    def test_round_trip_ndf_compatible_mask(self):
+        """NDF round-trip for the default-setup MaskedImage (2 planes ≤ 8)."""
+        with RoundtripNdf(self, self.masked_image) as roundtrip:
+            assert_masked_images_equal(self, roundtrip.result, self.masked_image, expect_view=False)
+
+    def test_round_trip_ndf_incompatible_mask(self):
+        """NDF round-trip for a >8-plane mask (uses native 3D mask array,
+        to MORE/LSST/MASK).
+        """
+        rng = np.random.default_rng(7)
+        planes = [MaskPlane(f"P{i}", f"plane {i}") for i in range(12)]
+        wide = MaskedImage(
+            Image(
+                rng.normal(100.0, 8.0, size=(50, 60)),
+                dtype=np.float64,
+                unit=u.nJy,
+                start=(0, 0),
+            ),
+            mask_schema=MaskSchema(planes),
+            obs_info=self.obs_info,
+        )
+        wide.variance.array = rng.normal(64.0, 0.5, size=wide.bbox.shape)
+        with RoundtripNdf(self, wide) as roundtrip:
+            assert_masked_images_equal(self, roundtrip.result, wide, expect_view=False)
+
+    def test_round_trip_ndf_many_plane_mask(self):
+        """NDF round-trip for a mask that needs more than one int32 chunk."""
+        rng = np.random.default_rng(11)
+        planes = [MaskPlane(f"P{i}", f"plane {i}") for i in range(40)]
+        wide = MaskedImage(
+            Image(
+                rng.normal(100.0, 8.0, size=(10, 12)),
+                dtype=np.float64,
+                unit=u.nJy,
+                start=(0, 0),
+            ),
+            mask_schema=MaskSchema(planes),
+            obs_info=self.obs_info,
+        )
+        wide.mask.set("P0", wide.image.array > 100.0)
+        wide.mask.set("P17", wide.image.array < 95.0)
+        wide.mask.set("P39", wide.image.array > 110.0)
+        wide.variance.array = rng.normal(64.0, 0.5, size=wide.bbox.shape)
+        with RoundtripNdf(self, wide) as roundtrip:
+            assert_masked_images_equal(self, roundtrip.result, wide, expect_view=False)
+
+    def test_fits_ndf_consistency(self):
+        """FITS and NDF backends produce equal MaskedImages on round-trip."""
+        with (
+            RoundtripFits(self, self.masked_image) as fits_rt,
+            RoundtripNdf(self, self.masked_image) as ndf_rt,
+        ):
+            assert_masked_images_equal(self, self.masked_image, fits_rt.result, expect_view=False)
+            assert_masked_images_equal(self, self.masked_image, ndf_rt.result, expect_view=False)
+            assert_masked_images_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_legacy(self) -> None:

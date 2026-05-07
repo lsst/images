@@ -24,6 +24,7 @@ from lsst.images import Box, DetectorFrame, Image
 from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
+    RoundtripNdf,
     assert_close,
     assert_images_equal,
     assert_projections_equal,
@@ -103,6 +104,32 @@ class ImageTestCase(unittest.TestCase):
             subbox = Box.factory[3:5, 0:1]
             assert_images_equal(self, image[subbox], roundtrip.get(bbox=subbox))
         assert_images_equal(self, image, roundtrip.result)
+
+    def test_ndf_roundtrip(self) -> None:
+        """Test saving a tiny image to NDF."""
+        image = Image(
+            np.arange(15).reshape(5, 3),
+            start=(2, -1),
+        )
+        with RoundtripNdf(self, image) as roundtrip:
+            pass
+        assert_images_equal(self, image, roundtrip.result)
+
+    def test_fits_ndf_consistency(self):
+        """Writing via FITS and via NDF, then reading back, produces equal
+        Images.
+        """
+        rng = np.random.default_rng(321)
+        image = Image(
+            rng.normal(100.0, 8.0, size=(60, 80)),
+            dtype=np.float64,
+            unit=u.nJy,
+            start=(0, 0),
+        )
+        with RoundtripFits(self, image) as fits_rt, RoundtripNdf(self, image) as ndf_rt:
+            assert_images_equal(self, image, fits_rt.result)
+            assert_images_equal(self, image, ndf_rt.result)
+            assert_images_equal(self, fits_rt.result, ndf_rt.result)
 
     def test_quantity(self):
         """Test quantities."""

@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("RoundtripFits", "RoundtripJson", "TemporaryButler")
+__all__ = ("RoundtripFits", "RoundtripJson", "RoundtripNdf", "TemporaryButler")
 
 import tempfile
 import unittest
@@ -304,3 +304,24 @@ class RoundtripJson[T](RoundtripBase[T]):
 
     def _read(self, obj_type: Any, filename: str) -> ReadResult:
         return json.read(obj_type, filename)
+
+
+class RoundtripNdf[T](RoundtripBase[T]):
+    def inspect(self) -> Any:
+        """Open the NDF file with h5py."""
+        import h5py
+
+        return self._exit_stack.enter_context(h5py.File(self.filename, "r"))
+
+    def _get_extension(self) -> str:
+        return ".sdf"
+
+    def _write(self, obj: Any, filename: str) -> ArchiveTree:
+        from .. import ndf
+
+        return ndf.write(obj, filename)
+
+    def _read(self, obj_type: Any, filename: str) -> ReadResult:
+        from .. import ndf
+
+        return ndf.read(obj_type, filename)

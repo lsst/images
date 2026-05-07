@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 __all__ = (
     "USING_STARLINK_PYAST",
+    "Channel",
     "FitsChan",
     "Frame",
     "FrameSet",
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
 else:
     try:
         from astshim import (
+            Channel,
             FitsChan,
             Frame,
             FrameDict,
@@ -88,6 +90,9 @@ if USING_STARLINK_PYAST:
             if not self._lines:
                 return ""
             return "\n".join(self._lines) + "\n"
+
+        def getSinkData(self) -> str:
+            return self.to_string()
 
     class Object:
         """Bridge class that exposes the `astshim.Object` interface while
@@ -169,6 +174,14 @@ if USING_STARLINK_PYAST:
         @property
         def ident(self) -> str:
             return self._impl.Ident
+
+        @property
+        def domain(self) -> str:
+            return self._impl.Domain
+
+        @domain.setter
+        def domain(self, value: str) -> None:
+            self._impl.Domain = value
 
         def setUnit(self, axis: int, unit: str) -> None:
             setattr(self._impl, f"Unit_{axis}", unit)
@@ -257,3 +270,12 @@ if USING_STARLINK_PYAST:
 
         def __iter__(self) -> Any:
             return iter(self._impl)
+
+    class Channel(Object):
+        def __init__(self, stream: StringStream, options: str = ""):
+            super().__init__(starlink.Ast.Channel(None, stream, options))
+
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.Channel]] = starlink.Ast.Channel
+
+        def write(self, obj: Object) -> int:
+            return self._impl.write(obj._impl)

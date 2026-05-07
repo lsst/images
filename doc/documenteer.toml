@@ -23,7 +23,8 @@ nitpick_ignore = [
   ["py:class", "F"],  # type variables don't resolve
   ["py:class", "I"],  # type variables don't resolve
   ["py:class", "O"],  # type variables don't resolve
-  ["py:class", "MetadataValue"]  # type aliases don't resolve
+  ["py:class", "MetadataValue"],  # type aliases don't resolve
+  ["py:class", "h5py._hl.files.File"]
 ]
 nitpick_ignore_regex = [
   ['py:.*', 'lsst\..*'],  # Ignore warnings from links to other lsst packages.
@@ -48,3 +49,4 @@ python = "https://docs.python.org/3"
 pydantic = "https://docs.pydantic.dev/latest/"
 piff = "https://rmjarvis.github.io/Piff/_build/html"
 astro_metadata_translator = "https://astro-metadata-translator.lsst.io/"
+h5py = "https://docs.h5py.org/en/stable/"

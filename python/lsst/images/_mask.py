@@ -626,15 +626,25 @@ class Mask(GeneralizedImage):
             If this is set to ``" "``, it will prevent the `Projection` from
             being saved as a FITS WCS.
         """
-        data: list[ArrayReferenceModel | InlineArrayModel] = []
-        for schema_2d in self.schema.split(np.int32):
-            mask_2d = Mask(
-                0, bbox=self.bbox, schema=schema_2d, projection=self._projection, obs_info=self._obs_info
-            )
-            mask_2d.update(self)
-            data.append(
-                mask_2d._serialize_2d(archive, update_header=update_header, add_offset_wcs=add_offset_wcs)
-            )
+        if _archive_prefers_native_mask_arrays(archive):
+            # HDS presents array dimensions in Fortran order, which is the
+            # reverse of the h5py dataset shape.  Store the trailing mask-byte
+            # axis first in HDF5 so Starlink tools see (x, y, byte).
+            array_model = archive.add_array(np.moveaxis(self._array, -1, 0), update_header=update_header)
+            if not isinstance(array_model, ArrayReferenceModel):
+                raise RuntimeError("Native mask arrays require reference array storage.")
+            array_model.shape = list(self._array.shape)
+            data: list[ArrayReferenceModel | InlineArrayModel] = [array_model]
+        else:
+            data = []
+            for schema_2d in self.schema.split(np.int32):
+                mask_2d = Mask(
+                    0, bbox=self.bbox, schema=schema_2d, projection=self._projection, obs_info=self._obs_info
+                )
+                mask_2d.update(self)
+                data.append(
+                    mask_2d._serialize_2d(archive, update_header=update_header, add_offset_wcs=add_offset_wcs)
+                )
         serialized_projection: ProjectionSerializationModel[P] | None = None
         if save_projection and self.projection is not None:
             serialized_projection = archive.serialize_direct("projection", self.projection.serialize)
@@ -705,6 +715,19 @@ class Mask(GeneralizedImage):
         projection = (
             Projection.deserialize(model.projection, archive) if model.projection is not None else None
         )
+        if len(model.data) == 1 and tuple(model.data[0].shape) == tuple(model.bbox.shape) + (
+            schema.mask_size,
+        ):
+            storage_slices = slices if slices is ... else (slice(None),) + slices
+            array = archive.get_array(model.data[0], strip_header=strip_header, slices=storage_slices)
+            array = np.moveaxis(array, 0, -1)
+            return Mask(
+                array,
+                schema=schema,
+                bbox=bbox,
+                projection=projection,
+                obs_info=model.obs_info,
+            )._finish_deserialize(model)
         result = Mask(
             0,
             schema=schema,
@@ -964,7 +987,20 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     @property
     def bbox(self) -> Box:
         """The 2-d bounding box of the mask."""
-        return Box.from_shape(self.data[0].shape, start=self.start)
+        shape = self.data[0].shape
+        if len(shape) == 3:
+            shape = shape[:2]
+        return Box.from_shape(shape, start=self.start)
+
+
+def _archive_prefers_native_mask_arrays(archive: OutputArchive[Any]) -> bool:
+    """Return whether an archive wants masks in their native 3-D layout."""
+    current: Any = archive
+    while current is not None:
+        if getattr(current, "_prefer_native_mask_arrays", False):
+            return True
+        current = getattr(current, "_parent", None)
+    return False
 
 
 def get_legacy_visit_image_mask_planes() -> dict[str, MaskPlane]:

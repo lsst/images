@@ -41,6 +41,7 @@ from lsst.images.psfs import GaussianPointSpreadFunction, PointSpreadFunction
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
+    RoundtripNdf,
     TemporaryButler,
     assert_masked_images_equal,
     assert_projections_equal,
@@ -223,6 +224,20 @@ class VisitImageTestCase(unittest.TestCase):
         self.assertNotEqual(
             self.summary_stats, ObservationSummaryStats(psfSigma=2.5, raCorners=(5.2, 5.4, 5.4, 5.2))
         )
+
+    def test_round_trip_ndf(self):
+        """NDF round-trip for VisitImage."""
+        with RoundtripNdf(self, self.visit_image) as roundtrip:
+            assert_masked_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
+            self.assertEqual(roundtrip.result.summary_stats, self.visit_image.summary_stats)
+            self.assertEqual(type(roundtrip.result.psf), type(self.visit_image.psf))
+
+    def test_fits_ndf_consistency(self):
+        """FITS and NDF backends produce equal VisitImages on round-trip."""
+        with RoundtripFits(self, self.visit_image) as fits_rt, RoundtripNdf(self, self.visit_image) as ndf_rt:
+            assert_masked_images_equal(self, self.visit_image, fits_rt.result, expect_view=False)
+            assert_masked_images_equal(self, self.visit_image, ndf_rt.result, expect_view=False)
+            assert_masked_images_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
 
     def test_read_write(self) -> None:
         """Test that a visit can round trip through a FITS file."""

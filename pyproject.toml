@@ -24,6 +24,7 @@ keywords=["lsst"]
 dependencies = [
     "astropy >= 7.0",
     "fsspec",
+    "h5py >= 3.10",
     "numpy >= 2.0",
     "scipy >= 1.13",
     "pydantic >= 2.12",
@@ -209,7 +210,7 @@ warn_redundant_casts = true
 plugins = "pydantic.mypy"
 
 [[tool.mypy.overrides]]
-module = ["fsspec.*", "astropy.*", "galsim.*", "piff.*", "lsst.*", "starlink.*"]
+module = ["fsspec.*", "astropy.*", "galsim.*", "h5py.*", "piff.*", "lsst.*", "starlink.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

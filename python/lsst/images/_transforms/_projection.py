@@ -116,6 +116,44 @@ class Projection[F: Frame]:
             )
         )
 
+    @staticmethod
+    def from_ast_frame_set(
+        ast_frame_set: astshim.FrameSet,
+        pixel_frame: F,
+        pixel_bounds: Bounds | None = None,
+    ) -> Projection[F]:
+        """Construct a projection from an AST FrameSet.
+
+        The current frame of the FrameSet must be an AST SkyFrame.  Its
+        coordinate system is forced to ICRS (AST adjusts the mapping
+        automatically) so the resulting Projection is always in ICRS
+        regardless of the original sky system.
+
+        Parameters
+        ----------
+        ast_frame_set
+            An AST FrameSet whose base frame is pixel coordinates and
+            whose current frame is a SkyFrame (in any supported sky
+            coordinate system).
+        pixel_frame
+            Coordinate frame for the pixel grid.
+        pixel_bounds
+            The region that bounds valid pixels for this transform.
+
+        Raises
+        ------
+        ValueError
+            If the current frame of the FrameSet is not a SkyFrame.
+        """
+        current_frame = ast_frame_set.getFrame(ast_frame_set.current)
+        if not isinstance(current_frame, astshim.SkyFrame):
+            raise ValueError(
+                "The current frame of the AST FrameSet is not a SkyFrame "
+                f"(got {type(current_frame).__name__})."
+            )
+        current_frame._impl.System = "ICRS"
+        return Projection(Transform(pixel_frame, SkyFrame.ICRS, ast_frame_set, in_bounds=pixel_bounds))
+
     @property
     def pixel_frame(self) -> F:
         """Coordinate frame for the pixel grid."""
