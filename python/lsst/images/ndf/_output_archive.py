@@ -60,7 +60,8 @@ def write(
     ----------
     obj
         Object with a ``serialize`` method. May carry an
-        ``_opaque_metadata`` attribute (a :class:`FitsOpaqueMetadata`)
+        ``_opaque_metadata`` attribute (a
+        `~lsst.images.fits.FitsOpaqueMetadata`)
         whose primary-HDU header gets written to ``/MORE/FITS``.
     filename
         Path to write to.  Must not already exist.  If `None`, an
@@ -69,7 +70,7 @@ def write(
         archive made (useful for tests).
     metadata, butler_info
         Optional caller-supplied entries that are written into the
-        returned :class:`ArchiveTree`.
+        returned `~lsst.images.serialization.ArchiveTree`.
     update_header
         Callback that mutates the opaque primary FITS header, used by
         the butler formatter to inject provenance.
@@ -237,22 +238,22 @@ def _show_ast_for_ndf(ast_frame_set: Any, bbox: Any | None) -> str:
 
 
 class NdfOutputArchive(OutputArchive[NdfPointerModel]):
-    """An :class:`~lsst.images.serialization.OutputArchive` implementation
+    """An `~lsst.images.serialization.OutputArchive` implementation
     that writes HDS-on-HDF5 files compatible with the Starlink NDF data
     model.
 
     Parameters
     ----------
     file
-        An open ``h5py.File`` opened in a writable mode. The archive does
+        An open `h5py.File` opened in a writable mode. The archive does
         not close the file; the caller is responsible for that.
     compression_options
-        Optional dict passed through to ``h5py.create_dataset`` for image
+        Optional dict passed through to `h5py.Group.create_dataset` for image
         arrays (e.g. ``{"compression": "gzip", "compression_opts": 4}``).
         Reserved for use by `add_array` (Task 8).
     opaque_metadata
-        Optional :class:`FitsOpaqueMetadata`; if its primary-HDU header is
-        non-empty its cards will be written to ``/MORE/FITS`` by the
+        Optional `~lsst.images.fits.FitsOpaqueMetadata`; if its primary-HDU
+        header is non-empty its cards will be written to ``/MORE/FITS`` by the
         top-level write() function (Task 11).
     """
 

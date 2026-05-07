@@ -19,7 +19,7 @@ import pydantic
 class NdfPointerModel(pydantic.BaseModel, serialize_by_alias=True):
     """Reference to an NDF-archive sub-tree by HDF5 path.
 
-    Used by :class:`NdfOutputArchive`/:class:`NdfInputArchive` to point to
+    Used by `NdfOutputArchive`/`NdfInputArchive` to point to
     sub-trees that have been hoisted out of the main JSON tree into separate
     HDS components.
     """
