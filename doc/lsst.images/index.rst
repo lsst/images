@@ -31,4 +31,5 @@ API Reference
    serialization.rst
    fits.rst
    json.rst
+   ndf.rst
    tests.rst
