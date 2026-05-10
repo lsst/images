@@ -1,0 +1,1 @@
+Added column for reference catalog source density (in number per degrees**2) to the ``ObservationSummaryStats`` class.
