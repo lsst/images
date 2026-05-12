@@ -45,6 +45,7 @@ from ..serialization import (
 )
 from . import _hds
 from ._common import NdfPointerModel, archive_path_to_hdf5_path
+from ._model import HdsPrimitive, HdsStructure, Ndf, NdfArray, NdfDocument, NdfQuality, NdfWcs
 
 
 def write(
@@ -136,30 +137,21 @@ def write(
             ast_frame_set = projection._pixel_to_sky._get_ast_frame_set()
             text = _show_ast_for_ndf(ast_frame_set, bbox)
             lines = _hds.encode_ndf_ast_data(text)
-            wcs_parents: list[h5py.Group] = [h5_file["/"]]
-            if "/MORE/LSST/MASK" in h5_file:
-                wcs_parents.append(h5_file["/MORE/LSST/MASK"])
-            for parent in wcs_parents:
-                if "WCS" in parent:
-                    del parent["WCS"]
-                wcs_group = _hds.create_structure(parent, "WCS", "WCS")
-                _hds.write_char_array(wcs_group, "DATA", lines, width=_hds.NDF_AST_DATA_WIDTH)
+            archive._document.ensure_ndf("/").set_wcs(NdfWcs(lines))
+            if archive._has_model_path("/MORE/LSST/MASK"):
+                archive._document.ensure_ndf("/MORE/LSST/MASK").set_wcs(NdfWcs(lines))
 
         # Main JSON tree.
         json_text = tree.model_dump_json()
-        more_lsst = archive._ensure_path("/MORE/LSST")
-        if "JSON" in more_lsst:
-            del more_lsst["JSON"]
-        _hds.write_char_array(more_lsst, "JSON", [json_text], width=max(80, len(json_text)))
+        more_lsst = archive._ensure_model_structure("/MORE/LSST", "EXT")
+        more_lsst.children["JSON"] = HdsPrimitive.char_array([json_text], width=max(80, len(json_text)))
 
         # Opaque FITS cards in /MORE/FITS.
         primary = opaque_metadata.headers.get(ExtensionKey())
         if primary is not None and len(primary):
             cards = [card.image for card in primary.cards]
-            more = archive._ensure_path("/MORE")
-            if "FITS" in more:
-                del more["FITS"]
-            _hds.write_char_array(more, "FITS", cards, width=80)
+            more = archive._ensure_model_structure("/MORE", "EXT")
+            more.children["FITS"] = HdsPrimitive.char_array(cards, width=80)
 
         # Backfill bbox-derived ORIGIN for DATA_ARRAY and VARIANCE.
         if bbox is not None:
@@ -170,13 +162,14 @@ def write(
                 "/QUALITY/QUALITY",
                 "/MORE/LSST/MASK/DATA_ARRAY",
             ):
-                if struct_path in h5_file:
+                if archive._has_model_path(struct_path):
                     archive.set_array_origin(struct_path, origin)
 
         # Mark the root group with HDS_ROOT_NAME using fixed-length ASCII
         # bytes so KAPPA / hdstrace can decode the attribute.
         root_name = archive_default_name or type(obj).__name__
-        _hds.set_root_name(h5_file, root_name, "NDF")
+        archive._document.root_name = root_name
+        archive._flush()
 
         return tree
     finally:
@@ -261,13 +254,14 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         opaque_metadata: FitsOpaqueMetadata | None = None,
     ) -> None:
         self._file = file
+        self._document = NdfDocument(root=Ndf())
         self._compression_options = dict(compression_options) if compression_options else {}
         self._opaque_metadata = opaque_metadata if opaque_metadata is not None else FitsOpaqueMetadata()
         self._frame_sets: list[tuple[FrameSet, NdfPointerModel]] = []
         self._pointers: dict[Hashable, NdfPointerModel] = {}
-        # Mark the root group as a top-level NDF if not already marked.
-        if _hds.ATTR_CLASS not in self._file["/"].attrs:
-            _hds.set_ascii_attr(self._file["/"], _hds.ATTR_CLASS, "NDF")
+        # Keep the open file in sync so existing direct-archive tests can
+        # inspect it immediately, while all mutations go through the IR.
+        self._flush()
 
     def serialize_direct[T: pydantic.BaseModel](
         self, name: str, serializer: Callable[[OutputArchive[NdfPointerModel]], T]
@@ -287,10 +281,9 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         model = self.serialize_direct(name, serializer)
         json_text = model.model_dump_json()
         parent_path, leaf = path.rsplit("/", 1)
-        parent = self._ensure_path(parent_path)
-        if leaf in parent:
-            del parent[leaf]
-        _hds.write_char_array(parent, leaf, [json_text], width=max(80, len(json_text)))
+        parent = self._ensure_model_structure(parent_path, "EXT")
+        parent.children[leaf] = HdsPrimitive.char_array([json_text], width=max(80, len(json_text)))
+        self._flush()
         pointer = NdfPointerModel(ref=path)
         self._pointers[key] = pointer
         return pointer
@@ -317,28 +310,41 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
     ) -> ArrayReferenceModel:
         # Recognised top-level names go to standard NDF locations.
         # Anything else hoists under /MORE/LSST.
+        root = self._document.ensure_ndf("/")
         if name == "image":
-            self._ensure_array_structure("/DATA_ARRAY")
+            root.set_array_component(
+                "DATA_ARRAY",
+                array,
+                origin=np.zeros(array.ndim, dtype=np.int64),
+                compression_options=self._compression_options,
+            )
             path = "/DATA_ARRAY/DATA"
-            self._write_origin_for_array("/DATA_ARRAY", array)
         elif name == "variance":
-            self._ensure_array_structure("/VARIANCE")
+            root.set_array_component(
+                "VARIANCE",
+                array,
+                origin=np.zeros(array.ndim, dtype=np.int64),
+                compression_options=self._compression_options,
+            )
             path = "/VARIANCE/DATA"
-            self._write_origin_for_array("/VARIANCE", array)
         elif name == "mask":
             if array.ndim == 2 and array.dtype in self._COMPATIBLE_MASK_DTYPES:
-                self._ensure_quality_array_structure()
+                self._set_quality_array(array)
                 path = "/QUALITY/QUALITY/DATA"
             else:
                 # Native Mask serialization passes HDF5 shape
                 # (mask-byte, y, x). HDS reports the reverse dimension order,
                 # so Starlink tools see (x, y, mask-byte).
                 if array.ndim == 3 and array.dtype in self._COMPATIBLE_MASK_DTYPES:
-                    self._write_quality_array(self._collapse_mask_to_quality(array))
-                self._ensure_struct("/MORE/LSST/MASK", "NDF")
-                self._ensure_array_structure("/MORE/LSST/MASK/DATA_ARRAY")
+                    self._set_quality_array(self._collapse_mask_to_quality(array))
+                mask_ndf = self._document.ensure_ndf("/MORE/LSST/MASK")
+                mask_ndf.set_array_component(
+                    "DATA_ARRAY",
+                    array,
+                    origin=np.zeros(array.ndim, dtype=np.int64),
+                    compression_options=self._compression_options,
+                )
                 path = "/MORE/LSST/MASK/DATA_ARRAY/DATA"
-                self._write_origin_for_array("/MORE/LSST/MASK/DATA_ARRAY", array)
         else:
             if name is None:
                 raise ValueError("Anonymous arrays are not supported in the NDF archive.")
@@ -353,19 +359,15 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             # _CHAR*N datasets at /MORE/LSST/<NAME> (no NDF wrapper) —
             # they're JSON documents, not numeric arrays.
             sub_ndf_path = archive_path_to_hdf5_path(archive_path)
-            self._ensure_struct(sub_ndf_path, "NDF")
-            self._ensure_array_structure(f"{sub_ndf_path}/DATA_ARRAY")
+            sub_ndf = self._document.ensure_ndf(sub_ndf_path)
+            sub_ndf.set_array_component(
+                "DATA_ARRAY",
+                array,
+                origin=np.zeros(array.ndim, dtype=np.int64),
+                compression_options=self._compression_options,
+            )
             path = f"{sub_ndf_path}/DATA_ARRAY/DATA"
-            self._write_origin_for_array(f"{sub_ndf_path}/DATA_ARRAY", array)
-        parent_path, leaf = path.rsplit("/", 1)
-        parent = self._ensure_path(parent_path)
-        _hds.write_array(
-            parent,
-            leaf,
-            array,
-            compression=self._compression_options.get("compression"),
-            compression_opts=self._compression_options.get("compression_opts"),
-        )
+        self._flush()
         # Shape is stored in the JSON tree (matching the FITS archive) because
         # MaskSerializationModel.bbox needs it before any arrays are read.
         # Future work: resolve shape from the HDF5 dataset on read instead.
@@ -382,24 +384,15 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         ``CLASS="EXT"``, the HDS type for general-purpose extension
         containers (matches what hds-v5 writes for ``MORE``).
         """
-        if path in ("", "/"):
-            return self._file["/"]
-        parts = path.lstrip("/").split("/")
-        cursor: h5py.Group = self._file["/"]
-        for part in parts:
-            if part not in cursor:
-                cursor = _hds.create_structure(cursor, part, "EXT")
-            else:
-                cursor = cursor[part]
-        return cursor
+        self._ensure_model_structure(path, "EXT")
+        self._flush()
+        return self._file["/" if path in ("", "/") else path]
 
     def _ensure_struct(self, path: str, hds_type: str) -> h5py.Group:
         """Ensure a structure exists at ``path`` with the given HDS type."""
-        if path in self._file:
-            return self._file[path]
-        parent_path, leaf = path.rsplit("/", 1)
-        parent = self._ensure_path(parent_path or "/")
-        return _hds.create_structure(parent, leaf, hds_type)
+        self._ensure_model_structure(path, hds_type)
+        self._flush()
+        return self._file["/" if path in ("", "/") else path]
 
     def _ensure_array_structure(self, path: str) -> h5py.Group:
         """Ensure an HDS ``ARRAY`` structure exists at ``path``."""
@@ -411,41 +404,49 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         BADBITS defaults to 1 so the collapsed single-bit QUALITY plane is
         used by NDF applications.
         """
-        if "/QUALITY" in self._file:
-            group = self._file["/QUALITY"]
-        else:
-            group = _hds.create_structure(self._file, "QUALITY", "QUALITY")
-        if "BADBITS" in group:
-            del group["BADBITS"]
-        _hds.write_array(group, "BADBITS", np.array(1, dtype=np.uint8))
-        return group
+        root = self._document.ensure_ndf("/")
+        if "QUALITY" not in root.children:
+            root.children["QUALITY"] = HdsStructure("QUALITY")
+        quality = root.get_structure("QUALITY")
+        quality.hds_type = "QUALITY"
+        quality.children["BADBITS"] = HdsPrimitive.array(np.array(1, dtype=np.uint8))
+        self._flush()
+        return self._file["/QUALITY"]
 
     def _ensure_quality_array_structure(self) -> h5py.Group:
         """Ensure the nested ``/QUALITY/QUALITY`` ARRAY structure exists."""
-        quality = self._ensure_quality_structure()
-        if "QUALITY" in quality and not isinstance(quality["QUALITY"], h5py.Group):
-            del quality["QUALITY"]
-        if "QUALITY" in quality:
-            group = quality["QUALITY"]
-        else:
-            group = _hds.create_structure(quality, "QUALITY", "ARRAY")
-        if "ORIGIN" not in group:
-            _hds.write_array(group, "ORIGIN", np.zeros(2, dtype=np.int32))
-        if "BAD_PIXEL" not in group:
-            _hds.write_array(group, "BAD_PIXEL", np.array(False, dtype=np.bool_))
-        return group
+        root = self._document.ensure_ndf("/")
+        if "QUALITY" not in root.children:
+            root.children["QUALITY"] = HdsStructure("QUALITY")
+        quality = root.get_structure("QUALITY")
+        quality.hds_type = "QUALITY"
+        quality.children["BADBITS"] = HdsPrimitive.array(np.array(1, dtype=np.uint8))
+        if "QUALITY" not in quality.children or not isinstance(quality.children["QUALITY"], HdsStructure):
+            quality.children["QUALITY"] = HdsStructure("ARRAY")
+        quality_array = quality.get_structure("QUALITY")
+        quality_array.hds_type = "ARRAY"
+        quality_array.children.setdefault("ORIGIN", HdsPrimitive.array(np.zeros(2, dtype=np.int32)))
+        quality_array.children.setdefault("BAD_PIXEL", HdsPrimitive.array(np.array(False, dtype=np.bool_)))
+        self._flush()
+        return self._file["/QUALITY/QUALITY"]
 
     def _write_quality_array(self, quality: np.ndarray) -> None:
         """Write or replace the NDF QUALITY array."""
-        group = self._ensure_quality_array_structure()
-        if "DATA" in group:
-            del group["DATA"]
-        _hds.write_array(
-            group,
-            "DATA",
-            quality,
-            compression=self._compression_options.get("compression"),
-            compression_opts=self._compression_options.get("compression_opts"),
+        self._set_quality_array(quality)
+        self._flush()
+
+    def _set_quality_array(self, quality: np.ndarray) -> None:
+        """Set or replace the NDF QUALITY array in the model."""
+        root = self._document.ensure_ndf("/")
+        root.set_quality(
+            NdfQuality(
+                NdfArray(
+                    quality,
+                    origin=np.zeros(2, dtype=np.int32),
+                    bad_pixel=False,
+                    compression_options=self._compression_options,
+                )
+            )
         )
 
     def _collapse_mask_to_quality(self, array: np.ndarray) -> np.ndarray:
@@ -466,9 +467,9 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         with bbox-derived values via :meth:`set_array_origin` once the
         bbox is known.
         """
-        struct = self._file[struct_path]
-        if "ORIGIN" not in struct:
-            _hds.write_array(struct, "ORIGIN", np.zeros(array.ndim, dtype=np.int64))
+        struct = self._document.root.get_structure(struct_path)
+        if "ORIGIN" not in struct.children:
+            struct.children["ORIGIN"] = HdsPrimitive.array(np.zeros(array.ndim, dtype=np.int64))
 
     def set_array_origin(self, struct_path: str, origin: tuple[int, ...]) -> None:
         """Overwrite the ORIGIN of an ARRAY structure.
@@ -481,18 +482,34 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             Origin in NDF/Fortran axis order (e.g. ``(x_min, y_min)``
             for a 2D image with bbox lower bound ``(x_min, y_min)``).
         """
-        struct = self._file[struct_path]
-        if "ORIGIN" in struct:
-            del struct["ORIGIN"]
+        struct = self._document.root.get_structure(struct_path)
         origin_dtype = np.int32 if struct_path == "/QUALITY/QUALITY" else np.int64
         origin_array = np.asarray(origin, dtype=origin_dtype)
-        if (
-            "DATA" in struct
-            and isinstance(struct["DATA"], h5py.Dataset)
-            and origin_array.size < struct["DATA"].ndim
-        ):
-            origin_array = np.pad(origin_array, (0, struct["DATA"].ndim - origin_array.size))
-        _hds.write_array(struct, "ORIGIN", origin_array)
+        data_node = struct.children.get("DATA")
+        if isinstance(data_node, HdsPrimitive):
+            data_ndim = data_node.read_array().ndim
+            if origin_array.size < data_ndim:
+                origin_array = np.pad(origin_array, (0, data_ndim - origin_array.size))
+        struct.children["ORIGIN"] = HdsPrimitive.array(origin_array)
+        self._flush()
+
+    def _ensure_model_structure(self, path: str, hds_type: str) -> HdsStructure:
+        """Return or create a structure in the NDF document model."""
+        if path in ("", "/"):
+            return self._document.root
+        return self._document.root.ensure_structure(path, hds_type)
+
+    def _has_model_path(self, path: str) -> bool:
+        """Return `True` if a path exists in the NDF document model."""
+        try:
+            self._document.get(path)
+        except KeyError:
+            return False
+        return True
+
+    def _flush(self) -> None:
+        """Synchronize the Python NDF document model to the open HDF5 file."""
+        self._document.write_to_hdf5(self._file)
 
     def add_table(
         self,
