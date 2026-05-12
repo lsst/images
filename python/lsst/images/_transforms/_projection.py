@@ -43,6 +43,14 @@ F = TypeVar("F", bound=Frame)
 P = TypeVar("P", bound=pydantic.BaseModel)
 
 
+def _set_ast_skyframe_system(frame: astshim.SkyFrame, system: str) -> None:
+    """Set an AST SkyFrame coordinate system across supported wrappers."""
+    if hasattr(frame, "_impl"):
+        frame._impl.System = system
+    else:
+        frame.system = system
+
+
 @final
 class Projection[F: Frame]:
     """A transform from pixel coordinates to sky coordinates.
@@ -146,13 +154,13 @@ class Projection[F: Frame]:
         ValueError
             If the current frame of the FrameSet is not a SkyFrame.
         """
-        current_frame = ast_frame_set.getFrame(ast_frame_set.current)
+        current_frame = ast_frame_set.getFrame(ast_frame_set.current, copy=False)
         if not isinstance(current_frame, astshim.SkyFrame):
             raise ValueError(
                 "The current frame of the AST FrameSet is not a SkyFrame "
                 f"(got {type(current_frame).__name__})."
             )
-        current_frame._impl.System = "ICRS"
+        _set_ast_skyframe_system(current_frame, "ICRS")
         return Projection(Transform(pixel_frame, SkyFrame.ICRS, ast_frame_set, in_bounds=pixel_bounds))
 
     @property
