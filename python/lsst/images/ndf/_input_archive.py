@@ -154,14 +154,14 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         model: TableModel,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> astropy.table.Table:
-        # Inline-only for v1, paralleling JsonInputArchive. HDF5 column
-        # storage is a natural future improvement for NDF archives.
         result = astropy.table.Table(meta=model.meta)
         for column_model in model.columns:
-            if not isinstance(column_model.data, InlineArrayModel):
-                raise ArchiveReadError("Only inline tables are supported in NDF archives in v1.")
+            if isinstance(column_model.data, InlineArrayModel):
+                data = column_model.data.data
+            else:
+                data = self.get_array(column_model.data, strip_header=strip_header)
             result[column_model.name] = astropy.table.Column(
-                column_model.data.data,
+                data,
                 name=column_model.name,
                 dtype=column_model.data.datatype.to_numpy(),
                 unit=column_model.unit,

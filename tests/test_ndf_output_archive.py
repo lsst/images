@@ -24,8 +24,9 @@ from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
 from lsst.images._transforms import FrameLookupError, FrameSet, Transform
 from lsst.images._transforms._frames import DetectorFrame, Frame
 from lsst.images.ndf import _hds
+from lsst.images.ndf._input_archive import NdfInputArchive
 from lsst.images.ndf._output_archive import NdfOutputArchive, write
-from lsst.images.serialization import InlineArrayModel
+from lsst.images.serialization import ArrayReferenceModel, InlineArrayModel
 from lsst.images.tests._creation import make_random_projection
 
 
@@ -243,7 +244,7 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
                 # v1 stores tables inline in the JSON tree.
                 self.assertIsInstance(model.columns[0].data, InlineArrayModel)
 
-    def test_add_structured_array_returns_table_model_with_units(self):
+    def test_add_structured_array_writes_column_ndfs_with_units(self):
         rec = np.zeros(3, dtype=[("x", np.float64), ("y", np.int32)])
         rec["x"] = [1.0, 2.0, 3.0]
         rec["y"] = [10, 20, 30]
@@ -257,12 +258,44 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
                     descriptions={"y": "the y values"},
                 )
                 self.assertEqual(len(model.columns), 2)
-                self.assertIsInstance(model.columns[0].data, InlineArrayModel)
+                self.assertIsInstance(model.columns[0].data, ArrayReferenceModel)
                 # Confirm units/descriptions were applied.
                 col_x = next(c for c in model.columns if c.name == "x")
                 col_y = next(c for c in model.columns if c.name == "y")
                 self.assertEqual(col_x.unit, u.m)
                 self.assertEqual(col_y.description, "the y values")
+                self.assertEqual(col_x.data.source, "ndf:/MORE/LSST/REC_X/DATA_ARRAY/DATA")
+                self.assertEqual(col_y.data.source, "ndf:/MORE/LSST/REC_Y/DATA_ARRAY/DATA")
+            with h5py.File(tmp.name, "r") as f:
+                self.assertEqual(f["/MORE/LSST/REC_X"].attrs["CLASS"], b"NDF")
+                np.testing.assert_array_equal(f["/MORE/LSST/REC_X/DATA_ARRAY/DATA"][()], rec["x"])
+                self.assertEqual(f["/MORE/LSST/REC_Y"].attrs["CLASS"], b"NDF")
+                np.testing.assert_array_equal(f["/MORE/LSST/REC_Y/DATA_ARRAY/DATA"][()], rec["y"])
+            with NdfInputArchive.open(tmp.name) as archive:
+                recovered = archive.get_structured_array(model)
+                np.testing.assert_array_equal(recovered, rec)
+
+    def test_add_single_column_structured_array_uses_table_name(self):
+        rec = np.zeros(1, dtype=[("solution", np.float64, (4,))])
+        rec["solution"] = [[1.0, 2.0, 3.0, 4.0]]
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                model = arch.add_structured_array(rec, name="psf/piff/interp/solution")
+                self.assertEqual(len(model.columns), 1)
+                column = model.columns[0]
+                self.assertIsInstance(column.data, ArrayReferenceModel)
+                self.assertEqual(
+                    column.data.source,
+                    "ndf:/MORE/LSST/PSF_PIFF_INTERP_SOLUTION/DATA_ARRAY/DATA",
+                )
+                self.assertEqual(column.data.shape, [4])
+            with h5py.File(tmp.name, "r") as f:
+                self.assertIn("PSF_PIFF_INTERP_SOLUTION", f["/MORE/LSST"])
+                np.testing.assert_array_equal(
+                    f["/MORE/LSST/PSF_PIFF_INTERP_SOLUTION/DATA_ARRAY/DATA"][()],
+                    rec["solution"],
+                )
 
 
 class NdfWriteWcsTestCase(unittest.TestCase):

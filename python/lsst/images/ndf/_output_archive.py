@@ -670,10 +670,33 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         descriptions: Mapping[str, str] | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> TableModel:
-        columns = TableColumnModel.from_record_array(array, inline=True)
+        if name is None:
+            columns = TableColumnModel.from_record_array(array, inline=True)
+            for c in columns:
+                if units and (unit := units.get(c.name)):
+                    c.unit = unit
+                if descriptions and (description := descriptions.get(c.name)):
+                    c.description = description
+            return TableModel(columns=columns)
+        columns = TableColumnModel.from_record_dtype(array.dtype)
+        for c in columns:
+            column_path = name if len(columns) == 1 else f"{name}/{c.name}"
+            archive_path = column_path if column_path.startswith("/") else f"/{column_path}"
+            sub_ndf_path = self._archive_path_to_hdf5_path(archive_path)
+            column_array = np.asarray(array[c.name])
+            sub_ndf = self._document.ensure_ndf(sub_ndf_path)
+            sub_ndf.set_array_component(
+                "DATA_ARRAY",
+                column_array,
+                origin=np.zeros(column_array.ndim, dtype=np.int64),
+                compression_options=self._compression_options,
+            )
+            assert isinstance(c.data, ArrayReferenceModel)
+            c.data.source = f"ndf:{sub_ndf_path}/DATA_ARRAY/DATA"
         for c in columns:
             if units and (unit := units.get(c.name)):
                 c.unit = unit
             if descriptions and (description := descriptions.get(c.name)):
                 c.description = description
+        self._flush()
         return TableModel(columns=columns)
