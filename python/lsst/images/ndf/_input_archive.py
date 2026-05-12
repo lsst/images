@@ -285,6 +285,8 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
                 exc_info=True,
             )
 
+    unit = _read_ndf_units(ndf_group)
+
     # Anything unrecognised: warn-and-drop.
     recognised = {
         "DATA_ARRAY",
@@ -309,7 +311,7 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
     # Build the requested in-memory object. Any NDF can be read as an Image;
     # MaskedImage construction uses whatever VARIANCE/QUALITY are present and
     # lets the MaskedImage constructor provide defaults for missing planes.
-    image = Image(data_arr, bbox=bbox, projection=projection)
+    image = Image(data_arr, bbox=bbox, unit=unit, projection=projection)
     obj: Any
     if cls is Image:
         obj = image
@@ -334,6 +336,33 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
     obj._opaque_metadata = archive.get_opaque_metadata()
     # Auto-detect path produces no archive-tree metadata or butler_info.
     return ReadResult(obj, {}, None)
+
+
+def _read_ndf_units(ndf_group: h5py.Group) -> u.UnitBase | None:
+    """Read the NDF UNITS component, if present."""
+    if "UNITS" not in ndf_group or not isinstance(ndf_group["UNITS"], h5py.Dataset):
+        return None
+    dataset = ndf_group["UNITS"]
+    if dataset.dtype.kind != "S":
+        _LOG.warning("Ignoring non-character NDF UNITS component in %s.", ndf_group.name)
+        return None
+    if dataset.ndim == 0:
+        raw = dataset[()]
+        if not isinstance(raw, bytes):
+            return None
+        units_text = raw.decode("ascii").rstrip(" ")
+    else:
+        records = _hds.read_char_array(dataset)
+        units_text = records[0] if records else ""
+    if not units_text:
+        return None
+    for kwargs in ({"format": "fits"}, {}):
+        try:
+            return u.Unit(units_text, **kwargs)
+        except ValueError:
+            continue
+    _LOG.warning("Could not parse NDF UNITS value %r in %s.", units_text, ndf_group.name)
+    return None
 
 
 def _locate_ndf_root(f: h5py.File) -> h5py.Group:

@@ -387,6 +387,25 @@ class NdfReadFunctionTestCase(unittest.TestCase):
                 np.zeros((2, 3, 1), dtype=np.uint8),
             )
 
+    def test_read_auto_detected_units_component(self):
+        import astropy.units as u
+        import h5py
+
+        from lsst.images.ndf import _hds
+        from lsst.images.ndf._input_archive import read
+
+        image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                _hds.set_root_name(f, "TEST", "NDF")
+                data_array = _hds.create_structure(f, "DATA_ARRAY", "ARRAY")
+                _hds.write_array(data_array, "DATA", image_array)
+                f.create_dataset("UNITS", data=np.bytes_("count"))
+            result = read(Image, tmp.name)
+            self.assertEqual(result.deserialized.unit, u.ct)
+
     def test_read_missing_data_array_raises(self):
         # A file with only /MORE/LSST/JSON is fine for the symmetric
         # path. A file with NEITHER /MORE/LSST/JSON NOR DATA_ARRAY is a

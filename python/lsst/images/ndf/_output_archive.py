@@ -17,7 +17,7 @@ __all__ = (
 )
 
 import os
-from collections.abc import Callable, Hashable, Iterator, Mapping
+from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
 from typing import Any
 
 import astropy.io.fits
@@ -28,7 +28,9 @@ import numpy as np
 import pydantic
 
 from .._transforms import FrameSet
-from .._transforms._ast import Channel, StringStream
+from .._transforms._ast import Channel, ShiftMap, StringStream
+from .._transforms._ast import Frame as AstFrame
+from .._transforms._ast import FrameSet as AstFrameSet
 from .._transforms._transform import _prepend_ast_shift
 from ..fits._common import ExtensionKey, FitsOpaqueMetadata
 from ..serialization import (
@@ -139,7 +141,20 @@ def write(
             lines = _hds.encode_ndf_ast_data(text)
             archive._document.ensure_ndf("/").set_wcs(NdfWcs(lines))
             if archive._has_model_path("/MORE/LSST/MASK"):
-                archive._document.ensure_ndf("/MORE/LSST/MASK").set_wcs(NdfWcs(lines))
+                mask_origin = _origin_from_bbox(bbox) if bbox is not None else (0, 0)
+                mask_ndim = archive._model_array_ndim("/MORE/LSST/MASK/DATA_ARRAY")
+                mask_origin = (*mask_origin, *((0,) * max(0, mask_ndim - len(mask_origin))))
+                mask_text = _show_grid_pixel_ast_for_ndf(
+                    mask_origin,
+                    labels=("x", "y", "mask-byte"),
+                )
+                archive._document.ensure_ndf("/MORE/LSST/MASK").set_wcs(
+                    NdfWcs(_hds.encode_ndf_ast_data(mask_text))
+                )
+
+        unit = getattr(obj, "unit", None)
+        if unit is not None:
+            archive._document.ensure_ndf("/").set_units(_unit_to_ndf_string(unit))
 
         # Main JSON tree.
         json_text = tree.model_dump_json()
@@ -197,6 +212,14 @@ def _origin_from_bbox(bbox: Any) -> tuple[int, ...]:
     )
 
 
+def _unit_to_ndf_string(unit: astropy.units.UnitBase) -> str:
+    """Return an ASCII unit string for the NDF UNITS component."""
+    try:
+        return unit.to_string(format="fits")
+    except ValueError:
+        return unit.to_string()
+
+
 def _show_ast_for_ndf(ast_frame_set: Any, bbox: Any | None) -> str:
     """Return AST Channel text matching Starlink NDF WCS serialization.
 
@@ -221,6 +244,22 @@ def _show_ast_for_ndf(ast_frame_set: Any, bbox: Any | None) -> str:
     ast_frame_set.domain = "PIXEL"
     ast_frame_set.current = saved_current
     _prepend_ast_shift(ast_frame_set, x=x_shift, y=y_shift, ast_domain="GRID")
+
+    stream = StringStream()
+    channel = Channel(stream, options="Full=-1,Comment=0,Indent=0")
+    channel.write(ast_frame_set)
+    return stream.getSinkData()
+
+
+def _show_grid_pixel_ast_for_ndf(origin: Sequence[int], *, labels: Sequence[str] = ()) -> str:
+    """Return a simple NDF WCS with matching GRID and PIXEL dimensionality."""
+    n_axes = len(origin)
+    ast_frame_set = AstFrameSet(AstFrame(n_axes, "Domain=GRID"))
+    pixel_frame = AstFrame(n_axes, "Domain=PIXEL")
+    for axis, label in enumerate(labels[:n_axes], start=1):
+        pixel_frame.setLabel(axis, label)
+    shifts = [1.0 - float(axis_origin) for axis_origin in origin]
+    ast_frame_set.addFrame(AstFrameSet.BASE, ShiftMap(shifts), pixel_frame)
 
     stream = StringStream()
     channel = Channel(stream, options="Full=-1,Comment=0,Indent=0")
@@ -506,6 +545,14 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         except KeyError:
             return False
         return True
+
+    def _model_array_ndim(self, struct_path: str) -> int:
+        """Return the dimensionality of an ARRAY structure's DATA primitive."""
+        struct = self._document.root.get_structure(struct_path)
+        data_node = struct.children["DATA"]
+        if not isinstance(data_node, HdsPrimitive):
+            raise TypeError(f"{struct_path}/DATA is not an HDS primitive.")
+        return data_node.read_array().ndim
 
     def _flush(self) -> None:
         """Synchronize the Python NDF document model to the open HDF5 file."""

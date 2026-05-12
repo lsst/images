@@ -307,10 +307,10 @@ class NdfWriteWcsTestCase(unittest.TestCase):
             with h5py.File(tmp.name, "r") as f:
                 self.assertNotIn("WCS", f)
 
-    def test_mask_sub_ndf_gets_matching_wcs(self):
+    def test_mask_sub_ndf_gets_3d_wcs(self):
         # When an incompatible mask is hoisted to /MORE/LSST/MASK as a
-        # sub-NDF, it should carry the same /WCS as the top-level NDF
-        # so Starlink tools displaying it use the parent's projection.
+        # sub-NDF, it should carry its own 3D /WCS.  Reusing the parent
+        # image's 2D sky WCS would not match the mask NDF's data axes.
         rng = np.random.default_rng(42)
         det_frame = DetectorFrame(instrument="TestInst", detector=4, bbox=Box.factory[1:4096, 1:4096])
         bbox = Box.factory[10:14, 20:25]
@@ -330,12 +330,19 @@ class NdfWriteWcsTestCase(unittest.TestCase):
                 # Top-level WCS is present (existing behaviour).
                 self.assertIn("WCS", f)
                 top_lines = [s.decode("ascii") for s in f["/WCS/DATA"][()]]
-                # Mask sub-NDF carries an identical /WCS.
                 self.assertIn("MASK", f["/MORE/LSST"])
                 self.assertIn("WCS", f["/MORE/LSST/MASK"])
                 self.assertEqual(f["/MORE/LSST/MASK/WCS"].attrs["CLASS"], b"WCS")
                 mask_lines = [s.decode("ascii") for s in f["/MORE/LSST/MASK/WCS/DATA"][()]]
-                self.assertEqual(top_lines, mask_lines)
+                self.assertNotEqual(top_lines, mask_lines)
+                mask_text = _hds.decode_ndf_ast_data(mask_lines)
+                stripped = [line.lstrip() for line in mask_text.splitlines()]
+                self.assertIn("Naxes = 3", stripped)
+                self.assertIn('Domain = "GRID"', stripped)
+                self.assertIn('Domain = "PIXEL"', stripped)
+                self.assertIn("Sft1 = -19", stripped)
+                self.assertIn("Sft2 = -9", stripped)
+                self.assertIn("Sft3 = 1", stripped)
 
     def test_mask_sub_ndf_no_wcs_when_image_has_no_projection(self):
         planes = [MaskPlane(f"P{i}", f"Plane {i}") for i in range(12)]
@@ -420,6 +427,20 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
             # just check the JSON is parseable and the ArchiveTree object the
             # write() function returned dumps to the same JSON.
             self.assertEqual(json.loads(tree.model_dump_json()), recovered)
+
+    def test_write_image_with_unit_creates_units_component(self):
+        from lsst.images.ndf import read
+
+        image = Image(np.arange(6, dtype=np.float32).reshape(2, 3), unit=u.ct)
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(image, tmp.name)
+            with h5py.File(tmp.name, "r") as f:
+                self.assertIn("UNITS", f)
+                self.assertEqual(f["/UNITS"].shape, ())
+                self.assertEqual(f["/UNITS"][()].decode("ascii").rstrip(" "), "count")
+            result = read(Image, tmp.name)
+            self.assertEqual(result.deserialized.unit, u.ct)
 
     def test_write_propagates_metadata(self):
         from lsst.images.ndf import read
