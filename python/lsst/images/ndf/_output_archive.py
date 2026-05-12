@@ -47,7 +47,7 @@ from ..serialization import (
 )
 from . import _hds
 from ._common import NdfPointerModel, archive_path_to_hdf5_path
-from ._model import HdsPrimitive, HdsStructure, Ndf, NdfArray, NdfDocument, NdfQuality, NdfWcs
+from ._model import HdsPrimitive, HdsStructure, Ndf, NdfArray, NdfContainer, NdfDocument, NdfQuality, NdfWcs
 
 
 def write(
@@ -108,6 +108,7 @@ def write(
             h5_file,
             compression_options=compression_options,
             opaque_metadata=opaque_metadata,
+            **_get_archive_layout(obj),
         )
 
         archive_default_name = getattr(obj, "_archive_default_name", None)
@@ -139,7 +140,9 @@ def write(
             ast_frame_set = projection._pixel_to_sky._get_ast_frame_set()
             text = _show_ast_for_ndf(ast_frame_set, bbox)
             lines = _hds.encode_ndf_ast_data(text)
-            archive._document.ensure_ndf("/").set_wcs(NdfWcs(lines))
+            for ndf_path in archive._wcs_ndf_paths:
+                if archive._has_model_path(ndf_path):
+                    archive._document.ensure_ndf(ndf_path).set_wcs(NdfWcs(lines))
             if archive._has_model_path("/MORE/LSST/MASK"):
                 mask_origin = _origin_from_bbox(bbox) if bbox is not None else (0, 0)
                 mask_ndim = archive._model_array_ndim("/MORE/LSST/MASK/DATA_ARRAY")
@@ -153,13 +156,13 @@ def write(
                 )
 
         unit = getattr(obj, "unit", None)
-        if unit is not None:
+        if unit is not None and isinstance(archive._document.root, Ndf):
             archive._document.ensure_ndf("/").set_units(_unit_to_ndf_string(unit))
 
         # Main JSON tree.
         json_text = tree.model_dump_json()
-        more_lsst = archive._ensure_model_structure("/MORE/LSST", "EXT")
-        more_lsst.children["JSON"] = HdsPrimitive.char_array([json_text], width=max(80, len(json_text)))
+        lsst = archive._ensure_model_structure(archive._lsst_path, "EXT")
+        lsst.children["JSON"] = HdsPrimitive.char_array([json_text], width=max(80, len(json_text)))
 
         # Opaque FITS cards in /MORE/FITS.
         primary = opaque_metadata.headers.get(ExtensionKey())
@@ -171,12 +174,7 @@ def write(
         # Backfill bbox-derived ORIGIN for DATA_ARRAY and VARIANCE.
         if bbox is not None:
             origin = _origin_from_bbox(bbox)
-            for struct_path in (
-                "/DATA_ARRAY",
-                "/VARIANCE",
-                "/QUALITY/QUALITY",
-                "/MORE/LSST/MASK/DATA_ARRAY",
-            ):
+            for struct_path in archive._bbox_array_struct_paths:
                 if archive._has_model_path(struct_path):
                     archive.set_array_origin(struct_path, origin)
 
@@ -218,6 +216,24 @@ def _unit_to_ndf_string(unit: astropy.units.UnitBase) -> str:
         return unit.to_string(format="fits")
     except ValueError:
         return unit.to_string()
+
+
+def _get_archive_layout(obj: Any) -> dict[str, Any]:
+    """Return NDF document layout options for a top-level object."""
+    from .._color_image import ColorImage
+
+    if isinstance(obj, ColorImage):
+        return {
+            "root": NdfContainer(),
+            "lsst_path": "/LSST",
+            "direct_ndf_array_paths": {
+                "red": "/RED",
+                "green": "/GREEN",
+                "blue": "/BLUE",
+            },
+            "wcs_ndf_paths": ("/RED", "/GREEN", "/BLUE"),
+        }
+    return {}
 
 
 def _show_ast_for_ndf(ast_frame_set: Any, bbox: Any | None) -> str:
@@ -291,9 +307,17 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         file: h5py.File,
         compression_options: Mapping[str, Any] | None = None,
         opaque_metadata: FitsOpaqueMetadata | None = None,
+        root: Ndf | NdfContainer | None = None,
+        lsst_path: str = "/MORE/LSST",
+        direct_ndf_array_paths: Mapping[str, str] | None = None,
+        wcs_ndf_paths: Sequence[str] = ("/",),
     ) -> None:
         self._file = file
-        self._document = NdfDocument(root=Ndf())
+        self._document = NdfDocument(root=root if root is not None else Ndf())
+        self._lsst_path = lsst_path.rstrip("/") or "/LSST"
+        self._direct_ndf_array_paths = dict(direct_ndf_array_paths) if direct_ndf_array_paths else {}
+        self._wcs_ndf_paths = tuple(wcs_ndf_paths)
+        self._bbox_array_struct_paths: set[str] = set()
         self._compression_options = dict(compression_options) if compression_options else {}
         self._opaque_metadata = opaque_metadata if opaque_metadata is not None else FitsOpaqueMetadata()
         self._frame_sets: list[tuple[FrameSet, NdfPointerModel]] = []
@@ -314,7 +338,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         if (pointer := self._pointers.get(key)) is not None:
             return pointer
         archive_path = name if name.startswith("/") else f"/{name}"
-        path = archive_path_to_hdf5_path(archive_path)
+        path = self._archive_path_to_hdf5_path(archive_path)
         # Run the serializer first so any nested add_array / serialize_pointer
         # calls write into the file before we dump this sub-tree to JSON.
         model = self.serialize_direct(name, serializer)
@@ -349,8 +373,8 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
     ) -> ArrayReferenceModel:
         # Recognised top-level names go to standard NDF locations.
         # Anything else hoists under /MORE/LSST.
-        root = self._document.ensure_ndf("/")
         if name == "image":
+            root = self._document.ensure_ndf("/")
             root.set_array_component(
                 "DATA_ARRAY",
                 array,
@@ -358,7 +382,9 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
                 compression_options=self._compression_options,
             )
             path = "/DATA_ARRAY/DATA"
+            self._bbox_array_struct_paths.add("/DATA_ARRAY")
         elif name == "variance":
+            root = self._document.ensure_ndf("/")
             root.set_array_component(
                 "VARIANCE",
                 array,
@@ -366,16 +392,19 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
                 compression_options=self._compression_options,
             )
             path = "/VARIANCE/DATA"
+            self._bbox_array_struct_paths.add("/VARIANCE")
         elif name == "mask":
             if array.ndim == 2 and array.dtype in self._COMPATIBLE_MASK_DTYPES:
                 self._set_quality_array(array)
                 path = "/QUALITY/QUALITY/DATA"
+                self._bbox_array_struct_paths.add("/QUALITY/QUALITY")
             else:
                 # Native Mask serialization passes HDF5 shape
                 # (mask-byte, y, x). HDS reports the reverse dimension order,
                 # so Starlink tools see (x, y, mask-byte).
                 if array.ndim == 3 and array.dtype in self._COMPATIBLE_MASK_DTYPES:
                     self._set_quality_array(self._collapse_mask_to_quality(array))
+                    self._bbox_array_struct_paths.add("/QUALITY/QUALITY")
                 mask_ndf = self._document.ensure_ndf("/MORE/LSST/MASK")
                 mask_ndf.set_array_component(
                     "DATA_ARRAY",
@@ -384,6 +413,18 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
                     compression_options=self._compression_options,
                 )
                 path = "/MORE/LSST/MASK/DATA_ARRAY/DATA"
+                self._bbox_array_struct_paths.add("/MORE/LSST/MASK/DATA_ARRAY")
+        elif name in self._direct_ndf_array_paths:
+            sub_ndf_path = self._direct_ndf_array_paths[name]
+            sub_ndf = self._document.ensure_ndf(sub_ndf_path)
+            sub_ndf.set_array_component(
+                "DATA_ARRAY",
+                array,
+                origin=np.zeros(array.ndim, dtype=np.int64),
+                compression_options=self._compression_options,
+            )
+            path = f"{sub_ndf_path}/DATA_ARRAY/DATA"
+            self._bbox_array_struct_paths.add(f"{sub_ndf_path}/DATA_ARRAY")
         else:
             if name is None:
                 raise ValueError("Anonymous arrays are not supported in the NDF archive.")
@@ -397,7 +438,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             # JSON sub-trees from serialize_pointer stay as bare
             # _CHAR*N datasets at /MORE/LSST/<NAME> (no NDF wrapper) —
             # they're JSON documents, not numeric arrays.
-            sub_ndf_path = archive_path_to_hdf5_path(archive_path)
+            sub_ndf_path = self._archive_path_to_hdf5_path(archive_path)
             sub_ndf = self._document.ensure_ndf(sub_ndf_path)
             sub_ndf.set_array_component(
                 "DATA_ARRAY",
@@ -537,6 +578,15 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         if path in ("", "/"):
             return self._document.root
         return self._document.root.ensure_structure(path, hds_type)
+
+    def _archive_path_to_hdf5_path(self, archive_path: str) -> str:
+        """Translate an archive path to this layout's HDF5 path."""
+        if self._lsst_path == "/MORE/LSST":
+            return archive_path_to_hdf5_path(archive_path)
+        if not archive_path:
+            return f"{self._lsst_path}/JSON"
+        flattened = archive_path.lstrip("/").upper().replace("/", "_")
+        return f"{self._lsst_path}/{flattened}"
 
     def _has_model_path(self, path: str) -> bool:
         """Return `True` if a path exists in the NDF document model."""
