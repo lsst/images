@@ -306,7 +306,11 @@ class Image(GeneralizedImage):
         def _update_header(header: astropy.io.fits.Header) -> None:
             update_header(header)
             if self.unit is not None:
-                header["BUNIT"] = self.unit.to_string(format="fits")
+                try:
+                    header["BUNIT"] = self.unit.to_string(format="fits")
+                except ValueError:
+                    # Units not supported by FITS.
+                    pass
             if self.projection is not None and add_offset_wcs != " ":
                 if self.fits_wcs:
                     header.update(self.fits_wcs.to_header(relax=True))

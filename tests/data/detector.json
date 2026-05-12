@@ -1,0 +1,783 @@
+{
+  "attributes": {
+    "name": "R21_S11",
+    "id": 85,
+    "type": "SCIENCE",
+    "serial": "E2V-CCD250-366",
+    "bbox": {
+      "y": { "start": 0, "stop": 4004 },
+      "x": { "start": 0, "stop": 4096 }
+    },
+    "orientation": {
+      "focal_plane_x": -127.0,
+      "focal_plane_y": 0.0,
+      "focal_plane_z": 0.0,
+      "pixel_reference_x": 2047.5,
+      "pixel_reference_y": 2001.5,
+      "yaw": { "value": 0.0, "unit": "rad" },
+      "pitch": { "value": 0.0, "unit": "rad" },
+      "roll": { "value": 0.0, "unit": "rad" }
+    },
+    "pixel_size": 0.01,
+    "physical_type": "E2V"
+  },
+  "amplifiers": [
+    {
+      "name": "C10",
+      "bbox": {
+        "y": { "start": 2002, "stop": 4004 },
+        "x": { "start": 0, "stop": 512 }
+      },
+      "readout_corner": "LR",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 2048, "stop": 4096 },
+          "x": { "start": 0, "stop": 576 }
+        },
+        "data_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 54, "stop": 566 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 0, "stop": 54 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2048, "stop": 2094 },
+          "x": { "start": 54, "stop": 566 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 566, "stop": 576 }
+        },
+        "readout_corner": "UR"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.51526,
+        "read_noise": 5.557,
+        "saturation": 130537.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    },
+    {
+      "name": "C11",
+      "bbox": {
+        "y": { "start": 2002, "stop": 4004 },
+        "x": { "start": 512, "stop": 1024 }
+      },
+      "readout_corner": "LR",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 2048, "stop": 4096 },
+          "x": { "start": 576, "stop": 1152 }
+        },
+        "data_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 630, "stop": 1142 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 576, "stop": 630 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2048, "stop": 2094 },
+          "x": { "start": 630, "stop": 1142 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 1142, "stop": 1152 }
+        },
+        "readout_corner": "UR"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.51709,
+        "read_noise": 5.383,
+        "saturation": 131084.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    },
+    {
+      "name": "C12",
+      "bbox": {
+        "y": { "start": 2002, "stop": 4004 },
+        "x": { "start": 1024, "stop": 1536 }
+      },
+      "readout_corner": "LR",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 2048, "stop": 4096 },
+          "x": { "start": 1152, "stop": 1728 }
+        },
+        "data_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 1206, "stop": 1718 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 1152, "stop": 1206 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2048, "stop": 2094 },
+          "x": { "start": 1206, "stop": 1718 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 1718, "stop": 1728 }
+        },
+        "readout_corner": "UR"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.51403,
+        "read_noise": 5.445,
+        "saturation": 131527.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    },
+    {
+      "name": "C13",
+      "bbox": {
+        "y": { "start": 2002, "stop": 4004 },
+        "x": { "start": 1536, "stop": 2048 }
+      },
+      "readout_corner": "LR",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 2048, "stop": 4096 },
+          "x": { "start": 1728, "stop": 2304 }
+        },
+        "data_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 1782, "stop": 2294 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 1728, "stop": 1782 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2048, "stop": 2094 },
+          "x": { "start": 1782, "stop": 2294 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 2294, "stop": 2304 }
+        },
+        "readout_corner": "UR"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.5091,
+        "read_noise": 5.458,
+        "saturation": 132008.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    },
+    {
+      "name": "C14",
+      "bbox": {
+        "y": { "start": 2002, "stop": 4004 },
+        "x": { "start": 2048, "stop": 2560 }
+      },
+      "readout_corner": "LR",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 2048, "stop": 4096 },
+          "x": { "start": 2304, "stop": 2880 }
+        },
+        "data_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 2358, "stop": 2870 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 2304, "stop": 2358 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2048, "stop": 2094 },
+          "x": { "start": 2358, "stop": 2870 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 2870, "stop": 2880 }
+        },
+        "readout_corner": "UR"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.50679,
+        "read_noise": 5.514,
+        "saturation": 132886.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    },
+    {
+      "name": "C15",
+      "bbox": {
+        "y": { "start": 2002, "stop": 4004 },
+        "x": { "start": 2560, "stop": 3072 }
+      },
+      "readout_corner": "LR",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 2048, "stop": 4096 },
+          "x": { "start": 2880, "stop": 3456 }
+        },
+        "data_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 2934, "stop": 3446 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 2880, "stop": 2934 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2048, "stop": 2094 },
+          "x": { "start": 2934, "stop": 3446 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 3446, "stop": 3456 }
+        },
+        "readout_corner": "UR"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.51598,
+        "read_noise": 5.592,
+        "saturation": 132035.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    },
+    {
+      "name": "C16",
+      "bbox": {
+        "y": { "start": 2002, "stop": 4004 },
+        "x": { "start": 3072, "stop": 3584 }
+      },
+      "readout_corner": "LR",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 2048, "stop": 4096 },
+          "x": { "start": 3456, "stop": 4032 }
+        },
+        "data_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 3510, "stop": 4022 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 3456, "stop": 3510 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2048, "stop": 2094 },
+          "x": { "start": 3510, "stop": 4022 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 4022, "stop": 4032 }
+        },
+        "readout_corner": "UR"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.50457,
+        "read_noise": 5.641,
+        "saturation": 132865.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    },
+    {
+      "name": "C17",
+      "bbox": {
+        "y": { "start": 2002, "stop": 4004 },
+        "x": { "start": 3584, "stop": 4096 }
+      },
+      "readout_corner": "LR",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 2048, "stop": 4096 },
+          "x": { "start": 4032, "stop": 4608 }
+        },
+        "data_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 4086, "stop": 4598 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 4032, "stop": 4086 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2048, "stop": 2094 },
+          "x": { "start": 4086, "stop": 4598 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 2094, "stop": 4096 },
+          "x": { "start": 4598, "stop": 4608 }
+        },
+        "readout_corner": "UR"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.51561,
+        "read_noise": 5.722,
+        "saturation": 131722.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    },
+    {
+      "name": "C07",
+      "bbox": {
+        "y": { "start": 0, "stop": 2002 },
+        "x": { "start": 3584, "stop": 4096 }
+      },
+      "readout_corner": "UL",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 0, "stop": 2048 },
+          "x": { "start": 4032, "stop": 4608 }
+        },
+        "data_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 4042, "stop": 4554 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 4554, "stop": 4608 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2002, "stop": 2048 },
+          "x": { "start": 4042, "stop": 4554 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 4032, "stop": 4042 }
+        },
+        "readout_corner": "LL"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.46361,
+        "read_noise": 5.58,
+        "saturation": 136516.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    },
+    {
+      "name": "C06",
+      "bbox": {
+        "y": { "start": 0, "stop": 2002 },
+        "x": { "start": 3072, "stop": 3584 }
+      },
+      "readout_corner": "UL",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 0, "stop": 2048 },
+          "x": { "start": 3456, "stop": 4032 }
+        },
+        "data_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 3466, "stop": 3978 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 3978, "stop": 4032 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2002, "stop": 2048 },
+          "x": { "start": 3466, "stop": 3978 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 3456, "stop": 3466 }
+        },
+        "readout_corner": "LL"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.46203,
+        "read_noise": 5.367,
+        "saturation": 136425.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    },
+    {
+      "name": "C05",
+      "bbox": {
+        "y": { "start": 0, "stop": 2002 },
+        "x": { "start": 2560, "stop": 3072 }
+      },
+      "readout_corner": "UL",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 0, "stop": 2048 },
+          "x": { "start": 2880, "stop": 3456 }
+        },
+        "data_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 2890, "stop": 3402 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 3402, "stop": 3456 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2002, "stop": 2048 },
+          "x": { "start": 2890, "stop": 3402 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 2880, "stop": 2890 }
+        },
+        "readout_corner": "LL"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.45934,
+        "read_noise": 5.445,
+        "saturation": 135914.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    },
+    {
+      "name": "C04",
+      "bbox": {
+        "y": { "start": 0, "stop": 2002 },
+        "x": { "start": 2048, "stop": 2560 }
+      },
+      "readout_corner": "UL",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 0, "stop": 2048 },
+          "x": { "start": 2304, "stop": 2880 }
+        },
+        "data_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 2314, "stop": 2826 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 2826, "stop": 2880 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2002, "stop": 2048 },
+          "x": { "start": 2314, "stop": 2826 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 2304, "stop": 2314 }
+        },
+        "readout_corner": "LL"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.46673,
+        "read_noise": 5.421,
+        "saturation": 133857.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    },
+    {
+      "name": "C03",
+      "bbox": {
+        "y": { "start": 0, "stop": 2002 },
+        "x": { "start": 1536, "stop": 2048 }
+      },
+      "readout_corner": "UL",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 0, "stop": 2048 },
+          "x": { "start": 1728, "stop": 2304 }
+        },
+        "data_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 1738, "stop": 2250 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 2250, "stop": 2304 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2002, "stop": 2048 },
+          "x": { "start": 1738, "stop": 2250 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 1728, "stop": 1738 }
+        },
+        "readout_corner": "LL"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.45248,
+        "read_noise": 5.567,
+        "saturation": 134390.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    },
+    {
+      "name": "C02",
+      "bbox": {
+        "y": { "start": 0, "stop": 2002 },
+        "x": { "start": 1024, "stop": 1536 }
+      },
+      "readout_corner": "UL",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 0, "stop": 2048 },
+          "x": { "start": 1152, "stop": 1728 }
+        },
+        "data_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 1162, "stop": 1674 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 1674, "stop": 1728 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2002, "stop": 2048 },
+          "x": { "start": 1162, "stop": 1674 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 1152, "stop": 1162 }
+        },
+        "readout_corner": "LL"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.44055,
+        "read_noise": 5.46,
+        "saturation": 135570.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    },
+    {
+      "name": "C01",
+      "bbox": {
+        "y": { "start": 0, "stop": 2002 },
+        "x": { "start": 512, "stop": 1024 }
+      },
+      "readout_corner": "UL",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 0, "stop": 2048 },
+          "x": { "start": 576, "stop": 1152 }
+        },
+        "data_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 586, "stop": 1098 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 1098, "stop": 1152 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2002, "stop": 2048 },
+          "x": { "start": 586, "stop": 1098 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 576, "stop": 586 }
+        },
+        "readout_corner": "LL"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.44852,
+        "read_noise": 5.458,
+        "saturation": 136388.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    },
+    {
+      "name": "C00",
+      "bbox": {
+        "y": { "start": 0, "stop": 2002 },
+        "x": { "start": 0, "stop": 512 }
+      },
+      "readout_corner": "UL",
+      "assembled_raw_geometry": {
+        "bbox": {
+          "y": { "start": 0, "stop": 2048 },
+          "x": { "start": 0, "stop": 576 }
+        },
+        "data_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 10, "stop": 522 }
+        },
+        "flip_x": false,
+        "flip_y": false,
+        "x_offset": 0,
+        "y_offset": 0,
+        "serial_overscan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 522, "stop": 576 }
+        },
+        "parallel_overscan_bbox": {
+          "y": { "start": 2002, "stop": 2048 },
+          "x": { "start": 10, "stop": 522 }
+        },
+        "prescan_bbox": {
+          "y": { "start": 0, "stop": 2002 },
+          "x": { "start": 0, "stop": 10 }
+        },
+        "readout_corner": "LL"
+      },
+      "unassembled_raw_geometry": null,
+      "nominal_calibrations": {
+        "gain": 1.45289,
+        "read_noise": 5.301,
+        "saturation": 136683.0,
+        "suspect_level": NaN,
+        "linearity_coefficients": {
+          "data": [0.0, 142857.0],
+          "datatype": "float64"
+        },
+        "linearity_type": "PROPORTIONAL"
+      }
+    }
+  ],
+  "frames": {
+    "instrument": "LSSTCam",
+    "ast": " Begin FrameSet \t# Set of inter-related coordinate systems\n#   Title = \"Pixel Coordinates (Detector 85)\" \t# Title of coordinate system\n#   Naxes = 2 \t# Number of coordinate axes\n#   Lbl1 = \"x\" \t# Label for axis 1\n#   Lbl2 = \"y\" \t# Label for axis 2\n#   Uni1 = \"pix\" \t# Units for axis 1 (pixel)\n#   Uni2 = \"pix\" \t# Units for axis 2 (pixel)\n#   Bot1 = 0 \t# Lowest legal axis value\n#   Bot2 = 0 \t# Lowest legal axis value\n#   Top1 = 4095 \t# Highest legal axis value\n#   Top2 = 4003 \t# Highest legal axis value\n IsA Frame \t# Coordinate system description\n    Nframe = 3 \t# Number of Frames in FrameSet\n#   Base = 1 \t# Index of base Frame\n    Currnt = 3 \t# Index of current Frame\n    Lnk2 = 1 \t# Node 2 is derived from node 1\n    Lnk3 = 1 \t# Node 3 is derived from node 1\n    Inv3 = 1 \t# The inverse mapping is used\n    Frm1 = \t# Frame number 1\n       Begin Frame \t# Coordinate system description\n          Ident = \"FOCAL_PLANE\" \t# Permanent Object identification string\n       IsA Object \t# AST Object\n          Title = \"Focal Plane Coordinates\" \t# Title of coordinate system\n          Naxes = 2 \t# Number of coordinate axes\n#         Lbl1 = \"x\" \t# Label for axis 1\n#         Lbl2 = \"y\" \t# Label for axis 2\n#         Uni1 = \"mm\" \t# Units for axis 1\n#         Uni2 = \"mm\" \t# Units for axis 2\n          Ax1 = \t# Axis number 1\n             Begin Axis \t# Coordinate axis\n                Label = \"x\" \t# Axis Label\n                Unit = \"mm\" \t# Axis units\n             End Axis\n          Ax2 = \t# Axis number 2\n             Begin Axis \t# Coordinate axis\n                Label = \"y\" \t# Axis Label\n                Unit = \"mm\" \t# Axis units\n             End Axis\n       End Frame\n    Frm2 = \t# Frame number 2\n       Begin Frame \t# Coordinate system description\n          Ident = \"FIELD_ANGLE\" \t# Permanent Object identification string\n       IsA Object \t# AST Object\n          Title = \"Field Angle Coordinates\" \t# Title of coordinate system\n          Naxes = 2 \t# Number of coordinate axes\n#         Lbl1 = \"x\" \t# Label for axis 1\n#         Lbl2 = \"y\" \t# Label for axis 2\n#         Uni1 = \"rad\" \t# Units for axis 1 (radian)\n#         Uni2 = \"rad\" \t# Units for axis 2 (radian)\n          Ax1 = \t# Axis number 1\n             Begin Axis \t# Coordinate axis\n                Label = \"x\" \t# Axis Label\n                Unit = \"rad\" \t# Axis units (radian)\n             End Axis\n          Ax2 = \t# Axis number 2\n             Begin Axis \t# Coordinate axis\n                Label = \"y\" \t# Axis Label\n                Unit = \"rad\" \t# Axis units (radian)\n             End Axis\n       End Frame\n    Frm3 = \t# Frame number 3\n       Begin Frame \t# Coordinate system description\n          Ident = \"DETECTOR_085\" \t# Permanent Object identification string\n       IsA Object \t# AST Object\n          Title = \"Pixel Coordinates (Detector 85)\" \t# Title of coordinate system\n          Naxes = 2 \t# Number of coordinate axes\n#         Lbl1 = \"x\" \t# Label for axis 1\n#         Lbl2 = \"y\" \t# Label for axis 2\n#         Uni1 = \"pix\" \t# Units for axis 1 (pixel)\n#         Uni2 = \"pix\" \t# Units for axis 2 (pixel)\n#         Bot1 = 0 \t# Lowest legal axis value\n#         Bot2 = 0 \t# Lowest legal axis value\n#         Top1 = 4095 \t# Highest legal axis value\n#         Top2 = 4003 \t# Highest legal axis value\n          Ax1 = \t# Axis number 1\n             Begin Axis \t# Coordinate axis\n                Label = \"x\" \t# Axis Label\n                Unit = \"pix\" \t# Axis units (pixel)\n                Top = 4095 \t# Maximum legal axis value\n                Bottom = 0 \t# Minimum legal axis value\n             End Axis\n          Ax2 = \t# Axis number 2\n             Begin Axis \t# Coordinate axis\n                Label = \"y\" \t# Axis Label\n                Unit = \"pix\" \t# Axis units (pixel)\n                Top = 4003 \t# Maximum legal axis value\n                Bottom = 0 \t# Minimum legal axis value\n             End Axis\n       End Frame\n    Map2 = \t# Mapping between nodes 1 and 2\n       Begin CmpMap \t# Compound Mapping\n          Nin = 2 \t# Number of input coordinates\n          IsSimp = 1 \t# Mapping has been simplified\n       IsA Mapping \t# Mapping between coordinate systems\n          InvB = 1 \t# Second Mapping used in inverse direction\n          MapA = \t# First component Mapping\n             Begin CmpMap \t# Compound Mapping\n                Nin = 2 \t# Number of input coordinates\n                Nout = 3 \t# Number of output coordinates\n             IsA Mapping \t# Mapping between coordinate systems\n                MapA = \t# First component Mapping\n                   Begin UnitNormMap \t# Compute unit vector and norm relative to a centre\n                      Nin = 2 \t# Number of input coordinates\n                      Nout = 3 \t# Number of output coordinates\n                   IsA Mapping \t# Mapping between coordinate systems\n                   End UnitNormMap\n                MapB = \t# Second component Mapping\n                   Begin CmpMap \t# Compound Mapping\n                      Nin = 3 \t# Number of input coordinates\n                   IsA Mapping \t# Mapping between coordinate systems\n                      Series = 0 \t# Component Mappings applied in parallel\n                      MapA = \t# First component Mapping\n                         Begin UnitMap \t# Unit (null) Mapping\n                            Nin = 2 \t# Number of input coordinates\n                         IsA Mapping \t# Mapping between coordinate systems\n                         End UnitMap\n                      MapB = \t# Second component Mapping\n                         Begin PolyMap \t# Polynomial transformation\n                            Nin = 1 \t# Number of input coordinates\n                         IsA Mapping \t# Mapping between coordinate systems\n                            MPF1 = 5 \t# Max. power of input 1 in any forward polynomial\n                            NCF1 = 3 \t# No. of coeff.s for forward polynomial 1\n                            CF1 = 9.6991183036463177e-05 \t# Coeff 1 of forward polynomial 1\n                            CF2 = -8.0862906301141211e-13 \t# Coeff 2 of forward polynomial 1\n                            CF3 = -1.3713569596777536e-19 \t# Coeff 3 of forward polynomial 1\n                            PF1 = 1 \t# Power of i/p 1 for coeff 1 of fwd poly 1\n                            PF2 = 3 \t# Power of i/p 1 for coeff 2 of fwd poly 1\n                            PF3 = 5 \t# Power of i/p 1 for coeff 3 of fwd poly 1\n                            IterInv = 1 \t# Use an iterative inverse\n                            NiterInv = 30 \t# Max number of iterations for iterative inverse\n                            TolInv = 1e-08 \t# Target relative error for iterative inverse\n                         End PolyMap\n                   End CmpMap\n             End CmpMap\n          MapB = \t# Second component Mapping\n             Begin UnitNormMap \t# Compute unit vector and norm relative to a centre\n                Nin = 2 \t# Number of input coordinates\n                Nout = 3 \t# Number of output coordinates\n                Invert = 1 \t# Mapping inverted\n             IsA Mapping \t# Mapping between coordinate systems\n             End UnitNormMap\n       End CmpMap\n    Map3 = \t# Mapping between nodes 1 and 3\n       Begin WinMap \t# Map one window on to another\n          Nin = 2 \t# Number of input coordinates\n          IsSimp = 1 \t# Mapping has been simplified\n          Invert = 1 \t# Mapping inverted\n       IsA Mapping \t# Mapping between coordinate systems\n          Sft1 = -147.47499999999999 \t# Shift for axis 1\n          Scl1 = 0.01 \t# Scale factor for axis 1\n          Sft2 = -20.015000000000001 \t# Shift for axis 2\n          Scl2 = 0.01 \t# Scale factor for axis 2\n       End WinMap\n End FrameSet\n"
+  },
+  "visit": 2025052000177
+}
