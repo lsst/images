@@ -105,6 +105,8 @@ class HdsPrimitive:
         if dataset.dtype.kind == "S":
             if dataset.ndim == 0:
                 raw = dataset[()]
+                if isinstance(raw, np.bytes_):
+                    raw = bytes(raw)
                 assert isinstance(raw, bytes)
                 return cls(
                     char_lines=[raw.decode("ascii").rstrip(" ")],
@@ -133,6 +135,8 @@ class HdsPrimitive:
         if isinstance(self.data, h5py.Dataset) and self.data.dtype.kind == "S":
             if self.data.ndim == 0:
                 raw = self.data[()]
+                if isinstance(raw, np.bytes_):
+                    raw = bytes(raw)
                 assert isinstance(raw, bytes)
                 return [raw.decode("ascii").rstrip(" ")]
             return _hds.read_char_array(self.data)

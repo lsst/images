@@ -43,6 +43,7 @@ from ..serialization import (
 )
 from . import _hds
 from ._common import NdfPointerModel
+from ._model import HdsPrimitive, NdfDocument
 
 _LOG = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
 
     def __init__(self, file: h5py.File) -> None:
         self._file = file
+        self._document = NdfDocument.from_hdf5(file)
         self._opaque_metadata = FitsOpaqueMetadata()
         self._deserialized_pointer_cache: dict[str, Any] = {}
         self._frame_set_cache: dict[str, FrameSet] = {}
@@ -82,13 +84,14 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
 
     def get_tree[T: ArchiveTree](self, model_type: type[T]) -> T:
         """Read and validate the main Pydantic tree at ``/MORE/LSST/JSON``."""
-        if "/MORE/LSST/JSON" not in self._file:
+        json_path = self._get_main_json_path()
+        if json_path is None:
             raise ArchiveReadError(
                 "File has no /MORE/LSST/JSON tree; this is either a "
                 "Starlink-only NDF (use ndf.read() with auto-detect) or "
                 "the file was written by an unrelated tool."
             )
-        lines = _hds.read_char_array(self._file["/MORE/LSST/JSON"])
+        lines = self._get_primitive(json_path).read_char_array()
         return model_type.model_validate_json(_join_json_records(lines))
 
     def deserialize_pointer[U: ArchiveTree, V](
@@ -101,12 +104,10 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         # deserialised result and don't re-run the deserializer.
         if (cached := self._deserialized_pointer_cache.get(pointer.ref)) is not None:
             return cached
-        if pointer.ref not in self._file:
+        if not self._has_model_path(pointer.ref):
             raise ArchiveReadError(f"Pointer reference {pointer.ref!r} not found in NDF file.")
-        dataset = self._file[pointer.ref]
-        if not isinstance(dataset, h5py.Dataset):
-            raise ArchiveReadError(f"Pointer reference {pointer.ref!r} is not a primitive dataset.")
-        lines = _hds.read_char_array(dataset)
+        primitive = self._get_primitive(pointer.ref)
+        lines = primitive.read_char_array()
         model = model_type.model_validate_json(_join_json_records(lines))
         result = deserializer(model, self)
         self._deserialized_pointer_cache[pointer.ref] = result
@@ -139,13 +140,14 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
                 f"expected an 'ndf:<HDF5-path>' reference."
             )
         path = model.source[len("ndf:") :]
-        if path not in self._file:
+        if not self._has_model_path(path):
             raise ArchiveReadError(f"Array reference {path!r} not in file.")
-        dataset = self._file[path]
-        if not isinstance(dataset, h5py.Dataset):
-            raise ArchiveReadError(f"Array reference {path!r} is not a primitive dataset.")
+        primitive = self._get_primitive(path)
         # h5py supports lazy slicing via dataset[slices].
-        return dataset[()] if slices is ... else dataset[slices]
+        if isinstance(primitive.data, h5py.Dataset):
+            return primitive.data[()] if slices is ... else primitive.data[slices]
+        data = primitive.read_array()
+        return data if slices is ... else data[slices]
 
     def get_table(
         self,
@@ -176,12 +178,9 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         return self.get_table(model, strip_header).as_array()
 
     def _read_opaque_fits_metadata(self) -> None:
-        if "/MORE/FITS" not in self._file:
+        if not self._has_model_path("/MORE/FITS"):
             return
-        dataset = self._file["/MORE/FITS"]
-        if not isinstance(dataset, h5py.Dataset):
-            return
-        cards = _hds.read_char_array(dataset)
+        cards = self._get_primitive("/MORE/FITS").read_char_array()
         # FITS Header.fromstring expects fixed-width 80-char cards
         # concatenated; pad each card defensively so readers tolerate
         # files written with shorter widths.
@@ -190,6 +189,28 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
 
     def get_opaque_metadata(self) -> FitsOpaqueMetadata:
         return self._opaque_metadata
+
+    def _get_main_json_path(self) -> str | None:
+        """Return the path of the main LSST JSON tree, if present."""
+        for path in ("/MORE/LSST/JSON", "/LSST/JSON"):
+            if self._has_model_path(path):
+                return path
+        return None
+
+    def _has_model_path(self, path: str) -> bool:
+        """Return `True` if a path exists in the NDF document model."""
+        try:
+            self._document.get(path)
+        except KeyError:
+            return False
+        return True
+
+    def _get_primitive(self, path: str) -> HdsPrimitive:
+        """Return a primitive component from the NDF document model."""
+        node = self._document.get(path)
+        if not isinstance(node, HdsPrimitive):
+            raise ArchiveReadError(f"NDF reference {path!r} is not a primitive dataset.")
+        return node
 
 
 def read[T: Any](cls: type[T], path: ResourcePathExpression, **kwargs: Any) -> ReadResult[T]:
@@ -219,7 +240,7 @@ def read[T: Any](cls: type[T], path: ResourcePathExpression, **kwargs: Any) -> R
         Named tuple of (deserialized object, metadata, butler_info).
     """
     with NdfInputArchive.open(path) as archive:
-        if "/MORE/LSST/JSON" in archive._file:
+        if archive._get_main_json_path() is not None:
             tree_type = cls._get_archive_tree_type(NdfPointerModel)
             tree = archive.get_tree(tree_type)
             obj = tree.deserialize(archive, **kwargs)
@@ -348,6 +369,8 @@ def _read_ndf_units(ndf_group: h5py.Group) -> u.UnitBase | None:
         return None
     if dataset.ndim == 0:
         raw = dataset[()]
+        if isinstance(raw, np.bytes_):
+            raw = bytes(raw)
         if not isinstance(raw, bytes):
             return None
         units_text = raw.decode("ascii").rstrip(" ")
