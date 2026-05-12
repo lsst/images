@@ -38,6 +38,7 @@ from .aperture_corrections import (
     aperture_corrections_from_legacy,
 )
 from .cameras import Detector, DetectorSerializationModel
+from .fields import Field, FieldSerializationModel, field_from_legacy_photo_calib
 from .fits import FitsOpaqueMetadata
 from .psfs import (
     GaussianPointSpreadFunction,
@@ -151,6 +152,11 @@ class VisitImage(MaskedImage):
     summary_stats
         Summary statistics associated with this visit.  Initialized to default
         values if not provided.
+    photometric_scaling
+        Field that can be used to multiply a post-ISR image units to yield
+        calibrated image units.  This may be a scaling that was already
+        applied (so dividing by it will recover the post-ISR units) or a
+        scaling that has not been applied, depending on ``image.unit``.
     psf
         Point-spread function model for this image, or an exception explaining
         why it could not be read (to be raised if the PSF is requested later).
@@ -175,6 +181,7 @@ class VisitImage(MaskedImage):
         bounds: Bounds | None = None,
         obs_info: ObservationInfo | None = None,
         summary_stats: ObservationSummaryStats | None = None,
+        photometric_scaling: Field | None = None,
         psf: PointSpreadFunction | ArchiveReadError,
         detector: Detector,
         aperture_corrections: ApertureCorrectionMap | None = None,
@@ -200,6 +207,9 @@ class VisitImage(MaskedImage):
         if summary_stats is None:
             summary_stats = ObservationSummaryStats()
         self._summary_stats = summary_stats
+        if photometric_scaling is not None and photometric_scaling.unit is None:
+            raise TypeError("If a photometric_scaling is provided, it must have units.")
+        self._photometric_scaling = photometric_scaling
         self._psf = psf
         self._detector = detector
         self._aperture_corrections = aperture_corrections if aperture_corrections is not None else {}
@@ -257,6 +267,19 @@ class VisitImage(MaskedImage):
         return self._summary_stats
 
     @property
+    def photometric_scaling(self) -> Field | None:
+        """Field that multiplies a post-ISR image to yield the calibrated
+        image (~`fields.BaseField`).
+        """
+        return self._photometric_scaling
+
+    @photometric_scaling.setter
+    def photometric_scaling(self, value: Field):
+        if value.unit is None:
+            raise TypeError("The photometric_scaling for a VisitImage must have units.")
+        self._photometric_scaling = value
+
+    @property
     def psf(self) -> PointSpreadFunction:
         """The point-spread function model for this image
         (`.psfs.PointSpreadFunction`).
@@ -294,6 +317,7 @@ class VisitImage(MaskedImage):
                 bounds=self._bounds,  # don't need to intersect here, because __init__ will do that.
                 summary_stats=self.summary_stats,
                 detector=self._detector,
+                photometric_scaling=self._photometric_scaling,
                 aperture_corrections=self.aperture_corrections,
             ),
             bbox=bbox,
@@ -323,6 +347,7 @@ class VisitImage(MaskedImage):
                 bounds=self._bounds,
                 summary_stats=self.summary_stats.model_copy(),
                 detector=self._detector.copy() if copy_detector else self._detector,
+                photometric_scaling=self._photometric_scaling,
                 aperture_corrections=self.aperture_corrections.copy(),
             ),
             copy=True,
@@ -347,6 +372,9 @@ class VisitImage(MaskedImage):
         assert masked_image_model.projection is not None, "VisitImage always has a projection."
         assert masked_image_model.obs_info is not None, "VisitImage always has observation info."
         serialized_detector = self._detector.serialize(archive)
+        serialized_photometric_scaling = (
+            self._photometric_scaling.serialize(archive) if self._photometric_scaling is not None else None
+        )
         serialized_aperture_corrections = ApertureCorrectionMapSerializationModel.serialize(
             self.aperture_corrections, archive
         )
@@ -356,6 +384,7 @@ class VisitImage(MaskedImage):
             variance=masked_image_model.variance,
             projection=masked_image_model.projection,
             obs_info=masked_image_model.obs_info,
+            photometric_scaling=serialized_photometric_scaling,
             psf=serialized_psf,
             summary_stats=self.summary_stats,
             detector=serialized_detector,
@@ -379,10 +408,11 @@ class VisitImage(MaskedImage):
     def from_legacy(
         legacy: Any,
         *,
-        unit: astropy.units.Unit | None = None,
+        unit: astropy.units.UnitBase | None = None,
         plane_map: Mapping[str, MaskPlane] | None = None,
         instrument: str | None = None,
         visit: int | None = None,
+        post_isr_unit: astropy.units.UnitBase = astropy.units.electron,
     ) -> VisitImage:
         """Convert from an `lsst.afw.image.Exposure` instance.
 
@@ -403,6 +433,9 @@ class VisitImage(MaskedImage):
             provided.
         visit
             ID of the visit.  Extracted from the metadata if not provided.
+        post_isr_unit
+            The instrumental units any attached `lsst.afw.image.PhotoCalib`
+            transforms to nJy.
         """
         if plane_map is None:
             plane_map = get_legacy_visit_image_mask_planes()
@@ -450,6 +483,7 @@ class VisitImage(MaskedImage):
         legacy_summary_stats = legacy.info.getSummaryStats()
         legacy_ap_corr_map = legacy.info.getApCorrMap()
         legacy_polygon = legacy.info.getValidPolygon()
+        legacy_photo_calib = legacy.info.getPhotoCalib()
         result = VisitImage(
             image=masked_image.image.view(unit=unit),
             mask=masked_image.mask,
@@ -471,6 +505,13 @@ class VisitImage(MaskedImage):
                 else None
             ),
             bounds=Polygon.from_legacy(legacy_polygon) if legacy_polygon is not None else None,
+            photometric_scaling=(
+                field_from_legacy_photo_calib(
+                    legacy_photo_calib, bounds=detector_bbox, post_isr_unit=post_isr_unit
+                )
+                if legacy_photo_calib is not None
+                else None
+            ),
         )
 
         result._opaque_metadata = opaque_fits_metadata
@@ -556,6 +597,15 @@ class VisitImage(MaskedImage):
     def read_legacy(
         filename: str,
         *,
+        component: Literal["photometric_scaling"],
+        post_isr_unit: astropy.units.UnitBase = astropy.units.electron,
+    ) -> Field | None: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
         component: Literal["summary_stats"],
     ) -> ObservationSummaryStats: ...
 
@@ -595,11 +645,13 @@ class VisitImage(MaskedImage):
             "projection",
             "psf",
             "detector",
+            "photometric_scaling",
             "obs_info",
             "summary_stats",
             "aperture_corrections",
         ]
         | None = None,
+        post_isr_unit: astropy.units.UnitBase = astropy.units.electron,
     ) -> Any:
         """Read a FITS file written by `lsst.afw.image.Exposure.writeFits`.
 
@@ -626,6 +678,9 @@ class VisitImage(MaskedImage):
             provided.
         component
             A component to read instead of the full image.
+        post_isr_unit
+            The instrumental units any attached `lsst.afw.image.PhotoCalib`
+            transforms to nJy.
         """
         from lsst.afw.image import ExposureFitsReader
 
@@ -663,6 +718,15 @@ class VisitImage(MaskedImage):
                 aperture_corrections = aperture_corrections_from_legacy(legacy_ap_corr_map)
             if component == "aperture_corrections":
                 return aperture_corrections
+        photometric_scaling: Field | None = None
+        if component in (None, "photometric_scaling"):
+            legacy_photo_calib = reader.readPhotoCalib()
+            if legacy_photo_calib is not None:
+                photometric_scaling = field_from_legacy_photo_calib(
+                    legacy_photo_calib, bounds=detector_bbox, post_isr_unit=post_isr_unit
+                )
+            if component == "photometric_scaling":
+                return photometric_scaling
         assert component in (None, "image", "mask", "variance", "projection", "obs_info", "detector"), (
             component
         )  # for MyPy
@@ -719,6 +783,7 @@ class VisitImage(MaskedImage):
             summary_stats=summary_stats,
             aperture_corrections=aperture_corrections,
             bounds=Polygon.from_legacy(legacy_polygon) if legacy_polygon is not None else None,
+            photometric_scaling=photometric_scaling,
         )
         result._opaque_metadata = from_masked_image._opaque_metadata
         return result
@@ -747,6 +812,10 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     obs_info: ObservationInfo = pydantic.Field(
         description="Standardized description of visit metadata",
     )
+    photometric_scaling: FieldSerializationModel | None = pydantic.Field(
+        default=None,
+        description="Scaling that can be used to multiply a post-ISR image to yield calibrated pixel values.",
+    )
     summary_stats: ObservationSummaryStats = pydantic.Field(
         description="Summary statistics for the observation."
     )
@@ -768,6 +837,9 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
         psf = self.deserialize_psf(archive)
         detector = self.detector.deserialize(archive)
         aperture_corrections = self.aperture_corrections.deserialize(archive)
+        photometric_scaling = (
+            self.photometric_scaling.deserialize(archive) if self.photometric_scaling is not None else None
+        )
         return VisitImage(
             masked_image.image,
             mask=masked_image.mask,
@@ -778,6 +850,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
             summary_stats=self.summary_stats,
             detector=detector,
             aperture_corrections=aperture_corrections,
+            photometric_scaling=photometric_scaling,
             bounds=self.bounds.deserialize() if self.bounds is not None else None,
         )._finish_deserialize(self)
 

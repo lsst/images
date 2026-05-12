@@ -32,6 +32,7 @@ __all__ = (
     "compare_mask_to_legacy",
     "compare_masked_image_to_legacy",
     "compare_observation_summary_stats_to_legacy",
+    "compare_photo_calib_to_legacy",
     "compare_projection_to_legacy_wcs",
     "compare_psf_to_legacy",
     "compare_visit_image_to_legacy",
@@ -60,7 +61,7 @@ from .._visit_image import VisitImage
 from ..aperture_corrections import ApertureCorrectionMap
 from ..cameras import Amplifier, Detector, DetectorType, ReadoutCorner
 from ..cells import CellCoadd, CellIJ, CoaddProvenance
-from ..fields import BaseField
+from ..fields import BaseField, ChebyshevField
 from ..psfs import PointSpreadFunction
 
 if TYPE_CHECKING:
@@ -68,6 +69,10 @@ if TYPE_CHECKING:
         from lsst.cell_coadds import MultipleCellCoadd
     except ImportError:
         type MultipleCellCoadd = Any  # type: ignore[no-redef]
+    try:
+        from lsst.afw.image import PhotoCalib as LegacyPhotoCalib
+    except ImportError:
+        type LegacyPhotoCalib = Any  # type: ignore[no-redef]
 
 
 def assert_close(
@@ -272,6 +277,7 @@ def compare_visit_image_to_legacy(
     instrument: str,
     visit: int,
     detector: int,
+    applied_legacy_photo_calib: LegacyPhotoCalib | None = None,
     alternates: Mapping[str, Any] | None = None,
 ) -> None:
     """Compare a `.VisitImage` object to a legacy `lsst.afw.image.Exposure`
@@ -329,6 +335,13 @@ def compare_visit_image_to_legacy(
     compare_aperture_corrections_to_legacy(
         tc, visit_image.aperture_corrections, legacy_exposure.info.getApCorrMap(), tiny_bbox
     )
+    compare_photo_calib_to_legacy(
+        tc,
+        visit_image.photometric_scaling,
+        legacy_exposure.info.getPhotoCalib(),
+        applied_legacy_photo_calib=applied_legacy_photo_calib,
+        subimage_bbox=tiny_bbox,
+    )
     if alternates:
         if projection := alternates.get("projection"):
             compare_projection_to_legacy_wcs(
@@ -353,6 +366,44 @@ def compare_visit_image_to_legacy(
             compare_aperture_corrections_to_legacy(
                 tc, aperture_corrections, legacy_exposure.info.getApCorrMap(), tiny_bbox
             )
+        if (photometric_scaling := alternates.get("photometic_scaling", ...)) is not ...:
+            compare_photo_calib_to_legacy(
+                tc,
+                photometric_scaling,
+                legacy_exposure.info.getPhotoCalib(),
+                applied_legacy_photo_calib=applied_legacy_photo_calib,
+                subimage_bbox=tiny_bbox,
+            )
+
+
+def compare_photo_calib_to_legacy(
+    tc: unittest.TestCase,
+    photometric_scaling: BaseField | None,
+    legacy_photo_calib: LegacyPhotoCalib,
+    *,
+    applied_legacy_photo_calib: LegacyPhotoCalib | None = None,
+    subimage_bbox: Box,
+) -> None:
+    if legacy_photo_calib._isConstant:
+        if legacy_photo_calib.getCalibrationMean() == 1.0:
+            if applied_legacy_photo_calib is None:
+                tc.assertIsNone(photometric_scaling)
+                return
+            else:
+                legacy_photo_calib = applied_legacy_photo_calib
+    if legacy_photo_calib._isConstant:
+        assert isinstance(photometric_scaling, ChebyshevField)
+        assert_close(
+            tc, photometric_scaling.coefficients, np.array([[legacy_photo_calib.getCalibrationMean()]])
+        )
+    else:
+        assert photometric_scaling is not None
+        compare_field_to_legacy(
+            tc,
+            photometric_scaling / legacy_photo_calib.getCalibrationMean(),
+            legacy_photo_calib.computeScaledCalibration(),
+            subimage_bbox,
+        )
 
 
 def compare_cell_coadd_to_legacy(
@@ -623,7 +674,9 @@ def compare_field_to_legacy(
     assert_close(tc, field(x=pixel_xy.x, y=pixel_xy.y), legacy_field.evaluate(pixel_xy.x, pixel_xy.y))
     legacy_image_1 = Image(0, bbox=subimage_bbox, dtype=np.float64).to_legacy()
     legacy_field.addToImage(legacy_image_1, overlapOnly=True)
-    assert_images_equal(tc, field.render(subimage_bbox), Image.from_legacy(legacy_image_1), rtol=1e-13)
+    assert_images_equal(
+        tc, field.render(subimage_bbox), Image.from_legacy(legacy_image_1, unit=field.unit), rtol=1e-13
+    )
 
 
 def compare_aperture_corrections_to_legacy(

@@ -50,6 +50,7 @@ from lsst.images.tests import (
     assert_projections_equal,
     compare_aperture_corrections_to_legacy,
     compare_detector_to_legacy,
+    compare_photo_calib_to_legacy,
     compare_visit_image_to_legacy,
     make_random_projection,
 )
@@ -405,6 +406,13 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         )
         detector = VisitImage.read_legacy(self.filename, component="detector")
         compare_detector_to_legacy(self, detector, self.legacy_exposure.getDetector(), is_raw_assembled=True)
+        photometric_scaling = VisitImage.read_legacy(self.filename, component="photometric_scaling")
+        compare_photo_calib_to_legacy(
+            self,
+            photometric_scaling,
+            self.legacy_exposure.getPhotoCalib(),
+            subimage_bbox=visit.bbox,
+        )
 
     def check_legacy_obs_info(self, obs_info: ObservationInfo | None) -> None:
         """Check that an `ObservationInfo` instance is not `None`, and that it
@@ -503,6 +511,7 @@ class VisitImageLegacyTestCase(unittest.TestCase):
                         "summary_stats",
                         "aperture_corrections",
                         "detector",
+                        "photometric_scaling",
                     ]
                 }
             # Try to do a butler get of a component with storage class
