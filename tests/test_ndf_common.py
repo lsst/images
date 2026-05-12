@@ -28,4 +28,8 @@ class NdfPointerModelTestCase(unittest.TestCase):
     def test_archive_path_to_hdf5_path(self):
         self.assertEqual(archive_path_to_hdf5_path(""), "/MORE/LSST/JSON")
         self.assertEqual(archive_path_to_hdf5_path("/psf"), "/MORE/LSST/PSF")
-        self.assertEqual(archive_path_to_hdf5_path("/psf/coefficients"), "/MORE/LSST/PSF_COEFFICIENTS")
+        self.assertEqual(archive_path_to_hdf5_path("/psf/coefficients"), "/MORE/LSST/PSF/COEFFICIENTS")
+
+    def test_archive_path_to_hdf5_path_rejects_long_components(self):
+        with self.assertRaisesRegex(ValueError, "16-character HDS limit"):
+            archive_path_to_hdf5_path("/psf/this_component_is_too_long")

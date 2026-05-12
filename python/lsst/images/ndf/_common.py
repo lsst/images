@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("NdfPointerModel", "archive_path_to_hdf5_path")
+__all__ = ("NdfPointerModel", "archive_path_to_hdf5_path", "archive_path_to_hdf5_path_components")
 
 import pydantic
 
@@ -34,11 +34,23 @@ def archive_path_to_hdf5_path(archive_path: str) -> str:
     """Translate a serialization archive path to an NDF HDF5 path.
 
     The empty path maps to the main JSON tree at ``/MORE/LSST/JSON``.
-    Any non-empty path is uppercased and its separators are replaced with
-    ``_`` to form a single component name under ``/MORE/LSST/``. Mirrors
-    the FITS archive's ``EXTNAME`` convention.
+    Any non-empty path is uppercased and kept hierarchical under
+    ``/MORE/LSST/``. This mirrors the serialization path while keeping HDS
+    component names within their 16-character limit.
     """
     if not archive_path:
         return "/MORE/LSST/JSON"
-    flattened = archive_path.lstrip("/").upper().replace("/", "_")
-    return f"/MORE/LSST/{flattened}"
+    components = archive_path_to_hdf5_path_components(archive_path)
+    return "/MORE/LSST/" + "/".join(components)
+
+
+def archive_path_to_hdf5_path_components(archive_path: str) -> list[str]:
+    """Return HDS-compatible path components for an archive path."""
+    components = [component.upper() for component in archive_path.strip("/").split("/") if component]
+    for component in components:
+        if len(component) > 16:
+            raise ValueError(
+                f"NDF/HDS component {component!r} from archive path {archive_path!r} "
+                "is longer than the 16-character HDS limit."
+            )
+    return components

@@ -142,20 +142,22 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 self.assertEqual(origin.shape, (3,))
 
     def test_nested_array_hoists_as_sub_ndf(self):
-        # Hoisted numeric arrays land in /MORE/LSST/<NAME> wrapped as
-        # sub-NDFs (CLASS="NDF" with a DATA_ARRAY/DATA + ORIGIN inside)
-        # so Starlink tools can inspect them as ordinary NDFs.
+        # Hoisted numeric arrays land under /MORE/LSST as hierarchical
+        # sub-NDFs (CLASS="NDF" with DATA_ARRAY/DATA + ORIGIN inside) so
+        # Starlink tools can inspect them as ordinary NDFs while each HDS
+        # component stays short.
         data = np.array([[1.0, 2.0]], dtype=np.float32)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 arch = NdfOutputArchive(f)
                 ref = arch.add_array(data, name="psf/coefficients")
-                self.assertEqual(ref.source, "ndf:/MORE/LSST/PSF_COEFFICIENTS/DATA_ARRAY/DATA")
+                self.assertEqual(ref.source, "ndf:/MORE/LSST/PSF/COEFFICIENTS/DATA_ARRAY/DATA")
             with h5py.File(tmp.name, "r") as f:
                 self.assertIn("MORE", f)
                 self.assertIn("LSST", f["/MORE"])
-                self.assertIn("PSF_COEFFICIENTS", f["/MORE/LSST"])
-                sub = f["/MORE/LSST/PSF_COEFFICIENTS"]
+                self.assertIn("PSF", f["/MORE/LSST"])
+                self.assertIn("COEFFICIENTS", f["/MORE/LSST/PSF"])
+                sub = f["/MORE/LSST/PSF/COEFFICIENTS"]
                 self.assertEqual(sub.attrs["CLASS"], b"NDF")
                 self.assertEqual(sub["DATA_ARRAY"].attrs["CLASS"], b"ARRAY")
                 np.testing.assert_array_equal(sub["DATA_ARRAY/DATA"][()], data)
@@ -224,11 +226,11 @@ class NdfOutputArchivePointerTestCase(unittest.TestCase):
                     lambda nested: TinyTree(name="proj"),
                     key=("frame_set", 1),
                 )
-                self.assertEqual(ptr.ref, "/MORE/LSST/WCS_PIXEL_TO_SKY")
+                self.assertEqual(ptr.ref, "/MORE/LSST/WCS/PIXEL_TO_SKY")
                 recorded = list(arch.iter_frame_sets())
                 self.assertEqual(len(recorded), 1)
                 self.assertIs(recorded[0][0], frame_set)
-                self.assertEqual(recorded[0][1].ref, "/MORE/LSST/WCS_PIXEL_TO_SKY")
+                self.assertEqual(recorded[0][1].ref, "/MORE/LSST/WCS/PIXEL_TO_SKY")
 
 
 class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
@@ -264,13 +266,13 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
                 col_y = next(c for c in model.columns if c.name == "y")
                 self.assertEqual(col_x.unit, u.m)
                 self.assertEqual(col_y.description, "the y values")
-                self.assertEqual(col_x.data.source, "ndf:/MORE/LSST/REC_X/DATA_ARRAY/DATA")
-                self.assertEqual(col_y.data.source, "ndf:/MORE/LSST/REC_Y/DATA_ARRAY/DATA")
+                self.assertEqual(col_x.data.source, "ndf:/MORE/LSST/REC/X/DATA_ARRAY/DATA")
+                self.assertEqual(col_y.data.source, "ndf:/MORE/LSST/REC/Y/DATA_ARRAY/DATA")
             with h5py.File(tmp.name, "r") as f:
-                self.assertEqual(f["/MORE/LSST/REC_X"].attrs["CLASS"], b"NDF")
-                np.testing.assert_array_equal(f["/MORE/LSST/REC_X/DATA_ARRAY/DATA"][()], rec["x"])
-                self.assertEqual(f["/MORE/LSST/REC_Y"].attrs["CLASS"], b"NDF")
-                np.testing.assert_array_equal(f["/MORE/LSST/REC_Y/DATA_ARRAY/DATA"][()], rec["y"])
+                self.assertEqual(f["/MORE/LSST/REC/X"].attrs["CLASS"], b"NDF")
+                np.testing.assert_array_equal(f["/MORE/LSST/REC/X/DATA_ARRAY/DATA"][()], rec["x"])
+                self.assertEqual(f["/MORE/LSST/REC/Y"].attrs["CLASS"], b"NDF")
+                np.testing.assert_array_equal(f["/MORE/LSST/REC/Y/DATA_ARRAY/DATA"][()], rec["y"])
             with NdfInputArchive.open(tmp.name) as archive:
                 recovered = archive.get_structured_array(model)
                 np.testing.assert_array_equal(recovered, rec)
@@ -287,13 +289,16 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
                 self.assertIsInstance(column.data, ArrayReferenceModel)
                 self.assertEqual(
                     column.data.source,
-                    "ndf:/MORE/LSST/PSF_PIFF_INTERP_SOLUTION/DATA_ARRAY/DATA",
+                    "ndf:/MORE/LSST/PSF/PIFF/INTERP/SOLUTION/DATA_ARRAY/DATA",
                 )
                 self.assertEqual(column.data.shape, [4])
             with h5py.File(tmp.name, "r") as f:
-                self.assertIn("PSF_PIFF_INTERP_SOLUTION", f["/MORE/LSST"])
+                self.assertIn("PSF", f["/MORE/LSST"])
+                self.assertIn("PIFF", f["/MORE/LSST/PSF"])
+                self.assertIn("INTERP", f["/MORE/LSST/PSF/PIFF"])
+                self.assertIn("SOLUTION", f["/MORE/LSST/PSF/PIFF/INTERP"])
                 np.testing.assert_array_equal(
-                    f["/MORE/LSST/PSF_PIFF_INTERP_SOLUTION/DATA_ARRAY/DATA"][()],
+                    f["/MORE/LSST/PSF/PIFF/INTERP/SOLUTION/DATA_ARRAY/DATA"][()],
                     rec["solution"],
                 )
 

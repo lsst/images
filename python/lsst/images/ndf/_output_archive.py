@@ -46,7 +46,7 @@ from ..serialization import (
     no_header_updates,
 )
 from . import _hds
-from ._common import NdfPointerModel, archive_path_to_hdf5_path
+from ._common import NdfPointerModel, archive_path_to_hdf5_path, archive_path_to_hdf5_path_components
 from ._model import HdsPrimitive, HdsStructure, Ndf, NdfArray, NdfContainer, NdfDocument, NdfQuality, NdfWcs
 
 
@@ -628,8 +628,8 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             return archive_path_to_hdf5_path(archive_path)
         if not archive_path:
             return f"{self._lsst_path}/JSON"
-        flattened = archive_path.lstrip("/").upper().replace("/", "_")
-        return f"{self._lsst_path}/{flattened}"
+        components = archive_path_to_hdf5_path_components(archive_path)
+        return f"{self._lsst_path}/{'/'.join(components)}"
 
     def _has_model_path(self, path: str) -> bool:
         """Return `True` if a path exists in the NDF document model."""
