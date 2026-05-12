@@ -28,7 +28,7 @@ import numpy as np
 import pydantic
 
 from .._transforms import FrameSet
-from .._transforms._ast import Channel, ShiftMap, StringStream
+from .._transforms._ast import Channel, CmpFrame, CmpMap, ShiftMap, StringStream, UnitMap
 from .._transforms._ast import Frame as AstFrame
 from .._transforms._ast import FrameSet as AstFrameSet
 from .._transforms._transform import _prepend_ast_shift
@@ -127,10 +127,10 @@ def write(
         # projection. This is what KAPPA / hdstrace expect for an NDF's
         # WCS; it lives alongside the projection's Pydantic model in
         # /MORE/LSST/JSON, which is the source of truth for our own
-        # symmetric round-trip. The same WCS is also written into the
-        # mask sub-NDF at /MORE/LSST/MASK/WCS (if a sub-NDF was created
-        # for an incompatible mask) so Starlink tools displaying the
-        # mask as an image use the same projection as the parent.
+        # symmetric round-trip. When a native mask sub-NDF exists at
+        # /MORE/LSST/MASK, it gets a 3D WCS whose first two axes use the
+        # parent image's sky projection and whose third axis is the mask-byte
+        # coordinate.
         # Auto-detect read of /WCS/DATA is a deferred follow-up: building
         # a typed Projection from a bare FrameSet requires new
         # infrastructure in _transforms/.
@@ -147,7 +147,9 @@ def write(
                 mask_origin = _origin_from_bbox(bbox) if bbox is not None else (0, 0)
                 mask_ndim = archive._model_array_ndim("/MORE/LSST/MASK/DATA_ARRAY")
                 mask_origin = (*mask_origin, *((0,) * max(0, mask_ndim - len(mask_origin))))
-                mask_text = _show_grid_pixel_ast_for_ndf(
+                mask_ast_frame_set = projection._pixel_to_sky._get_ast_frame_set()
+                mask_text = _show_mask_ast_for_ndf(
+                    mask_ast_frame_set,
                     mask_origin,
                     labels=("x", "y", "mask-byte"),
                 )
@@ -285,8 +287,17 @@ def _show_ast_for_ndf(ast_frame_set: Any, bbox: Any | None) -> str:
     return stream.getSinkData()
 
 
-def _show_grid_pixel_ast_for_ndf(origin: Sequence[int], *, labels: Sequence[str] = ()) -> str:
-    """Return a simple NDF WCS with matching GRID and PIXEL dimensionality."""
+def _show_mask_ast_for_ndf(
+    parent_ast_frame_set: Any,
+    origin: Sequence[int],
+    *,
+    labels: Sequence[str] = (),
+) -> str:
+    """Return an NDF WCS for the 3D native mask sub-NDF.
+
+    The first two axes reuse the parent image's pixel-to-sky mapping.  The
+    third axis is a generic mask-byte coordinate that passes through unchanged.
+    """
     n_axes = len(origin)
     ast_frame_set = AstFrameSet(AstFrame(n_axes, "Domain=GRID"))
     pixel_frame = AstFrame(n_axes, "Domain=PIXEL")
@@ -294,6 +305,19 @@ def _show_grid_pixel_ast_for_ndf(origin: Sequence[int], *, labels: Sequence[str]
         pixel_frame.setLabel(axis, label)
     shifts = [1.0 - float(axis_origin) for axis_origin in origin]
     ast_frame_set.addFrame(AstFrameSet.BASE, ShiftMap(shifts), pixel_frame)
+
+    parent_pixel_to_sky = parent_ast_frame_set.getMapping(
+        parent_ast_frame_set.base,
+        parent_ast_frame_set.current,
+    )
+    parent_sky_frame = parent_ast_frame_set.getFrame(parent_ast_frame_set.current)
+    mask_axis_frame = AstFrame(1, "Domain=MASK")
+    mask_axis_frame.setLabel(1, labels[2] if len(labels) > 2 else "mask-byte")
+    ast_frame_set.addFrame(
+        ast_frame_set.current,
+        CmpMap(parent_pixel_to_sky, UnitMap(1), False),
+        CmpFrame(parent_sky_frame, mask_axis_frame),
+    )
 
     stream = StringStream()
     channel = Channel(stream, options="Full=-1,Comment=0,Indent=0")
@@ -428,6 +452,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
                     "DATA_ARRAY",
                     array,
                     origin=np.zeros(array.ndim, dtype=np.int64),
+                    bad_pixel=False,
                     compression_options=self._compression_options,
                 )
                 path = "/MORE/LSST/MASK/DATA_ARRAY/DATA"

@@ -309,8 +309,9 @@ class NdfWriteWcsTestCase(unittest.TestCase):
 
     def test_mask_sub_ndf_gets_3d_wcs(self):
         # When an incompatible mask is hoisted to /MORE/LSST/MASK as a
-        # sub-NDF, it should carry its own 3D /WCS.  Reusing the parent
-        # image's 2D sky WCS would not match the mask NDF's data axes.
+        # sub-NDF, it should carry its own 3D /WCS.  The first two axes
+        # retain the parent image sky projection while the third axis is
+        # a generic mask-byte coordinate.
         rng = np.random.default_rng(42)
         det_frame = DetectorFrame(instrument="TestInst", detector=4, bbox=Box.factory[1:4096, 1:4096])
         bbox = Box.factory[10:14, 20:25]
@@ -343,6 +344,11 @@ class NdfWriteWcsTestCase(unittest.TestCase):
                 self.assertIn("Sft1 = -19", stripped)
                 self.assertIn("Sft2 = -9", stripped)
                 self.assertIn("Sft3 = 1", stripped)
+                self.assertIn("Begin CmpFrame", stripped)
+                self.assertIn("Begin SkyFrame", stripped)
+                self.assertIn('Domain = "MASK"', stripped)
+                self.assertIn("Begin CmpMap", stripped)
+                self.assertIn("Series = 0", stripped)
 
     def test_mask_sub_ndf_no_wcs_when_image_has_no_projection(self):
         planes = [MaskPlane(f"P{i}", f"Plane {i}") for i in range(12)]

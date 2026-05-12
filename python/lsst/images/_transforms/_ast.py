@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self
 __all__ = (
     "USING_STARLINK_PYAST",
     "Channel",
+    "CmpFrame",
+    "CmpMap",
     "FitsChan",
     "Frame",
     "FrameSet",
@@ -35,6 +37,8 @@ else:
     try:
         from astshim import (
             Channel,
+            CmpFrame,
+            CmpMap,
             FitsChan,
             Frame,
             FrameDict,
@@ -165,6 +169,12 @@ if USING_STARLINK_PYAST:
 
         _IMPL_TYPE: ClassVar[type[starlink.Ast.ShiftMap]] = starlink.Ast.ShiftMap
 
+    class CmpMap(Mapping):
+        def __init__(self, map_a: Mapping, map_b: Mapping, series: bool):
+            super().__init__(starlink.Ast.CmpMap(map_a._impl, map_b._impl, series))
+
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.CmpMap]] = starlink.Ast.CmpMap
+
     class Frame(Mapping):
         def __init__(self, n_axes: int, options: str = ""):
             super().__init__(starlink.Ast.Frame(n_axes, options))
@@ -203,6 +213,12 @@ if USING_STARLINK_PYAST:
             Object.__init__(self, starlink.Ast.SkyFrame(options))
 
         _IMPL_TYPE: ClassVar[type[starlink.Ast.SkyFrame]] = starlink.Ast.SkyFrame
+
+    class CmpFrame(Frame):
+        def __init__(self, frame_a: Frame, frame_b: Frame):
+            Object.__init__(self, starlink.Ast.CmpFrame(frame_a._impl, frame_b._impl, ""))
+
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.CmpFrame]] = starlink.Ast.CmpFrame
 
     class FrameSet(Frame):
         def __init__(self, base_frame: Frame):

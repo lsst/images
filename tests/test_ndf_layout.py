@@ -169,6 +169,9 @@ class NdfCompatibleMaskLayoutTestCase(unittest.TestCase):
             # The mask shares the parent image's bbox; the trailing mask
             # byte axis keeps a zero origin.
             self.assertEqual(list(origin[()]), [20, 10, 0])
+            bad_pixel = f["/MORE/LSST/MASK/DATA_ARRAY/BAD_PIXEL"]
+            self.assertEqual(_hds_type(bad_pixel), "_LOGICAL")
+            self.assertFalse(bad_pixel[()])
 
             # VARIANCE is an ARRAY structure whose DATA is _DOUBLE
             # (float64).
@@ -223,6 +226,9 @@ class NdfIncompatibleMaskLayoutTestCase(unittest.TestCase):
             rows, cols = image.array.shape
             self.assertEqual(ds.shape, (2, rows, cols))
             self.assertEqual(_hds_shape(ds), (cols, rows, 2))
+            bad_pixel = f["/MORE/LSST/MASK/DATA_ARRAY/BAD_PIXEL"]
+            self.assertEqual(_hds_type(bad_pixel), "_LOGICAL")
+            self.assertFalse(bad_pixel[()])
 
     def test_masked_image_many_plane_mask_layout(self) -> None:
         """Write a MaskedImage with more than 31 planes as one native mask."""

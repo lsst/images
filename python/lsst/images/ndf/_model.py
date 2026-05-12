@@ -385,12 +385,14 @@ class Ndf(HdsStructure):
         data: np.ndarray | h5py.Dataset,
         *,
         origin: Sequence[int] | np.ndarray | None = None,
+        bad_pixel: bool | None = None,
         compression_options: Mapping[str, Any] | None = None,
     ) -> None:
         """Set an NDF array-like component such as ``DATA_ARRAY``."""
         self.children[name] = NdfArray(
             data,
             origin=origin,
+            bad_pixel=bad_pixel,
             compression_options=dict(compression_options) if compression_options else {},
         ).to_hds_structure()
 
