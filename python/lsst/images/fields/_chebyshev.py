@@ -250,12 +250,14 @@ class ChebyshevField(BaseField):
 
     @staticmethod
     def from_legacy(
-        legacy: LegacyChebyshevBoundedField, unit: astropy.units.UnitBase | None = None
+        legacy: LegacyChebyshevBoundedField,
+        unit: astropy.units.UnitBase | None = None,
+        bounds: Bounds | None = None,
     ) -> ChebyshevField:
         """Convert from a legacy `lsst.afw.math.ChebyshevBoundedField`."""
-        return ChebyshevField(
-            bounds=Box.from_legacy(legacy.getBBox()), coefficients=legacy.getCoefficients(), unit=unit
-        )
+        if bounds is None:
+            bounds = Box.from_legacy(legacy.getBBox())
+        return ChebyshevField(bounds=bounds, coefficients=legacy.getCoefficients(), unit=unit)
 
     def to_legacy(self) -> LegacyChebyshevBoundedField:
         """Convert to a legacy `lsst.afw.math.ChebyshevBoundedField`."""
