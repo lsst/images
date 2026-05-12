@@ -173,7 +173,8 @@ class PiffWrapper(PointSpreadFunction):
 # Piff serialization uses a lot of dictionaries and lists restricted to these
 # basic types.
 type PiffScalar = int | float | str | bool | None
-type PiffDict = dict[str, PiffScalar | list[PiffScalar]]
+type PiffValue = PiffScalar | list[PiffScalar]
+type PiffDict = dict[str, PiffValue]
 
 
 class GalSimPixelScaleModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
@@ -269,7 +270,10 @@ class _ArchivePiffWriter:
         self.structs[name] = {k: self._to_builtin(v) for k, v in struct.items()}
 
     def write_table(self, name: str, array: np.ndarray, metadata: PiffDict | None = None) -> None:
-        self.tables[name] = (array, metadata or {})
+        self.tables[name] = (
+            array,
+            {k: self._to_builtin(v) for k, v in (metadata or {}).items()},
+        )
 
     def write_wcs_map(
         self, name: str, wcs_map: dict[int, galsim.wcs.BaseWCS], pointing: galsim.CelestialCoord | None
@@ -316,14 +320,18 @@ class _ArchivePiffWriter:
         return model
 
     @staticmethod
-    def _to_builtin(val: Any) -> PiffScalar:
+    def _to_builtin(val: Any) -> PiffValue:
         match val:
             case np.integer():
                 return int(val)
             case np.floating():
                 return float(val)
+            case np.bool_():
+                return bool(val)
             case np.str_():
                 return str(val)
+            case tuple() | list():
+                return [_ArchivePiffWriter._to_builtin(item) for item in val]
         return val
 
 
