@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("NdfPointerModel", "json_pointer_to_hdf5_path")
+__all__ = ("NdfPointerModel", "archive_path_to_hdf5_path")
 
 import pydantic
 
@@ -30,17 +30,15 @@ class NdfPointerModel(pydantic.BaseModel, serialize_by_alias=True):
     model_config = pydantic.ConfigDict(populate_by_name=True)
 
 
-def json_pointer_to_hdf5_path(json_pointer: str) -> str:
-    """Translate an RFC-6901 JSON Pointer to the HDF5 path used by the
-    NDF archive for the corresponding hoisted sub-tree.
+def archive_path_to_hdf5_path(archive_path: str) -> str:
+    """Translate a serialization archive path to an NDF HDF5 path.
 
-    The empty pointer (root) maps to the main JSON tree at
-    ``/MORE/LSST/JSON``. Any non-empty pointer is uppercased and its
-    ``/`` separators replaced with ``_`` to form a single component
-    name under ``/MORE/LSST/``. Mirrors the FITS archive's ``EXTNAME``
-    convention.
+    The empty path maps to the main JSON tree at ``/MORE/LSST/JSON``.
+    Any non-empty path is uppercased and its separators are replaced with
+    ``_`` to form a single component name under ``/MORE/LSST/``. Mirrors
+    the FITS archive's ``EXTNAME`` convention.
     """
-    if not json_pointer:
+    if not archive_path:
         return "/MORE/LSST/JSON"
-    flattened = json_pointer.lstrip("/").upper().replace("/", "_")
+    flattened = archive_path.lstrip("/").upper().replace("/", "_")
     return f"/MORE/LSST/{flattened}"

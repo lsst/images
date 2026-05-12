@@ -125,6 +125,16 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 # read_char_array strips trailing spaces.
                 self.assertEqual(_hds.read_char_array(f["X"]), ["short"])
 
+    def test_char_array_rejects_long_lines(self):
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp, h5py.File(tmp.name, "w") as f:
+            with self.assertRaises(ValueError):
+                _hds.write_char_array(f, "X", ["too long"], width=3)
+
+    def test_char_array_rejects_non_ascii(self):
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp, h5py.File(tmp.name, "w") as f:
+            with self.assertRaises(ValueError):
+                _hds.write_char_array(f, "X", ["not ascii: \N{LATIN SMALL LETTER E WITH ACUTE}"], width=80)
+
     def test_ndf_ast_data_encoding_uses_flagged_fixed_width_records(self):
         text = (
             " Begin FrameSet\n"

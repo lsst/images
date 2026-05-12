@@ -408,9 +408,10 @@ class NdfReadFunctionTestCase(unittest.TestCase):
     def test_read_auto_detect_wrong_target_type_raises(self):
         # Auto-detect only knows how to produce Image-like objects from NDF
         # components; unrelated target classes should fail clearly.
+        from lsst.images import Mask
         from lsst.images.ndf._input_archive import read
         from lsst.images.serialization import ArchiveReadError
 
         example_path = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
         with self.assertRaises(ArchiveReadError):
-            read(int, example_path)
+            read(Mask, example_path)

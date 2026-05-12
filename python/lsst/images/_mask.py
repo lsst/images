@@ -628,8 +628,9 @@ class Mask(GeneralizedImage):
         """
         if _archive_prefers_native_mask_arrays(archive):
             # HDS presents array dimensions in Fortran order, which is the
-            # reverse of the h5py dataset shape.  Store the trailing mask-byte
-            # axis first in HDF5 so Starlink tools see (x, y, byte).
+            # reverse of the h5py dataset shape. Store the in-memory trailing
+            # mask-byte axis first in HDF5 so Starlink tools see HDS axes
+            # (x, y, byte), without changing the bit packing within a pixel.
             array_model = archive.add_array(np.moveaxis(self._array, -1, 0), update_header=update_header)
             if not isinstance(array_model, ArrayReferenceModel):
                 raise RuntimeError("Native mask arrays require reference array storage.")

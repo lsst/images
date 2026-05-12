@@ -25,14 +25,14 @@ view: single-byte masks are copied directly, while wider masks collapse to
 
 from __future__ import annotations
 
-import tempfile
 import unittest
 
 import h5py
 import numpy as np
 
 from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
-from lsst.images.ndf import _hds, write
+from lsst.images.ndf import _hds
+from lsst.images.tests import RoundtripNdf
 
 
 def _cls(node: h5py.Group) -> str:
@@ -76,39 +76,37 @@ class NdfImageLayoutTestCase(unittest.TestCase):
             np.arange(20, dtype=np.float32).reshape(4, 5),
             bbox=Box.factory[10:14, 20:25],
         )
-        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
-            tmp.close()
-            write(image, tmp.name)
-            with h5py.File(tmp.name, "r") as f:
-                # Root group carries CLASS="NDF".
-                self.assertEqual(_cls(f["/"]), "NDF")
+        with RoundtripNdf(self, image) as roundtrip:
+            f = roundtrip.inspect()
+            # Root group carries CLASS="NDF".
+            self.assertEqual(_cls(f["/"]), "NDF")
 
-                # DATA_ARRAY is an ARRAY structure.
-                self.assertIn("DATA_ARRAY", f)
-                self.assertEqual(_cls(f["/DATA_ARRAY"]), "ARRAY")
+            # DATA_ARRAY is an ARRAY structure.
+            self.assertIn("DATA_ARRAY", f)
+            self.assertEqual(_cls(f["/DATA_ARRAY"]), "ARRAY")
 
-                # DATA is a 2-D _REAL primitive whose shape matches the image.
-                self.assertIn("DATA", f["/DATA_ARRAY"])
-                ds = f["/DATA_ARRAY/DATA"]
-                self.assertEqual(_hds_type(ds), "_REAL")
-                self.assertEqual(ds.ndim, 2)
-                self.assertEqual(ds.shape, image.array.shape)
+            # DATA is a 2-D _REAL primitive whose shape matches the image.
+            self.assertIn("DATA", f["/DATA_ARRAY"])
+            ds = f["/DATA_ARRAY/DATA"]
+            self.assertEqual(_hds_type(ds), "_REAL")
+            self.assertEqual(ds.ndim, 2)
+            self.assertEqual(ds.shape, image.array.shape)
 
-                # ORIGIN stores bbox lower bounds as int64 in (x_min, y_min)
-                # order.
-                self.assertIn("ORIGIN", f["/DATA_ARRAY"])
-                origin = f["/DATA_ARRAY/ORIGIN"][()]
-                self.assertEqual(origin.dtype, np.int64)
-                self.assertEqual(int(origin[0]), 20)  # x_min from Box.factory[10:14, 20:25]
-                self.assertEqual(int(origin[1]), 10)  # y_min
+            # ORIGIN stores bbox lower bounds as int64 in (x_min, y_min)
+            # order.
+            self.assertIn("ORIGIN", f["/DATA_ARRAY"])
+            origin = f["/DATA_ARRAY/ORIGIN"][()]
+            self.assertEqual(origin.dtype, np.int64)
+            self.assertEqual(int(origin[0]), 20)  # x_min from Box.factory[10:14, 20:25]
+            self.assertEqual(int(origin[1]), 10)  # y_min
 
-                # /MORE/LSST is a general-purpose extension (EXT) group.
-                self.assertIn("MORE", f)
-                self.assertIn("LSST", f["/MORE"])
-                self.assertEqual(_cls(f["/MORE/LSST"]), "EXT")
+            # /MORE/LSST is a general-purpose extension (EXT) group.
+            self.assertIn("MORE", f)
+            self.assertIn("LSST", f["/MORE"])
+            self.assertEqual(_cls(f["/MORE/LSST"]), "EXT")
 
-                # Main JSON serialisation tree is present.
-                self.assertIn("JSON", f["/MORE/LSST"])
+            # Main JSON serialisation tree is present.
+            self.assertIn("JSON", f["/MORE/LSST"])
 
 
 class NdfCompatibleMaskLayoutTestCase(unittest.TestCase):
@@ -136,50 +134,48 @@ class NdfCompatibleMaskLayoutTestCase(unittest.TestCase):
         masked.mask.set("BAD", image.array % 2 == 0)
         masked.mask.set("SAT", image.array > 10)
 
-        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
-            tmp.close()
-            write(masked, tmp.name)
-            with h5py.File(tmp.name, "r") as f:
-                self.assertIn("QUALITY", f)
-                self.assertEqual(_cls(f["/QUALITY"]), "QUALITY")
-                self.assertEqual(_cls(f["/QUALITY/QUALITY"]), "ARRAY")
-                quality_ds = f["/QUALITY/QUALITY/DATA"]
-                self.assertEqual(_hds_type(quality_ds), "_UBYTE")
-                self.assertEqual(quality_ds.shape, image.array.shape)
-                self.assertEqual(_hds_shape(quality_ds), (image.array.shape[1], image.array.shape[0]))
-                np.testing.assert_array_equal(quality_ds[()], masked.mask.array[:, :, 0])
-                quality_origin = f["/QUALITY/QUALITY/ORIGIN"]
-                self.assertEqual(_hds_type(quality_origin), "_INTEGER")
-                self.assertEqual(list(quality_origin[()]), [20, 10])
-                bad_pixel = f["/QUALITY/QUALITY/BAD_PIXEL"]
-                self.assertEqual(_hds_type(bad_pixel), "_LOGICAL")
-                self.assertFalse(bad_pixel[()])
-                self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
+        with RoundtripNdf(self, masked) as roundtrip:
+            f = roundtrip.inspect()
+            self.assertIn("QUALITY", f)
+            self.assertEqual(_cls(f["/QUALITY"]), "QUALITY")
+            self.assertEqual(_cls(f["/QUALITY/QUALITY"]), "ARRAY")
+            quality_ds = f["/QUALITY/QUALITY/DATA"]
+            self.assertEqual(_hds_type(quality_ds), "_UBYTE")
+            self.assertEqual(quality_ds.shape, image.array.shape)
+            self.assertEqual(_hds_shape(quality_ds), (image.array.shape[1], image.array.shape[0]))
+            np.testing.assert_array_equal(quality_ds[()], masked.mask.array[:, :, 0])
+            quality_origin = f["/QUALITY/QUALITY/ORIGIN"]
+            self.assertEqual(_hds_type(quality_origin), "_INTEGER")
+            self.assertEqual(list(quality_origin[()]), [20, 10])
+            bad_pixel = f["/QUALITY/QUALITY/BAD_PIXEL"]
+            self.assertEqual(_hds_type(bad_pixel), "_LOGICAL")
+            self.assertFalse(bad_pixel[()])
+            self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
 
-                # /MORE/LSST/MASK is a sub-NDF (CLASS="NDF") with a
-                # canonical DATA_ARRAY structure containing DATA + ORIGIN.
-                self.assertIn("MORE", f)
-                self.assertIn("LSST", f["/MORE"])
-                self.assertIn("MASK", f["/MORE/LSST"])
-                self.assertEqual(_cls(f["/MORE/LSST/MASK"]), "NDF")
-                self.assertEqual(_cls(f["/MORE/LSST/MASK/DATA_ARRAY"]), "ARRAY")
-                mask_ds = f["/MORE/LSST/MASK/DATA_ARRAY/DATA"]
-                self.assertEqual(_hds_type(mask_ds), "_UBYTE")
-                self.assertEqual(mask_ds.ndim, 3)
-                self.assertEqual(mask_ds.shape, (1, 4, 5))
-                self.assertEqual(_hds_shape(mask_ds), (5, 4, 1))
-                origin = f["/MORE/LSST/MASK/DATA_ARRAY/ORIGIN"]
-                self.assertEqual(origin.dtype, np.int64)
-                # The mask shares the parent image's bbox; the trailing mask
-                # byte axis keeps a zero origin.
-                self.assertEqual(list(origin[()]), [20, 10, 0])
+            # /MORE/LSST/MASK is a sub-NDF (CLASS="NDF") with a
+            # canonical DATA_ARRAY structure containing DATA + ORIGIN.
+            self.assertIn("MORE", f)
+            self.assertIn("LSST", f["/MORE"])
+            self.assertIn("MASK", f["/MORE/LSST"])
+            self.assertEqual(_cls(f["/MORE/LSST/MASK"]), "NDF")
+            self.assertEqual(_cls(f["/MORE/LSST/MASK/DATA_ARRAY"]), "ARRAY")
+            mask_ds = f["/MORE/LSST/MASK/DATA_ARRAY/DATA"]
+            self.assertEqual(_hds_type(mask_ds), "_UBYTE")
+            self.assertEqual(mask_ds.ndim, 3)
+            self.assertEqual(mask_ds.shape, (1, 4, 5))
+            self.assertEqual(_hds_shape(mask_ds), (5, 4, 1))
+            origin = f["/MORE/LSST/MASK/DATA_ARRAY/ORIGIN"]
+            self.assertEqual(origin.dtype, np.int64)
+            # The mask shares the parent image's bbox; the trailing mask
+            # byte axis keeps a zero origin.
+            self.assertEqual(list(origin[()]), [20, 10, 0])
 
-                # VARIANCE is an ARRAY structure whose DATA is _DOUBLE
-                # (float64).
-                self.assertIn("VARIANCE", f)
-                self.assertEqual(_cls(f["/VARIANCE"]), "ARRAY")
-                self.assertIn("DATA", f["/VARIANCE"])
-                self.assertEqual(_hds_type(f["/VARIANCE/DATA"]), "_DOUBLE")
+            # VARIANCE is an ARRAY structure whose DATA is _DOUBLE
+            # (float64).
+            self.assertIn("VARIANCE", f)
+            self.assertEqual(_cls(f["/VARIANCE"]), "ARRAY")
+            self.assertIn("DATA", f["/VARIANCE"])
+            self.assertEqual(_hds_type(f["/VARIANCE/DATA"]), "_DOUBLE")
 
 
 class NdfIncompatibleMaskLayoutTestCase(unittest.TestCase):
@@ -204,31 +200,29 @@ class NdfIncompatibleMaskLayoutTestCase(unittest.TestCase):
         masked.mask.set("P11", image.array > 10)
         expected_quality = np.any(masked.mask.array != 0, axis=2).astype(np.uint8)
 
-        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
-            tmp.close()
-            write(masked, tmp.name)
-            with h5py.File(tmp.name, "r") as f:
-                self.assertIn("QUALITY", f)
-                self.assertEqual(_cls(f["/QUALITY/QUALITY"]), "ARRAY")
-                quality_ds = f["/QUALITY/QUALITY/DATA"]
-                self.assertEqual(_hds_type(quality_ds), "_UBYTE")
-                self.assertEqual(quality_ds.shape, image.array.shape)
-                np.testing.assert_array_equal(quality_ds[()], expected_quality)
-                self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
+        with RoundtripNdf(self, masked) as roundtrip:
+            f = roundtrip.inspect()
+            self.assertIn("QUALITY", f)
+            self.assertEqual(_cls(f["/QUALITY/QUALITY"]), "ARRAY")
+            quality_ds = f["/QUALITY/QUALITY/DATA"]
+            self.assertEqual(_hds_type(quality_ds), "_UBYTE")
+            self.assertEqual(quality_ds.shape, image.array.shape)
+            np.testing.assert_array_equal(quality_ds[()], expected_quality)
+            self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
 
-                # /MORE/LSST/MASK is a sub-NDF.
-                self.assertIn("MORE", f)
-                self.assertIn("LSST", f["/MORE"])
-                self.assertIn("MASK", f["/MORE/LSST"])
-                self.assertEqual(_cls(f["/MORE/LSST/MASK"]), "NDF")
-                self.assertEqual(_cls(f["/MORE/LSST/MASK/DATA_ARRAY"]), "ARRAY")
+            # /MORE/LSST/MASK is a sub-NDF.
+            self.assertIn("MORE", f)
+            self.assertIn("LSST", f["/MORE"])
+            self.assertIn("MASK", f["/MORE/LSST"])
+            self.assertEqual(_cls(f["/MORE/LSST/MASK"]), "NDF")
+            self.assertEqual(_cls(f["/MORE/LSST/MASK/DATA_ARRAY"]), "ARRAY")
 
-                ds = f["/MORE/LSST/MASK/DATA_ARRAY/DATA"]
-                self.assertEqual(_hds_type(ds), "_UBYTE")
-                self.assertEqual(ds.ndim, 3)
-                rows, cols = image.array.shape
-                self.assertEqual(ds.shape, (2, rows, cols))
-                self.assertEqual(_hds_shape(ds), (cols, rows, 2))
+            ds = f["/MORE/LSST/MASK/DATA_ARRAY/DATA"]
+            self.assertEqual(_hds_type(ds), "_UBYTE")
+            self.assertEqual(ds.ndim, 3)
+            rows, cols = image.array.shape
+            self.assertEqual(ds.shape, (2, rows, cols))
+            self.assertEqual(_hds_shape(ds), (cols, rows, 2))
 
     def test_masked_image_many_plane_mask_layout(self) -> None:
         """Write a MaskedImage with more than 31 planes as one native mask."""
@@ -244,23 +238,21 @@ class NdfIncompatibleMaskLayoutTestCase(unittest.TestCase):
         masked.mask.set("P39", image.array == 19)
         expected_quality = np.any(masked.mask.array != 0, axis=2).astype(np.uint8)
 
-        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
-            tmp.close()
-            write(masked, tmp.name)
-            with h5py.File(tmp.name, "r") as f:
-                self.assertIn("QUALITY", f)
-                self.assertEqual(_cls(f["/QUALITY/QUALITY"]), "ARRAY")
-                quality_ds = f["/QUALITY/QUALITY/DATA"]
-                self.assertEqual(_hds_type(quality_ds), "_UBYTE")
-                self.assertEqual(quality_ds.shape, image.array.shape)
-                np.testing.assert_array_equal(quality_ds[()], expected_quality)
-                self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
-                ds = f["/MORE/LSST/MASK/DATA_ARRAY/DATA"]
-                self.assertEqual(_hds_type(ds), "_UBYTE")
-                self.assertEqual(ds.ndim, 3)
-                rows, cols = image.array.shape
-                self.assertEqual(ds.shape, (5, rows, cols))
-                self.assertEqual(_hds_shape(ds), (cols, rows, 5))
+        with RoundtripNdf(self, masked) as roundtrip:
+            f = roundtrip.inspect()
+            self.assertIn("QUALITY", f)
+            self.assertEqual(_cls(f["/QUALITY/QUALITY"]), "ARRAY")
+            quality_ds = f["/QUALITY/QUALITY/DATA"]
+            self.assertEqual(_hds_type(quality_ds), "_UBYTE")
+            self.assertEqual(quality_ds.shape, image.array.shape)
+            np.testing.assert_array_equal(quality_ds[()], expected_quality)
+            self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
+            ds = f["/MORE/LSST/MASK/DATA_ARRAY/DATA"]
+            self.assertEqual(_hds_type(ds), "_UBYTE")
+            self.assertEqual(ds.ndim, 3)
+            rows, cols = image.array.shape
+            self.assertEqual(ds.shape, (5, rows, cols))
+            self.assertEqual(_hds_shape(ds), (cols, rows, 5))
 
 
 if __name__ == "__main__":

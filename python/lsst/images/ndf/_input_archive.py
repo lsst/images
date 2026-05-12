@@ -63,8 +63,6 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
     def __init__(self, file: h5py.File) -> None:
         self._file = file
         self._opaque_metadata = FitsOpaqueMetadata()
-        # Hooks for Tasks 13–14. The opaque-FITS reader and the array
-        # / pointer / frame-set caches will be populated then.
         self._deserialized_pointer_cache: dict[str, Any] = {}
         self._frame_set_cache: dict[str, FrameSet] = {}
         self._read_opaque_fits_metadata()
@@ -91,7 +89,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
                 "the file was written by an unrelated tool."
             )
         lines = _hds.read_char_array(self._file["/MORE/LSST/JSON"])
-        return model_type.model_validate_json("".join(lines))
+        return model_type.model_validate_json(_join_json_records(lines))
 
     def deserialize_pointer[U: ArchiveTree, V](
         self,
@@ -109,8 +107,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         if not isinstance(dataset, h5py.Dataset):
             raise ArchiveReadError(f"Pointer reference {pointer.ref!r} is not a primitive dataset.")
         lines = _hds.read_char_array(dataset)
-        json_text = "".join(lines)
-        model = model_type.model_validate_json(json_text)
+        model = model_type.model_validate_json(_join_json_records(lines))
         result = deserializer(model, self)
         self._deserialized_pointer_cache[pointer.ref] = result
         if isinstance(result, FrameSet):
@@ -155,9 +152,8 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         model: TableModel,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> astropy.table.Table:
-        # Inline-only for v1, paralleling JsonInputArchive (Task 13 may
-        # promote this if any inline-vs-reference distinction matters for
-        # NDF). For now: same logic as JsonInputArchive.get_table.
+        # Inline-only for v1, paralleling JsonInputArchive. HDF5 column
+        # storage is a natural future improvement for NDF archives.
         result = astropy.table.Table(meta=model.meta)
         for column_model in model.columns:
             if not isinstance(column_model.data, InlineArrayModel):
@@ -193,8 +189,6 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         self._opaque_metadata.add_header(header, name="", ver=1)
 
     def get_opaque_metadata(self) -> FitsOpaqueMetadata:
-        # The opaque-FITS reader is wired up in Task 14; for v1 this just
-        # returns whatever has been accumulated in __init__ (currently empty).
         return self._opaque_metadata
 
 
@@ -210,9 +204,10 @@ def read[T: Any](cls: type[T], path: ResourcePathExpression, **kwargs: Any) -> R
     Parameters
     ----------
     cls
-        Expected return type. ``Image`` and ``MaskedImage`` are the only
-        types the auto-detect path can produce. The symmetric path
-        accepts whatever the file's discriminator says.
+        Expected return type. `~lsst.images.Image` and
+        `~lsst.images.MaskedImage` are the only types the auto-detect
+        path can produce. The symmetric path accepts whatever the file's
+        discriminator says.
     path
         File path or ``lsst.resources.ResourcePathExpression``.
     **kwargs
@@ -234,7 +229,7 @@ def read[T: Any](cls: type[T], path: ResourcePathExpression, **kwargs: Any) -> R
 
 
 def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadResult[T]:
-    """Reconstruct an ``Image`` (or ``MaskedImage``) from a Starlink NDF.
+    """Reconstruct an `Image` (or `MaskedImage`) from a Starlink NDF.
 
     Recognised components: ``DATA_ARRAY`` (in either simple or complex
     form), ``VARIANCE``, ``QUALITY``, ``MORE.FITS``. Other components
@@ -264,7 +259,7 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
         q = ndf_group["QUALITY"]
         if "QUALITY" in q and isinstance(q["QUALITY"], h5py.Dataset):
             quality_arr = _hds.read_array(q["QUALITY"])
-            quality_bbox = _make_bbox(0, 0, quality_arr)
+            quality_bbox = _make_bbox(x_min=0, y_min=0, array=quality_arr)
         elif "QUALITY" in q and isinstance(q["QUALITY"], h5py.Group):
             quality_arr, quality_bbox = _read_data_array_with_bbox(q["QUALITY"])
 
@@ -390,19 +385,29 @@ def _read_data_array_with_bbox(
     if isinstance(obj, h5py.Dataset):
         # Simple form.
         array = _hds.read_array(obj)
-        bbox = _make_bbox(0, 0, array)
+        bbox = _make_bbox(x_min=0, y_min=0, array=array)
         return array, bbox
     # Complex form: an HDS structure with DATA + ORIGIN.
     data = _hds.read_array(obj["DATA"])
     if "ORIGIN" in obj:
         origin = _hds.read_array(obj["ORIGIN"])
-        bbox = _make_bbox(int(origin[0]), int(origin[1]), data)
+        bbox = _make_bbox(x_min=int(origin[0]), y_min=int(origin[1]), array=data)
     else:
-        bbox = _make_bbox(0, 0, data)
+        bbox = _make_bbox(x_min=0, y_min=0, array=data)
     return data, bbox
 
 
-def _make_bbox(x_min: int, y_min: int, array: np.ndarray) -> Any:
+def _join_json_records(records: list[str]) -> str:
+    """Join records from an NDF JSON character array.
+
+    The NDF writer stores each JSON document as one logical string. If an
+    older file contains more than one record, the records are chunks of that
+    same string rather than newline-delimited JSON text.
+    """
+    return "".join(records)
+
+
+def _make_bbox(*, x_min: int, y_min: int, array: np.ndarray) -> Any:
     """Build an lsst.images.Box for a 2D image array.
 
     The array is C-order ``(height, width)``. NDF stores ``ORIGIN``
@@ -412,6 +417,5 @@ def _make_bbox(x_min: int, y_min: int, array: np.ndarray) -> Any:
 
     if array.ndim != 2:
         raise ArchiveReadError(f"Auto-detect read only supports 2D arrays, got ndim={array.ndim}.")
-    height, width = array.shape
     # Box.from_shape takes (height, width) and start=(y_start, x_start).
-    return Box.from_shape((height, width), start=(y_min, x_min))
+    return Box.from_shape(array.shape, start=(y_min, x_min))

@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import unittest
 
-from lsst.images.ndf._common import NdfPointerModel
+from lsst.images.ndf._common import NdfPointerModel, archive_path_to_hdf5_path
 
 
 class NdfPointerModelTestCase(unittest.TestCase):
-    """Tests for `NdfPointerModel` and `json_pointer_to_hdf5_path`."""
+    """Tests for `NdfPointerModel` and `archive_path_to_hdf5_path`."""
 
     def test_round_trips_through_json(self):
         original = NdfPointerModel(ref="/MORE/LSST/PSF")
@@ -25,10 +25,7 @@ class NdfPointerModelTestCase(unittest.TestCase):
         recovered = NdfPointerModel.model_validate_json(json_bytes)
         self.assertEqual(recovered, original)
 
-    def test_join_path_to_hdf5(self):
-        # Helper for routing JSON Pointer paths into MORE/LSST/<UPPER_PATH>.
-        from lsst.images.ndf._common import json_pointer_to_hdf5_path
-
-        self.assertEqual(json_pointer_to_hdf5_path(""), "/MORE/LSST/JSON")
-        self.assertEqual(json_pointer_to_hdf5_path("/psf"), "/MORE/LSST/PSF")
-        self.assertEqual(json_pointer_to_hdf5_path("/psf/coefficients"), "/MORE/LSST/PSF_COEFFICIENTS")
+    def test_archive_path_to_hdf5_path(self):
+        self.assertEqual(archive_path_to_hdf5_path(""), "/MORE/LSST/JSON")
+        self.assertEqual(archive_path_to_hdf5_path("/psf"), "/MORE/LSST/PSF")
+        self.assertEqual(archive_path_to_hdf5_path("/psf/coefficients"), "/MORE/LSST/PSF_COEFFICIENTS")

@@ -28,6 +28,8 @@ import numpy as np
 import pydantic
 
 from .._transforms import FrameSet
+from .._transforms._ast import Channel, StringStream
+from .._transforms._transform import _prepend_ast_shift
 from ..fits._common import ExtensionKey, FitsOpaqueMetadata
 from ..serialization import (
     ArchiveTree,
@@ -42,7 +44,7 @@ from ..serialization import (
     no_header_updates,
 )
 from . import _hds
-from ._common import NdfPointerModel, json_pointer_to_hdf5_path
+from ._common import NdfPointerModel, archive_path_to_hdf5_path
 
 
 def write(
@@ -171,9 +173,8 @@ def write(
                 if struct_path in h5_file:
                     archive.set_array_origin(struct_path, origin)
 
-        # Mark the root group with HDS_ROOT_NAME (CLASS=NDF was set by the
-        # archive constructor in Task 7) using fixed-length ASCII bytes
-        # so KAPPA / hdstrace can decode the attribute.
+        # Mark the root group with HDS_ROOT_NAME using fixed-length ASCII
+        # bytes so KAPPA / hdstrace can decode the attribute.
         root_name = archive_default_name or type(obj).__name__
         _hds.set_root_name(h5_file, root_name, "NDF")
 
@@ -215,9 +216,6 @@ def _show_ast_for_ndf(ast_frame_set: Any, bbox: Any | None) -> str:
     each line is just the bare AST item with the single-space prefix
     that ``ndf1Rdast`` strips back off on read.
     """
-    from .._transforms._ast import Channel, StringStream
-    from .._transforms._transform import _prepend_ast_shift
-
     if bbox is None:
         x_shift = 1.0
         y_shift = 1.0
@@ -250,11 +248,10 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
     compression_options
         Optional dict passed through to `h5py.Group.create_dataset` for image
         arrays (e.g. ``{"compression": "gzip", "compression_opts": 4}``).
-        Reserved for use by `add_array` (Task 8).
     opaque_metadata
         Optional `~lsst.images.fits.FitsOpaqueMetadata`; if its primary-HDU
         header is non-empty its cards will be written to ``/MORE/FITS`` by the
-        top-level write() function (Task 11).
+        top-level `write` function.
     """
 
     def __init__(
@@ -283,8 +280,8 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
     ) -> NdfPointerModel:
         if (pointer := self._pointers.get(key)) is not None:
             return pointer
-        json_pointer = name if name.startswith("/") else f"/{name}"
-        path = json_pointer_to_hdf5_path(json_pointer)
+        archive_path = name if name.startswith("/") else f"/{name}"
+        path = archive_path_to_hdf5_path(archive_path)
         # Run the serializer first so any nested add_array / serialize_pointer
         # calls write into the file before we dump this sub-tree to JSON.
         model = self.serialize_direct(name, serializer)
@@ -333,9 +330,9 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
                 self._ensure_quality_array_structure()
                 path = "/QUALITY/QUALITY/DATA"
             else:
-                # Native Mask serialization writes the 3-D uint8 mask here
-                # with HDF5 axes reversed from the HDS axes so Starlink sees
-                # dimensions (x, y, mask-byte).
+                # Native Mask serialization passes HDF5 shape
+                # (mask-byte, y, x). HDS reports the reverse dimension order,
+                # so Starlink tools see (x, y, mask-byte).
                 if array.ndim == 3 and array.dtype in self._COMPATIBLE_MASK_DTYPES:
                     self._write_quality_array(self._collapse_mask_to_quality(array))
                 self._ensure_struct("/MORE/LSST/MASK", "NDF")
@@ -345,7 +342,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         else:
             if name is None:
                 raise ValueError("Anonymous arrays are not supported in the NDF archive.")
-            json_pointer = name if name.startswith("/") else f"/{name}"
+            archive_path = name if name.startswith("/") else f"/{name}"
             # Hoisted numeric arrays are wrapped as sub-NDFs under
             # /MORE/LSST/<UPPER_PATH> so Starlink tools (KAPPA `display`,
             # `hdstrace`, etc.) can inspect them just like the main
@@ -355,7 +352,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             # JSON sub-trees from serialize_pointer stay as bare
             # _CHAR*N datasets at /MORE/LSST/<NAME> (no NDF wrapper) —
             # they're JSON documents, not numeric arrays.
-            sub_ndf_path = json_pointer_to_hdf5_path(json_pointer)
+            sub_ndf_path = archive_path_to_hdf5_path(archive_path)
             self._ensure_struct(sub_ndf_path, "NDF")
             self._ensure_array_structure(f"{sub_ndf_path}/DATA_ARRAY")
             path = f"{sub_ndf_path}/DATA_ARRAY/DATA"
@@ -465,7 +462,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
     def _write_origin_for_array(self, struct_path: str, array: np.ndarray) -> None:
         """Write a placeholder ORIGIN of zeros (int64).
 
-        The top-level ``write()`` function (Task 11) overwrites this
+        The top-level `write` function overwrites this
         with bbox-derived values via :meth:`set_array_origin` once the
         bbox is known.
         """

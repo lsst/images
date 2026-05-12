@@ -14,12 +14,29 @@ from __future__ import annotations
 import tempfile
 import unittest
 
+import astropy.table
+import astropy.units as u
 import h5py
 import numpy as np
 import pydantic
 
+from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
+from lsst.images._transforms import FrameLookupError, FrameSet, Transform
+from lsst.images._transforms._frames import DetectorFrame, Frame
 from lsst.images.ndf import _hds
-from lsst.images.ndf._output_archive import NdfOutputArchive
+from lsst.images.ndf._output_archive import NdfOutputArchive, write
+from lsst.images.serialization import InlineArrayModel
+from lsst.images.tests._creation import make_random_projection
+
+
+class TinyFrameSet(FrameSet):
+    """Minimal concrete frame-set for archive bookkeeping tests."""
+
+    def __contains__(self, frame: Frame) -> bool:
+        return False
+
+    def __getitem__[I: Frame, O: Frame](self, key: tuple[I, O]) -> Transform[I, O]:
+        raise FrameLookupError(key)
 
 
 class TinyTree(pydantic.BaseModel):
@@ -195,23 +212,21 @@ class NdfOutputArchivePointerTestCase(unittest.TestCase):
     def test_serialize_frame_set_records_for_iter(self):
         # serialize_frame_set is delegated to serialize_pointer plus
         # recording the (FrameSet, pointer) pair for iter_frame_sets,
-        # mirroring how FITS and JSON archives behave. The frame_set
-        # itself is opaque here -- we just check it round-trips through
-        # the recording.
-        sentinel = object()
+        # mirroring how FITS and JSON archives behave.
+        frame_set = TinyFrameSet()
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 arch = NdfOutputArchive(f)
                 ptr = arch.serialize_frame_set(
                     "wcs/pixel_to_sky",
-                    sentinel,
+                    frame_set,
                     lambda nested: TinyTree(name="proj"),
                     key=("frame_set", 1),
                 )
                 self.assertEqual(ptr.ref, "/MORE/LSST/WCS_PIXEL_TO_SKY")
                 recorded = list(arch.iter_frame_sets())
                 self.assertEqual(len(recorded), 1)
-                self.assertIs(recorded[0][0], sentinel)
+                self.assertIs(recorded[0][0], frame_set)
                 self.assertEqual(recorded[0][1].ref, "/MORE/LSST/WCS_PIXEL_TO_SKY")
 
 
@@ -219,10 +234,6 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
     """Tests for `NdfOutputArchive.add_table` and `add_structured_array`."""
 
     def test_add_table_returns_inline_table_model(self):
-        import astropy.table
-
-        from lsst.images.serialization import InlineArrayModel
-
         t = astropy.table.Table({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
@@ -233,10 +244,6 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
                 self.assertIsInstance(model.columns[0].data, InlineArrayModel)
 
     def test_add_structured_array_returns_table_model_with_units(self):
-        import astropy.units as u
-
-        from lsst.images.serialization import InlineArrayModel
-
         rec = np.zeros(3, dtype=[("x", np.float64), ("y", np.int32)])
         rec["x"] = [1.0, 2.0, 3.0]
         rec["y"] = [10, 20, 30]
@@ -262,11 +269,6 @@ class NdfWriteWcsTestCase(unittest.TestCase):
     """Tests for /WCS/DATA serialization in ndf.write()."""
 
     def test_write_with_projection_creates_wcs_component(self):
-        from lsst.images import Box, Image
-        from lsst.images._transforms._frames import DetectorFrame
-        from lsst.images.ndf._output_archive import write
-        from lsst.images.tests._creation import make_random_projection
-
         rng = np.random.default_rng(42)
         det_frame = DetectorFrame(instrument="TestInst", detector=4, bbox=Box.factory[1:4096, 1:4096])
         bbox = Box.factory[10:14, 20:25]
@@ -297,9 +299,6 @@ class NdfWriteWcsTestCase(unittest.TestCase):
                 self.assertIn("Sft2 = -9", stripped)
 
     def test_write_without_projection_omits_wcs_component(self):
-        from lsst.images import Image
-        from lsst.images.ndf._output_archive import write
-
         # Image with no projection -> no /WCS in the file.
         image = Image(np.zeros((2, 2), dtype=np.float32))
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
@@ -312,11 +311,6 @@ class NdfWriteWcsTestCase(unittest.TestCase):
         # When an incompatible mask is hoisted to /MORE/LSST/MASK as a
         # sub-NDF, it should carry the same /WCS as the top-level NDF
         # so Starlink tools displaying it use the parent's projection.
-        from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
-        from lsst.images._transforms._frames import DetectorFrame
-        from lsst.images.ndf._output_archive import write
-        from lsst.images.tests._creation import make_random_projection
-
         rng = np.random.default_rng(42)
         det_frame = DetectorFrame(instrument="TestInst", detector=4, bbox=Box.factory[1:4096, 1:4096])
         bbox = Box.factory[10:14, 20:25]
@@ -344,9 +338,6 @@ class NdfWriteWcsTestCase(unittest.TestCase):
                 self.assertEqual(top_lines, mask_lines)
 
     def test_mask_sub_ndf_no_wcs_when_image_has_no_projection(self):
-        from lsst.images import Image, MaskedImage, MaskPlane, MaskSchema
-        from lsst.images.ndf._output_archive import write
-
         planes = [MaskPlane(f"P{i}", f"Plane {i}") for i in range(12)]
         masked = MaskedImage(
             Image(np.zeros((4, 5), dtype=np.float32)),
@@ -365,9 +356,6 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
     """End-to-end tests for the module-level `write()` function."""
 
     def test_write_image_produces_valid_layout(self):
-        from lsst.images import Box, Image
-        from lsst.images.ndf._output_archive import write
-
         image = Image(
             np.arange(20, dtype=np.float32).reshape(4, 5),
             bbox=Box.factory[10:14, 20:25],
@@ -398,9 +386,7 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
     def test_write_image_preserves_opaque_fits_metadata(self):
         import astropy.io.fits
 
-        from lsst.images import Image
         from lsst.images.fits._common import FitsOpaqueMetadata
-        from lsst.images.ndf._output_archive import write
 
         image = Image(np.zeros((2, 2), dtype=np.float32))
         # Attach an opaque-metadata primary header to the image.
@@ -422,9 +408,6 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
         # in-memory ArchiveTree and contain the array reference for DATA_ARRAY.
         import json
 
-        from lsst.images import Image
-        from lsst.images.ndf._output_archive import write
-
         image = Image(np.arange(6, dtype=np.float32).reshape(2, 3))
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
@@ -439,8 +422,7 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
             self.assertEqual(json.loads(tree.model_dump_json()), recovered)
 
     def test_write_propagates_metadata(self):
-        from lsst.images import Image
-        from lsst.images.ndf import read, write
+        from lsst.images.ndf import read
 
         image = Image(np.arange(6, dtype=np.float32).reshape(2, 3))
         extra = {"test_key": 42, "another": "hello"}
