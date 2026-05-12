@@ -393,12 +393,14 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
     def test_write_image_preserves_opaque_fits_metadata(self):
         import astropy.io.fits
 
-        from lsst.images.fits._common import FitsOpaqueMetadata
+        from lsst.images.fits._common import ExtensionKey, FitsOpaqueMetadata
 
         image = Image(np.zeros((2, 2), dtype=np.float32))
         # Attach an opaque-metadata primary header to the image.
         primary = astropy.io.fits.Header()
         primary["FOO"] = ("bar", "test card")
+        long_value = "x" * 100
+        primary["LONGSTR"] = (long_value, "long string value")
         opaque = FitsOpaqueMetadata()
         opaque.add_header(primary, name="", ver=1)
         image._opaque_metadata = opaque
@@ -409,6 +411,13 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
                 self.assertIn("FITS", f["/MORE"])
                 cards = [c.decode("ascii").rstrip(" ") for c in f["/MORE/FITS"][()]]
                 self.assertTrue(any(c.startswith("FOO") for c in cards))
+                self.assertTrue(any(c.startswith("CONTINUE") for c in cards))
+                self.assertTrue(all(len(c.encode("ascii")) <= 80 for c in cards))
+            from lsst.images.ndf import read
+
+            result = read(Image, tmp.name)
+            recovered = result.deserialized._opaque_metadata.headers[ExtensionKey()]
+            self.assertEqual(recovered["LONGSTR"], long_value)
 
     def test_write_image_main_json_round_trips_back(self):
         # Sanity: the main JSON tree at /MORE/LSST/JSON should parse as the

@@ -167,7 +167,7 @@ def write(
         # Opaque FITS cards in /MORE/FITS.
         primary = opaque_metadata.headers.get(ExtensionKey())
         if primary is not None and len(primary):
-            cards = [card.image for card in primary.cards]
+            cards = _fits_header_records(primary)
             more = archive._ensure_model_structure("/MORE", "EXT")
             more.children["FITS"] = HdsPrimitive.char_array(cards, width=80)
 
@@ -216,6 +216,24 @@ def _unit_to_ndf_string(unit: astropy.units.UnitBase) -> str:
         return unit.to_string(format="fits")
     except ValueError:
         return unit.to_string()
+
+
+def _fits_header_records(header: astropy.io.fits.Header) -> list[str]:
+    """Return fixed-width FITS records for an opaque NDF FITS extension.
+
+    NDF ``.MORE.FITS`` is a ``_CHAR*80`` vector.  Use Astropy's FITS
+    header serializer to preserve multi-record logical cards such as
+    CONTINUE strings, but omit the FITS END card and 2880-byte padding
+    because this is an NDF extension component, not a complete FITS
+    header block.
+    """
+    block = header.tostring(sep="", endcard=False, padding=False)
+    encoded = block.encode("ascii")
+    if len(encoded) % 80:
+        raise ValueError(
+            f"FITS header block is {len(encoded)} bytes, not a multiple of the 80-byte FITS record size."
+        )
+    return [block[n : n + 80] for n in range(0, len(block), 80)]
 
 
 def _get_archive_layout(obj: Any) -> dict[str, Any]:
