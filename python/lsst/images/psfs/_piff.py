@@ -173,7 +173,7 @@ class PiffWrapper(PointSpreadFunction):
 # Piff serialization uses a lot of dictionaries and lists restricted to these
 # basic types.
 type PiffScalar = int | float | str | bool | None
-type PiffValue = PiffScalar | list[PiffScalar]
+type PiffValue = PiffScalar | list[PiffValue]
 type PiffDict = dict[str, PiffValue]
 
 

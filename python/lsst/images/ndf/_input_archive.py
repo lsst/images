@@ -157,7 +157,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         result = astropy.table.Table(meta=model.meta)
         for column_model in model.columns:
             if isinstance(column_model.data, InlineArrayModel):
-                data = column_model.data.data
+                data: Any = column_model.data.data
             else:
                 data = self.get_array(column_model.data, strip_header=strip_header)
             result[column_model.name] = astropy.table.Column(

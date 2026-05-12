@@ -27,7 +27,7 @@ __all__ = (
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Self
+from typing import Any, Self, cast
 
 import h5py
 import numpy as np
@@ -299,7 +299,7 @@ class NdfContainer(HdsStructure):
         structure = self.ensure_structure(path, "NDF")
         if not isinstance(structure, Ndf):
             structure.__class__ = Ndf
-        return structure
+        return cast(Ndf, structure)
 
 
 @dataclass
@@ -437,14 +437,15 @@ class NdfDocument:
     def from_hdf5(cls, file: h5py.File) -> Self:
         """Read an NDF document model from an open HDF5 file."""
         root = HdsStructure.from_hdf5(file["/"])
+        typed_root: Ndf | NdfContainer
         if isinstance(root, Ndf | NdfContainer):
             typed_root = root
         elif root.hds_type == "NDF":
             root.__class__ = Ndf
-            typed_root = root
+            typed_root = cast(Ndf, root)
         else:
             root.__class__ = NdfContainer
-            typed_root = root
+            typed_root = cast(NdfContainer, root)
         return cls(root=typed_root, root_name=_decode_ascii_attr(file["/"].attrs.get(_hds.ATTR_ROOT_NAME)))
 
     def write_to_hdf5(self, file: h5py.File) -> None:
@@ -464,7 +465,7 @@ class NdfDocument:
         structure = self.root.ensure_structure(path, "NDF")
         if not isinstance(structure, Ndf):
             structure.__class__ = Ndf
-        return structure
+        return cast(Ndf, structure)
 
     def get(self, path: str) -> HdsStructure | HdsPrimitive:
         """Return a component by absolute path."""

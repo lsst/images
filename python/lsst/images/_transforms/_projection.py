@@ -48,7 +48,7 @@ def _set_ast_skyframe_system(frame: astshim.SkyFrame, system: str) -> None:
     if hasattr(frame, "_impl"):
         frame._impl.System = system
     else:
-        frame.system = system
+        setattr(frame, "system", system)
 
 
 @final
