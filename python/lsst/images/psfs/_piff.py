@@ -137,7 +137,7 @@ class PiffWrapper(PointSpreadFunction):
 
         reader = _ArchivePiffReader(model.piff, archive)
         impl = PSF._read(reader, "piff", PiffLogger(_LOG))
-        return cls(impl, bounds=Bounds.deserialize(model.bounds), stamp_size=model.stamp_size)
+        return cls(impl, bounds=model.bounds.deserialize(), stamp_size=model.stamp_size)
 
     @staticmethod
     def _get_archive_tree_type(

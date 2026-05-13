@@ -110,7 +110,7 @@ class GaussianPointSpreadFunction(PointSpreadFunction):
     def deserialize(
         cls, model: GaussianPSFSerializationModel, archive: serialization.InputArchive[Any]
     ) -> GaussianPointSpreadFunction:
-        return cls(sigma=model.sigma, bounds=Bounds.deserialize(model.bounds), stamp_size=model.stamp_size)
+        return cls(sigma=model.sigma, bounds=model.bounds.deserialize(), stamp_size=model.stamp_size)
 
     @staticmethod
     def _get_archive_tree_type(

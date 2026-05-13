@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("SerializableBounds", "deserialize_bounds")
+__all__ = ("SerializableBounds",)
 
 import pydantic
 import shapely
@@ -29,6 +29,10 @@ class IntersectionBoundsSerializationModel(pydantic.BaseModel):
     a: SerializableBounds
     b: SerializableBounds
 
+    def deserialize(self) -> IntersectionBounds:
+        """Deserialize into an `IntersectionBounds` instance."""
+        return IntersectionBounds(self.a.deserialize(), self.b.deserialize())
+
 
 type SerializableBounds = (
     Box | CellGridBounds | RegionSerializationModel | IntersectionBoundsSerializationModel
@@ -36,22 +40,6 @@ type SerializableBounds = (
 
 
 IntersectionBoundsSerializationModel.model_rebuild()
-
-
-def deserialize_bounds(serialized: SerializableBounds) -> Bounds:
-    """Convert a serialized bounds object into its in-memory form."""
-    match serialized:
-        case Box() | CellGridBounds():
-            return serialized  # type: ignore[return-value]
-        case RegionSerializationModel():
-            region_impl = shapely.from_geojson(serialized.model_dump_json())
-            assert isinstance(region_impl, shapely.Polygon | shapely.MultiPolygon), (
-                "Other geometry types are not used."
-            )
-            return Region(region_impl).try_to_polygon()
-        case IntersectionBoundsSerializationModel():
-            return IntersectionBounds.deserialize(serialized)
-    raise RuntimeError(f"Cannot deserialize {serialized!r}.")
 
 
 def _intersect_box(lhs: Box, rhs: Bounds) -> Bounds:

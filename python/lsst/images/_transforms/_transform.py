@@ -460,8 +460,8 @@ class Transform[I: Frame, O: Frame]:
                         Frame.deserialize(model.frames[n]),
                         Frame.deserialize(model.frames[n + 1]),
                         ast_mapping,
-                        Bounds.deserialize(in_bounds) if in_bounds is not None else None,
-                        Bounds.deserialize(out_bounds) if out_bounds is not None else None,
+                        in_bounds.deserialize() if in_bounds is not None else None,
+                        out_bounds.deserialize() if out_bounds is not None else None,
                     )
                 case reference:
                     frame_set = archive.get_frame_set(reference)

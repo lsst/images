@@ -79,9 +79,9 @@ class SimplePolygonTestCase(unittest.TestCase):
     def test_io(self) -> None:
         """Test serialization and stringification."""
         self.assertEqual(
-            Polygon.deserialize(
-                RegionSerializationModel.model_validate_json(self.polygon.serialize().model_dump_json())
-            ),
+            RegionSerializationModel.model_validate_json(
+                self.polygon.serialize().model_dump_json()
+            ).deserialize(),
             self.polygon,
         )
         self.assertEqual(Polygon.from_wkt(self.polygon.wkt), self.polygon)
@@ -169,9 +169,7 @@ class RegionTestCase(unittest.TestCase):
         # A two-polygon region with a hole:
         region = self.a.union(self.c).difference(self.d)
         self.assertEqual(
-            Region.deserialize(
-                RegionSerializationModel.model_validate_json(region.serialize().model_dump_json())
-            ),
+            RegionSerializationModel.model_validate_json(region.serialize().model_dump_json()).deserialize(),
             region,
         )
         self.assertEqual(Region.from_wkt(region.wkt), region)

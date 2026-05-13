@@ -154,7 +154,7 @@ class PSFExWrapper(LegacyPointSpreadFunction):
         data.comp = parameters.flatten()
         data.context = model.context
         legacy_psf = PsfexPsf.fromSerializationData(data)
-        return cls(legacy_psf, Bounds.deserialize(model.bounds))
+        return cls(legacy_psf, model.bounds.deserialize())
 
     @staticmethod
     def _get_archive_tree_type(

@@ -24,7 +24,7 @@ import astropy.wcs
 import pydantic
 from astro_metadata_translator import ObservationInfo, VisitInfoTranslator
 
-from ._concrete_bounds import SerializableBounds, deserialize_bounds
+from ._concrete_bounds import SerializableBounds
 from ._geom import Bounds, Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_legacy_visit_image_mask_planes
@@ -390,7 +390,7 @@ class VisitImage(MaskedImage):
             summary_stats=model.summary_stats,
             detector=detector,
             aperture_corrections=aperture_corrections,
-            bounds=deserialize_bounds(model.bounds) if model.bounds is not None else None,
+            bounds=model.bounds.deserialize() if model.bounds is not None else None,
         )._finish_deserialize(model)
 
     @staticmethod

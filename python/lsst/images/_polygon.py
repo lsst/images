@@ -13,7 +13,7 @@ from __future__ import annotations
 
 __all__ = ("Polygon", "Region", "RegionSerializationModel")
 
-from typing import TYPE_CHECKING, Any, Literal, Self, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -28,8 +28,6 @@ if TYPE_CHECKING:
         from lsst.afw.geom import Polygon as LegacyPolygon
     except ImportError:
         type LegacyPolygon = Any  # type: ignore[no-redef]
-
-    from ._concrete_bounds import SerializableBounds
 
 
 class Region:
@@ -199,13 +197,6 @@ class Region:
         """
         return RegionSerializationModel.model_validate_json(shapely.to_geojson(self._impl))
 
-    @classmethod
-    def deserialize(cls, serialized: SerializableBounds) -> Self:
-        """Deserialize a region from a Pydantic model."""
-        from ._concrete_bounds import deserialize_bounds
-
-        return cast(Self, deserialize_bounds(serialized))
-
 
 class Polygon(Region):
     """A simple 2-d polygon in Euclidean coordinates, with no holes.
@@ -294,3 +285,11 @@ class RegionSerializationModel(pydantic.BaseModel):
     coordinates: list[list[tuple[float, float] | list[tuple[float, float]]]] = pydantic.Field(
         description="Vertices of the polygon or polygons."
     )
+
+    def deserialize(self) -> Region:
+        """Deserialize into a `Region` (a `Polygon`, if possible)."""
+        region_impl = shapely.from_geojson(self.model_dump_json())
+        assert isinstance(region_impl, shapely.Polygon | shapely.MultiPolygon), (
+            "Other geometry types are not used."
+        )
+        return Region(region_impl).try_to_polygon()

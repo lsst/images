@@ -20,7 +20,7 @@ import numpy as np
 import pydantic
 from scipy.interpolate import Akima1DInterpolator
 
-from .._concrete_bounds import SerializableBounds, deserialize_bounds
+from .._concrete_bounds import SerializableBounds
 from .._geom import Bounds, Box
 from .._image import Image
 from ..serialization import ArchiveTree, ArrayReferenceModel, InlineArray, InputArchive, OutputArchive, Unit
@@ -183,7 +183,7 @@ class SplineField(BaseField):
     def deserialize(model: SplineFieldSerializationModel, archive: InputArchive[Any]) -> SplineField:
         """Deserialize the spline field from an input archive."""
         return SplineField(
-            deserialize_bounds(model.bounds),
+            model.bounds.deserialize(),
             archive.get_array(model.data),
             y=model.y,
             x=model.x,

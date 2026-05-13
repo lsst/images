@@ -27,7 +27,7 @@ import dataclasses
 import math
 from collections.abc import Iterator
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Self, cast, overload
+from typing import TYPE_CHECKING, Any, overload
 
 import numpy as np
 import pydantic
@@ -35,8 +35,6 @@ import pydantic
 from ._geom import YX, Bounds, Box
 
 if TYPE_CHECKING:
-    from ._concrete_bounds import SerializableBounds
-
     try:
         from lsst.cell_coadds import UniformGrid
         from lsst.skymap import Index2D
@@ -277,16 +275,19 @@ class CellGridBounds(pydantic.BaseModel, frozen=True):
         subset_missing = {index for index in self.missing if grid_as_box.contains(y=index.i, x=index.j)}
         return CellGridBounds(grid=self.grid, bbox=subset_bbox, missing=frozenset(subset_missing))
 
-    def serialize(self) -> SerializableBounds:
+    def serialize(self) -> CellGridBounds:
         """Convert a bounds instance into a serializable object."""
         return self
 
-    @classmethod
-    def deserialize(cls, serialized: SerializableBounds) -> Self:
-        """Convert a serialized bounds object into its in-memory form."""
-        from ._concrete_bounds import deserialize_bounds
+    def deserialize(self) -> CellGridBounds:
+        """Deserialize a bounds object on the assumption it is a
+        `CellGridBounds`.
 
-        return cast(Self, deserialize_bounds(serialized))
+        This method just returns the `CellGridBounds` itself, since that
+        already provides Pydantic serialization hooks.  It exists for
+        compatibility with the `.Bounds` protocol.
+        """
+        return self
 
 
 class PatchDefinition(pydantic.BaseModel, frozen=True):

@@ -31,10 +31,8 @@ from typing import (
     ClassVar,
     NamedTuple,
     Protocol,
-    Self,
     TypedDict,
     TypeVar,
-    cast,
     final,
     overload,
 )
@@ -813,16 +811,14 @@ class Box:
         """
         return self
 
-    @classmethod
-    def deserialize(cls, serialized: SerializableBounds) -> Box:
+    def deserialize(self) -> Box:
         """Deserialize a bounds object on the assumption it is a `Box`.
 
         This method just returns the `Box` itself, since that already provides
         Pydantic serialization hooks.  It exists for compatibility with the
         `Bounds` protocol.
         """
-        assert isinstance(serialized, Box)
-        return serialized
+        return self
 
 
 class BoxSliceFactory:
@@ -926,15 +922,17 @@ class Bounds(Protocol):
         ...
 
     def serialize(self) -> SerializableBounds:
-        """Convert a bounds instance into a serializable object."""
+        """Convert a bounds instance into a serializable object.
+
+        Notes
+        -----
+        The returned object must support direct nesting with Pydantic models
+        and have a ``deserialize`` method (taking no arguments) that converts
+        back to this `Bounds` type.  It is common for `serialize` and
+        ``deserialize`` to just return ``self``, when the bounds object is
+        natively serializable.
+        """
         ...
-
-    @classmethod
-    def deserialize(cls, serialized: SerializableBounds) -> Self:
-        """Convert a serialized bounds object into its in-memory form."""
-        from ._concrete_bounds import deserialize_bounds
-
-        return cast(Self, deserialize_bounds(serialized))
 
 
 class BoundsError(ValueError):

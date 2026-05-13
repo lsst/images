@@ -13,14 +13,14 @@ from __future__ import annotations
 
 __all__ = ("IntersectionBounds",)
 
-from typing import TYPE_CHECKING, Any, Self, cast, overload
+from typing import TYPE_CHECKING, Any, overload
 
 import numpy as np
 
 from ._geom import Bounds, Box
 
 if TYPE_CHECKING:
-    from ._concrete_bounds import SerializableBounds
+    from ._concrete_bounds import IntersectionBoundsSerializationModel
 
 
 class IntersectionBounds:
@@ -79,17 +79,10 @@ class IntersectionBounds:
 
         return _intersect_ib(self, other)
 
-    def serialize(self) -> SerializableBounds:
+    def serialize(self) -> IntersectionBoundsSerializationModel:
         """Convert a bounds instance into a serializable object."""
         # Cyclic dependencies prevent IntersectionBoundsSerializationModel
         # from being defined here.
         from ._concrete_bounds import IntersectionBoundsSerializationModel
 
         return IntersectionBoundsSerializationModel(a=self._a.serialize(), b=self._b.serialize())
-
-    @classmethod
-    def deserialize(cls, serialized: SerializableBounds) -> Self:
-        """Convert a serialized bounds object into its in-memory form."""
-        from ._concrete_bounds import deserialize_bounds
-
-        return cast(Self, deserialize_bounds(serialized))
