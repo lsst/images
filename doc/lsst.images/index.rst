@@ -8,6 +8,14 @@ lsst.images
 
 Modern image types and serialization for Rubin Observatory data products.
 
+User Guide
+==========
+
+.. toctree::
+   :maxdepth: 1
+
+   for-afw-users.rst
+
 Changes
 =======
 
