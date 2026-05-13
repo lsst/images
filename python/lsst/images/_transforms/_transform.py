@@ -457,8 +457,8 @@ class Transform[I: Frame, O: Frame]:
                     in_bounds = model.bounds[n]
                     out_bounds = model.bounds[n + 1]
                     new_transform = Transform(
-                        Frame.deserialize(model.frames[n]),
-                        Frame.deserialize(model.frames[n + 1]),
+                        model.frames[n].deserialize(),
+                        model.frames[n + 1].deserialize(),
                         ast_mapping,
                         in_bounds.deserialize() if in_bounds is not None else None,
                         out_bounds.deserialize() if out_bounds is not None else None,
@@ -466,14 +466,14 @@ class Transform[I: Frame, O: Frame]:
                 case reference:
                     frame_set = archive.get_frame_set(reference)
                     new_transform = frame_set[
-                        Frame.deserialize(model.frames[n]), Frame.deserialize(model.frames[n + 1])
+                        model.frames[n].deserialize(), model.frames[n + 1].deserialize()
                     ]
             if transform is None:
                 transform = new_transform
             else:
                 transform = transform.then(new_transform)
         if transform is None:
-            transform = Transform.identity(Frame.deserialize(model.frames[0]))
+            transform = Transform.identity(model.frames[0].deserialize())
         return transform
 
     @staticmethod

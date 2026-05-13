@@ -24,7 +24,7 @@ __all__ = (
 )
 
 import enum
-from typing import Annotated, Literal, Protocol, Self, cast, final
+from typing import Annotated, Literal, Protocol, final
 
 import astropy.units as u
 import numpy as np
@@ -53,18 +53,18 @@ class Frame(Protocol):
         """Coerce ``y`` coordinates into their standard range."""
         ...
 
-    # At present all Frames are members of the same serializable Union,
-    # so their serialized form is just the original frame.  But this may not
-    # always be the case.
-
     def serialize(self) -> SerializableFrame:
-        """Return a Pydantic-serializable version of this Frame."""
-        ...
+        """Return a Pydantic-serializable version of this Frame.
 
-    @classmethod
-    def deserialize(cls, serialized: SerializableFrame) -> Self:
-        """Convert a serialized frame to an in-memory one."""
-        return cast(Self, serialized)
+        Notes
+        -----
+        The returned object must support direct nesting with Pydantic models
+        and have a ``deserialize`` method (taking no arguments) that converts
+        back to this `Frame` type.  It is common for `serialize` and
+        ``deserialize`` to just return ``self``, when the frame object is
+        natively serializable.
+        """
+        ...
 
     @property
     def _ast_ident(self) -> str:
@@ -112,14 +112,13 @@ class DetectorFrame(pydantic.BaseModel, frozen=True):
         """Coerce ``y`` coordinates into their standard range."""
         return y
 
-    def serialize(self) -> SerializableFrame:
+    def serialize(self) -> DetectorFrame:
         """Return a Pydantic-serializable version of this Frame."""
-        return cast(SerializableFrame, self)
+        return self
 
-    @classmethod
-    def deserialize(cls, serialized: SerializableFrame) -> Self:
+    def deserialize(self) -> DetectorFrame:
         """Convert a serialized frame to an in-memory one."""
-        return cast(Self, serialized)
+        return self
 
     @property
     def _ast_ident(self) -> str:
@@ -153,14 +152,13 @@ class FocalPlaneFrame(pydantic.BaseModel, frozen=True):
         """Coerce ``y`` coordinates into their standard range."""
         return y
 
-    def serialize(self) -> SerializableFrame:
+    def serialize(self) -> FocalPlaneFrame:
         """Return a Pydantic-serializable version of this Frame."""
-        return cast(SerializableFrame, self)
+        return self
 
-    @classmethod
-    def deserialize(cls, serialized: SerializableFrame) -> Self:
+    def deserialize(self) -> FocalPlaneFrame:
         """Convert a serialized frame to an in-memory one."""
-        return cast(Self, serialized)
+        return self
 
     @property
     def _ast_ident(self) -> str:
@@ -206,14 +204,13 @@ class FieldAngleFrame(pydantic.BaseModel, frozen=True):
         """Coerce ``y`` coordinates into their standard range."""
         return _wrap_symmetric(y)
 
-    def serialize(self) -> SerializableFrame:
+    def serialize(self) -> FieldAngleFrame:
         """Return a Pydantic-serializable version of this Frame."""
-        return cast(SerializableFrame, self)
+        return self
 
-    @classmethod
-    def deserialize(cls, serialized: SerializableFrame) -> Self:
+    def deserialize(self) -> FieldAngleFrame:
         """Convert a serialized frame to an in-memory one."""
-        return cast(Self, serialized)
+        return self
 
     @property
     def _ast_ident(self) -> str:
@@ -249,14 +246,13 @@ class TractFrame(pydantic.BaseModel, frozen=True):
         """Coerce ``y`` coordinates into their standard range."""
         return y
 
-    def serialize(self) -> SerializableFrame:
+    def serialize(self) -> TractFrame:
         """Return a Pydantic-serializable version of this Frame."""
-        return cast(SerializableFrame, self)
+        return self
 
-    @classmethod
-    def deserialize(cls, serialized: SerializableFrame) -> Self:
+    def deserialize(self) -> TractFrame:
         """Convert a serialized frame to an in-memory one."""
-        return cast(Self, serialized)
+        return self
 
     @property
     def _ast_ident(self) -> str:
@@ -281,14 +277,13 @@ class GeneralFrame(pydantic.BaseModel, frozen=True):
         """Coerce ``y`` coordinates into their standard range."""
         return y
 
-    def serialize(self) -> SerializableFrame:
+    def serialize(self) -> GeneralFrame:
         """Return a Pydantic-serializable version of this Frame."""
-        return cast(SerializableFrame, self)
+        return self
 
-    @classmethod
-    def deserialize(cls, serialized: SerializableFrame) -> Self:
+    def deserialize(self) -> GeneralFrame:
         """Convert a serialized frame to an in-memory one."""
-        return cast(Self, serialized)
+        return self
 
     @property
     def _ast_ident(self) -> str:
@@ -315,14 +310,13 @@ class SkyFrame(enum.StrEnum):
         """Coerce ``x`` coordinates into their standard range."""
         return _wrap_symmetric(y)
 
-    def serialize(self) -> SerializableFrame:
+    def serialize(self) -> SkyFrame:
         """Return a Pydantic-serializable version of this Frame."""
-        return cast(SerializableFrame, self)
+        return self
 
-    @classmethod
-    def deserialize(cls, serialized: SerializableFrame) -> Self:
+    def deserialize(self) -> SkyFrame:
         """Convert a serialized frame to an in-memory one."""
-        return cast(Self, serialized)
+        return self
 
     @property
     def _ast_ident(self) -> str:
