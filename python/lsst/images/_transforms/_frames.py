@@ -31,7 +31,7 @@ import numpy as np
 import pydantic
 
 from .._geom import Box
-from ..serialization import ArchiveTree, Unit
+from ..serialization import Unit
 from ..utils import is_none
 
 
@@ -73,7 +73,7 @@ class Frame(Protocol):
 
 
 @final
-class DetectorFrame(ArchiveTree, frozen=True):
+class DetectorFrame(pydantic.BaseModel, frozen=True):
     """A coordinate frame for a particular detector's pixels.
 
     Notes
@@ -127,7 +127,7 @@ class DetectorFrame(ArchiveTree, frozen=True):
 
 
 @final
-class FocalPlaneFrame(ArchiveTree, frozen=True):
+class FocalPlaneFrame(pydantic.BaseModel, frozen=True):
     """A Euclidean coordinate frame for the focal plane of a camera."""
 
     instrument: str = pydantic.Field(description="Name of the instrument.")
@@ -168,7 +168,7 @@ class FocalPlaneFrame(ArchiveTree, frozen=True):
 
 
 @final
-class FieldAngleFrame(ArchiveTree, frozen=True):
+class FieldAngleFrame(pydantic.BaseModel, frozen=True):
     """An angular coordinate frame that maps a camera onto the sky about its
     boresight.
 
@@ -221,7 +221,7 @@ class FieldAngleFrame(ArchiveTree, frozen=True):
 
 
 @final
-class TractFrame(ArchiveTree, frozen=True):
+class TractFrame(pydantic.BaseModel, frozen=True):
     """The pixel coordinates of a tract: a region on the sky used for
     coaddition, defined by a 'skymap' and split into 'patches' that share
     a common pixel grid.
@@ -264,7 +264,7 @@ class TractFrame(ArchiveTree, frozen=True):
 
 
 @final
-class GeneralFrame(ArchiveTree, frozen=True):
+class GeneralFrame(pydantic.BaseModel, frozen=True):
     """An arbitrary Euclidean coordinate system."""
 
     unit: Unit = pydantic.Field(description="Units of the coordinates in this frame.")
