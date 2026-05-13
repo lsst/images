@@ -301,59 +301,6 @@ class CellCoadd(MaskedImage):
             metadata=self.metadata,
         )
 
-    # Type-checkers want the model argument to only require
-    # MaskedImageSerializationModel[Any], and they'd be absolutely right if
-    # this were a regular instance method. But whether Liskov substitution
-    # applies to classmethods and staticmethods is sort of context-dependent,
-    # and here we do not want it to.
-    @staticmethod
-    def deserialize(  # type: ignore[override]
-        model: CellCoaddSerializationModel[Any],
-        archive: InputArchive[Any],
-        *,
-        bbox: Box | None = None,
-        provenance: bool = True,
-    ) -> CellCoadd:
-        """Deserialize an image from an input archive.
-
-        Parameters
-        ----------
-        model
-            A Pydantic model representation of the image, holding references
-            to data stored in the archive.
-        archive
-            Archive to read from.
-        bbox
-            Bounding box of a subimage to read instead.
-        provenance
-            Whether to read and attach provenance information.
-        """
-        masked_image = MaskedImage.deserialize(model, archive, bbox=bbox)
-        mask_fractions = {
-            k.removeprefix("mask_fractions/"): Image.deserialize(v, archive)
-            for k, v in model.mask_fractions.items()
-        }
-        noise_realizations = [Image.deserialize(v, archive) for v in model.noise_realizations]
-        projection = Projection.deserialize(model.projection, archive)
-        psf = CellPointSpreadFunction.deserialize(model.psf, archive, bbox=bbox)
-        coadd_provenance: CoaddProvenance | None = None
-        if model.provenance is not None and provenance:
-            coadd_provenance = CoaddProvenance.deserialize(model.provenance, archive)
-            if bbox is not None:
-                coadd_provenance = coadd_provenance.subset(psf.bounds.cell_indices())
-        return CellCoadd(
-            masked_image.image,
-            mask=masked_image.mask,
-            variance=masked_image.variance,
-            mask_fractions=mask_fractions,
-            noise_realizations=noise_realizations,
-            projection=projection,
-            band=model.band,
-            psf=psf,
-            patch=model.patch,
-            provenance=coadd_provenance,
-        )._finish_deserialize(model)
-
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
         pointer_type: type[P],
@@ -476,12 +423,55 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
         description="Information about the images that went into the coadd."
     )
 
+    def deserialize(  # type: ignore[override]
+        self,
+        archive: InputArchive[Any],
+        *,
+        bbox: Box | None = None,
+        provenance: bool = True,
+    ) -> CellCoadd:
+        """Deserialize an image from an input archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+        bbox
+            Bounding box of a subimage to read instead.
+        provenance
+            Whether to read and attach provenance information.
+        """
+        masked_image = super().deserialize(archive, bbox=bbox)
+        mask_fractions = {
+            k.removeprefix("mask_fractions/"): v.deserialize(archive) for k, v in self.mask_fractions.items()
+        }
+        noise_realizations = [v.deserialize(archive) for v in self.noise_realizations]
+        projection = self.projection.deserialize(archive)
+        psf = self.psf.deserialize(archive, bbox=bbox)
+        coadd_provenance: CoaddProvenance | None = None
+        if self.provenance is not None and provenance:
+            coadd_provenance = self.provenance.deserialize(archive)
+            if bbox is not None:
+                coadd_provenance = coadd_provenance.subset(psf.bounds.cell_indices())
+        return CellCoadd(
+            masked_image.image,
+            mask=masked_image.mask,
+            variance=masked_image.variance,
+            mask_fractions=mask_fractions,
+            noise_realizations=noise_realizations,
+            projection=projection,
+            band=self.band,
+            psf=psf,
+            patch=self.patch,
+            provenance=coadd_provenance,
+        )._finish_deserialize(self)
+
     def deserialize_psf(self, archive: InputArchive[Any], bbox: Box | None = None) -> CellPointSpreadFunction:
         """Finish deserializing the PSF model."""
-        return CellPointSpreadFunction.deserialize(self.psf, archive, bbox=bbox)
+        return self.psf.deserialize(archive, bbox=bbox)
 
     def deserialize_provenance(self, archive: InputArchive[Any]) -> CoaddProvenance:
         """Finish deserializing the provenance information."""
         if self.provenance is not None:
-            return CoaddProvenance.deserialize(self.provenance, archive)
+            return self.provenance.deserialize(archive)
         raise ArchiveReadError("No coadd provenance stored in this file.")

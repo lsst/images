@@ -364,35 +364,6 @@ class VisitImage(MaskedImage):
             metadata=self.metadata,
         )
 
-    # Type-checkers want the model argument to only require
-    # MaskedImageSerializationModel[Any], and they'd be absolutely right if
-    # this were a regular instance method. But whether Liskov substitution
-    # applies to classmethods and staticmethods is sort of context-dependent,
-    # and here we do not want it to.
-    @staticmethod
-    def deserialize(
-        model: VisitImageSerializationModel[Any],  # type: ignore[override]
-        archive: InputArchive[Any],
-        *,
-        bbox: Box | None = None,
-    ) -> VisitImage:
-        masked_image = MaskedImage.deserialize(model, archive, bbox=bbox)
-        psf = model.deserialize_psf(archive)
-        detector = Detector.deserialize(model.detector, archive)
-        aperture_corrections = model.aperture_corrections.deserialize(archive)
-        return VisitImage(
-            masked_image.image,
-            mask=masked_image.mask,
-            variance=masked_image.variance,
-            psf=psf,
-            projection=masked_image.projection,
-            obs_info=masked_image.obs_info,
-            summary_stats=model.summary_stats,
-            detector=detector,
-            aperture_corrections=aperture_corrections,
-            bounds=model.bounds.deserialize() if model.bounds is not None else None,
-        )._finish_deserialize(model)
-
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
         pointer_type: type[P],
@@ -792,20 +763,30 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
         exclude_if=is_none,
     )
 
+    def deserialize(self, archive: InputArchive[Any], *, bbox: Box | None = None) -> VisitImage:
+        masked_image = super().deserialize(archive, bbox=bbox)
+        psf = self.deserialize_psf(archive)
+        detector = self.detector.deserialize(archive)
+        aperture_corrections = self.aperture_corrections.deserialize(archive)
+        return VisitImage(
+            masked_image.image,
+            mask=masked_image.mask,
+            variance=masked_image.variance,
+            psf=psf,
+            projection=masked_image.projection,
+            obs_info=masked_image.obs_info,
+            summary_stats=self.summary_stats,
+            detector=detector,
+            aperture_corrections=aperture_corrections,
+            bounds=self.bounds.deserialize() if self.bounds is not None else None,
+        )._finish_deserialize(self)
+
     def deserialize_psf(self, archive: InputArchive[Any]) -> PointSpreadFunction | ArchiveReadError:
         """Finish deserializing the PSF model, or *return* any exception
         raised in the attempt.
         """
         try:
-            match self.psf:
-                case PiffSerializationModel():
-                    return PiffWrapper.deserialize(self.psf, archive)
-                case PSFExSerializationModel():
-                    return PSFExWrapper.deserialize(self.psf, archive)
-                case GaussianPSFSerializationModel():
-                    return GaussianPointSpreadFunction.deserialize(self.psf, archive)
-                case _:
-                    raise ArchiveReadError("PSF model type not recognized.")
+            return self.psf.deserialize(archive)
         except ArchiveReadError as err:
             return err
 

@@ -64,7 +64,7 @@ def read[T: Any](cls: type[T], target: ResourcePathExpression | ArchiveTree) -> 
     if not isinstance(target, ArchiveTree):
         target = tree_type.model_validate_json(ResourcePath(target).read())
     archive = JsonInputArchive(target.indirect)
-    obj = cls.deserialize(target, archive)
+    obj: T = target.deserialize(archive)
     target.indirect = []
     return ReadResult(obj, target.metadata, target.butler_info)
 

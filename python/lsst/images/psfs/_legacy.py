@@ -127,35 +127,6 @@ class PSFExWrapper(LegacyPointSpreadFunction):
             bounds=self.bounds.serialize(),
         )
 
-    @classmethod
-    def deserialize(
-        cls, model: PSFExSerializationModel, archive: serialization.InputArchive[Any]
-    ) -> PSFExWrapper:
-        """Deserialize the PSF from an archive.
-
-        This method is intended to be usable as the callback function passed to
-        `.serialization.InputArchive.deserialize_pointer`.
-        """
-        try:
-            from lsst.meas.extensions.psfex import PsfexPsf, PsfexPsfSerializationData
-        except ImportError:
-            raise serialization.ArchiveReadError("Failed to import lsst.meas.extensions.psfex.") from None
-
-        parameters = archive.get_array(model.parameters).astype(np.float32)
-        data = PsfexPsfSerializationData()
-        data.average_x = model.average_x
-        data.average_y = model.average_y
-        data.pixel_step = model.pixel_step
-        data.group = model.group
-        data.degree = model.degree
-        data.basis = model.basis
-        data.coeff = model.coeff
-        data.size = list(reversed(parameters.shape))
-        data.comp = parameters.flatten()
-        data.context = model.context
-        legacy_psf = PsfexPsf.fromSerializationData(data)
-        return cls(legacy_psf, model.bounds.deserialize())
-
     @staticmethod
     def _get_archive_tree_type(
         pointer_type: type[pydantic.BaseModel],
@@ -202,3 +173,29 @@ class PSFExSerializationModel(serialization.ArchiveTree):
     bounds: SerializableBounds = pydantic.Field(description="Validity range for this PSF model.")
 
     model_config = pydantic.ConfigDict(ser_json_inf_nan="constants")
+
+    def deserialize(self, archive: serialization.InputArchive[Any]) -> PSFExWrapper:
+        """Deserialize the PSF from an archive.
+
+        This method is intended to be usable as the callback function passed to
+        `.serialization.InputArchive.deserialize_pointer`.
+        """
+        try:
+            from lsst.meas.extensions.psfex import PsfexPsf, PsfexPsfSerializationData
+        except ImportError:
+            raise serialization.ArchiveReadError("Failed to import lsst.meas.extensions.psfex.") from None
+
+        parameters = archive.get_array(self.parameters).astype(np.float32)
+        data = PsfexPsfSerializationData()
+        data.average_x = self.average_x
+        data.average_y = self.average_y
+        data.pixel_step = self.pixel_step
+        data.group = self.group
+        data.degree = self.degree
+        data.basis = self.basis
+        data.coeff = self.coeff
+        data.size = list(reversed(parameters.shape))
+        data.comp = parameters.flatten()
+        data.context = self.context
+        legacy_psf = PsfexPsf.fromSerializationData(data)
+        return PSFExWrapper(legacy_psf, self.bounds.deserialize())

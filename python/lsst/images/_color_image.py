@@ -175,30 +175,6 @@ class ColorImage(GeneralizedImage):
         )
 
     @staticmethod
-    def deserialize(
-        model: ColorImageSerializationModel[Any], archive: InputArchive[Any], *, bbox: Box | None = None
-    ) -> ColorImage:
-        """Deserialize a image from an input archive.
-
-        Parameters
-        ----------
-        model
-            A Pydantic model representation of the image, holding references
-            to data stored in the archive.
-        archive
-            Archive to read from.
-        bbox
-            Bounding box of a subimage to read instead.
-        """
-        r = Image.deserialize(model.red, archive, bbox=bbox)
-        g = Image.deserialize(model.green, archive, bbox=bbox)
-        b = Image.deserialize(model.blue, archive, bbox=bbox)
-        projection = (
-            Projection.deserialize(model.projection, archive) if model.projection is not None else None
-        )
-        return ColorImage.from_channels(r, g, b, projection=projection)._finish_deserialize(model)
-
-    @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
         pointer_type: type[P],
     ) -> type[ColorImageSerializationModel[P]]:
@@ -224,3 +200,22 @@ class ColorImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     def bbox(self) -> Box:
         """The bounding box of the image."""
         return self.red.bbox
+
+    def deserialize(self, archive: InputArchive[Any], *, bbox: Box | None = None) -> ColorImage:
+        """Deserialize a image from an input archive.
+
+        Parameters
+        ----------
+        model
+            A Pydantic model representation of the image, holding references
+            to data stored in the archive.
+        archive
+            Archive to read from.
+        bbox
+            Bounding box of a subimage to read instead.
+        """
+        r = self.red.deserialize(archive, bbox=bbox)
+        g = self.green.deserialize(archive, bbox=bbox)
+        b = self.blue.deserialize(archive, bbox=bbox)
+        projection = self.projection.deserialize(archive) if self.projection is not None else None
+        return ColorImage.from_channels(r, g, b, projection=projection)._finish_deserialize(self)

@@ -240,11 +240,6 @@ class ChebyshevField(BaseField):
         )
 
     @staticmethod
-    def deserialize(model: ChebyshevFieldSerializationModel, archive: InputArchive[Any]) -> ChebyshevField:
-        """Deserialize the Chebyshev field from an input archive."""
-        return ChebyshevField(model.bounds.deserialize(), model.coefficients, unit=model.unit)
-
-    @staticmethod
     def _get_archive_tree_type(
         pointer_type: type[Any],
     ) -> type[ChebyshevFieldSerializationModel]:
@@ -361,5 +356,6 @@ class ChebyshevFieldSerializationModel(ArchiveTree):
 
     field_type: Literal["CHEBYSHEV"] = "CHEBYSHEV"
 
-    def finish_deserialize(self, archive: InputArchive) -> ChebyshevField:
-        return ChebyshevField.deserialize(self, archive)
+    def deserialize(self, archive: InputArchive) -> ChebyshevField:
+        """Deserialize the Chebyshev field from an input archive."""
+        return ChebyshevField(self.bounds.deserialize(), self.coefficients, unit=self.unit)

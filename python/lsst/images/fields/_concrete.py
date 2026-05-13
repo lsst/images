@@ -14,7 +14,6 @@ from __future__ import annotations
 __all__ = (
     "Field",
     "FieldSerializationModel",
-    "deserialize_field",
     "field_from_legacy",
     "field_from_legacy_background",
 )
@@ -24,7 +23,6 @@ from typing import TYPE_CHECKING, Annotated, Any
 import astropy.units
 import pydantic
 
-from ..serialization import InputArchive
 from ._chebyshev import ChebyshevField, ChebyshevFieldSerializationModel
 from ._product import ProductField, ProductFieldSerializationModel
 from ._spline import SplineField, SplineFieldSerializationModel
@@ -56,11 +54,6 @@ type FieldSerializationModel = Annotated[
     | SumFieldSerializationModel,
     pydantic.Field(discriminator="field_type"),
 ]
-
-
-def deserialize_field(model: FieldSerializationModel, archive: InputArchive[Any]) -> Field:
-    """Deserialize a field from a serialization model of unknown type."""
-    return model.finish_deserialize(archive)
 
 
 ProductFieldSerializationModel.model_rebuild()

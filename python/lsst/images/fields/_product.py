@@ -109,13 +109,6 @@ class ProductField(BaseField):
         )
 
     @staticmethod
-    def deserialize(model: ProductFieldSerializationModel, archive: InputArchive[Any]) -> ProductField:
-        """Deserialize the field from an input archive."""
-        from ._concrete import deserialize_field
-
-        return ProductField([deserialize_field(operand, archive) for operand in model.operands])
-
-    @staticmethod
     def _get_archive_tree_type(
         pointer_type: type[Any],
     ) -> type[ProductFieldSerializationModel]:
@@ -154,5 +147,6 @@ class ProductFieldSerializationModel(ArchiveTree):
 
     field_type: Literal["PRODUCT"] = "PRODUCT"
 
-    def finish_deserialize(self, archive: InputArchive) -> ProductField:
-        return ProductField.deserialize(self, archive)
+    def deserialize(self, archive: InputArchive) -> ProductField:
+        """Deserialize the field from an input archive."""
+        return ProductField([operand.deserialize(archive) for operand in self.operands])

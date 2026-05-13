@@ -120,25 +120,6 @@ class PiffWrapper(PointSpreadFunction):
             bounds=self._bounds.serialize(),
         )
 
-    @classmethod
-    def deserialize(
-        cls, model: PiffSerializationModel, archive: serialization.InputArchive[Any]
-    ) -> PiffWrapper:
-        """Deserialize the PSF from an archive.
-
-        This method is intended to be usable as the callback function passed to
-        `.serialization.InputArchive.deserialize_pointer`.
-        """
-        try:
-            from piff import PSF
-            from piff.config import PiffLogger
-        except ImportError:
-            raise ArchiveReadError("Failed to import piff.") from None
-
-        reader = _ArchivePiffReader(model.piff, archive)
-        impl = PSF._read(reader, "piff", PiffLogger(_LOG))
-        return cls(impl, bounds=model.bounds.deserialize(), stamp_size=model.stamp_size)
-
     @staticmethod
     def _get_archive_tree_type(
         pointer_type: type[pydantic.BaseModel],
@@ -241,6 +222,22 @@ class PiffSerializationModel(serialization.ArchiveTree):
     bounds: SerializableBounds = pydantic.Field(
         description="The bounds object that represents the PSF's validity region."
     )
+
+    def deserialize(self, archive: serialization.InputArchive[Any]) -> PiffWrapper:
+        """Deserialize the PSF from an archive.
+
+        This method is intended to be usable as the callback function passed to
+        `.serialization.InputArchive.deserialize_pointer`.
+        """
+        try:
+            from piff import PSF
+            from piff.config import PiffLogger
+        except ImportError:
+            raise ArchiveReadError("Failed to import piff.") from None
+
+        reader = _ArchivePiffReader(self.piff, archive)
+        impl = PSF._read(reader, "piff", PiffLogger(_LOG))
+        return PiffWrapper(impl, bounds=self.bounds.deserialize(), stamp_size=self.stamp_size)
 
 
 class _ArchivePiffWriter:

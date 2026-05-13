@@ -31,12 +31,9 @@ from lsst.daf.butler import DatasetProvenance, FormatterV2
 from lsst.resources import ResourcePath
 
 from .._geom import Box
-from .._image import Image
-from .._mask import Mask
 from .._masked_image import MaskedImageSerializationModel
-from .._transforms import Projection, ProjectionSerializationModel
+from .._transforms import ProjectionSerializationModel
 from .._visit_image import VisitImageSerializationModel
-from ..cameras import Detector
 from ..serialization import ButlerInfo
 from ._common import FitsCompressionOptions, PointerModel
 from ._input_archive import FitsInputArchive, read
@@ -207,7 +204,7 @@ class ImageFormatter(GenericFormatter):
                 if isinstance(
                     serialized_projection := getattr(tree, "projection", None), ProjectionSerializationModel
                 ):
-                    return Projection.deserialize(serialized_projection, archive)
+                    return serialized_projection.deserialize(archive)
                 else:
                     return ComponentSentinel.INVALID_COMPONENT_MODEL
             case "bbox":
@@ -243,11 +240,11 @@ class MaskedImageFormatter(ImageFormatter):
             return ComponentSentinel.INVALID_COMPONENT_MODEL
         match component:
             case "image":
-                return Image.deserialize(tree.image, archive, bbox=self.pop_bbox_from_parameters())
+                return tree.image.deserialize(archive, bbox=self.pop_bbox_from_parameters())
             case "mask":
-                return Mask.deserialize(tree.mask, archive, bbox=self.pop_bbox_from_parameters())
+                return tree.mask.deserialize(archive, bbox=self.pop_bbox_from_parameters())
             case "variance":
-                return Image.deserialize(tree.variance, archive, bbox=self.pop_bbox_from_parameters())
+                return tree.variance.deserialize(archive, bbox=self.pop_bbox_from_parameters())
         return ComponentSentinel.UNRECOGNIZED_COMPONENT
 
 
@@ -271,11 +268,11 @@ class VisitImageFormatter(MaskedImageFormatter):
             return ComponentSentinel.INVALID_COMPONENT_MODEL
         match component:
             case "psf":
-                return tree.deserialize_psf(archive)
+                return tree.psf.deserialize(archive)
             case "summary_stats":
                 return tree.summary_stats
             case "detector":
-                return Detector.deserialize(tree.detector, archive)
+                return tree.detector.deserialize(archive)
             case "aperture_corrections":
                 return tree.aperture_corrections.deserialize(archive)
         return ComponentSentinel.UNRECOGNIZED_COMPONENT

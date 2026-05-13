@@ -252,15 +252,6 @@ class FrameSetTestHolder:
         return FrameSetTestHolderModel[P](frames=frames_model, pixels_to_fp=pixels_to_fp_model)
 
     @staticmethod
-    def deserialize(model: FrameSetTestHolderModel[Any], archive: InputArchive[Any]) -> FrameSetTestHolder:
-        assert not isinstance(model.frames, CameraFrameSetSerializationModel), "Archive pointer expected."
-        frames = archive.deserialize_pointer(
-            model.frames, CameraFrameSetSerializationModel, CameraFrameSet.deserialize
-        )
-        pixels_to_fp = Transform.deserialize(model.pixels_to_fp, archive)
-        return FrameSetTestHolder(frames, pixels_to_fp)
-
-    @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
         pointer_type: type[P],
     ) -> type[FrameSetTestHolderModel[P]]:
@@ -272,6 +263,14 @@ class FrameSetTestHolderModel[P: pydantic.BaseModel](ArchiveTree):
 
     frames: CameraFrameSetSerializationModel | P
     pixels_to_fp: TransformSerializationModel[P]
+
+    def deserialize(self, archive: InputArchive[Any]) -> FrameSetTestHolder:
+        assert not isinstance(self.frames, CameraFrameSetSerializationModel), "Archive pointer expected."
+        frames = archive.deserialize_pointer(
+            self.frames, CameraFrameSetSerializationModel, CameraFrameSetSerializationModel.deserialize
+        )
+        pixels_to_fp = self.pixels_to_fp.deserialize(archive)
+        return FrameSetTestHolder(frames, pixels_to_fp)
 
 
 if __name__ == "__main__":

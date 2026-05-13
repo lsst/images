@@ -184,19 +184,6 @@ class CameraFrameSet(FrameSet):
         return CameraFrameSetSerializationModel(instrument=self.instrument, ast=self._ast.show())
 
     @staticmethod
-    def deserialize(model: CameraFrameSetSerializationModel, archive: InputArchive[Any]) -> CameraFrameSet:
-        """Deserialize a frame set from an archive.
-
-        Parameters
-        ----------
-        model
-            Seralized form of the frame set.
-        archive
-            Archive to read from.
-        """
-        return CameraFrameSet(model.instrument, astshim.FrameSet.fromString(model.ast))
-
-    @staticmethod
     def _get_archive_tree_type(
         pointer_type: type[pydantic.BaseModel],
     ) -> type[CameraFrameSetSerializationModel]:
@@ -226,3 +213,13 @@ class CameraFrameSetSerializationModel(ArchiveTree):
     ast: str = pydantic.Field(
         description="A serialized Starlink AST FrameSet, using the AST native encoding."
     )
+
+    def deserialize(self, archive: InputArchive[Any]) -> CameraFrameSet:
+        """Deserialize a frame set from an archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+        """
+        return CameraFrameSet(self.instrument, astshim.FrameSet.fromString(self.ast))

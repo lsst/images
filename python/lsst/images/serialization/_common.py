@@ -23,6 +23,7 @@ __all__ = (
 )
 
 import operator
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, NamedTuple, Protocol, Self
 
 import astropy.table
@@ -40,6 +41,8 @@ except ImportError:
 
 if TYPE_CHECKING:
     import astropy.io.fits
+
+    from ._input_archive import InputArchive
 
 
 type MetadataValue = (
@@ -68,7 +71,7 @@ class JsonRef(pydantic.BaseModel, serialize_by_alias=True):
 
 
 class ArchiveTree(
-    pydantic.BaseModel, ser_json_inf_nan="constants", ser_json_bytes="base64", val_json_bytes="base64"
+    pydantic.BaseModel, ABC, ser_json_inf_nan="constants", ser_json_bytes="base64", val_json_bytes="base64"
 ):
     """An intermediate base class of `pydantic.BaseModel` that should be used
     for all objects that may be used as the top-level tree models written to
@@ -88,6 +91,11 @@ class ArchiveTree(
         description="Serialized nested objects that may be saved or read more than once.",
         exclude_if=operator.not_,
     )
+
+    @abstractmethod
+    def deserialize(self, archive: InputArchive[Any]) -> Any:
+        """Return the in-memory object that was serialized to this tree."""
+        raise NotImplementedError()
 
 
 class ReadResult[T: Any](NamedTuple):

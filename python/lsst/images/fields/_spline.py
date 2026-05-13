@@ -180,17 +180,6 @@ class SplineField(BaseField):
         )
 
     @staticmethod
-    def deserialize(model: SplineFieldSerializationModel, archive: InputArchive[Any]) -> SplineField:
-        """Deserialize the spline field from an input archive."""
-        return SplineField(
-            model.bounds.deserialize(),
-            archive.get_array(model.data),
-            y=model.y,
-            x=model.x,
-            unit=model.unit,
-        )
-
-    @staticmethod
     def _get_archive_tree_type(
         pointer_type: type[Any],
     ) -> type[SplineFieldSerializationModel]:
@@ -270,5 +259,12 @@ class SplineFieldSerializationModel(ArchiveTree):
 
     field_type: Literal["SPLINE"] = "SPLINE"
 
-    def finish_deserialize(self, archive: InputArchive) -> SplineField:
-        return SplineField.deserialize(self, archive)
+    def deserialize(self, archive: InputArchive) -> SplineField:
+        """Deserialize the spline field from an input archive."""
+        return SplineField(
+            self.bounds.deserialize(),
+            archive.get_array(self.data),
+            y=self.y,
+            x=self.x,
+            unit=self.unit,
+        )

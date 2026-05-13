@@ -96,7 +96,7 @@ def read[T: Any](
         partial = any(v is not None for v in kwargs.values())
     with FitsInputArchive.open(path, page_size=page_size, partial=partial) as archive:
         tree = archive.get_tree(cls._get_archive_tree_type(PointerModel))
-        obj = cls.deserialize(tree, archive, **kwargs)
+        obj = tree.deserialize(archive, **kwargs)
         obj._opaque_metadata = archive.get_opaque_metadata()
         return ReadResult(obj, tree.metadata, tree.butler_info)
 
