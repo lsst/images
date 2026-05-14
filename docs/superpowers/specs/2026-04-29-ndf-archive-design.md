@@ -21,17 +21,24 @@ not actively maintained).
 
 ## Scope (DM-54817)
 
-- **Top-level types supported:** `Image`, `MaskedImage`, `VisitImage`.
+- **Top-level types supported:** `Image`, `MaskedImage`, `VisitImage`,
+  `ColorImage`. `ColorImage` round-trips via a multi-NDF HDS container
+  with one `<NDF>` per channel and a `LSST/JSON` sibling for the typed
+  tree; see the writer routing section. `CellCoadd` round-trip is
+  blocked by the 16-character HDS component-name limit (the
+  `NOISE_REALIZATIONS` archive path exceeds it).
 - **Read scope:** files produced by this writer; plus best-effort ingest of
   Starlink-generated NDFs that contain only `_REAL`/`_DOUBLE` arrays in the
   recognised components (`DATA_ARRAY`, `VARIANCE`, `QUALITY`, `WCS`,
   `MORE.FITS`). `AXIS`, `HISTORY`, `_LOGICAL` primitives, and unfamiliar
-  `MORE.*` extensions are warned-about-and-dropped.
-- **Out of scope** (explicitly deferred): `ColorImage`, `GeneralizedImage`,
-  multi-NDF HDS containers, compressed/scaled/delta NDF array variants on
-  write, fsspec-direct h5py reads, preservation of unrecognised HDS
-  components for round-trip, migration of `MORE/LSST/<NAME>` blobs from JSON
-  to typed HDS structures.
+  `MORE.*` extensions are warned-about-and-dropped. The long-term plan
+  for this best-effort path is to move it out of `ndf.read` and onto an
+  `Image`/`MaskedImage` external-read entry point, matching how
+  out-of-spec FITS files are handled.
+- **Out of scope** (explicitly deferred): `GeneralizedImage`,
+  compressed/scaled/delta NDF array variants on write, fsspec-direct
+  h5py reads, preservation of unrecognised HDS components for
+  round-trip.
 
 ## Module layout
 
@@ -41,10 +48,15 @@ python/lsst/images/ndf/
   _hds.py                # HDS-on-HDF5 helpers (private; format-only)
   _common.py             # small shared types (no NdfOpaqueMetadata; the
                          # archive reuses FitsOpaqueMetadata for FITS headers)
+  _model.py              # in-memory NDF document IR (HdsPrimitive, Ndf,
+                         # NdfContainer, NdfDocument); used by both archives
   _output_archive.py     # NdfOutputArchive : implements OutputArchive ABC
   _input_archive.py      # NdfInputArchive  : implements InputArchive ABC
-  formatters.py          # NdfFormatter : ResourcePath-based load/dump
 ```
+
+The butler `Formatter` lives in `lsst.images.formatters` (unified across
+backends, dispatching on file extension); there is no NDF-specific
+formatter module.
 
 Two layers:
 
@@ -58,11 +70,6 @@ Two layers:
   LSST-side conventions (which structure means `DATA_ARRAY`, where mask
   plane names go, the `MORE/LSST/*` hoisting policy). They call `_hds`
   exclusively for on-disk reads/writes.
-
-`formatters.py` mirrors `fits/formatters.py` and `json/formatters.py`: a
-`Formatter` subclass that opens a `lsst.resources.ResourcePath`,
-materialises a local file (downloading if remote), and delegates to the
-archive classes.
 
 ## `_hds.py` — HDS-on-HDF5 layer
 
@@ -93,10 +100,15 @@ Conventions follow the canonical Starlink `hds-v5` library
   `H5T_NATIVE_UCHAR` → `_UBYTE`, `H5T_NATIVE_INT` → `_INTEGER`,
   `H5T_NATIVE_SHORT` → `_WORD`, `|S<N>` → `_CHAR*<N>`. (HDS `_LOGICAL`
   is not in the supported set; on read we warn-and-drop.)
-- **Dimension order**: NDF/Fortran dims `(N1, N2, …, Nk)` map to HDF5
-  dims `(Nk, …, N2, N1)`. Callers always pass and receive C-order numpy
-  arrays; the byte stream on disk matches Fortran storage by virtue of
-  the reversal.
+- **Dimension order**: arrays are written with their natural C-order
+  HDF5 shape and read back the same way; this library's in-memory
+  representation is also C-order, so no axis manipulation happens on
+  read or write. Starlink HDS reads the same bytes as Fortran-order
+  and therefore reports the shape with axes reversed — e.g.
+  `h5dump` shows a `(5, 8)` dataset while `hdstrace` reports
+  `DATA(8, 5)` for the same component. That difference is purely how
+  the HDS library interprets the HDF5 shape; the on-disk byte stream
+  is unchanged.
 - **Legacy compatibility on read**: `_hds.open_structure` accepts the
   older `HDSTYPE` attribute as a fallback when `CLASS` is absent, so
   files produced by pre-canonical HDS variants can still be inspected.
@@ -118,7 +130,14 @@ Conventions follow the canonical Starlink `hds-v5` library
 
 Anything outside this set on read raises `ArchiveReadError` from a
 recognised component, or is logged-and-dropped if from an unrecognised
-component.
+component. The Starlink HDS C library only formally accepts the
+`_REAL`/`_DOUBLE`/`_INTEGER`/`_INT64`/`_WORD`/`_UBYTE`/`_CHAR*N`/`_LOGICAL`
+set, so writing other numpy dtypes produces files that Starlink tooling
+cannot read. There is no automatic widening or unsigned-integer
+emulation today; a future option is to store smaller unsupported
+integer dtypes (`uint16`, `uint32`, `int8`) in a supported wider HDS
+type while recording the true numpy dtype in the JSON tree, leaving
+`uint64` as the lone unrepresentable case.
 
 ### `_CHAR*N` convention
 
@@ -285,7 +304,14 @@ Plain English:
    (`BAD=bit 0`). If `VARIANCE` is present without `QUALITY`, the mask
    is an empty (all-zero) `uint8` array with the default schema.
    Reading Starlink-generated `MORE/IRQ`-named bits is a follow-up
-   that arrives with full IRQ write support.
+   that arrives with full IRQ write support. The longer-term direction
+   is to move this best-effort ingest off `ndf.read` and onto an
+   external-read entry point on the data classes (e.g.
+   `MaskedImage.read_external`) that dispatches to the right backend by
+   file extension; the archive itself would then only read files it
+   wrote. Unlike the FITS case there is little guesswork in mapping an
+   NDF to `MaskedImage`, but features like axis labels and arbitrary
+   `MORE.*` extensions still have no place in the LSST data model.
 5. Unrecognised components (`HISTORY`, `AXIS`, `LABEL`, custom `MORE.*`
    not in `{FITS, IRQ, LSST}`, `_LOGICAL`-typed primitives) → log a
    warning once per unique kind per file; skip.
@@ -378,7 +404,7 @@ Uses the existing `ArchiveReadError` from `serialization/_common.py`.
   unknown → `ArchiveReadError`.
 - Unrecognised components → `logging.getLogger(__name__).warning(...)`
   once per unique kind per file; do not raise.
-- Missing both `MORE/LSST/JSON` and core image components → 
+- Missing both `MORE/LSST/JSON` and core image components →
   `ArchiveReadError("file is HDS but contains no image data")`.
 
 The narrow read scope is enforced at `_hds.read_array`, so the archive
