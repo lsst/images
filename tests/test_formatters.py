@@ -420,3 +420,46 @@ class FitsDeprecationShimTestCase(unittest.TestCase):
         self.assertTrue(issubclass(shim.MaskedImageFormatter, unified.MaskedImageFormatter))
         self.assertTrue(issubclass(shim.VisitImageFormatter, unified.VisitImageFormatter))
         self.assertTrue(issubclass(shim.CellCoaddFormatter, unified.CellCoaddFormatter))
+
+
+class JsonDeprecationShimTestCase(unittest.TestCase):
+    """lsst.images.json.formatters is a deprecation shim.
+
+    The shim defaults to ``.json`` output.
+    """
+
+    def test_generic_formatter_warns(self):
+        import warnings
+
+        from lsst.images.json.formatters import GenericFormatter
+
+        with warnings.catch_warnings(record=True) as recorded:
+            warnings.simplefilter("always")
+            # FormatterV2.__init__ requires file_descriptor; catch the
+            # TypeError so we can still observe the warning was emitted
+            # before the constructor failed.
+            try:
+                GenericFormatter.__init__(
+                    GenericFormatter.__new__(GenericFormatter)  # type: ignore[call-arg]
+                )
+            except TypeError:
+                pass
+        self.assertTrue(
+            any(
+                issubclass(w.category, DeprecationWarning)
+                and "json.formatters.GenericFormatter is deprecated" in str(w.message)
+                for w in recorded
+            )
+        )
+
+    def test_default_extension_is_json(self):
+        from lsst.images.json.formatters import GenericFormatter
+
+        self.assertEqual(GenericFormatter.default_extension, ".json")
+
+    def test_default_write_extension_is_json(self):
+        from lsst.images.json.formatters import GenericFormatter
+
+        formatter = GenericFormatter.__new__(GenericFormatter)
+        object.__setattr__(formatter, "_write_parameters", {})
+        self.assertEqual(formatter.get_write_extension(), ".json")
