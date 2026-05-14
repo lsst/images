@@ -12,4 +12,5 @@
 from ._checks import *
 from ._creation import *
 from ._data_ids import *
+from ._formatter import *
 from ._roundtrip import *

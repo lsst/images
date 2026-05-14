@@ -32,7 +32,7 @@ __all__ = (
 import enum
 import hashlib
 import json as _stdlib_json  # disambiguates from .json subpackage
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
@@ -122,16 +122,6 @@ class GenericFormatter(FormatterV2):
     butler_provenance: DatasetProvenance | None = None
 
     # --- Write parameter handling -------------------------------------------
-
-    @property
-    def write_parameters(self) -> Mapping[str, Any]:  # type: ignore[override]
-        # Allow unit tests to inject a dict via `_write_parameters`. The
-        # FormatterV2 base provides the property pulling from the file
-        # descriptor; override only when our private attribute is set.
-        params = getattr(self, "_write_parameters", None)
-        if params is not None:
-            return params
-        return super().write_parameters  # type: ignore[misc]
 
     def get_write_extension(self) -> str:
         default_fmt = self.default_extension.lstrip(".")
@@ -267,25 +257,13 @@ class ImageFormatter(GenericFormatter):
     VisitImage).
     """
 
-    def _storage_class_pytype_default(self) -> Any:
-        return self.file_descriptor.storageClass.pytype
-
-    def _get_pytype(self) -> Any:
-        # Allow unit tests to inject a pytype without a real FileDescriptor.
-        # Returns `Any` because the concrete classes carry the
-        # `_get_archive_tree_type` classmethod that mypy can't see on `type`.
-        pytype = getattr(self, "_storage_class_pytype", None)
-        if pytype is not None:
-            return pytype
-        return self._storage_class_pytype_default()
-
     def read_from_uri(
         self,
         uri: ResourcePath,
         component: str | None = None,
         expected_size: int = -1,
     ) -> Any:
-        pytype = self._get_pytype()
+        pytype: Any = self.file_descriptor.storageClass.pytype
         ext = self._extension_from_uri(uri)
         backend = _BACKENDS[ext]
         if component is None:
@@ -298,7 +276,7 @@ class ImageFormatter(GenericFormatter):
     def _read_component_from_uri(self, component: str, uri: ResourcePath) -> Any:
         ext = self._extension_from_uri(uri)
         backend = _BACKENDS[ext]
-        pytype = self._get_pytype()
+        pytype: Any = self.file_descriptor.storageClass.pytype
         if ext == ".json":
             obj = backend.read(pytype, uri).deserialized
             try:
@@ -327,22 +305,14 @@ class ImageFormatter(GenericFormatter):
             )
         return result
 
-    def _get_parameters(self) -> dict[str, Any] | None:
-        # Allow unit tests to inject parameters without a real FileDescriptor.
-        if hasattr(self, "_parameters"):
-            return self._parameters
-        try:
-            return self.file_descriptor.parameters
-        except AttributeError:
-            return None
-
     def pop_bbox_from_parameters(self) -> Box | None:
-        parameters = self._get_parameters() or {}
+        parameters = self.file_descriptor.parameters or {}
         return parameters.pop("bbox", None)
 
     def check_unhandled_parameters(self) -> None:
-        if self._get_parameters():
-            raise RuntimeError(f"Parameters {list(self._get_parameters().keys())} not recognized.")  # type: ignore[union-attr]
+        parameters = self.file_descriptor.parameters
+        if parameters:
+            raise RuntimeError(f"Parameters {list(parameters.keys())} not recognized.")
 
     def read_component(self, component: str, tree: Any, archive: Any) -> Any:
         match component:

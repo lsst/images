@@ -11,12 +11,40 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+import warnings
 
+import numpy as np
+
+from lsst.images import (
+    Box,
+    Image,
+    MaskedImage,
+    MaskPlane,
+    MaskSchema,
+    VisitImage,
+    fits,
+)
+from lsst.images import json as images_json
+from lsst.images.fits import formatters as fits_shim
+from lsst.images.fits._common import PointerModel
+from lsst.images.fits._input_archive import FitsInputArchive
+from lsst.images.formatters import (
+    _BACKENDS,
+    GenericFormatter,
+    ImageFormatter,
+    MaskedImageFormatter,
+    VisitImageFormatter,
+)
+from lsst.images.json import formatters as json_shim
+from lsst.images.tests import make_test_formatter
 from lsst.resources import ResourcePath
 
 try:
-    import h5py  # noqa: F401
+    from lsst.images import ndf
+    from lsst.images.ndf._common import NdfPointerModel
+    from lsst.images.ndf._input_archive import NdfInputArchive
 
     HAVE_H5PY = True
 except ImportError:
@@ -27,19 +55,12 @@ class BackendsTableTestCase(unittest.TestCase):
     """The private _BACKENDS table wires extension -> read/write/archive."""
 
     def test_table_keys(self):
-        from lsst.images.formatters import _BACKENDS
-
         expected = {".fits", ".json"}
         if HAVE_H5PY:
             expected.add(".sdf")
         self.assertEqual(set(_BACKENDS), expected)
 
     def test_fits_backend_wires_fits_read_write(self):
-        from lsst.images import fits
-        from lsst.images.fits._common import PointerModel
-        from lsst.images.fits._input_archive import FitsInputArchive
-        from lsst.images.formatters import _BACKENDS
-
         backend = _BACKENDS[".fits"]
         self.assertIs(backend.read, fits.read)
         self.assertIs(backend.write, fits.write)
@@ -48,11 +69,6 @@ class BackendsTableTestCase(unittest.TestCase):
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_sdf_backend_wires_ndf_read_write(self):
-        from lsst.images import ndf
-        from lsst.images.formatters import _BACKENDS
-        from lsst.images.ndf._common import NdfPointerModel
-        from lsst.images.ndf._input_archive import NdfInputArchive
-
         backend = _BACKENDS[".sdf"]
         self.assertIs(backend.read, ndf.read)
         self.assertIs(backend.write, ndf.write)
@@ -60,9 +76,6 @@ class BackendsTableTestCase(unittest.TestCase):
         self.assertIs(backend.pointer_model, NdfPointerModel)
 
     def test_json_backend_wires_json_read_write_no_archive(self):
-        from lsst.images import json as images_json
-        from lsst.images.formatters import _BACKENDS
-
         backend = _BACKENDS[".json"]
         self.assertIs(backend.read, images_json.read)
         self.assertIs(backend.write, images_json.write)
@@ -74,14 +87,7 @@ class GetWriteExtensionTestCase(unittest.TestCase):
     """`get_write_extension` reads the `format` write parameter."""
 
     def _make_formatter(self, write_parameters: dict[str, str] | None = None):
-        from lsst.images.formatters import GenericFormatter
-
-        formatter = GenericFormatter.__new__(GenericFormatter)
-        # FormatterV2 exposes write_parameters as a property over the
-        # file_descriptor. For unit-testing we monkey-patch a dict on
-        # the instance via __dict__ to bypass the descriptor.
-        object.__setattr__(formatter, "_write_parameters", write_parameters or {})
-        return formatter
+        return make_test_formatter(GenericFormatter, Image, write_parameters=write_parameters)
 
     def test_default_returns_fits(self):
         formatter = self._make_formatter()
@@ -115,32 +121,27 @@ class GetWriteExtensionTestCase(unittest.TestCase):
 class ExtensionFromUriTestCase(unittest.TestCase):
     """`read_from_uri` routes based on `uri.getExtension()`."""
 
-    def test_fits(self):
-        from lsst.images.formatters import GenericFormatter
+    def _make_formatter(self):
+        return make_test_formatter(GenericFormatter, Image)
 
-        formatter = GenericFormatter.__new__(GenericFormatter)
+    def test_fits(self):
+        formatter = self._make_formatter()
         uri = ResourcePath("/tmp/x.fits")
         self.assertEqual(formatter._extension_from_uri(uri), ".fits")
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_sdf(self):
-        from lsst.images.formatters import GenericFormatter
-
-        formatter = GenericFormatter.__new__(GenericFormatter)
+        formatter = self._make_formatter()
         uri = ResourcePath("/tmp/x.sdf")
         self.assertEqual(formatter._extension_from_uri(uri), ".sdf")
 
     def test_json(self):
-        from lsst.images.formatters import GenericFormatter
-
-        formatter = GenericFormatter.__new__(GenericFormatter)
+        formatter = self._make_formatter()
         uri = ResourcePath("/tmp/x.json")
         self.assertEqual(formatter._extension_from_uri(uri), ".json")
 
     def test_unknown(self):
-        from lsst.images.formatters import GenericFormatter
-
-        formatter = GenericFormatter.__new__(GenericFormatter)
+        formatter = self._make_formatter()
         uri = ResourcePath("/tmp/x.pickle")
         with self.assertRaisesRegex(RuntimeError, "unsupported extension"):
             formatter._extension_from_uri(uri)
@@ -148,9 +149,7 @@ class ExtensionFromUriTestCase(unittest.TestCase):
     def test_compressed_fits_unsupported(self):
         # We don't claim to handle .fits.gz; getExtension returns
         # '.fits.gz' and the lookup misses.
-        from lsst.images.formatters import GenericFormatter
-
-        formatter = GenericFormatter.__new__(GenericFormatter)
+        formatter = self._make_formatter()
         uri = ResourcePath("/tmp/x.fits.gz")
         with self.assertRaisesRegex(RuntimeError, "unsupported extension"):
             formatter._extension_from_uri(uri)
@@ -160,75 +159,45 @@ class ImageFormatterComponentReadTestCase(unittest.TestCase):
     """ImageFormatter routes component reads per extension."""
 
     def _make_image(self):
-        import numpy as np
-
-        from lsst.images import Box, Image
-
         return Image(
             np.arange(20, dtype=np.float32).reshape(4, 5),
             bbox=Box.factory[10:14, 20:25],
         )
 
     def test_fits_bbox_component(self):
-        import tempfile
-
-        from lsst.images import Image, fits
-        from lsst.images.formatters import ImageFormatter
-
         image = self._make_image()
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False) as tmp:
             tmp.close()
             fits.write(image, tmp.name)
-            formatter = ImageFormatter.__new__(ImageFormatter)
-            object.__setattr__(formatter, "_storage_class_pytype", Image)
+            formatter = make_test_formatter(ImageFormatter, Image)
             bbox = formatter._read_component_from_uri("bbox", ResourcePath(tmp.name))
             self.assertEqual(bbox, image.bbox)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_sdf_bbox_component(self):
-        import tempfile
-
-        from lsst.images import Image, ndf
-        from lsst.images.formatters import ImageFormatter
-
         image = self._make_image()
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
             ndf.write(image, tmp.name)
-            formatter = ImageFormatter.__new__(ImageFormatter)
-            object.__setattr__(formatter, "_storage_class_pytype", Image)
+            formatter = make_test_formatter(ImageFormatter, Image)
             bbox = formatter._read_component_from_uri("bbox", ResourcePath(tmp.name))
             self.assertEqual(bbox, image.bbox)
 
     def test_json_bbox_component_via_whole_object(self):
-        import tempfile
-
-        from lsst.images import Image
-        from lsst.images import json as images_json
-        from lsst.images.formatters import ImageFormatter
-
         image = self._make_image()
         with tempfile.NamedTemporaryFile(suffix=".json", delete_on_close=False) as tmp:
             tmp.close()
             images_json.write(image, tmp.name)
-            formatter = ImageFormatter.__new__(ImageFormatter)
-            object.__setattr__(formatter, "_storage_class_pytype", Image)
+            formatter = make_test_formatter(ImageFormatter, Image)
             bbox = formatter._read_component_from_uri("bbox", ResourcePath(tmp.name))
             self.assertEqual(bbox, image.bbox)
 
     def test_json_unknown_component_raises(self):
-        import tempfile
-
-        from lsst.images import Image
-        from lsst.images import json as images_json
-        from lsst.images.formatters import ImageFormatter
-
         image = self._make_image()
         with tempfile.NamedTemporaryFile(suffix=".json", delete_on_close=False) as tmp:
             tmp.close()
             images_json.write(image, tmp.name)
-            formatter = ImageFormatter.__new__(ImageFormatter)
-            object.__setattr__(formatter, "_storage_class_pytype", Image)
+            formatter = make_test_formatter(ImageFormatter, Image)
             with self.assertRaises(NotImplementedError):
                 formatter._read_component_from_uri("nonexistent", ResourcePath(tmp.name))
 
@@ -237,10 +206,6 @@ class MaskedImageFormatterComponentReadTestCase(unittest.TestCase):
     """MaskedImageFormatter routes image/mask/variance per extension."""
 
     def _make_masked_image(self):
-        import numpy as np
-
-        from lsst.images import Image, MaskedImage, MaskPlane, MaskSchema
-
         rng = np.random.default_rng(11)
         return MaskedImage(
             Image(rng.normal(100.0, 8.0, size=(10, 12)), start=(0, 0)),
@@ -248,49 +213,30 @@ class MaskedImageFormatterComponentReadTestCase(unittest.TestCase):
         )
 
     def test_fits_image_component(self):
-        import tempfile
-
-        from lsst.images import MaskedImage, fits
-        from lsst.images.formatters import MaskedImageFormatter
-
         mi = self._make_masked_image()
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False) as tmp:
             tmp.close()
             fits.write(mi, tmp.name)
-            formatter = MaskedImageFormatter.__new__(MaskedImageFormatter)
-            object.__setattr__(formatter, "_storage_class_pytype", MaskedImage)
+            formatter = make_test_formatter(MaskedImageFormatter, MaskedImage)
             image = formatter._read_component_from_uri("image", ResourcePath(tmp.name))
             self.assertEqual(image.bbox, mi.image.bbox)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_sdf_mask_component(self):
-        import tempfile
-
-        from lsst.images import MaskedImage, ndf
-        from lsst.images.formatters import MaskedImageFormatter
-
         mi = self._make_masked_image()
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
             ndf.write(mi, tmp.name)
-            formatter = MaskedImageFormatter.__new__(MaskedImageFormatter)
-            object.__setattr__(formatter, "_storage_class_pytype", MaskedImage)
+            formatter = make_test_formatter(MaskedImageFormatter, MaskedImage)
             mask = formatter._read_component_from_uri("mask", ResourcePath(tmp.name))
             self.assertEqual(mask.bbox, mi.mask.bbox)
 
     def test_json_variance_component_via_whole_object(self):
-        import tempfile
-
-        from lsst.images import MaskedImage
-        from lsst.images import json as images_json
-        from lsst.images.formatters import MaskedImageFormatter
-
         mi = self._make_masked_image()
         with tempfile.NamedTemporaryFile(suffix=".json", delete_on_close=False) as tmp:
             tmp.close()
             images_json.write(mi, tmp.name)
-            formatter = MaskedImageFormatter.__new__(MaskedImageFormatter)
-            object.__setattr__(formatter, "_storage_class_pytype", MaskedImage)
+            formatter = make_test_formatter(MaskedImageFormatter, MaskedImage)
             variance = formatter._read_component_from_uri("variance", ResourcePath(tmp.name))
             self.assertEqual(variance.bbox, mi.variance.bbox)
 
@@ -308,49 +254,30 @@ class VisitImageFormatterComponentReadTestCase(unittest.TestCase):
         return VisitImageTestCase.visit_image
 
     def test_fits_summary_stats_component(self):
-        import tempfile
-
-        from lsst.images import VisitImage, fits
-        from lsst.images.formatters import VisitImageFormatter
-
         vi = self._make_visit_image()
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False) as tmp:
             tmp.close()
             fits.write(vi, tmp.name)
-            formatter = VisitImageFormatter.__new__(VisitImageFormatter)
-            object.__setattr__(formatter, "_storage_class_pytype", VisitImage)
+            formatter = make_test_formatter(VisitImageFormatter, VisitImage)
             summary = formatter._read_component_from_uri("summary_stats", ResourcePath(tmp.name))
             self.assertEqual(summary, vi.summary_stats)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_sdf_psf_component(self):
-        import tempfile
-
-        from lsst.images import VisitImage, ndf
-        from lsst.images.formatters import VisitImageFormatter
-
         vi = self._make_visit_image()
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
             ndf.write(vi, tmp.name)
-            formatter = VisitImageFormatter.__new__(VisitImageFormatter)
-            object.__setattr__(formatter, "_storage_class_pytype", VisitImage)
+            formatter = make_test_formatter(VisitImageFormatter, VisitImage)
             psf = formatter._read_component_from_uri("psf", ResourcePath(tmp.name))
             self.assertEqual(type(psf), type(vi.psf))
 
     def test_json_aperture_corrections_via_whole_object(self):
-        import tempfile
-
-        from lsst.images import VisitImage
-        from lsst.images import json as images_json
-        from lsst.images.formatters import VisitImageFormatter
-
         vi = self._make_visit_image()
         with tempfile.NamedTemporaryFile(suffix=".json", delete_on_close=False) as tmp:
             tmp.close()
             images_json.write(vi, tmp.name)
-            formatter = VisitImageFormatter.__new__(VisitImageFormatter)
-            object.__setattr__(formatter, "_storage_class_pytype", VisitImage)
+            formatter = make_test_formatter(VisitImageFormatter, VisitImage)
             ap = formatter._read_component_from_uri("aperture_corrections", ResourcePath(tmp.name))
             # ChebyshevField has no __eq__; compare keys and types.
             self.assertEqual(ap.keys(), vi.aperture_corrections.keys())
@@ -358,53 +285,13 @@ class VisitImageFormatterComponentReadTestCase(unittest.TestCase):
                 self.assertEqual(type(ap[k]), type(v))
 
 
-class CellCoaddFormatterComponentReadTestCase(unittest.TestCase):
-    """CellCoaddFormatter reads psf/provenance components from FITS."""
-
-    def _make_cell_coadd(self):
-        from test_cell_coadd import CellCoaddTestCase  # pytest discovers tests/ on sys.path
-
-        # CellCoaddTestCase uses setUpClass and stashes the result on
-        # the class as `cell_coadd`; reuse that fixture here.
-        CellCoaddTestCase.setUpClass()
-        return CellCoaddTestCase.cell_coadd
-
-    def test_fits_psf_component(self):
-        import tempfile
-
-        from lsst.images import fits
-        from lsst.images.cells import CellCoadd
-        from lsst.images.formatters import CellCoaddFormatter
-
-        coadd = self._make_cell_coadd()
-        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False) as tmp:
-            tmp.close()
-            fits.write(coadd, tmp.name)
-            formatter = CellCoaddFormatter.__new__(CellCoaddFormatter)
-            object.__setattr__(formatter, "_storage_class_pytype", CellCoadd)
-            psf = formatter._read_component_from_uri("psf", ResourcePath(tmp.name))
-            self.assertIsNotNone(psf)
-
-
 class FitsDeprecationShimTestCase(unittest.TestCase):
     """lsst.images.fits.formatters is a deprecation shim."""
 
     def test_image_formatter_warns(self):
-        import warnings
-
-        from lsst.images.fits.formatters import ImageFormatter
-
         with warnings.catch_warnings(record=True) as recorded:
             warnings.simplefilter("always")
-            try:
-                ImageFormatter.__init__(
-                    ImageFormatter.__new__(ImageFormatter)  # type: ignore[call-arg]
-                )
-            except TypeError:
-                # FormatterV2.__init__ requires file_descriptor; the
-                # deprecation warning is emitted before super().__init__
-                # is called, which is what we are verifying here.
-                pass
+            make_test_formatter(fits_shim.ImageFormatter, Image)
         self.assertTrue(
             any(
                 issubclass(w.category, DeprecationWarning)
@@ -416,13 +303,12 @@ class FitsDeprecationShimTestCase(unittest.TestCase):
 
     def test_subclass_is_unified_class(self):
         from lsst.images import formatters as unified
-        from lsst.images.fits import formatters as shim
 
-        self.assertTrue(issubclass(shim.GenericFormatter, unified.GenericFormatter))
-        self.assertTrue(issubclass(shim.ImageFormatter, unified.ImageFormatter))
-        self.assertTrue(issubclass(shim.MaskedImageFormatter, unified.MaskedImageFormatter))
-        self.assertTrue(issubclass(shim.VisitImageFormatter, unified.VisitImageFormatter))
-        self.assertTrue(issubclass(shim.CellCoaddFormatter, unified.CellCoaddFormatter))
+        self.assertTrue(issubclass(fits_shim.GenericFormatter, unified.GenericFormatter))
+        self.assertTrue(issubclass(fits_shim.ImageFormatter, unified.ImageFormatter))
+        self.assertTrue(issubclass(fits_shim.MaskedImageFormatter, unified.MaskedImageFormatter))
+        self.assertTrue(issubclass(fits_shim.VisitImageFormatter, unified.VisitImageFormatter))
+        self.assertTrue(issubclass(fits_shim.CellCoaddFormatter, unified.CellCoaddFormatter))
 
 
 class JsonDeprecationShimTestCase(unittest.TestCase):
@@ -432,21 +318,9 @@ class JsonDeprecationShimTestCase(unittest.TestCase):
     """
 
     def test_generic_formatter_warns(self):
-        import warnings
-
-        from lsst.images.json.formatters import GenericFormatter
-
         with warnings.catch_warnings(record=True) as recorded:
             warnings.simplefilter("always")
-            # FormatterV2.__init__ requires file_descriptor; catch the
-            # TypeError so we can still observe the warning was emitted
-            # before the constructor failed.
-            try:
-                GenericFormatter.__init__(
-                    GenericFormatter.__new__(GenericFormatter)  # type: ignore[call-arg]
-                )
-            except TypeError:
-                pass
+            make_test_formatter(json_shim.GenericFormatter, Image)
         self.assertTrue(
             any(
                 issubclass(w.category, DeprecationWarning)
@@ -456,15 +330,10 @@ class JsonDeprecationShimTestCase(unittest.TestCase):
         )
 
     def test_default_extension_is_json(self):
-        from lsst.images.json.formatters import GenericFormatter
-
-        self.assertEqual(GenericFormatter.default_extension, ".json")
+        self.assertEqual(json_shim.GenericFormatter.default_extension, ".json")
 
     def test_default_write_extension_is_json(self):
-        from lsst.images.json.formatters import GenericFormatter
-
-        formatter = GenericFormatter.__new__(GenericFormatter)
-        object.__setattr__(formatter, "_write_parameters", {})
+        formatter = make_test_formatter(json_shim.GenericFormatter, Image)
         self.assertEqual(formatter.get_write_extension(), ".json")
 
 

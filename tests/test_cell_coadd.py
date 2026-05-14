@@ -142,5 +142,34 @@ class CellCoaddTestCase(unittest.TestCase):
         )
 
 
+@unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
+class CellCoaddFormatterComponentReadTestCase(unittest.TestCase):
+    """CellCoaddFormatter reads psf/provenance components from FITS.
+
+    Reuses `CellCoaddTestCase`'s class-level fixture rather than
+    inheriting from it, so the parent's tests don't run twice.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        CellCoaddTestCase.setUpClass()
+        cls.cell_coadd = CellCoaddTestCase.cell_coadd
+
+    def test_fits_psf_component(self):
+        import tempfile
+
+        from lsst.images import fits
+        from lsst.images.formatters import CellCoaddFormatter
+        from lsst.images.tests import make_test_formatter
+        from lsst.resources import ResourcePath
+
+        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False) as tmp:
+            tmp.close()
+            fits.write(self.cell_coadd, tmp.name)
+            formatter = make_test_formatter(CellCoaddFormatter, CellCoadd)
+            psf = formatter._read_component_from_uri("psf", ResourcePath(tmp.name))
+            self.assertIsNotNone(psf)
+
+
 if __name__ == "__main__":
     unittest.main()
