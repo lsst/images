@@ -13,13 +13,15 @@ from __future__ import annotations
 
 import os
 import pickle
+import tempfile
 import unittest
 from typing import Any
 
 import numpy as np
 
-from lsst.images import YX, Box, Interval, get_legacy_deep_coadd_mask_planes
+from lsst.images import YX, Box, Interval, fits, get_legacy_deep_coadd_mask_planes
 from lsst.images.cells import CellCoadd, CellIJ
+from lsst.images.formatters import CellCoaddFormatter
 from lsst.images.tests import (
     DP2_COADD_DATA_ID,
     DP2_COADD_MISSING_CELL,
@@ -27,7 +29,9 @@ from lsst.images.tests import (
     assert_masked_images_equal,
     assert_psfs_equal,
     compare_cell_coadd_to_legacy,
+    make_test_formatter,
 )
+from lsst.resources import ResourcePath
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -156,13 +160,6 @@ class CellCoaddFormatterComponentReadTestCase(unittest.TestCase):
         cls.cell_coadd = CellCoaddTestCase.cell_coadd
 
     def test_fits_psf_component(self):
-        import tempfile
-
-        from lsst.images import fits
-        from lsst.images.formatters import CellCoaddFormatter
-        from lsst.images.tests import make_test_formatter
-        from lsst.resources import ResourcePath
-
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False) as tmp:
             tmp.close()
             fits.write(self.cell_coadd, tmp.name)

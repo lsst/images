@@ -11,9 +11,11 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 
+import astropy.io.fits
 import astropy.table
 import astropy.units as u
 import numpy as np
@@ -22,15 +24,20 @@ import pydantic
 from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
 from lsst.images._transforms import FrameLookupError, FrameSet, Transform
 from lsst.images._transforms._frames import DetectorFrame, Frame
+from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
 from lsst.images.serialization import ArrayReferenceModel, InlineArrayModel
-from lsst.images.tests._creation import make_random_projection
+from lsst.images.tests import make_random_projection
 
 try:
     import h5py
 
-    from lsst.images.ndf import _hds
-    from lsst.images.ndf._input_archive import NdfInputArchive
-    from lsst.images.ndf._output_archive import NdfOutputArchive, write
+    from lsst.images.ndf import (
+        NdfInputArchive,
+        NdfOutputArchive,
+        _hds,
+        read,
+        write,
+    )
 
     HAVE_H5PY = True
 except ImportError:
@@ -448,10 +455,6 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
                 self.assertIn("JSON", f["/MORE/LSST"])
 
     def test_write_image_preserves_opaque_fits_metadata(self):
-        import astropy.io.fits
-
-        from lsst.images.fits._common import ExtensionKey, FitsOpaqueMetadata
-
         image = Image(np.zeros((2, 2), dtype=np.float32))
         # Attach an opaque-metadata primary header to the image.
         primary = astropy.io.fits.Header()
@@ -470,8 +473,6 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
                 self.assertTrue(any(c.startswith("FOO") for c in cards))
                 self.assertTrue(any(c.startswith("CONTINUE") for c in cards))
                 self.assertTrue(all(len(c.encode("ascii")) <= 80 for c in cards))
-            from lsst.images.ndf import read
-
             result = read(Image, tmp.name)
             recovered = result.deserialized._opaque_metadata.headers[ExtensionKey()]
             self.assertEqual(recovered["LONGSTR"], long_value)
@@ -479,8 +480,6 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
     def test_write_image_main_json_round_trips_back(self):
         # Sanity: the main JSON tree at /MORE/LSST/JSON should parse as the
         # in-memory ArchiveTree and contain the array reference for DATA_ARRAY.
-        import json
-
         image = Image(np.arange(6, dtype=np.float32).reshape(2, 3))
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
@@ -495,8 +494,6 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
             self.assertEqual(json.loads(tree.model_dump_json()), recovered)
 
     def test_write_image_with_unit_creates_units_component(self):
-        from lsst.images.ndf import read
-
         image = Image(np.arange(6, dtype=np.float32).reshape(2, 3), unit=u.ct)
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
@@ -509,8 +506,6 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
             self.assertEqual(result.deserialized.unit, u.ct)
 
     def test_write_propagates_metadata(self):
-        from lsst.images.ndf import read
-
         image = Image(np.arange(6, dtype=np.float32).reshape(2, 3))
         extra = {"test_key": 42, "another": "hello"}
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:

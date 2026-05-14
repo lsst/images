@@ -24,6 +24,7 @@ from lsst.images.psfs import (
     PointSpreadFunction,
     PSFExWrapper,
 )
+from lsst.images.psfs._piff import _ArchivePiffWriter
 from lsst.images.tests import RoundtripFits, RoundtripJson, compare_psf_to_legacy
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
@@ -68,8 +69,6 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
 
     def test_piff_writer_normalizes_tuple_metadata(self) -> None:
         """Piff metadata should be normalized to JSON-like values."""
-        from lsst.images.psfs._piff import _ArchivePiffWriter
-
         writer = _ArchivePiffWriter()
         writer.write_struct(
             "interp",
