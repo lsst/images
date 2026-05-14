@@ -524,15 +524,15 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
     def _ensure_quality_structure(self) -> h5py.Group:
         """Ensure ``/QUALITY`` exists with ``CLASS="QUALITY"`` and BADBITS.
 
-        BADBITS defaults to 1 so the collapsed single-bit QUALITY plane is
-        used by NDF applications.
+        BADBITS is set to 255 so every bit of the collapsed single-byte
+        QUALITY plane is treated as bad by NDF applications.
         """
         root = self._document.ensure_ndf("/")
         if "QUALITY" not in root.children:
             root.children["QUALITY"] = HdsStructure("QUALITY")
         quality = root.get_structure("QUALITY")
         quality.hds_type = "QUALITY"
-        quality.children["BADBITS"] = HdsPrimitive.array(np.array(1, dtype=np.uint8))
+        quality.children["BADBITS"] = HdsPrimitive.array(np.array(255, dtype=np.uint8))
         self._flush()
         return self._file["/QUALITY"]
 
@@ -543,7 +543,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             root.children["QUALITY"] = HdsStructure("QUALITY")
         quality = root.get_structure("QUALITY")
         quality.hds_type = "QUALITY"
-        quality.children["BADBITS"] = HdsPrimitive.array(np.array(1, dtype=np.uint8))
+        quality.children["BADBITS"] = HdsPrimitive.array(np.array(255, dtype=np.uint8))
         if "QUALITY" not in quality.children or not isinstance(quality.children["QUALITY"], HdsStructure):
             quality.children["QUALITY"] = HdsStructure("ARRAY")
         quality_array = quality.get_structure("QUALITY")

@@ -150,7 +150,7 @@ class NdfCompatibleMaskLayoutTestCase(unittest.TestCase):
             bad_pixel = f["/QUALITY/QUALITY/BAD_PIXEL"]
             self.assertEqual(_hds_type(bad_pixel), "_LOGICAL")
             self.assertFalse(bad_pixel[()])
-            self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
+            self.assertEqual(f["/QUALITY/BADBITS"][()], 255)
 
             # /MORE/LSST/MASK is a sub-NDF (CLASS="NDF") with a
             # canonical DATA_ARRAY structure containing DATA + ORIGIN.
@@ -211,7 +211,7 @@ class NdfIncompatibleMaskLayoutTestCase(unittest.TestCase):
             self.assertEqual(_hds_type(quality_ds), "_UBYTE")
             self.assertEqual(quality_ds.shape, image.array.shape)
             np.testing.assert_array_equal(quality_ds[()], expected_quality)
-            self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
+            self.assertEqual(f["/QUALITY/BADBITS"][()], 255)
 
             # /MORE/LSST/MASK is a sub-NDF.
             self.assertIn("MORE", f)
@@ -252,7 +252,7 @@ class NdfIncompatibleMaskLayoutTestCase(unittest.TestCase):
             self.assertEqual(_hds_type(quality_ds), "_UBYTE")
             self.assertEqual(quality_ds.shape, image.array.shape)
             np.testing.assert_array_equal(quality_ds[()], expected_quality)
-            self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
+            self.assertEqual(f["/QUALITY/BADBITS"][()], 255)
             ds = f["/MORE/LSST/MASK/DATA_ARRAY/DATA"]
             self.assertEqual(_hds_type(ds), "_UBYTE")
             self.assertEqual(ds.ndim, 3)

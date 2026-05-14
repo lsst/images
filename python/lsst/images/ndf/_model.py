@@ -349,7 +349,7 @@ class NdfQuality:
     """An NDF QUALITY component."""
 
     quality: NdfArray
-    badbits: int = 1
+    badbits: int = 255
 
     def to_hds_structure(self) -> HdsStructure:
         """Convert this quality component to an HDS ``QUALITY`` structure."""

@@ -113,7 +113,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 self.assertEqual(f["/QUALITY/QUALITY/ORIGIN"].shape, (2,))
                 self.assertEqual(f["/QUALITY/QUALITY/BAD_PIXEL"].id.get_type().get_class(), h5py.h5t.BITFIELD)
                 self.assertFalse(_hds.read_array(f["/QUALITY/QUALITY/BAD_PIXEL"]))
-                self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
+                self.assertEqual(f["/QUALITY/BADBITS"][()], 255)
 
     def test_top_level_incompatible_mask_routes_to_more_lsst(self):
         # 3D mask array in NDF storage order (mask-byte, y, x) is hoisted
@@ -136,7 +136,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 self.assertEqual(f["/MORE/LSST/MASK/DATA_ARRAY/DATA"].shape, data.shape)
                 self.assertEqual(f["/QUALITY/QUALITY"].attrs["CLASS"], b"ARRAY")
                 np.testing.assert_array_equal(f["/QUALITY/QUALITY/DATA"][()], expected_quality)
-                self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
+                self.assertEqual(f["/QUALITY/BADBITS"][()], 255)
                 origin = f["/MORE/LSST/MASK/DATA_ARRAY/ORIGIN"]
                 self.assertEqual(origin.dtype, np.int64)
                 self.assertEqual(origin.shape, (3,))

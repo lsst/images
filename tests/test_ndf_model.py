@@ -60,7 +60,7 @@ class NdfModelTestCase(unittest.TestCase):
                 np.testing.assert_array_equal(f["/DATA_ARRAY/DATA"][()], image)
                 np.testing.assert_array_equal(f["/DATA_ARRAY/ORIGIN"][()], np.array([20, 10]))
                 self.assertEqual(_attr_str(f["/QUALITY"].attrs[_hds.ATTR_CLASS]), "QUALITY")
-                self.assertEqual(f["/QUALITY/BADBITS"][()], 1)
+                self.assertEqual(f["/QUALITY/BADBITS"][()], 255)
                 np.testing.assert_array_equal(f["/QUALITY/QUALITY/DATA"][()], quality)
                 self.assertEqual(f["/QUALITY/QUALITY/BAD_PIXEL"].id.get_type().get_class(), h5py.h5t.BITFIELD)
                 self.assertEqual(_attr_str(f["/WCS"].attrs[_hds.ATTR_CLASS]), "WCS")
