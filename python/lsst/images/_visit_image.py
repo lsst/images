@@ -412,7 +412,6 @@ class VisitImage(MaskedImage):
         plane_map: Mapping[str, MaskPlane] | None = None,
         instrument: str | None = None,
         visit: int | None = None,
-        post_isr_unit: astropy.units.UnitBase = astropy.units.electron,
     ) -> VisitImage:
         """Convert from an `lsst.afw.image.Exposure` instance.
 
@@ -433,9 +432,6 @@ class VisitImage(MaskedImage):
             provided.
         visit
             ID of the visit.  Extracted from the metadata if not provided.
-        post_isr_unit
-            The instrumental units any attached `lsst.afw.image.PhotoCalib`
-            transforms to nJy.
         """
         if plane_map is None:
             plane_map = get_legacy_visit_image_mask_planes()
@@ -445,9 +441,6 @@ class VisitImage(MaskedImage):
             "LSST BUTLER DATAID INSTRUMENT", instrument, md, obs_info.instrument, str
         )
         visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, None, int)
-        unit = _extract_or_check_header(
-            "BUNIT", unit, md, None, lambda x: astropy.units.Unit(x, format="fits")
-        )
         legacy_wcs = legacy.getWcs()
         if legacy_wcs is None:
             raise ValueError("Exposure does not have a SkyWcs.")
@@ -466,6 +459,18 @@ class VisitImage(MaskedImage):
             warnings.simplefilter("ignore", category=astropy.io.fits.verify.VerifyWarning)
             primary_header.update(md.toOrderedDict())
         opaque_fits_metadata.extract_legacy_primary_header(primary_header)
+        post_isr_unit = opaque_fits_metadata.get_post_isr_unit() or astropy.units.electron
+        hdr_unit: astropy.units.UnitBase | None = None
+        if hdr_unit_str := md.get("BUNIT"):
+            hdr_unit = astropy.units.Unit(hdr_unit_str, format="FITS")
+            if hdr_unit == astropy.units.adu and post_isr_unit == astropy.units.electron:
+                # Fix incorrect BUNIT='adu' in LSST
+                # preliminary_visit_image.
+                hdr_unit = astropy.units.electron
+        if unit is None:
+            unit = hdr_unit
+        elif hdr_unit is not None and hdr_unit != unit:
+            raise ValueError(f"BUNIT value {hdr_unit} disagrees with given unit {unit}.")
         projection = Projection.from_legacy(
             legacy_wcs,
             DetectorFrame(
@@ -598,7 +603,6 @@ class VisitImage(MaskedImage):
         filename: str,
         *,
         component: Literal["photometric_scaling"],
-        post_isr_unit: astropy.units.UnitBase = astropy.units.electron,
     ) -> Field | None: ...
 
     @overload
@@ -651,7 +655,6 @@ class VisitImage(MaskedImage):
             "aperture_corrections",
         ]
         | None = None,
-        post_isr_unit: astropy.units.UnitBase = astropy.units.electron,
     ) -> Any:
         """Read a FITS file written by `lsst.afw.image.Exposure.writeFits`.
 
@@ -678,9 +681,6 @@ class VisitImage(MaskedImage):
             provided.
         component
             A component to read instead of the full image.
-        post_isr_unit
-            The instrumental units any attached `lsst.afw.image.PhotoCalib`
-            transforms to nJy.
         """
         from lsst.afw.image import ExposureFitsReader
 
@@ -718,18 +718,16 @@ class VisitImage(MaskedImage):
                 aperture_corrections = aperture_corrections_from_legacy(legacy_ap_corr_map)
             if component == "aperture_corrections":
                 return aperture_corrections
-        photometric_scaling: Field | None = None
-        if component in (None, "photometric_scaling"):
-            legacy_photo_calib = reader.readPhotoCalib()
-            if legacy_photo_calib is not None:
-                photometric_scaling = field_from_legacy_photo_calib(
-                    legacy_photo_calib, bounds=detector_bbox, post_isr_unit=post_isr_unit
-                )
-            if component == "photometric_scaling":
-                return photometric_scaling
-        assert component in (None, "image", "mask", "variance", "projection", "obs_info", "detector"), (
-            component
-        )  # for MyPy
+        assert component in (
+            None,
+            "image",
+            "mask",
+            "variance",
+            "projection",
+            "obs_info",
+            "detector",
+            "photometric_scaling",
+        ), component  # for MyPy
         with astropy.io.fits.open(filename) as hdu_list:
             primary_header = hdu_list[0].header
             obs_info = _obs_info_from_md(primary_header)
@@ -740,6 +738,22 @@ class VisitImage(MaskedImage):
                 "LSST BUTLER DATAID INSTRUMENT", instrument, primary_header, obs_info.instrument, str
             )
             visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, primary_header, None, int)
+            opaque_metadata = FitsOpaqueMetadata()
+            # This extraction is destructive, so we need to be sure to pass
+            # this opaque_metadata down to MaskedImage._read_legacy_hdus
+            # so it doesn't try to extract it again.
+            opaque_metadata.extract_legacy_primary_header(primary_header)
+            if (post_isr_unit := opaque_metadata.get_post_isr_unit()) is None:
+                post_isr_unit = astropy.units.electron
+            photometric_scaling: Field | None = None
+            if component in (None, "photometric_scaling"):
+                legacy_photo_calib = reader.readPhotoCalib()
+                if legacy_photo_calib is not None:
+                    photometric_scaling = field_from_legacy_photo_calib(
+                        legacy_photo_calib, bounds=detector_bbox, post_isr_unit=post_isr_unit
+                    )
+                if component == "photometric_scaling":
+                    return photometric_scaling
             if component == "detector":
                 return Detector.from_legacy(
                     legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
@@ -761,6 +775,7 @@ class VisitImage(MaskedImage):
             from_masked_image = MaskedImage._read_legacy_hdus(
                 hdu_list,
                 filename,
+                opaque_metadata=opaque_metadata,
                 preserve_quantization=preserve_quantization,
                 plane_map=plane_map,
                 component=component,
