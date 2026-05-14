@@ -587,31 +587,6 @@ class Detector:
         )
 
     @staticmethod
-    def deserialize(
-        model: DetectorSerializationModel, archive: InputArchive[Any], frames: CameraFrameSet | None = None
-    ) -> Detector:
-        """Deserialize this detector from an archive.
-
-        Parameters
-        ----------
-        model
-            Serialization model instance for this detector.
-        archive
-            Archive to read from.
-        frames
-            Coordinate systems and transforms to use instead of what is saved
-            in ``model``.  Must be provided if ``model.frames`` is `None`.
-        """
-        if frames is None:
-            if model.frames is None:
-                raise ArchiveReadError(
-                    "Serialized detector did not include coordinate transforms, "
-                    "and 'frames' was not provided."
-                )
-            frames = CameraFrameSet.deserialize(model.frames, archive)
-        return Detector(model.attributes, model.amplifiers, frames, visit=model.visit)
-
-    @staticmethod
     def _get_archive_tree_type(
         pointer_type: builtins.type[Any],
     ) -> builtins.type[DetectorSerializationModel]:
@@ -723,3 +698,23 @@ class DetectorSerializationModel(ArchiveTree):
     )
 
     visit: int | None = pydantic.Field(description="ID of the visit this detector is associated with.")
+
+    def deserialize(self, archive: InputArchive[Any], frames: CameraFrameSet | None = None) -> Detector:
+        """Deserialize this detector from an archive.
+
+        Parameters
+        ----------
+        model
+            Serialization model instance for this detector.
+        frames
+            Coordinate systems and transforms to use instead of what is saved
+            in ``model``.  Must be provided if ``model.frames`` is `None`.
+        """
+        if frames is None:
+            if self.frames is None:
+                raise ArchiveReadError(
+                    "Serialized detector did not include coordinate transforms, "
+                    "and 'frames' was not provided."
+                )
+            frames = self.frames.deserialize(archive)
+        return Detector(self.attributes, self.amplifiers, frames, visit=self.visit)

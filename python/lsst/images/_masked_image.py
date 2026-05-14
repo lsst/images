@@ -229,32 +229,6 @@ class MaskedImage(GeneralizedImage):
         )
 
     @staticmethod
-    def deserialize(
-        model: MaskedImageSerializationModel[Any], archive: InputArchive[Any], *, bbox: Box | None = None
-    ) -> MaskedImage:
-        """Deserialize an image from an input archive.
-
-        Parameters
-        ----------
-        model
-            A Pydantic model representation of the image, holding references
-            to data stored in the archive.
-        archive
-            Archive to read from.
-        bbox
-            Bounding box of a subimage to read instead.
-        """
-        image = Image.deserialize(model.image, archive, bbox=bbox)
-        mask = Mask.deserialize(model.mask, archive, bbox=bbox)
-        variance = Image.deserialize(model.variance, archive, bbox=bbox)
-        projection = (
-            Projection.deserialize(model.projection, archive) if model.projection is not None else None
-        )
-        return MaskedImage(
-            image, mask=mask, variance=variance, projection=projection, obs_info=model.obs_info
-        )._finish_deserialize(model)
-
-    @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
         pointer_type: type[P],
     ) -> type[MaskedImageSerializationModel[P]]:
@@ -529,3 +503,21 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     def bbox(self) -> Box:
         """The bounding box of the image."""
         return self.image.bbox
+
+    def deserialize(self, archive: InputArchive[Any], *, bbox: Box | None = None) -> MaskedImage:
+        """Deserialize an image from an input archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+        bbox
+            Bounding box of a subimage to read instead.
+        """
+        image = self.image.deserialize(archive, bbox=bbox)
+        mask = self.mask.deserialize(archive, bbox=bbox)
+        variance = self.variance.deserialize(archive, bbox=bbox)
+        projection = self.projection.deserialize(archive) if self.projection is not None else None
+        return MaskedImage(
+            image, mask=mask, variance=variance, projection=projection, obs_info=self.obs_info
+        )._finish_deserialize(self)

@@ -29,6 +29,7 @@ from lsst.images import (
     MaskPlane,
     MaskSchema,
     ObservationSummaryStats,
+    Polygon,
     ProjectionAstropyView,
     TractFrame,
     VisitImage,
@@ -63,7 +64,6 @@ class VisitImageTestCase(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.rng = np.random.default_rng(500)
         det_frame = DetectorFrame(instrument="Inst", visit=1234, detector=1, bbox=Box.factory[1:4096, 1:4096])
-        cls.projection = make_random_projection(cls.rng, det_frame, Box.factory[1:4096, 1:4096])
         cls.mask_schema = MaskSchema([MaskPlane("M1", "D1")])
         cls.obs_info = ObservationInfo(instrument="LSSTCam", detector_num=4)
         cls.summary_stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4)
@@ -84,6 +84,9 @@ class VisitImageTestCase(unittest.TestCase):
 
         cls.image = Image(42, shape=(1024, 1024), unit=u.nJy)
         cls.variance = Image(5.0, shape=(1024, 1024), unit=u.nJy * u.nJy)
+        # polygon is the lower triangle of the image.
+        cls.polygon = Polygon(x_vertices=[-0.5, 1023.5, -0.5], y_vertices=[-0.5, -0.5, 1023.5])
+        cls.projection = make_random_projection(cls.rng, det_frame, Box.factory[1:4096, 1:4096])
         # API signature suggests projection and obs_info can be None but they
         # are required (unless you pass them in via the image plane).
         cls.visit_image = VisitImage(
@@ -95,6 +98,7 @@ class VisitImageTestCase(unittest.TestCase):
             obs_info=cls.obs_info,
             summary_stats=cls.summary_stats,
             detector=cls.detector,
+            bounds=cls.polygon,
             aperture_corrections=cls.aperture_corrections,
         )
         cls.visit_image._opaque_metadata = opaque
@@ -231,6 +235,9 @@ class VisitImageTestCase(unittest.TestCase):
         self.assertIsNot(copy.aperture_corrections, visit.aperture_corrections)
         self.assertEqual(subvisit.aperture_corrections.keys(), visit.aperture_corrections.keys())
         self.assertIs(subvisit.aperture_corrections, visit.aperture_corrections)
+        # Check bounds.
+        self.assertIs(copy.bounds, self.polygon)
+        self.assertEqual(subvisit.bounds, subvisit.bbox)  # original polygon wholly encloses subvisit.bbox
 
     def test_obs_info(self) -> None:
         """Check that ObservationInfo has been constructed."""
@@ -299,6 +306,7 @@ class VisitImageTestCase(unittest.TestCase):
             roundtrip.result.summary_stats.zeroPoint,
             self.visit_image.summary_stats.zeroPoint,
         )
+        self.assertEqual(roundtrip.result.bounds, self.polygon)
 
 
 @unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")

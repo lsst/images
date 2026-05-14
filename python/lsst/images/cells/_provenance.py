@@ -175,45 +175,6 @@ class CoaddProvenance:
             contributions=contributions_model,
         )
 
-    @classmethod
-    def deserialize(
-        cls,
-        model: CoaddProvenanceSerializationModel,
-        archive: InputArchive[Any],
-    ) -> CoaddProvenance:
-        """Deserialize a provenance from an input archive.
-
-        Parameters
-        ----------
-        model
-            A Pydantic model representation of the image, holding references
-            to data stored in the archive.
-        archive
-            Archive to read from.
-
-        Notes
-        -----
-        While `CoaddProvenance.subset` can be used to filter provenance
-        information down to just certain cells, there is no advantage to be
-        had from doing this during deserialization (the table data is not
-        ordered by cell, and hence there's read-slicing we can do).
-        """
-        inputs = archive.get_table(model.inputs)
-        contributions = archive.get_table(model.contributions)
-        CoaddProvenanceSerializationModel._fix_str_for_deserialization(
-            "instrument", model.instrument, inputs, contributions
-        )
-        CoaddProvenanceSerializationModel._fix_str_for_deserialization(
-            "physical_filter", model.physical_filter, inputs
-        )
-        CoaddProvenanceSerializationModel._fix_polygon_for_deserialization(inputs)
-        for name, _, description in cls._INPUT_TABLE_COLUMNS:
-            inputs.columns[name].description = description
-        for name, _, description, unit in cls._CONTRIBUTION_TABLE_COLUMNS:
-            contributions.columns[name].description = description
-            contributions.columns[name].unit = unit
-        return cls(inputs=inputs, contributions=contributions)
-
     @staticmethod
     def from_legacy(legacy_cell_coadd: MultipleCellCoadd) -> CoaddProvenance:
         """Extract provenance from a legacy
@@ -282,6 +243,37 @@ class CoaddProvenanceSerializationModel(ArchiveTree):
     )
     inputs: TableModel = pydantic.Field(description="Table of all inputs to the coadd.")
     contributions: TableModel = pydantic.Field(description="Table of per-cell contributions to the coadd.")
+
+    def deserialize(self, archive: InputArchive[Any]) -> CoaddProvenance:
+        """Deserialize a provenance from an input archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+
+        Notes
+        -----
+        While `CoaddProvenance.subset` can be used to filter provenance
+        information down to just certain cells, there is no advantage to be
+        had from doing this during deserialization (the table data is not
+        ordered by cell, and hence there's read-slicing we can do).
+        """
+        inputs = archive.get_table(self.inputs)
+        contributions = archive.get_table(self.contributions)
+        CoaddProvenanceSerializationModel._fix_str_for_deserialization(
+            "instrument", self.instrument, inputs, contributions
+        )
+        CoaddProvenanceSerializationModel._fix_str_for_deserialization(
+            "physical_filter", self.physical_filter, inputs
+        )
+        CoaddProvenanceSerializationModel._fix_polygon_for_deserialization(inputs)
+        for name, _, description in CoaddProvenance._INPUT_TABLE_COLUMNS:
+            inputs.columns[name].description = description
+        for name, _, description, unit in CoaddProvenance._CONTRIBUTION_TABLE_COLUMNS:
+            contributions.columns[name].description = description
+            contributions.columns[name].unit = unit
+        return CoaddProvenance(inputs=inputs, contributions=contributions)
 
     @staticmethod
     def _fix_str_for_serialization(column: str, *tables: astropy.table.Table) -> str | dict[str, int]:

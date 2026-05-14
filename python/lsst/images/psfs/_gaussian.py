@@ -106,12 +106,6 @@ class GaussianPointSpreadFunction(PointSpreadFunction):
             sigma=self.sigma, stamp_size=self._stamp_size, bounds=self._bounds.serialize()
         )
 
-    @classmethod
-    def deserialize(
-        cls, model: GaussianPSFSerializationModel, archive: serialization.InputArchive[Any]
-    ) -> GaussianPointSpreadFunction:
-        return cls(sigma=model.sigma, bounds=Bounds.deserialize(model.bounds), stamp_size=model.stamp_size)
-
     @staticmethod
     def _get_archive_tree_type(
         pointer_type: type[pydantic.BaseModel],
@@ -132,3 +126,8 @@ class GaussianPSFSerializationModel(serialization.ArchiveTree):
     bounds: SerializableBounds = pydantic.Field(
         description="The bounds object that represents the PSF's validity region."
     )
+
+    def deserialize(self, archive: serialization.InputArchive[Any]) -> GaussianPointSpreadFunction:
+        return GaussianPointSpreadFunction(
+            sigma=self.sigma, bounds=self.bounds.deserialize(), stamp_size=self.stamp_size
+        )

@@ -331,57 +331,6 @@ class Image(GeneralizedImage):
         )
 
     @staticmethod
-    def deserialize(
-        model: ImageSerializationModel[Any],
-        archive: InputArchive[Any],
-        *,
-        bbox: Box | None = None,
-        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> Image:
-        """Deserialize an image from an input archive.
-
-        Parameters
-        ----------
-        model
-            A Pydantic model representation of the image, holding references
-            to data stored in the archive.
-        archive
-            Archive to read from.
-        bbox
-            Bounding box of a subimage to read instead.
-        strip_header
-            A callable that strips out any FITS header cards added by the
-            ``update_header`` argument in the corresponding call to
-            `serialize`.
-        """
-        array_model: ArrayReferenceModel | InlineArrayModel
-        unit: astropy.units.UnitBase | None = None
-        if isinstance(model.data, ArrayReferenceQuantityModel | InlineArrayQuantityModel):
-            array_model = model.data.value
-            unit = model.data.unit
-        else:
-            array_model = model.data
-
-        def _strip_header(header: astropy.io.fits.Header) -> None:
-            if unit is not None:
-                header.pop("BUNIT", None)
-            fits.strip_wcs_cards(header)
-            strip_header(header)
-
-        slices = bbox.slice_within(model.bbox) if bbox is not None else ...
-        array = archive.get_array(array_model, strip_header=_strip_header, slices=slices)
-        projection = (
-            Projection.deserialize(model.projection, archive) if model.projection is not None else None
-        )
-        return Image(
-            array,
-            start=model.start if bbox is None else bbox.start,
-            unit=unit,
-            projection=projection,
-            obs_info=model.obs_info,
-        )._finish_deserialize(model)
-
-    @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
         pointer_type: type[P],
     ) -> type[ImageSerializationModel[P]]:
@@ -592,3 +541,48 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
             case ArrayReferenceModel() | InlineArrayModel():
                 shape = self.data.shape
         return Box.from_shape(shape, self.start)
+
+    def deserialize(
+        self,
+        archive: InputArchive[Any],
+        *,
+        bbox: Box | None = None,
+        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> Image:
+        """Deserialize an image from an input archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+        bbox
+            Bounding box of a subimage to read instead.
+        strip_header
+            A callable that strips out any FITS header cards added by the
+            ``update_header`` argument in the corresponding call to
+            `Image.serialize`.
+        """
+        array_model: ArrayReferenceModel | InlineArrayModel
+        unit: astropy.units.UnitBase | None = None
+        if isinstance(self.data, ArrayReferenceQuantityModel | InlineArrayQuantityModel):
+            array_model = self.data.value
+            unit = self.data.unit
+        else:
+            array_model = self.data
+
+        def _strip_header(header: astropy.io.fits.Header) -> None:
+            if unit is not None:
+                header.pop("BUNIT", None)
+            fits.strip_wcs_cards(header)
+            strip_header(header)
+
+        slices = bbox.slice_within(self.bbox) if bbox is not None else ...
+        array = archive.get_array(array_model, strip_header=_strip_header, slices=slices)
+        projection = self.projection.deserialize(archive) if self.projection is not None else None
+        return Image(
+            array,
+            start=self.start if bbox is None else bbox.start,
+            unit=unit,
+            projection=projection,
+            obs_info=self.obs_info,
+        )._finish_deserialize(self)

@@ -669,80 +669,6 @@ class Mask(GeneralizedImage):
         assert self.array.shape[2] == 1, "Mask should be split before calling this method."
         return archive.add_array(self._array[:, :, 0], update_header=_update_header)
 
-    @classmethod
-    def deserialize(
-        cls,
-        model: MaskSerializationModel[Any],
-        archive: InputArchive[Any],
-        *,
-        bbox: Box | None = None,
-        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> Mask:
-        """Deserialize a mask from an input archive.
-
-        Parameters
-        ----------
-        model
-            A Pydantic model representation of the mask, holding references
-            to data stored in the archive.
-        archive
-            Archive to read from.
-        bbox
-            Bounding box of a subimage to read instead.
-        strip_header
-            A callable that strips out any FITS header cards added by the
-            ``update_header`` argument in the corresponding call to
-            `serialize`.
-        """
-        slices: tuple[slice, ...] | EllipsisType = ...
-        if bbox is not None:
-            slices = bbox.slice_within(model.bbox)
-        else:
-            bbox = model.bbox
-        if not is_integer(model.dtype):
-            raise ArchiveReadError(f"Mask array has a non-integer dtype: {model.dtype}.")
-        schema = MaskSchema(model.planes, dtype=model.dtype.to_numpy())
-        projection = (
-            Projection.deserialize(model.projection, archive) if model.projection is not None else None
-        )
-        result = Mask(
-            0,
-            schema=schema,
-            bbox=bbox,
-            projection=projection,
-            obs_info=model.obs_info,
-        )
-        schemas_2d = schema.split(np.int32)
-        if len(schemas_2d) != len(model.data):
-            raise ArchiveReadError(
-                f"Number of mask arrays ({len(model.data)}) does not match expectation ({len(schemas_2d)})."
-            )
-        for array_model, schema_2d in zip(model.data, schemas_2d):
-            mask_2d = cls._deserialize_2d(
-                array_model, schema_2d, bbox.start, archive, strip_header=strip_header, slices=slices
-            )
-            result.update(mask_2d)
-        return result._finish_deserialize(model)
-
-    @classmethod
-    def _deserialize_2d(
-        cls,
-        ref: ArrayReferenceModel | InlineArrayModel,
-        schema_2d: MaskSchema,
-        start: Sequence[int],
-        archive: InputArchive[Any],
-        *,
-        slices: tuple[slice, ...] | EllipsisType = ...,
-        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
-    ) -> Mask:
-        def _strip_header(header: astropy.io.fits.Header) -> None:
-            strip_header(header)
-            schema_2d.strip_header(header)
-            fits.strip_wcs_cards(header)
-
-        array_2d = archive.get_array(ref, strip_header=_strip_header, slices=slices)
-        return Mask(array_2d[:, :, np.newaxis], schema=schema_2d, start=start)
-
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
         pointer_type: type[P],
@@ -965,6 +891,72 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     def bbox(self) -> Box:
         """The 2-d bounding box of the mask."""
         return Box.from_shape(self.data[0].shape, start=self.start)
+
+    def deserialize(
+        self,
+        archive: InputArchive[Any],
+        *,
+        bbox: Box | None = None,
+        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> Mask:
+        """Deserialize a mask from an input archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+        bbox
+            Bounding box of a subimage to read instead.
+        strip_header
+            A callable that strips out any FITS header cards added by the
+            ``update_header`` argument in the corresponding call to
+            `Mask.serialize`.
+        """
+        slices: tuple[slice, ...] | EllipsisType = ...
+        if bbox is not None:
+            slices = bbox.slice_within(self.bbox)
+        else:
+            bbox = self.bbox
+        if not is_integer(self.dtype):
+            raise ArchiveReadError(f"Mask array has a non-integer dtype: {self.dtype}.")
+        schema = MaskSchema(self.planes, dtype=self.dtype.to_numpy())
+        projection = self.projection.deserialize(archive) if self.projection is not None else None
+        result = Mask(
+            0,
+            schema=schema,
+            bbox=bbox,
+            projection=projection,
+            obs_info=self.obs_info,
+        )
+        schemas_2d = schema.split(np.int32)
+        if len(schemas_2d) != len(self.data):
+            raise ArchiveReadError(
+                f"Number of mask arrays ({len(self.data)}) does not match expectation ({len(schemas_2d)})."
+            )
+        for array_model, schema_2d in zip(self.data, schemas_2d):
+            mask_2d = self._deserialize_2d(
+                array_model, schema_2d, bbox.start, archive, strip_header=strip_header, slices=slices
+            )
+            result.update(mask_2d)
+        return result._finish_deserialize(self)
+
+    @staticmethod
+    def _deserialize_2d(
+        ref: ArrayReferenceModel | InlineArrayModel,
+        schema_2d: MaskSchema,
+        start: Sequence[int],
+        archive: InputArchive[Any],
+        *,
+        slices: tuple[slice, ...] | EllipsisType = ...,
+        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> Mask:
+        def _strip_header(header: astropy.io.fits.Header) -> None:
+            strip_header(header)
+            schema_2d.strip_header(header)
+            fits.strip_wcs_cards(header)
+
+        array_2d = archive.get_array(ref, strip_header=_strip_header, slices=slices)
+        return Mask(array_2d[:, :, np.newaxis], schema=schema_2d, start=start)
 
 
 def get_legacy_visit_image_mask_planes() -> dict[str, MaskPlane]:

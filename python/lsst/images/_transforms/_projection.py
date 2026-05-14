@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 # This pre-python-3.12 declaration is needed by Sphinx (probably the
 # autodoc-typehints plugin.
 F = TypeVar("F", bound=Frame)
+P = TypeVar("P", bound=pydantic.BaseModel)
 
 
 @final
@@ -274,27 +275,6 @@ class Projection[F: Frame]:
         return ProjectionSerializationModel(pixel_to_sky=pixel_to_sky, fits_approximation=fits_approximation)
 
     @staticmethod
-    def deserialize[P: pydantic.BaseModel](
-        model: ProjectionSerializationModel[P], archive: InputArchive[P]
-    ) -> Projection[Any]:
-        """Deserialize a projection from an archive.
-
-        Parameters
-        ----------
-        model
-            Seralized form of the projection.
-        archive
-            Archive to read from.
-        """
-        pixel_to_sky = Transform.deserialize(model.pixel_to_sky, archive)
-        fits_approximation = (
-            Transform.deserialize(model.fits_approximation, archive)
-            if model.fits_approximation is not None
-            else None
-        )
-        return Projection(pixel_to_sky, fits_approximation=fits_approximation)
-
-    @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
         pointer_type: type[P],
     ) -> type[ProjectionSerializationModel[P]]:
@@ -449,3 +429,17 @@ class ProjectionSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         ),
         exclude_if=is_none,
     )
+
+    def deserialize(self, archive: InputArchive[P]) -> Projection[Any]:
+        """Deserialize a projection from an archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+        """
+        pixel_to_sky = self.pixel_to_sky.deserialize(archive)
+        fits_approximation = (
+            self.fits_approximation.deserialize(archive) if self.fits_approximation is not None else None
+        )
+        return Projection(pixel_to_sky, fits_approximation=fits_approximation)

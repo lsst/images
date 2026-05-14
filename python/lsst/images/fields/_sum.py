@@ -115,13 +115,6 @@ class SumField(BaseField):
         return SumFieldSerializationModel(operands=[operand.serialize(archive) for operand in self._operands])
 
     @staticmethod
-    def deserialize(model: SumFieldSerializationModel, archive: InputArchive[Any]) -> SumField:
-        """Deserialize the field from an input archive."""
-        from ._concrete import deserialize_field
-
-        return SumField([deserialize_field(operand, archive) for operand in model.operands])
-
-    @staticmethod
     def _get_archive_tree_type(
         pointer_type: type[Any],
     ) -> type[SumFieldSerializationModel]:
@@ -148,5 +141,6 @@ class SumFieldSerializationModel(ArchiveTree):
 
     field_type: Literal["SUM"] = "SUM"
 
-    def finish_deserialize(self, archive: InputArchive) -> SumField:
-        return SumField.deserialize(self, archive)
+    def deserialize(self, archive: InputArchive) -> SumField:
+        """Deserialize the field from an input archive."""
+        return SumField([operand.deserialize(archive) for operand in self.operands])

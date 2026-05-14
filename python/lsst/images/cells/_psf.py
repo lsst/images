@@ -153,21 +153,6 @@ class CellPointSpreadFunction(PointSpreadFunction):
         array_model = archive.add_array(self._array)
         return CellPointSpreadFunctionSerializationModel(array=array_model, bounds=self.bounds)
 
-    @staticmethod
-    def deserialize(
-        model: CellPointSpreadFunctionSerializationModel,
-        archive: InputArchive[Any],
-        *,
-        bbox: Box | None = None,
-    ) -> CellPointSpreadFunction:
-        bounds = model.bounds
-        if bbox is not None:
-            bounds, slices = CellPointSpreadFunction._subset_impl(bounds, bbox)
-            array = archive.get_array(model.array, slices=slices)
-        else:
-            array = archive.get_array(model.array)
-        return CellPointSpreadFunction(array, bounds)
-
     @classmethod
     def from_legacy(cls, legacy_psf: Any, bounds: Bounds | None = None) -> CellPointSpreadFunction:
         # 'bounds' is accepted as an argument only for base-class
@@ -229,3 +214,12 @@ class CellPointSpreadFunctionSerializationModel(ArchiveTree):
             "missing cells should be NaN."
         )
     )
+
+    def deserialize(self, archive: InputArchive[Any], *, bbox: Box | None = None) -> CellPointSpreadFunction:
+        bounds = self.bounds
+        if bbox is not None:
+            bounds, slices = CellPointSpreadFunction._subset_impl(bounds, bbox)
+            array = archive.get_array(self.array, slices=slices)
+        else:
+            array = archive.get_array(self.array)
+        return CellPointSpreadFunction(array, bounds)

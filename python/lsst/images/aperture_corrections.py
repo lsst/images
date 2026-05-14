@@ -83,6 +83,4 @@ class ApertureCorrectionMapSerializationModel(ArchiveTree):
 
     def deserialize(self, archive: InputArchive[Any]) -> ApertureCorrectionMap:
         """Read an aperture correction map from an archive."""
-        from .fields import deserialize_field
-
-        return {name: deserialize_field(field, archive) for name, field in self.fields.items()}
+        return {name: field.deserialize(archive) for name, field in self.fields.items()}

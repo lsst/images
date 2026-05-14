@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 # autodoc-typehints plugin.
 I = TypeVar("I", bound=Frame)  # noqa: E741
 O = TypeVar("O", bound=Frame)  # noqa: E741
+P = TypeVar("P", bound=pydantic.BaseModel)
 
 
 class TransformCompositionError(RuntimeError):
@@ -426,57 +427,6 @@ class Transform[I: Frame, O: Frame]:
         return model
 
     @staticmethod
-    def deserialize[P: pydantic.BaseModel](
-        model: TransformSerializationModel[P], archive: InputArchive[P]
-    ) -> Transform[Any, Any]:
-        """Deserialize a transform from an archive.
-
-        Parameters
-        ----------
-        model
-            Seralized form of the transform.
-        archive
-            Archive to read from.
-        """
-        if len(model.frames) != len(model.bounds):
-            raise ArchiveReadError(
-                f"Inconsistent lengths for 'frames' ({len(model.frames)}) and 'bounds' ({len(model.bounds)})."
-            )
-        if len(model.frames) != len(model.mappings) + 1:
-            raise ArchiveReadError(
-                f"Inconsistent lengths for 'frames' ({len(model.frames)}) and "
-                f"'mappings' ({len(model.mappings)}; should be one less)."
-            )
-        # We can't just compose onto an identity Transform if we want to
-        # preserve the FrameSet-ness of any of these mappings.
-        transform: Transform | None = None
-        for n, mapping in enumerate(model.mappings):
-            match mapping:
-                case MappingSerializationModel(ast=serialized_mapping):
-                    ast_mapping = astshim.Mapping.fromString(serialized_mapping)
-                    in_bounds = model.bounds[n]
-                    out_bounds = model.bounds[n + 1]
-                    new_transform = Transform(
-                        Frame.deserialize(model.frames[n]),
-                        Frame.deserialize(model.frames[n + 1]),
-                        ast_mapping,
-                        Bounds.deserialize(in_bounds) if in_bounds is not None else None,
-                        Bounds.deserialize(out_bounds) if out_bounds is not None else None,
-                    )
-                case reference:
-                    frame_set = archive.get_frame_set(reference)
-                    new_transform = frame_set[
-                        Frame.deserialize(model.frames[n]), Frame.deserialize(model.frames[n + 1])
-                    ]
-            if transform is None:
-                transform = new_transform
-            else:
-                transform = transform.then(new_transform)
-        if transform is None:
-            transform = Transform.identity(Frame.deserialize(model.frames[0]))
-        return transform
-
-    @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
         pointer_type: type[P],
     ) -> type[TransformSerializationModel[P]]:
@@ -566,7 +516,7 @@ def _standardize_xy[T: np.ndarray | float](xy: XY[T], frame: Frame) -> XY[T]:
     return XY(x=frame.standardize_x(xy.x), y=frame.standardize_y(xy.y))
 
 
-class MappingSerializationModel(ArchiveTree):
+class MappingSerializationModel(pydantic.BaseModel):
     """Serialization model for an AST Mapping."""
 
     ast: str = pydantic.Field(description="A serialized Starlink AST Mapping, using the AST native encoding.")
@@ -610,3 +560,47 @@ class TransformSerializationModel[P: pydantic.BaseModel](ArchiveTree):
             """
         ),
     )
+
+    def deserialize(self, archive: InputArchive[P]) -> Transform[Any, Any]:
+        """Deserialize a transform from an archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+        """
+        if len(self.frames) != len(self.bounds):
+            raise ArchiveReadError(
+                f"Inconsistent lengths for 'frames' ({len(self.frames)}) and 'bounds' ({len(self.bounds)})."
+            )
+        if len(self.frames) != len(self.mappings) + 1:
+            raise ArchiveReadError(
+                f"Inconsistent lengths for 'frames' ({len(self.frames)}) and "
+                f"'mappings' ({len(self.mappings)}; should be one less)."
+            )
+        # We can't just compose onto an identity Transform if we want to
+        # preserve the FrameSet-ness of any of these mappings.
+        transform: Transform | None = None
+        for n, mapping in enumerate(self.mappings):
+            match mapping:
+                case MappingSerializationModel(ast=serialized_mapping):
+                    ast_mapping = astshim.Mapping.fromString(serialized_mapping)
+                    in_bounds = self.bounds[n]
+                    out_bounds = self.bounds[n + 1]
+                    new_transform = Transform(
+                        self.frames[n].deserialize(),
+                        self.frames[n + 1].deserialize(),
+                        ast_mapping,
+                        in_bounds.deserialize() if in_bounds is not None else None,
+                        out_bounds.deserialize() if out_bounds is not None else None,
+                    )
+                case reference:
+                    frame_set = archive.get_frame_set(reference)
+                    new_transform = frame_set[self.frames[n].deserialize(), self.frames[n + 1].deserialize()]
+            if transform is None:
+                transform = new_transform
+            else:
+                transform = transform.then(new_transform)
+        if transform is None:
+            transform = Transform.identity(self.frames[0].deserialize())
+        return transform
