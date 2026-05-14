@@ -371,14 +371,13 @@ class MaskedImageFormatter(ImageFormatter):
                 return handled
         if not isinstance(tree, MaskedImageSerializationModel):
             return ComponentSentinel.INVALID_COMPONENT_MODEL
-        bbox = self.pop_bbox_from_parameters()
         match component:
             case "image":
-                return tree.image.deserialize(archive, bbox=bbox)
+                return tree.image.deserialize(archive, bbox=self.pop_bbox_from_parameters())
             case "mask":
-                return tree.mask.deserialize(archive, bbox=bbox)
+                return tree.mask.deserialize(archive, bbox=self.pop_bbox_from_parameters())
             case "variance":
-                return tree.variance.deserialize(archive, bbox=bbox)
+                return tree.variance.deserialize(archive, bbox=self.pop_bbox_from_parameters())
         return ComponentSentinel.UNRECOGNIZED_COMPONENT
 
 

@@ -381,3 +381,42 @@ class CellCoaddFormatterComponentReadTestCase(unittest.TestCase):
             object.__setattr__(formatter, "_storage_class_pytype", CellCoadd)
             psf = formatter._read_component_from_uri("psf", ResourcePath(tmp.name))
             self.assertIsNotNone(psf)
+
+
+class FitsDeprecationShimTestCase(unittest.TestCase):
+    """lsst.images.fits.formatters is a deprecation shim."""
+
+    def test_image_formatter_warns(self):
+        import warnings
+
+        from lsst.images.fits.formatters import ImageFormatter
+
+        with warnings.catch_warnings(record=True) as recorded:
+            warnings.simplefilter("always")
+            try:
+                ImageFormatter.__init__(
+                    ImageFormatter.__new__(ImageFormatter)  # type: ignore[call-arg]
+                )
+            except TypeError:
+                # FormatterV2.__init__ requires file_descriptor; the
+                # deprecation warning is emitted before super().__init__
+                # is called, which is what we are verifying here.
+                pass
+        self.assertTrue(
+            any(
+                issubclass(w.category, DeprecationWarning)
+                and "fits.formatters.ImageFormatter is deprecated" in str(w.message)
+                for w in recorded
+            ),
+            f"No deprecation warning observed; got: {[str(w.message) for w in recorded]}",
+        )
+
+    def test_subclass_is_unified_class(self):
+        from lsst.images import formatters as unified
+        from lsst.images.fits import formatters as shim
+
+        self.assertTrue(issubclass(shim.GenericFormatter, unified.GenericFormatter))
+        self.assertTrue(issubclass(shim.ImageFormatter, unified.ImageFormatter))
+        self.assertTrue(issubclass(shim.MaskedImageFormatter, unified.MaskedImageFormatter))
+        self.assertTrue(issubclass(shim.VisitImageFormatter, unified.VisitImageFormatter))
+        self.assertTrue(issubclass(shim.CellCoaddFormatter, unified.CellCoaddFormatter))
