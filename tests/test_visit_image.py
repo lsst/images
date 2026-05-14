@@ -54,6 +54,13 @@ from lsst.images.tests import (
     make_random_projection,
 )
 
+try:
+    import h5py  # noqa: F401
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
+
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
@@ -256,6 +263,7 @@ class VisitImageTestCase(unittest.TestCase):
             self.summary_stats, ObservationSummaryStats(psfSigma=2.5, raCorners=(5.2, 5.4, 5.4, 5.2))
         )
 
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_round_trip_ndf(self):
         """NDF round-trip for VisitImage."""
         with RoundtripNdf(self, self.visit_image) as roundtrip:
@@ -263,6 +271,7 @@ class VisitImageTestCase(unittest.TestCase):
             self.assertEqual(roundtrip.result.summary_stats, self.visit_image.summary_stats)
             self.assertEqual(type(roundtrip.result.psf), type(self.visit_image.psf))
 
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_fits_ndf_consistency(self):
         """FITS and NDF backends produce equal VisitImages on round-trip."""
         with RoundtripFits(self, self.visit_image) as fits_rt, RoundtripNdf(self, self.visit_image) as ndf_rt:

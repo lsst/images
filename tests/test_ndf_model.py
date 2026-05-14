@@ -14,11 +14,17 @@ from __future__ import annotations
 import tempfile
 import unittest
 
-import h5py
 import numpy as np
 
-from lsst.images.ndf import _hds
-from lsst.images.ndf._model import HdsPrimitive, Ndf, NdfArray, NdfDocument, NdfQuality, NdfWcs
+try:
+    import h5py
+
+    from lsst.images.ndf import _hds
+    from lsst.images.ndf._model import HdsPrimitive, Ndf, NdfArray, NdfDocument, NdfQuality, NdfWcs
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
 
 
 def _attr_str(value: object) -> str:
@@ -27,6 +33,7 @@ def _attr_str(value: object) -> str:
     return str(value)
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfModelTestCase(unittest.TestCase):
     """Tests for the Python NDF intermediate representation."""
 

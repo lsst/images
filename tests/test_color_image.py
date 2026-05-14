@@ -13,11 +13,9 @@ from __future__ import annotations
 
 import unittest
 
-import h5py
 import numpy as np
 
 from lsst.images import Box, ColorImage, Image, TractFrame
-from lsst.images.ndf import _hds
 from lsst.images.tests import (
     RoundtripFits,
     RoundtripNdf,
@@ -25,6 +23,15 @@ from lsst.images.tests import (
     assert_projections_equal,
     make_random_projection,
 )
+
+try:
+    import h5py
+
+    from lsst.images.ndf import _hds
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
 
 
 class ColorImageTestCase(unittest.TestCase):
@@ -89,12 +96,14 @@ class ColorImageTestCase(unittest.TestCase):
             pass
         self.assert_color_images_equal(roundtrip.result, self.color_image, expect_view=False)
 
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_ndf_roundtrip(self) -> None:
         """Test round-tripping through NDF."""
         with RoundtripNdf(self, self.color_image) as roundtrip:
             pass
         self.assert_color_images_equal(roundtrip.result, self.color_image, expect_view=False)
 
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_ndf_layout(self) -> None:
         """ColorImage writes a top-level container with RGB child NDFs."""
         with RoundtripNdf(self, self.color_image) as roundtrip:

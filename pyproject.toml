@@ -24,7 +24,6 @@ keywords=["lsst"]
 dependencies = [
     "astropy >= 7.0",
     "fsspec",
-    "h5py >= 3.10",
     "numpy >= 2.0",
     "scipy >= 1.13",
     "pydantic >= 2.12",
@@ -52,6 +51,8 @@ gs = ["lsst-resources[gs]"]
 piff = ["piff >= 1.6", "galsim >= 2.7"]
 # Add feature for Butler support.
 butler = ["lsst-daf-butler"]
+# Add feature for Starlink NDF (HDS-on-HDF5) read/write support.
+ndf = ["h5py >= 3.10"]
 
 [tool.setuptools.packages.find]
 where = ["python"]

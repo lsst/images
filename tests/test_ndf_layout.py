@@ -27,12 +27,19 @@ from __future__ import annotations
 
 import unittest
 
-import h5py
 import numpy as np
 
 from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
-from lsst.images.ndf import _hds
 from lsst.images.tests import RoundtripNdf
+
+try:
+    import h5py
+
+    from lsst.images.ndf import _hds
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
 
 
 def _cls(node: h5py.Group) -> str:
@@ -63,6 +70,7 @@ def _hds_shape(dataset: h5py.Dataset) -> tuple[int, ...]:
     return tuple(reversed(dataset.shape))
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfImageLayoutTestCase(unittest.TestCase):
     """Verify the on-disk layout produced by ``ndf.write()`` for a plain
     ``Image``.
@@ -109,6 +117,7 @@ class NdfImageLayoutTestCase(unittest.TestCase):
             self.assertIn("JSON", f["/MORE/LSST"])
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfCompatibleMaskLayoutTestCase(unittest.TestCase):
     """Layout test for a MaskedImage whose mask fits in a single uint8 byte.
 
@@ -181,6 +190,7 @@ class NdfCompatibleMaskLayoutTestCase(unittest.TestCase):
             self.assertEqual(_hds_type(f["/VARIANCE/DATA"]), "_DOUBLE")
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfIncompatibleMaskLayoutTestCase(unittest.TestCase):
     """Layout test for a MaskedImage with more than 8 mask planes.
 

@@ -13,9 +13,15 @@ from __future__ import annotations
 
 import unittest
 
-from lsst.images.ndf._common import NdfPointerModel, archive_path_to_hdf5_path
+try:
+    from lsst.images.ndf._common import NdfPointerModel, archive_path_to_hdf5_path
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfPointerModelTestCase(unittest.TestCase):
     """Tests for `NdfPointerModel` and `archive_path_to_hdf5_path`."""
 

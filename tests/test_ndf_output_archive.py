@@ -16,18 +16,25 @@ import unittest
 
 import astropy.table
 import astropy.units as u
-import h5py
 import numpy as np
 import pydantic
 
 from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
 from lsst.images._transforms import FrameLookupError, FrameSet, Transform
 from lsst.images._transforms._frames import DetectorFrame, Frame
-from lsst.images.ndf import _hds
-from lsst.images.ndf._input_archive import NdfInputArchive
-from lsst.images.ndf._output_archive import NdfOutputArchive, write
 from lsst.images.serialization import ArrayReferenceModel, InlineArrayModel
 from lsst.images.tests._creation import make_random_projection
+
+try:
+    import h5py
+
+    from lsst.images.ndf import _hds
+    from lsst.images.ndf._input_archive import NdfInputArchive
+    from lsst.images.ndf._output_archive import NdfOutputArchive, write
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
 
 
 class TinyFrameSet(FrameSet):
@@ -46,6 +53,7 @@ class TinyTree(pydantic.BaseModel):
     name: str
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfOutputArchiveBasicsTestCase(unittest.TestCase):
     """Tests for `NdfOutputArchive` constructor and `serialize_direct`."""
 
@@ -67,6 +75,7 @@ class NdfOutputArchiveBasicsTestCase(unittest.TestCase):
                 self.assertEqual(f["/"].attrs["CLASS"], b"NDF")
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
     """Tests for `NdfOutputArchive.add_array` routing."""
 
@@ -166,6 +175,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 self.assertEqual(origin.shape, (data.ndim,))
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfOutputArchivePointerTestCase(unittest.TestCase):
     """Tests for `NdfOutputArchive.serialize_pointer` and
     `serialize_frame_set`.
@@ -233,6 +243,7 @@ class NdfOutputArchivePointerTestCase(unittest.TestCase):
                 self.assertEqual(recorded[0][1].ref, "/MORE/LSST/WCS/PIXEL_TO_SKY")
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
     """Tests for `NdfOutputArchive.add_table` and `add_structured_array`."""
 
@@ -303,6 +314,7 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
                 )
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfWriteWcsTestCase(unittest.TestCase):
     """Tests for /WCS/DATA serialization in ndf.write()."""
 
@@ -403,6 +415,7 @@ class NdfWriteWcsTestCase(unittest.TestCase):
                 self.assertNotIn("WCS", f["/MORE/LSST/MASK"])
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfWriteFunctionTestCase(unittest.TestCase):
     """End-to-end tests for the module-level `write()` function."""
 

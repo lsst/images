@@ -32,6 +32,13 @@ from lsst.images.tests import (
     make_random_projection,
 )
 
+try:
+    import h5py  # noqa: F401
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
+
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
 
@@ -105,6 +112,7 @@ class ImageTestCase(unittest.TestCase):
             assert_images_equal(self, image[subbox], roundtrip.get(bbox=subbox))
         assert_images_equal(self, image, roundtrip.result)
 
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_ndf_roundtrip(self) -> None:
         """Test saving a tiny image to NDF."""
         image = Image(
@@ -115,6 +123,7 @@ class ImageTestCase(unittest.TestCase):
             pass
         assert_images_equal(self, image, roundtrip.result)
 
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_fits_ndf_consistency(self):
         """Writing via FITS and via NDF, then reading back, produces equal
         Images.

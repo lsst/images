@@ -18,11 +18,13 @@ import unittest
 import uuid
 from abc import ABC, abstractmethod
 from contextlib import ExitStack
-from typing import Any, Self, TypeVar
+from typing import TYPE_CHECKING, Any, Self, TypeVar
 
 import astropy.io.fits
-import h5py
 from pydantic_core import from_json
+
+if TYPE_CHECKING:
+    import h5py
 
 try:
     from lsst.daf.butler import Butler, DataCoordinate, DatasetProvenance, DatasetRef, DatasetType
@@ -310,6 +312,8 @@ class RoundtripJson[T](RoundtripBase[T]):
 class RoundtripNdf[T](RoundtripBase[T]):
     def inspect(self) -> h5py.File:
         """Open the NDF file with h5py."""
+        import h5py
+
         return self._exit_stack.enter_context(h5py.File(self.filename, "r"))
 
     def _get_extension(self) -> str:

@@ -15,10 +15,16 @@ import os
 import tempfile
 import unittest
 
-import h5py
 import numpy as np
 
-from lsst.images.ndf import _hds
+try:
+    import h5py
+
+    from lsst.images.ndf import _hds
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
 
 
 def _attr_str(value: object) -> str | None:
@@ -30,6 +36,7 @@ def _attr_str(value: object) -> str | None:
     return None
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class HdsPrimitiveTestCase(unittest.TestCase):
     """Primitives are bare HDF5 datasets with no HDS-specific attributes."""
 
@@ -173,6 +180,7 @@ class HdsPrimitiveTestCase(unittest.TestCase):
             _hds.hds_type_for_dtype(np.dtype(np.complex128))
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class HdsStructureTestCase(unittest.TestCase):
     """Structures are HDF5 groups with a CLASS attribute."""
 
@@ -218,6 +226,7 @@ class HdsStructureTestCase(unittest.TestCase):
                 self.assertEqual(_attr_str(f["/"].attrs["CLASS"]), "NDF")
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class HdsCanonicalExampleTestCase(unittest.TestCase):
     """Validate _hds against a canonical-format Starlink-generated NDF.
 

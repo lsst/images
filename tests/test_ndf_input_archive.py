@@ -18,10 +18,17 @@ import unittest
 import numpy as np
 
 from lsst.images import Box, Image
-from lsst.images.ndf._input_archive import NdfInputArchive
-from lsst.images.ndf._output_archive import write
+
+try:
+    from lsst.images.ndf._input_archive import NdfInputArchive
+    from lsst.images.ndf._output_archive import write
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfInputArchiveOpenTestCase(unittest.TestCase):
     """Tests for `NdfInputArchive.open` and `get_tree`."""
 
@@ -58,6 +65,7 @@ class NdfInputArchiveOpenTestCase(unittest.TestCase):
                     archive.get_tree(model_type)
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfInputArchiveDataTestCase(unittest.TestCase):
     """Tests for `get_array`, `deserialize_pointer`, and `get_frame_set`."""
 
@@ -219,6 +227,7 @@ class NdfInputArchiveDataTestCase(unittest.TestCase):
                     archive.get_frame_set(ref)
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfInputArchiveOpaqueMetadataTestCase(unittest.TestCase):
     """Tests for `NdfInputArchive.get_opaque_metadata`."""
 
@@ -257,6 +266,7 @@ class NdfInputArchiveOpaqueMetadataTestCase(unittest.TestCase):
                 self.assertFalse(recovered.headers)
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfReadFunctionTestCase(unittest.TestCase):
     """Tests for the module-level `ndf.read()` function."""
 

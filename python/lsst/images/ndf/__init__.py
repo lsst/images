@@ -60,6 +60,14 @@ cloud storage. There is no facility to store byte offsets to components in
 any of the data structures.
 """
 
+try:
+    import h5py  # noqa: F401
+except ImportError as e:
+    raise ImportError(
+        "lsst.images.ndf requires the optional 'h5py' package. "
+        "Install it directly or via 'pip install lsst-images[ndf]'."
+    ) from e
+
 from ._common import *
 from ._input_archive import *
 from ._output_archive import *

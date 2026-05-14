@@ -18,12 +18,19 @@ import numpy as np
 
 from lsst.images import Image
 from lsst.images.fits._common import ExtensionKey
-from lsst.images.ndf import read
+
+try:
+    from lsst.images.ndf import read
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
 
 # Starlink-generated NDF fixture (M57 image, hds-v5 HDF5).
 EXAMPLE = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
 
 
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class StarlinkIngestTestCase(unittest.TestCase):
     """Integration tests that read a real Starlink-produced NDF via the
     auto-detect ``ndf.read()`` path.
