@@ -127,6 +127,14 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
         ),
     )
 
+    refCatSourceDensity: float = pydantic.Field(
+        math.nan,
+        description=(
+            "Source density for the detector region as computed from the loaded reference catalog "
+            "(number per degrees**2)."
+        ),
+    )
+
     astromOffsetMean: float = pydantic.Field(math.nan, description="Astrometry match offset mean.")
 
     astromOffsetStd: float = pydantic.Field(math.nan, description="Astrometry match offset stddev.")
