@@ -21,6 +21,7 @@ all of their logic.
 from __future__ import annotations
 
 __all__ = (
+    "CellCoaddFormatter",
     "ComponentSentinel",
     "GenericFormatter",
     "ImageFormatter",
@@ -407,4 +408,26 @@ class VisitImageFormatter(MaskedImageFormatter):
                 return ComponentSentinel.INVALID_COMPONENT_MODEL
             case "aperture_corrections":
                 return tree.aperture_corrections.deserialize(archive)
+        return ComponentSentinel.UNRECOGNIZED_COMPONENT
+
+
+class CellCoaddFormatter(MaskedImageFormatter):
+    """Adds CellCoadd-specific psf and provenance components."""
+
+    def read_component(self, component: str, tree: Any, archive: Any) -> Any:
+        from .cells import CellCoaddSerializationModel  # avoid cycles
+
+        match super().read_component(component, tree, archive):
+            case ComponentSentinel():
+                pass
+            case handled:
+                return handled
+        if not isinstance(tree, CellCoaddSerializationModel):
+            return ComponentSentinel.INVALID_COMPONENT_MODEL
+        match component:
+            case "psf":
+                bbox = self.pop_bbox_from_parameters()
+                return tree.deserialize_psf(archive, bbox=bbox)
+            case "provenance":
+                return tree.deserialize_provenance(archive)
         return ComponentSentinel.UNRECOGNIZED_COMPONENT

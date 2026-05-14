@@ -353,3 +353,31 @@ class VisitImageFormatterComponentReadTestCase(unittest.TestCase):
             self.assertEqual(ap.keys(), vi.aperture_corrections.keys())
             for k, v in vi.aperture_corrections.items():
                 self.assertEqual(type(ap[k]), type(v))
+
+
+class CellCoaddFormatterComponentReadTestCase(unittest.TestCase):
+    """CellCoaddFormatter reads psf/provenance components from FITS."""
+
+    def _make_cell_coadd(self):
+        from test_cell_coadd import CellCoaddTestCase  # pytest discovers tests/ on sys.path
+
+        # CellCoaddTestCase uses setUpClass and stashes the result on
+        # the class as `cell_coadd`; reuse that fixture here.
+        CellCoaddTestCase.setUpClass()
+        return CellCoaddTestCase.cell_coadd
+
+    def test_fits_psf_component(self):
+        import tempfile
+
+        from lsst.images import fits
+        from lsst.images.cells import CellCoadd
+        from lsst.images.formatters import CellCoaddFormatter
+
+        coadd = self._make_cell_coadd()
+        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False) as tmp:
+            tmp.close()
+            fits.write(coadd, tmp.name)
+            formatter = CellCoaddFormatter.__new__(CellCoaddFormatter)
+            object.__setattr__(formatter, "_storage_class_pytype", CellCoadd)
+            psf = formatter._read_component_from_uri("psf", ResourcePath(tmp.name))
+            self.assertIsNotNone(psf)
