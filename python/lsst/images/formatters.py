@@ -20,9 +20,13 @@ all of their logic.
 
 from __future__ import annotations
 
-__all__ = ("GenericFormatter",)
+__all__ = (
+    "ComponentSentinel",
+    "GenericFormatter",
+    "ImageFormatter",
+)
 
-import enum  # noqa: F401 — used by ComponentSentinel in a later task
+import enum
 import hashlib
 import json as _stdlib_json  # disambiguates from .json subpackage
 from collections.abc import Callable
@@ -30,12 +34,15 @@ from dataclasses import dataclass
 from typing import Any, ClassVar
 
 import astropy.io.fits
+from astro_metadata_translator import ObservationInfo
 
 from lsst.daf.butler import DatasetProvenance, FormatterV2
 from lsst.resources import ResourcePath
 
 from . import fits as _fits
 from . import json as _json
+from ._geom import Box
+from ._transforms import ProjectionSerializationModel
 from .fits._common import FitsCompressionOptions
 from .fits._common import PointerModel as _FitsPointerModel
 from .fits._input_archive import FitsInputArchive as _FitsInputArchive
@@ -233,3 +240,107 @@ class GenericFormatter(FormatterV2):
         backend = _BACKENDS[ext]
         kwargs = self.file_descriptor.parameters or {}
         return backend.read(pytype, uri, **kwargs).deserialized
+
+
+class ComponentSentinel(enum.Enum):
+    """Special return values from `ImageFormatter.read_component`."""
+
+    UNRECOGNIZED_COMPONENT = enum.auto()
+    """Subclasses might still recognise this component."""
+
+    INVALID_COMPONENT_MODEL = enum.auto()
+    """Component name is known but the model attribute is missing or
+    has the wrong type.
+    """
+
+
+class ImageFormatter(GenericFormatter):
+    """Adds component-level read support for image-like types.
+
+    Subclasses override `read_component` to handle additional components
+    (image/mask/variance for MaskedImage; psf/summary_stats/etc. for
+    VisitImage).
+    """
+
+    def _storage_class_pytype_default(self) -> type:
+        return self.file_descriptor.storageClass.pytype
+
+    def _get_pytype(self) -> type:
+        # Allow unit tests to inject a pytype without a real FileDescriptor.
+        pytype = getattr(self, "_storage_class_pytype", None)
+        if pytype is not None:
+            return pytype
+        return self._storage_class_pytype_default()
+
+    def read_from_uri(
+        self,
+        uri: ResourcePath,
+        component: str | None = None,
+        expected_size: int = -1,
+    ) -> Any:
+        pytype = self._get_pytype()
+        ext = self._extension_from_uri(uri)
+        backend = _BACKENDS[ext]
+        if component is None:
+            result = backend.read(pytype, uri, bbox=self.pop_bbox_from_parameters()).deserialized
+        else:
+            result = self._read_component_from_uri(component, uri)
+        self.check_unhandled_parameters()
+        return result
+
+    def _read_component_from_uri(self, component: str, uri: ResourcePath) -> Any:
+        ext = self._extension_from_uri(uri)
+        backend = _BACKENDS[ext]
+        pytype = self._get_pytype()
+        if ext == ".json":
+            obj = backend.read(pytype, uri).deserialized
+            try:
+                return getattr(obj, component)
+            except AttributeError as exc:
+                raise NotImplementedError(f"Unrecognized component {component!r} for JSON read.") from exc
+        # FITS/NDF archive path.
+        archive_cls = backend.input_archive
+        pointer_model = backend.pointer_model
+        assert archive_cls is not None
+        assert pointer_model is not None
+        # FitsInputArchive uses partial=True for component reads; NDF
+        # has no such kwarg.
+        open_kwargs = {"partial": True} if ext == ".fits" else {}
+        with archive_cls.open(uri, **open_kwargs) as archive:
+            tree_type = pytype._get_archive_tree_type(pointer_model)
+            tree = archive.get_tree(tree_type)
+            result = self.read_component(component, tree, archive)
+        if result is ComponentSentinel.UNRECOGNIZED_COMPONENT:
+            raise NotImplementedError(f"Unrecognized component {component!r} for {type(self).__name__}.")
+        if result is ComponentSentinel.INVALID_COMPONENT_MODEL:
+            raise NotImplementedError(
+                f"Invalid serialization model for component {component!r} for {type(self).__name__}."
+            )
+        return result
+
+    def pop_bbox_from_parameters(self) -> Box | None:
+        parameters = self.file_descriptor.parameters or {}
+        return parameters.pop("bbox", None)
+
+    def check_unhandled_parameters(self) -> None:
+        if self.file_descriptor.parameters:
+            raise RuntimeError(f"Parameters {list(self.file_descriptor.parameters.keys())} not recognized.")
+
+    def read_component(self, component: str, tree: Any, archive: Any) -> Any:
+        match component:
+            case "projection":
+                if isinstance(
+                    p := getattr(tree, "projection", None),
+                    ProjectionSerializationModel,
+                ):
+                    return p.deserialize(archive)
+                return ComponentSentinel.INVALID_COMPONENT_MODEL
+            case "bbox":
+                if isinstance(bbox := getattr(tree, "bbox", None), Box):
+                    return bbox
+                return ComponentSentinel.INVALID_COMPONENT_MODEL
+            case "obs_info":
+                if isinstance(oi := getattr(tree, "obs_info", None), ObservationInfo):
+                    return oi
+                return ComponentSentinel.INVALID_COMPONENT_MODEL
+        return ComponentSentinel.UNRECOGNIZED_COMPONENT

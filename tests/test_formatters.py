@@ -151,3 +151,80 @@ class ExtensionFromUriTestCase(unittest.TestCase):
         uri = ResourcePath("/tmp/x.fits.gz")
         with self.assertRaisesRegex(RuntimeError, "unsupported extension"):
             formatter._extension_from_uri(uri)
+
+
+class ImageFormatterComponentReadTestCase(unittest.TestCase):
+    """ImageFormatter routes component reads per extension."""
+
+    def _make_image(self):
+        import numpy as np
+
+        from lsst.images import Box, Image
+
+        return Image(
+            np.arange(20, dtype=np.float32).reshape(4, 5),
+            bbox=Box.factory[10:14, 20:25],
+        )
+
+    def test_fits_bbox_component(self):
+        import tempfile
+
+        from lsst.images import Image, fits
+        from lsst.images.formatters import ImageFormatter
+
+        image = self._make_image()
+        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False) as tmp:
+            tmp.close()
+            fits.write(image, tmp.name)
+            formatter = ImageFormatter.__new__(ImageFormatter)
+            object.__setattr__(formatter, "_storage_class_pytype", Image)
+            bbox = formatter._read_component_from_uri("bbox", ResourcePath(tmp.name))
+            self.assertEqual(bbox, image.bbox)
+
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+    def test_sdf_bbox_component(self):
+        import tempfile
+
+        from lsst.images import Image, ndf
+        from lsst.images.formatters import ImageFormatter
+
+        image = self._make_image()
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            ndf.write(image, tmp.name)
+            formatter = ImageFormatter.__new__(ImageFormatter)
+            object.__setattr__(formatter, "_storage_class_pytype", Image)
+            bbox = formatter._read_component_from_uri("bbox", ResourcePath(tmp.name))
+            self.assertEqual(bbox, image.bbox)
+
+    def test_json_bbox_component_via_whole_object(self):
+        import tempfile
+
+        from lsst.images import Image
+        from lsst.images import json as images_json
+        from lsst.images.formatters import ImageFormatter
+
+        image = self._make_image()
+        with tempfile.NamedTemporaryFile(suffix=".json", delete_on_close=False) as tmp:
+            tmp.close()
+            images_json.write(image, tmp.name)
+            formatter = ImageFormatter.__new__(ImageFormatter)
+            object.__setattr__(formatter, "_storage_class_pytype", Image)
+            bbox = formatter._read_component_from_uri("bbox", ResourcePath(tmp.name))
+            self.assertEqual(bbox, image.bbox)
+
+    def test_json_unknown_component_raises(self):
+        import tempfile
+
+        from lsst.images import Image
+        from lsst.images import json as images_json
+        from lsst.images.formatters import ImageFormatter
+
+        image = self._make_image()
+        with tempfile.NamedTemporaryFile(suffix=".json", delete_on_close=False) as tmp:
+            tmp.close()
+            images_json.write(image, tmp.name)
+            formatter = ImageFormatter.__new__(ImageFormatter)
+            object.__setattr__(formatter, "_storage_class_pytype", Image)
+            with self.assertRaises(NotImplementedError):
+                formatter._read_component_from_uri("nonexistent", ResourcePath(tmp.name))
