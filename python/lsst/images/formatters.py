@@ -32,7 +32,7 @@ __all__ = (
 import enum
 import hashlib
 import json as _stdlib_json  # disambiguates from .json subpackage
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
@@ -61,8 +61,8 @@ try:
     _HAVE_NDF = True
 except ImportError:  # h5py is optional; see ndf/__init__.py
     _ndf = None  # type: ignore[assignment]
-    _NdfPointerModel = None  # type: ignore[assignment]
-    _NdfInputArchive = None  # type: ignore[assignment]
+    _NdfPointerModel = None  # type: ignore[assignment,misc]
+    _NdfInputArchive = None  # type: ignore[assignment,misc]
     _HAVE_NDF = False
 
 
@@ -124,7 +124,7 @@ class GenericFormatter(FormatterV2):
     # --- Write parameter handling -------------------------------------------
 
     @property
-    def write_parameters(self) -> dict[str, Any]:  # type: ignore[override]
+    def write_parameters(self) -> Mapping[str, Any]:  # type: ignore[override]
         # Allow unit tests to inject a dict via `_write_parameters`. The
         # FormatterV2 base provides the property pulling from the file
         # descriptor; override only when our private attribute is set.
@@ -267,11 +267,13 @@ class ImageFormatter(GenericFormatter):
     VisitImage).
     """
 
-    def _storage_class_pytype_default(self) -> type:
+    def _storage_class_pytype_default(self) -> Any:
         return self.file_descriptor.storageClass.pytype
 
-    def _get_pytype(self) -> type:
+    def _get_pytype(self) -> Any:
         # Allow unit tests to inject a pytype without a real FileDescriptor.
+        # Returns `Any` because the concrete classes carry the
+        # `_get_archive_tree_type` classmethod that mypy can't see on `type`.
         pytype = getattr(self, "_storage_class_pytype", None)
         if pytype is not None:
             return pytype
@@ -303,9 +305,11 @@ class ImageFormatter(GenericFormatter):
                 return getattr(obj, component)
             except AttributeError as exc:
                 raise NotImplementedError(f"Unrecognized component {component!r} for JSON read.") from exc
-        # FITS/NDF archive path.
-        archive_cls = backend.input_archive
-        pointer_model = backend.pointer_model
+        # FITS/NDF archive path. backend.input_archive and pointer_model are
+        # typed as `type | None` to allow the JSON row to opt out; here we
+        # know they are populated.
+        archive_cls: Any = backend.input_archive
+        pointer_model: Any = backend.pointer_model
         assert archive_cls is not None
         assert pointer_model is not None
         # FitsInputArchive uses partial=True for component reads; NDF

@@ -29,7 +29,10 @@ class BackendsTableTestCase(unittest.TestCase):
     def test_table_keys(self):
         from lsst.images.formatters import _BACKENDS
 
-        self.assertEqual(set(_BACKENDS), {".fits", ".sdf", ".json"})
+        expected = {".fits", ".json"}
+        if HAVE_H5PY:
+            expected.add(".sdf")
+        self.assertEqual(set(_BACKENDS), expected)
 
     def test_fits_backend_wires_fits_read_write(self):
         from lsst.images import fits
