@@ -463,3 +463,7 @@ class JsonDeprecationShimTestCase(unittest.TestCase):
         formatter = GenericFormatter.__new__(GenericFormatter)
         object.__setattr__(formatter, "_write_parameters", {})
         self.assertEqual(formatter.get_write_extension(), ".json")
+
+
+if __name__ == "__main__":
+    unittest.main()
