@@ -95,8 +95,8 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
                 "Starlink-only NDF (use ndf.read() with auto-detect) or "
                 "the file was written by an unrelated tool."
             )
-        lines = self._get_primitive(json_path).read_char_array()
-        return model_type.model_validate_json(_join_json_records(lines))
+        json_text = _read_json_record(self._get_primitive(json_path), json_path)
+        return model_type.model_validate_json(json_text)
 
     def deserialize_pointer[U: ArchiveTree, V](
         self,
@@ -111,8 +111,8 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         if not self._has_model_path(pointer.path):
             raise ArchiveReadError(f"Pointer reference {pointer.path!r} not found in NDF file.")
         primitive = self._get_primitive(pointer.path)
-        lines = primitive.read_char_array()
-        model = model_type.model_validate_json(_join_json_records(lines))
+        json_text = _read_json_record(primitive, pointer.path)
+        model = model_type.model_validate_json(json_text)
         result = deserializer(model, self)
         self._deserialized_pointer_cache[pointer.path] = result
         if isinstance(result, FrameSet):
@@ -449,14 +449,18 @@ def _read_data_array_with_bbox(
     return data, bbox
 
 
-def _join_json_records(records: list[str]) -> str:
-    """Join records from an NDF JSON character array.
+def _read_json_record(primitive: HdsPrimitive, path: str) -> str:
+    """Read a JSON document stored as a single _CHAR*N record.
 
-    The NDF writer stores each JSON document as one logical string. If an
-    older file contains more than one record, the records are chunks of that
-    same string rather than newline-delimited JSON text.
+    Our writer always emits JSON trees as a single-element character
+    array sized to the document. Joining multiple records would lose
+    trailing whitespace inside JSON string values, since
+    `read_char_array` strips trailing spaces per record.
     """
-    return "".join(records)
+    records = primitive.read_char_array()
+    if len(records) != 1:
+        raise ArchiveReadError(f"Expected a single _CHAR*N record at {path!r}, got {len(records)}.")
+    return records[0]
 
 
 def _make_bbox(*, x_min: int, y_min: int, array: np.ndarray) -> Any:
