@@ -30,8 +30,11 @@ and makes a butler config able to pick the on-disk format with a single
 3. Preserve all current behavior: FITS compression recipes, NDF
    `MORE/FITS` header injection, JSON whole-tree provenance,
    component-level partial reads with bbox.
-4. Keep the existing FITS-only formatter import path working as a deprecated
-   shim so deployed test-repo configurations don't break in a single commit.
+4. Keep the existing FITS- and JSON-only formatter import paths working as
+   deprecated shims so deployed configurations (the active
+   `daf_butler/configs/datastores/formatters.yaml` references
+   `lsst.images.fits.formatters.{Image,MaskedImage,VisitImage,CellCoad,Generic}Formatter`
+   and `lsst.images.json.formatters.GenericFormatter`) don't break.
 
 ## Non-goals
 
@@ -93,7 +96,8 @@ validated as FITS-only at write time (see below).
 
 ```python
 def get_write_extension(self) -> str:
-    fmt = self.write_parameters.get("format", "fits")
+    default_fmt = self.default_extension.lstrip(".")
+    fmt = self.write_parameters.get("format", default_fmt)
     ext = "." + fmt
     if ext not in self.supported_extensions:
         raise RuntimeError(
@@ -219,8 +223,19 @@ their semantics are unchanged.
   Behavior is identical; deployed test-repo butler configs continue to work
   with a single deprecation warning per dataset write.
 
-- **`python/lsst/images/json/formatters.py`** — deleted. Never used in
-  deployed configurations.
+- **`python/lsst/images/json/formatters.py`** — replaced with a thin shim
+  mirroring the FITS shim, except the shimmed class overrides
+  `default_extension = ".json"` so existing butler configs that assign
+  this formatter to JSON-by-default storage classes (`Transform`,
+  `Projection` in the daf_butler config) continue to produce `.json`
+  output without needing a `format` write parameter. Only
+  `GenericFormatter` is shimmed; the JSON module never had
+  Image/MaskedImage/VisitImage variants.
+
+  The unified `GenericFormatter.get_write_extension()` will respect
+  `self.default_extension` as the fallback when the `format` write
+  parameter is absent (instead of hard-coding `"fits"`), which makes
+  the shim a single-attribute override.
 
 - **`python/lsst/images/ndf/formatters.py`** — deleted. Never deployed.
 
