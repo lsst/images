@@ -98,6 +98,16 @@ def extract_visit_image_background(
     visit_image_background.writeFits(output_path)
 
 
+def extract_visit_summary(
+    butler: Butler,
+    output_path: str,
+    dataset_ref: DatasetRef,
+) -> None:
+    """Load a visit_summary dataset and save it to testdata_images."""
+    visit_summary = butler.get(dataset_ref)
+    visit_summary.writeFits(output_path)
+
+
 def extract_cell_coadd(
     butler: Butler,
     output_path: str,
@@ -242,6 +252,11 @@ def extract_dp2(
             butler,
             os.path.join(testdata_dir, "dp2", "legacy", "visit_image_background.fits"),
             find_dataset_or_raise(butler, "visit_image_background", **DP2_VISIT_DETECTOR_DATA_ID),
+        )
+        extract_visit_summary(
+            butler,
+            os.path.join(testdata_dir, "dp2", "legacy", "visit_summary.fits"),
+            find_dataset_or_raise(butler, "visit_summary", **DP2_VISIT_DETECTOR_DATA_ID),
         )
         extract_visit_image(
             butler,
