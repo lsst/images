@@ -228,3 +228,65 @@ class ImageFormatterComponentReadTestCase(unittest.TestCase):
             object.__setattr__(formatter, "_storage_class_pytype", Image)
             with self.assertRaises(NotImplementedError):
                 formatter._read_component_from_uri("nonexistent", ResourcePath(tmp.name))
+
+
+class MaskedImageFormatterComponentReadTestCase(unittest.TestCase):
+    """MaskedImageFormatter routes image/mask/variance per extension."""
+
+    def _make_masked_image(self):
+        import numpy as np
+
+        from lsst.images import Image, MaskedImage, MaskPlane, MaskSchema
+
+        rng = np.random.default_rng(11)
+        return MaskedImage(
+            Image(rng.normal(100.0, 8.0, size=(10, 12)), start=(0, 0)),
+            mask_schema=MaskSchema([MaskPlane("BAD", "bad pixel")]),
+        )
+
+    def test_fits_image_component(self):
+        import tempfile
+
+        from lsst.images import MaskedImage, fits
+        from lsst.images.formatters import MaskedImageFormatter
+
+        mi = self._make_masked_image()
+        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False) as tmp:
+            tmp.close()
+            fits.write(mi, tmp.name)
+            formatter = MaskedImageFormatter.__new__(MaskedImageFormatter)
+            object.__setattr__(formatter, "_storage_class_pytype", MaskedImage)
+            image = formatter._read_component_from_uri("image", ResourcePath(tmp.name))
+            self.assertEqual(image.bbox, mi.image.bbox)
+
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+    def test_sdf_mask_component(self):
+        import tempfile
+
+        from lsst.images import MaskedImage, ndf
+        from lsst.images.formatters import MaskedImageFormatter
+
+        mi = self._make_masked_image()
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            ndf.write(mi, tmp.name)
+            formatter = MaskedImageFormatter.__new__(MaskedImageFormatter)
+            object.__setattr__(formatter, "_storage_class_pytype", MaskedImage)
+            mask = formatter._read_component_from_uri("mask", ResourcePath(tmp.name))
+            self.assertEqual(mask.bbox, mi.mask.bbox)
+
+    def test_json_variance_component_via_whole_object(self):
+        import tempfile
+
+        from lsst.images import MaskedImage
+        from lsst.images import json as images_json
+        from lsst.images.formatters import MaskedImageFormatter
+
+        mi = self._make_masked_image()
+        with tempfile.NamedTemporaryFile(suffix=".json", delete_on_close=False) as tmp:
+            tmp.close()
+            images_json.write(mi, tmp.name)
+            formatter = MaskedImageFormatter.__new__(MaskedImageFormatter)
+            object.__setattr__(formatter, "_storage_class_pytype", MaskedImage)
+            variance = formatter._read_component_from_uri("variance", ResourcePath(tmp.name))
+            self.assertEqual(variance.bbox, mi.variance.bbox)

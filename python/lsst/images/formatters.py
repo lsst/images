@@ -24,6 +24,7 @@ __all__ = (
     "ComponentSentinel",
     "GenericFormatter",
     "ImageFormatter",
+    "MaskedImageFormatter",
 )
 
 import enum
@@ -42,6 +43,7 @@ from lsst.resources import ResourcePath
 from . import fits as _fits
 from . import json as _json
 from ._geom import Box
+from ._masked_image import MaskedImageSerializationModel
 from ._transforms import ProjectionSerializationModel
 from .fits._common import FitsCompressionOptions
 from .fits._common import PointerModel as _FitsPointerModel
@@ -318,13 +320,22 @@ class ImageFormatter(GenericFormatter):
             )
         return result
 
+    def _get_parameters(self) -> dict[str, Any] | None:
+        # Allow unit tests to inject parameters without a real FileDescriptor.
+        if hasattr(self, "_parameters"):
+            return self._parameters
+        try:
+            return self.file_descriptor.parameters
+        except AttributeError:
+            return None
+
     def pop_bbox_from_parameters(self) -> Box | None:
-        parameters = self.file_descriptor.parameters or {}
+        parameters = self._get_parameters() or {}
         return parameters.pop("bbox", None)
 
     def check_unhandled_parameters(self) -> None:
-        if self.file_descriptor.parameters:
-            raise RuntimeError(f"Parameters {list(self.file_descriptor.parameters.keys())} not recognized.")
+        if self._get_parameters():
+            raise RuntimeError(f"Parameters {list(self._get_parameters().keys())} not recognized.")  # type: ignore[union-attr]
 
     def read_component(self, component: str, tree: Any, archive: Any) -> Any:
         match component:
@@ -343,4 +354,26 @@ class ImageFormatter(GenericFormatter):
                 if isinstance(oi := getattr(tree, "obs_info", None), ObservationInfo):
                     return oi
                 return ComponentSentinel.INVALID_COMPONENT_MODEL
+        return ComponentSentinel.UNRECOGNIZED_COMPONENT
+
+
+class MaskedImageFormatter(ImageFormatter):
+    """Adds image/mask/variance component support."""
+
+    def read_component(self, component: str, tree: Any, archive: Any) -> Any:
+        match super().read_component(component, tree, archive):
+            case ComponentSentinel():
+                pass
+            case handled:
+                return handled
+        if not isinstance(tree, MaskedImageSerializationModel):
+            return ComponentSentinel.INVALID_COMPONENT_MODEL
+        bbox = self.pop_bbox_from_parameters()
+        match component:
+            case "image":
+                return tree.image.deserialize(archive, bbox=bbox)
+            case "mask":
+                return tree.mask.deserialize(archive, bbox=bbox)
+            case "variance":
+                return tree.variance.deserialize(archive, bbox=bbox)
         return ComponentSentinel.UNRECOGNIZED_COMPONENT
