@@ -213,3 +213,23 @@ class GenericFormatter(FormatterV2):
                 max_inputs=3_000,
             ).items():
                 header.set(key, value)
+
+    # --- Read path ---------------------------------------------------------
+
+    def _extension_from_uri(self, uri: ResourcePath) -> str:
+        ext = uri.getExtension()
+        if ext not in self.supported_extensions:
+            raise RuntimeError(f"Cannot read {uri}: unsupported extension {ext!r}.")
+        return ext
+
+    def read_from_uri(
+        self,
+        uri: ResourcePath,
+        component: str | None = None,
+        expected_size: int = -1,
+    ) -> Any:
+        pytype = self.dataset_ref.datasetType.storageClass.pytype
+        ext = self._extension_from_uri(uri)
+        backend = _BACKENDS[ext]
+        kwargs = self.file_descriptor.parameters or {}
+        return backend.read(pytype, uri, **kwargs).deserialized

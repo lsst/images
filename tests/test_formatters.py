@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import unittest
 
+from lsst.resources import ResourcePath
+
 try:
     import h5py  # noqa: F401
 
@@ -105,3 +107,47 @@ class GetWriteExtensionTestCase(unittest.TestCase):
         formatter = self._make_formatter({"format": "json", "recipe": "default"})
         with self.assertRaisesRegex(RuntimeError, "only valid for FITS"):
             formatter._validate_write_parameters()
+
+
+class ExtensionFromUriTestCase(unittest.TestCase):
+    """`read_from_uri` routes based on `uri.getExtension()`."""
+
+    def test_fits(self):
+        from lsst.images.formatters import GenericFormatter
+
+        formatter = GenericFormatter.__new__(GenericFormatter)
+        uri = ResourcePath("/tmp/x.fits")
+        self.assertEqual(formatter._extension_from_uri(uri), ".fits")
+
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+    def test_sdf(self):
+        from lsst.images.formatters import GenericFormatter
+
+        formatter = GenericFormatter.__new__(GenericFormatter)
+        uri = ResourcePath("/tmp/x.sdf")
+        self.assertEqual(formatter._extension_from_uri(uri), ".sdf")
+
+    def test_json(self):
+        from lsst.images.formatters import GenericFormatter
+
+        formatter = GenericFormatter.__new__(GenericFormatter)
+        uri = ResourcePath("/tmp/x.json")
+        self.assertEqual(formatter._extension_from_uri(uri), ".json")
+
+    def test_unknown(self):
+        from lsst.images.formatters import GenericFormatter
+
+        formatter = GenericFormatter.__new__(GenericFormatter)
+        uri = ResourcePath("/tmp/x.pickle")
+        with self.assertRaisesRegex(RuntimeError, "unsupported extension"):
+            formatter._extension_from_uri(uri)
+
+    def test_compressed_fits_unsupported(self):
+        # We don't claim to handle .fits.gz; getExtension returns
+        # '.fits.gz' and the lookup misses.
+        from lsst.images.formatters import GenericFormatter
+
+        formatter = GenericFormatter.__new__(GenericFormatter)
+        uri = ResourcePath("/tmp/x.fits.gz")
+        with self.assertRaisesRegex(RuntimeError, "unsupported extension"):
+            formatter._extension_from_uri(uri)
