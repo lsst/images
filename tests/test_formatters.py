@@ -63,3 +63,45 @@ class BackendsTableTestCase(unittest.TestCase):
         self.assertIs(backend.write, images_json.write)
         self.assertIsNone(backend.input_archive)
         self.assertIsNone(backend.pointer_model)
+
+
+class GetWriteExtensionTestCase(unittest.TestCase):
+    """`get_write_extension` reads the `format` write parameter."""
+
+    def _make_formatter(self, write_parameters: dict[str, str] | None = None):
+        from lsst.images.formatters import GenericFormatter
+
+        formatter = GenericFormatter.__new__(GenericFormatter)
+        # FormatterV2 exposes write_parameters as a property over the
+        # file_descriptor. For unit-testing we monkey-patch a dict on
+        # the instance via __dict__ to bypass the descriptor.
+        object.__setattr__(formatter, "_write_parameters", write_parameters or {})
+        return formatter
+
+    def test_default_returns_fits(self):
+        formatter = self._make_formatter()
+        self.assertEqual(formatter.get_write_extension(), ".fits")
+
+    def test_explicit_fits(self):
+        formatter = self._make_formatter({"format": "fits"})
+        self.assertEqual(formatter.get_write_extension(), ".fits")
+
+    def test_explicit_json(self):
+        formatter = self._make_formatter({"format": "json"})
+        self.assertEqual(formatter.get_write_extension(), ".json")
+
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+    def test_explicit_sdf(self):
+        formatter = self._make_formatter({"format": "sdf"})
+        self.assertEqual(formatter.get_write_extension(), ".sdf")
+
+    def test_unknown_format_raises(self):
+        formatter = self._make_formatter({"format": "pickle"})
+        with self.assertRaisesRegex(RuntimeError, "is not supported"):
+            formatter.get_write_extension()
+
+    def test_recipe_with_non_fits_format_raises(self):
+        # `recipe` is FITS-only; using it with format=json must error.
+        formatter = self._make_formatter({"format": "json", "recipe": "default"})
+        with self.assertRaisesRegex(RuntimeError, "only valid for FITS"):
+            formatter._validate_write_parameters()
