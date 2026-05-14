@@ -290,3 +290,66 @@ class MaskedImageFormatterComponentReadTestCase(unittest.TestCase):
             object.__setattr__(formatter, "_storage_class_pytype", MaskedImage)
             variance = formatter._read_component_from_uri("variance", ResourcePath(tmp.name))
             self.assertEqual(variance.bbox, mi.variance.bbox)
+
+
+class VisitImageFormatterComponentReadTestCase(unittest.TestCase):
+    """VisitImageFormatter reads VisitImage-specific components."""
+
+    def _make_visit_image(self):
+        # Reuse the existing test helper from tests/test_visit_image.py.
+        # Pytest places the tests directory on sys.path, so import the
+        # sibling module by its bare name.
+        from test_visit_image import VisitImageTestCase  # local import
+
+        VisitImageTestCase.setUpClass()
+        return VisitImageTestCase.visit_image
+
+    def test_fits_summary_stats_component(self):
+        import tempfile
+
+        from lsst.images import VisitImage, fits
+        from lsst.images.formatters import VisitImageFormatter
+
+        vi = self._make_visit_image()
+        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False) as tmp:
+            tmp.close()
+            fits.write(vi, tmp.name)
+            formatter = VisitImageFormatter.__new__(VisitImageFormatter)
+            object.__setattr__(formatter, "_storage_class_pytype", VisitImage)
+            summary = formatter._read_component_from_uri("summary_stats", ResourcePath(tmp.name))
+            self.assertEqual(summary, vi.summary_stats)
+
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+    def test_sdf_psf_component(self):
+        import tempfile
+
+        from lsst.images import VisitImage, ndf
+        from lsst.images.formatters import VisitImageFormatter
+
+        vi = self._make_visit_image()
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            ndf.write(vi, tmp.name)
+            formatter = VisitImageFormatter.__new__(VisitImageFormatter)
+            object.__setattr__(formatter, "_storage_class_pytype", VisitImage)
+            psf = formatter._read_component_from_uri("psf", ResourcePath(tmp.name))
+            self.assertEqual(type(psf), type(vi.psf))
+
+    def test_json_aperture_corrections_via_whole_object(self):
+        import tempfile
+
+        from lsst.images import VisitImage
+        from lsst.images import json as images_json
+        from lsst.images.formatters import VisitImageFormatter
+
+        vi = self._make_visit_image()
+        with tempfile.NamedTemporaryFile(suffix=".json", delete_on_close=False) as tmp:
+            tmp.close()
+            images_json.write(vi, tmp.name)
+            formatter = VisitImageFormatter.__new__(VisitImageFormatter)
+            object.__setattr__(formatter, "_storage_class_pytype", VisitImage)
+            ap = formatter._read_component_from_uri("aperture_corrections", ResourcePath(tmp.name))
+            # ChebyshevField has no __eq__; compare keys and types.
+            self.assertEqual(ap.keys(), vi.aperture_corrections.keys())
+            for k, v in vi.aperture_corrections.items():
+                self.assertEqual(type(ap[k]), type(v))

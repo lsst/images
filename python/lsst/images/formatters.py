@@ -25,6 +25,7 @@ __all__ = (
     "GenericFormatter",
     "ImageFormatter",
     "MaskedImageFormatter",
+    "VisitImageFormatter",
 )
 
 import enum
@@ -45,6 +46,7 @@ from . import json as _json
 from ._geom import Box
 from ._masked_image import MaskedImageSerializationModel
 from ._transforms import ProjectionSerializationModel
+from ._visit_image import VisitImageSerializationModel
 from .fits._common import FitsCompressionOptions
 from .fits._common import PointerModel as _FitsPointerModel
 from .fits._input_archive import FitsInputArchive as _FitsInputArchive
@@ -376,4 +378,33 @@ class MaskedImageFormatter(ImageFormatter):
                 return tree.mask.deserialize(archive, bbox=bbox)
             case "variance":
                 return tree.variance.deserialize(archive, bbox=bbox)
+        return ComponentSentinel.UNRECOGNIZED_COMPONENT
+
+
+class VisitImageFormatter(MaskedImageFormatter):
+    """Adds psf/summary_stats/detector/aperture_corrections."""
+
+    def read_component(self, component: str, tree: Any, archive: Any) -> Any:
+        match super().read_component(component, tree, archive):
+            case ComponentSentinel():
+                pass
+            case handled:
+                return handled
+        if not isinstance(tree, VisitImageSerializationModel):
+            return ComponentSentinel.INVALID_COMPONENT_MODEL
+        match component:
+            case "psf":
+                # The FITS path uses tree.psf.deserialize; the NDF tree
+                # exposes deserialize_psf for the same effect.
+                if hasattr(tree, "deserialize_psf"):
+                    return tree.deserialize_psf(archive)
+                return tree.psf.deserialize(archive)
+            case "summary_stats":
+                return tree.summary_stats
+            case "detector":
+                if getattr(tree, "detector", None) is not None:
+                    return tree.detector.deserialize(archive)
+                return ComponentSentinel.INVALID_COMPONENT_MODEL
+            case "aperture_corrections":
+                return tree.aperture_corrections.deserialize(archive)
         return ComponentSentinel.UNRECOGNIZED_COMPONENT
