@@ -27,6 +27,7 @@ import h5py
 import numpy as np
 import pydantic
 
+from .._color_image import ColorImage
 from .._transforms import FrameSet
 from .._transforms._ast import Channel, CmpFrame, CmpMap, ShiftMap, StringStream, UnitMap
 from .._transforms._ast import Frame as AstFrame
@@ -240,8 +241,6 @@ def _fits_header_records(header: astropy.io.fits.Header) -> list[str]:
 
 def _get_archive_layout(obj: Any) -> dict[str, Any]:
     """Return NDF document layout options for a top-level object."""
-    from .._color_image import ColorImage
-
     if isinstance(obj, ColorImage):
         return {
             "root": NdfContainer(),

@@ -27,6 +27,10 @@ import numpy as np
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
+from .._geom import Box
+from .._image import Image
+from .._mask import Mask, MaskPlane, MaskSchema
+from .._masked_image import MaskedImage
 from .._transforms import FrameSet, Projection
 from .._transforms import _ast as astshim
 from .._transforms._frames import GeneralFrame
@@ -257,10 +261,6 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
     (``WCS``, ``HISTORY``, ``AXIS``, ``LABEL``, custom ``MORE.*``,
     ``_LOGICAL`` primitives) are warned-and-dropped.
     """
-    from .._image import Image
-    from .._mask import Mask, MaskPlane, MaskSchema
-    from .._masked_image import MaskedImage
-
     f = archive._file
     ndf_group = _locate_ndf_root(f)
 
@@ -465,8 +465,6 @@ def _make_bbox(*, x_min: int, y_min: int, array: np.ndarray) -> Any:
     The array is C-order ``(height, width)``. NDF stores ``ORIGIN``
     in Fortran axis order ``(x_min, y_min)``.
     """
-    from .._geom import Box
-
     if array.ndim != 2:
         raise ArchiveReadError(f"Auto-detect read only supports 2D arrays, got ndim={array.ndim}.")
     # Box.from_shape takes (height, width) and start=(y_start, x_start).
