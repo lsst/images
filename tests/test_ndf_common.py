@@ -26,7 +26,7 @@ class NdfPointerModelTestCase(unittest.TestCase):
     """Tests for `NdfPointerModel` and `archive_path_to_hdf5_path`."""
 
     def test_round_trips_through_json(self):
-        original = NdfPointerModel(ref="/MORE/LSST/PSF")
+        original = NdfPointerModel(path="/MORE/LSST/PSF")
         json_bytes = original.model_dump_json().encode()
         recovered = NdfPointerModel.model_validate_json(json_bytes)
         self.assertEqual(recovered, original)

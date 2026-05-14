@@ -196,17 +196,17 @@ class NdfInputArchiveDataTestCase(unittest.TestCase):
                 # Manually populate the cache as deserialize_pointer would
                 # if a FrameSet deserializer ran.
                 archive._frame_set_cache["/MORE/LSST/PIXEL_TO_SKY"] = sentinel
-                ref = NdfPointerModel(ref="/MORE/LSST/PIXEL_TO_SKY")
-                self.assertIs(archive.get_frame_set(ref), sentinel)
+                pointer = NdfPointerModel(path="/MORE/LSST/PIXEL_TO_SKY")
+                self.assertIs(archive.get_frame_set(pointer), sentinel)
 
     def test_get_frame_set_raises_if_not_cached(self):
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
             write(Image(np.zeros((2, 2), dtype=np.float32)), tmp.name)
             with NdfInputArchive.open(tmp.name) as archive:
-                ref = NdfPointerModel(ref="/MORE/LSST/UNKNOWN")
+                pointer = NdfPointerModel(path="/MORE/LSST/UNKNOWN")
                 with self.assertRaises(AssertionError):
-                    archive.get_frame_set(ref)
+                    archive.get_frame_set(pointer)
 
 
 @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")

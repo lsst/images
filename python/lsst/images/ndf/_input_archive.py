@@ -104,27 +104,27 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         model_type: type[U],
         deserializer: Callable[[U, InputArchive[NdfPointerModel]], V],
     ) -> V:
-        # Cache by pointer.ref so repeated dereferences reuse the same
+        # Cache by pointer.path so repeated dereferences reuse the same
         # deserialised result and don't re-run the deserializer.
-        if (cached := self._deserialized_pointer_cache.get(pointer.ref)) is not None:
+        if (cached := self._deserialized_pointer_cache.get(pointer.path)) is not None:
             return cached
-        if not self._has_model_path(pointer.ref):
-            raise ArchiveReadError(f"Pointer reference {pointer.ref!r} not found in NDF file.")
-        primitive = self._get_primitive(pointer.ref)
+        if not self._has_model_path(pointer.path):
+            raise ArchiveReadError(f"Pointer reference {pointer.path!r} not found in NDF file.")
+        primitive = self._get_primitive(pointer.path)
         lines = primitive.read_char_array()
         model = model_type.model_validate_json(_join_json_records(lines))
         result = deserializer(model, self)
-        self._deserialized_pointer_cache[pointer.ref] = result
+        self._deserialized_pointer_cache[pointer.path] = result
         if isinstance(result, FrameSet):
-            self._frame_set_cache[pointer.ref] = result
+            self._frame_set_cache[pointer.path] = result
         return result
 
-    def get_frame_set(self, ref: NdfPointerModel) -> FrameSet:
+    def get_frame_set(self, pointer: NdfPointerModel) -> FrameSet:
         try:
-            return self._frame_set_cache[ref.ref]
+            return self._frame_set_cache[pointer.path]
         except KeyError:
             raise AssertionError(
-                f"Frame set at {ref.ref!r} must be deserialised via "
+                f"Frame set at {pointer.path!r} must be deserialised via "
                 f"deserialize_pointer before any dependent transform can be."
             ) from None
 

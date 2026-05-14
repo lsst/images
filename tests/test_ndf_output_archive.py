@@ -197,7 +197,7 @@ class NdfOutputArchivePointerTestCase(unittest.TestCase):
                     lambda nested: TinyTree(name="gaussian"),
                     key=("psf", 1),
                 )
-                self.assertEqual(ptr.ref, "/MORE/LSST/PSF")
+                self.assertEqual(ptr.path, "/MORE/LSST/PSF")
             with h5py.File(tmp.name, "r") as f:
                 # The hoisted sub-tree is stored as a _CHAR*N dataset
                 # (1D byte-string array). Read it back and parse.
@@ -243,11 +243,11 @@ class NdfOutputArchivePointerTestCase(unittest.TestCase):
                     lambda nested: TinyTree(name="proj"),
                     key=("frame_set", 1),
                 )
-                self.assertEqual(ptr.ref, "/MORE/LSST/WCS/PIXEL_TO_SKY")
+                self.assertEqual(ptr.path, "/MORE/LSST/WCS/PIXEL_TO_SKY")
                 recorded = list(arch.iter_frame_sets())
                 self.assertEqual(len(recorded), 1)
                 self.assertIs(recorded[0][0], frame_set)
-                self.assertEqual(recorded[0][1].ref, "/MORE/LSST/WCS/PIXEL_TO_SKY")
+                self.assertEqual(recorded[0][1].path, "/MORE/LSST/WCS/PIXEL_TO_SKY")
 
 
 @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")

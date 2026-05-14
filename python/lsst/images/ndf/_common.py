@@ -16,7 +16,7 @@ __all__ = ("NdfPointerModel", "archive_path_to_hdf5_path", "archive_path_to_hdf5
 import pydantic
 
 
-class NdfPointerModel(pydantic.BaseModel, serialize_by_alias=True):
+class NdfPointerModel(pydantic.BaseModel):
     """Reference to an NDF-archive sub-tree by HDF5 path.
 
     Used by `NdfOutputArchive`/`NdfInputArchive` to point to
@@ -24,10 +24,8 @@ class NdfPointerModel(pydantic.BaseModel, serialize_by_alias=True):
     HDS components.
     """
 
-    ref: str = pydantic.Field(alias="$ref")
+    path: str
     """HDF5 absolute path (e.g. ``/MORE/LSST/PSF``)."""
-
-    model_config = pydantic.ConfigDict(populate_by_name=True)
 
 
 def archive_path_to_hdf5_path(archive_path: str) -> str:

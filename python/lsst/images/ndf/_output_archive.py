@@ -388,7 +388,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         parent = self._ensure_model_structure(parent_path, "EXT")
         parent.children[leaf] = HdsPrimitive.char_array([json_text], width=max(80, len(json_text)))
         self._flush()
-        pointer = NdfPointerModel(ref=path)
+        pointer = NdfPointerModel(path=path)
         self._pointers[key] = pointer
         return pointer
 
