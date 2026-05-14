@@ -334,27 +334,19 @@ class VisitImageTestCase(unittest.TestCase):
         self.assertEqual(roundtrip.result.bounds, self.polygon)
 
 
-@unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
-class VisitImageLegacyTestCase(unittest.TestCase):
-    """Tests for the VisitImage class and the basics of the archive system.
+class VisitImageLegacyTestMixin:
+    """Tests for the VisitImage class and the basics of the archive, to be
+    specialized for a particular test image.
 
-    Requires legacy code.
+    `setUp` or `setUpClass` must be implemented to set the attributes declared
+    in the class.
     """
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        assert EXTERNAL_DATA_DIR is not None, "Guaranteed by decorator."
-        cls.filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
-        try:
-            from lsst.afw.image import ExposureFitsReader
-
-            cls.legacy_exposure = ExposureFitsReader(cls.filename).read()
-        except ImportError:
-            raise unittest.SkipTest("afw not available; cannot read legacy visit images") from None
-        cls.plane_map = plane_map = get_legacy_visit_image_mask_planes()
-        cls.visit_image = VisitImage.read_legacy(
-            cls.filename, preserve_quantization=True, plane_map=plane_map
-        )
+    filename: str
+    legacy_exposure: Any
+    plane_map: dict[str, MaskPlane]
+    visit_image: VisitImage
+    unit: u.UnitBase
 
     def test_legacy_errors(self) -> None:
         """Legacy read failure modes."""
@@ -365,9 +357,9 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             VisitImage.from_legacy(self.legacy_exposure, unit=u.mJy)
         visit = VisitImage.from_legacy(
-            self.legacy_exposure, instrument="LSSTCam", unit=u.nJy, visit=2025052000177
+            self.legacy_exposure, instrument="LSSTCam", unit=self.unit, visit=2025052000177
         )
-        self.assertEqual(visit.unit, u.nJy)
+        self.assertEqual(visit.unit, self.unit)
 
         with self.assertRaises(ValueError):
             VisitImage.read_legacy(self.filename, instrument="HSC")
@@ -397,7 +389,7 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         self.check_legacy_obs_info(obs_info)
         summary_stats = VisitImage.read_legacy(self.filename, component="summary_stats")
         self.assertIsInstance(summary_stats, ObservationSummaryStats)
-        self.assertEqual(summary_stats.nPsfStar, 93)
+        self.assertEqual(summary_stats.nPsfStar, self.legacy_exposure.info.getSummaryStats().nPsfStar)
         compare_aperture_corrections_to_legacy(
             self,
             VisitImage.read_legacy(self.filename, component="aperture_corrections"),
@@ -450,7 +442,7 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         `VisitImage.read_legacy`.
         """
         # Check that we read the units from BUNIT.
-        self.assertEqual(self.visit_image.unit, astropy.units.nJy)
+        self.assertEqual(self.visit_image.unit, self.unit)
         # Check that the primary header has the keys we want, and none of the
         # keys we don't want.
         header = self.visit_image._opaque_metadata.headers[ExtensionKey()]
@@ -588,6 +580,55 @@ class VisitImageLegacyTestCase(unittest.TestCase):
                 alternates=alternates,
                 **DP2_VISIT_DETECTOR_DATA_ID,
             )
+
+
+@unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
+class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
+    """Tests for the VisitImage class using a DRP-final visit_image dataset.
+
+    Requires legacy code.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        assert EXTERNAL_DATA_DIR is not None, "Guaranteed by decorator."
+        cls.filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
+        try:
+            from lsst.afw.image import ExposureFitsReader
+
+            cls.legacy_exposure = ExposureFitsReader(cls.filename).read()
+        except ImportError:
+            raise unittest.SkipTest("afw not available; cannot read legacy visit images") from None
+        cls.plane_map = get_legacy_visit_image_mask_planes()
+        cls.visit_image = VisitImage.read_legacy(
+            cls.filename, preserve_quantization=True, plane_map=cls.plane_map
+        )
+        cls.unit = u.nJy
+
+
+@unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
+class PreliminaryVisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
+    """Tests for the VisitImage class using a DRP preliminary_visit_image
+    dataset.
+
+    Requires legacy code.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        assert EXTERNAL_DATA_DIR is not None, "Guaranteed by decorator."
+        cls.filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "preliminary_visit_image.fits")
+        try:
+            from lsst.afw.image import ExposureFitsReader
+
+            cls.legacy_exposure = ExposureFitsReader(cls.filename).read()
+        except ImportError:
+            raise unittest.SkipTest("afw not available; cannot read legacy visit images") from None
+        cls.plane_map = get_legacy_visit_image_mask_planes()
+        cls.visit_image = VisitImage.read_legacy(
+            cls.filename, preserve_quantization=True, plane_map=cls.plane_map
+        )
+        cls.unit = u.electron
 
 
 if __name__ == "__main__":
