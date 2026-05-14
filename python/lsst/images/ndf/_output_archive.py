@@ -18,7 +18,8 @@ __all__ = (
 
 import os
 from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
-from typing import Any
+from contextlib import contextmanager
+from typing import Any, Self
 
 import astropy.io.fits
 import astropy.table
@@ -88,102 +89,32 @@ def write(
         The Pydantic tree the object's ``serialize`` produced (with
         ``metadata``/``butler_info`` applied).
     """
-    if filename is None:
-        h5_file = h5py.File("inmem.sdf", "w", driver="core", backing_store=False)
-    else:
-        if os.path.exists(filename) and os.path.getsize(filename) > 0:
-            raise OSError(f"File {filename!r} already exists.")
-        h5_file = h5py.File(filename, "w")
-    try:
-        opaque_metadata = getattr(obj, "_opaque_metadata", None)
-        if not isinstance(opaque_metadata, FitsOpaqueMetadata):
-            opaque_metadata = FitsOpaqueMetadata()
-
-        archive = NdfOutputArchive(
-            h5_file,
-            compression_options=compression_options,
-            opaque_metadata=opaque_metadata,
-            **_get_archive_layout(obj),
-        )
-
-        archive_default_name = getattr(obj, "_archive_default_name", None)
+    opaque_metadata = getattr(obj, "_opaque_metadata", None)
+    if not isinstance(opaque_metadata, FitsOpaqueMetadata):
+        opaque_metadata = FitsOpaqueMetadata()
+    archive_default_name = getattr(obj, "_archive_default_name", None)
+    with NdfOutputArchive.open(
+        filename,
+        compression_options=compression_options,
+        opaque_metadata=opaque_metadata,
+        **_get_archive_layout(obj),
+    ) as archive:
         if archive_default_name is not None:
             tree = archive.serialize_direct(archive_default_name, obj.serialize)
         else:
             tree = obj.serialize(archive)
-
         if metadata is not None:
             tree.metadata.update(metadata)
         if butler_info is not None:
             tree.butler_info = butler_info
-
-        # Write the canonical NDF /WCS component (HDS structure containing
-        # an AST channel text dump) when the object has a non-None
-        # projection. This is what KAPPA / hdstrace expect for an NDF's
-        # WCS; it lives alongside the projection's Pydantic model in
-        # /MORE/LSST/JSON, which is the source of truth for our own
-        # symmetric round-trip. When a native mask sub-NDF exists at
-        # /MORE/LSST/MASK, it gets a 3D WCS whose first two axes use the
-        # parent image's sky projection and whose third axis is the mask-byte
-        # coordinate.
-        # Auto-detect read of /WCS/DATA is a deferred follow-up: building
-        # a typed Projection from a bare FrameSet requires new
-        # infrastructure in _transforms/.
-        bbox = getattr(obj, "bbox", None)
-        projection = getattr(obj, "projection", None)
-        if projection is not None:
-            ast_frame_set = projection._pixel_to_sky._get_ast_frame_set()
-            text = _show_ast_for_ndf(ast_frame_set, bbox)
-            lines = _hds.encode_ndf_ast_data(text)
-            for ndf_path in archive._wcs_ndf_paths:
-                if archive._has_model_path(ndf_path):
-                    archive._document.ensure_ndf(ndf_path).set_wcs(NdfWcs(lines))
-            if archive._has_model_path("/MORE/LSST/MASK"):
-                mask_origin = _origin_from_bbox(bbox) if bbox is not None else (0, 0)
-                mask_ndim = archive._model_array_ndim("/MORE/LSST/MASK/DATA_ARRAY")
-                mask_origin = (*mask_origin, *((0,) * max(0, mask_ndim - len(mask_origin))))
-                mask_ast_frame_set = projection._pixel_to_sky._get_ast_frame_set()
-                mask_text = _show_mask_ast_for_ndf(
-                    mask_ast_frame_set,
-                    mask_origin,
-                    labels=("x", "y", "mask-byte"),
-                )
-                archive._document.ensure_ndf("/MORE/LSST/MASK").set_wcs(
-                    NdfWcs(_hds.encode_ndf_ast_data(mask_text))
-                )
-
-        unit = getattr(obj, "unit", None)
-        if unit is not None and isinstance(archive._document.root, Ndf):
-            archive._document.ensure_ndf("/").set_units(_unit_to_ndf_string(unit))
-
-        # Main JSON tree.
-        json_text = tree.model_dump_json()
-        lsst = archive._ensure_model_structure(archive._lsst_path, "EXT")
-        lsst.children["JSON"] = HdsPrimitive.char_array([json_text], width=max(80, len(json_text)))
-
-        # Opaque FITS cards in /MORE/FITS.
-        primary = opaque_metadata.headers.get(ExtensionKey())
-        if primary is not None and len(primary):
-            cards = _fits_header_records(primary)
-            more = archive._ensure_model_structure("/MORE", "EXT")
-            more.children["FITS"] = HdsPrimitive.char_array(cards, width=80)
-
-        # Backfill bbox-derived ORIGIN for DATA_ARRAY and VARIANCE.
-        if bbox is not None:
-            origin = _origin_from_bbox(bbox)
-            for struct_path in archive._bbox_array_struct_paths:
-                if archive._has_model_path(struct_path):
-                    archive.set_array_origin(struct_path, origin)
-
-        # Mark the root group with HDS_ROOT_NAME using fixed-length ASCII
-        # bytes so KAPPA / hdstrace can decode the attribute.
-        root_name = archive_default_name or type(obj).__name__
-        archive._document.root_name = root_name
-        archive._flush()
-
-        return tree
-    finally:
-        h5_file.close()
+        archive.add_tree(
+            tree,
+            projection=getattr(obj, "projection", None),
+            bbox=getattr(obj, "bbox", None),
+            unit=getattr(obj, "unit", None),
+            root_name=archive_default_name or type(obj).__name__,
+        )
+    return tree
 
 
 def _origin_from_bbox(bbox: Any) -> tuple[int, ...]:
@@ -360,6 +291,115 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         # Keep the open file in sync so existing direct-archive tests can
         # inspect it immediately, while all mutations go through the IR.
         self._flush()
+
+    @classmethod
+    @contextmanager
+    def open(
+        cls,
+        filename: str | None,
+        *,
+        compression_options: Mapping[str, Any] | None = None,
+        opaque_metadata: FitsOpaqueMetadata | None = None,
+        root: Ndf | NdfContainer | None = None,
+        lsst_path: str = "/MORE/LSST",
+        direct_ndf_array_paths: Mapping[str, str] | None = None,
+        wcs_ndf_paths: Sequence[str] = ("/",),
+    ) -> Iterator[Self]:
+        """Open an NDF file for writing and yield an `NdfOutputArchive`.
+
+        ``filename=None`` uses an in-memory HDF5 file; the on-disk
+        artefact is discarded but the archive's writes still produce a
+        usable returned tree (handy for tests).
+        """
+        if filename is None:
+            h5_file = h5py.File("inmem.sdf", "w", driver="core", backing_store=False)
+        else:
+            if os.path.exists(filename) and os.path.getsize(filename) > 0:
+                raise OSError(f"File {filename!r} already exists.")
+            h5_file = h5py.File(filename, "w")
+        try:
+            yield cls(
+                h5_file,
+                compression_options=compression_options,
+                opaque_metadata=opaque_metadata,
+                root=root,
+                lsst_path=lsst_path,
+                direct_ndf_array_paths=direct_ndf_array_paths,
+                wcs_ndf_paths=wcs_ndf_paths,
+            )
+        finally:
+            h5_file.close()
+
+    def add_tree(
+        self,
+        tree: ArchiveTree,
+        *,
+        projection: Any = None,
+        bbox: Any = None,
+        unit: astropy.units.UnitBase | None = None,
+        root_name: str | None = None,
+    ) -> None:
+        """Finalize the file: write WCS, units, JSON tree, and ORIGIN.
+
+        Writes the canonical NDF ``/WCS`` HDS structure (an AST channel
+        text dump that KAPPA / hdstrace expect) when ``projection`` is
+        provided. A native mask sub-NDF at ``/MORE/LSST/MASK`` gets a 3D
+        WCS whose first two axes reuse the parent's sky projection and
+        whose third axis is the mask-byte coordinate. The JSON tree at
+        ``<lsst_path>/JSON`` remains the source of truth for symmetric
+        round-trips; ``/WCS`` is for Starlink tools. Auto-detect read of
+        ``/WCS/DATA`` into a typed ``Projection`` is a follow-up.
+
+        Parameters
+        ----------
+        tree
+            Pydantic tree returned by the object's ``serialize`` method,
+            with ``metadata``/``butler_info`` already applied.
+        projection, bbox, unit
+            Top-level object attributes that drive NDF-canonical writes.
+        root_name
+            Value to assign to the root group's ``HDS_ROOT_NAME``
+            attribute (fixed-length ASCII so KAPPA / hdstrace decode it).
+        """
+        if projection is not None:
+            self._write_wcs(projection, bbox)
+        if unit is not None and isinstance(self._document.root, Ndf):
+            self._document.ensure_ndf("/").set_units(_unit_to_ndf_string(unit))
+        json_text = tree.model_dump_json()
+        lsst = self._ensure_model_structure(self._lsst_path, "EXT")
+        lsst.children["JSON"] = HdsPrimitive.char_array([json_text], width=max(80, len(json_text)))
+        primary = self._opaque_metadata.headers.get(ExtensionKey())
+        if primary is not None and len(primary):
+            cards = _fits_header_records(primary)
+            more = self._ensure_model_structure("/MORE", "EXT")
+            more.children["FITS"] = HdsPrimitive.char_array(cards, width=80)
+        if bbox is not None:
+            origin = _origin_from_bbox(bbox)
+            for struct_path in self._bbox_array_struct_paths:
+                if self._has_model_path(struct_path):
+                    self.set_array_origin(struct_path, origin)
+        if root_name is not None:
+            self._document.root_name = root_name
+        self._flush()
+
+    def _write_wcs(self, projection: Any, bbox: Any) -> None:
+        ast_frame_set = projection._pixel_to_sky._get_ast_frame_set()
+        text = _show_ast_for_ndf(ast_frame_set, bbox)
+        lines = _hds.encode_ndf_ast_data(text)
+        for ndf_path in self._wcs_ndf_paths:
+            if self._has_model_path(ndf_path):
+                self._document.ensure_ndf(ndf_path).set_wcs(NdfWcs(lines))
+        if self._has_model_path("/MORE/LSST/MASK"):
+            mask_origin = _origin_from_bbox(bbox) if bbox is not None else (0, 0)
+            mask_ndim = self._model_array_ndim("/MORE/LSST/MASK/DATA_ARRAY")
+            mask_origin = (*mask_origin, *((0,) * max(0, mask_ndim - len(mask_origin))))
+            mask_ast_frame_set = projection._pixel_to_sky._get_ast_frame_set()
+            mask_text = _show_mask_ast_for_ndf(
+                mask_ast_frame_set,
+                mask_origin,
+                labels=("x", "y", "mask-byte"),
+            )
+            self._document.ensure_ndf("/MORE/LSST/MASK").set_wcs(NdfWcs(_hds.encode_ndf_ast_data(mask_text)))
 
     def serialize_direct[T: pydantic.BaseModel](
         self, name: str, serializer: Callable[[OutputArchive[NdfPointerModel]], T]
