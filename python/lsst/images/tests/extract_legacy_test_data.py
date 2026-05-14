@@ -234,44 +234,24 @@ def extract_dp2(
     if visit_images:
         extract_visit_image(
             butler,
-            os.path.join(
-                testdata_dir,
-                "dp2",
-                "legacy",
-                "visit_image.fits",
-            ),
+            os.path.join(testdata_dir, "dp2", "legacy", "visit_image.fits"),
             find_dataset_or_raise(butler, "visit_image", **DP2_VISIT_DETECTOR_DATA_ID),
             shuffle=True,
         )
         extract_visit_image_background(
             butler,
-            os.path.join(
-                testdata_dir,
-                "dp2",
-                "legacy",
-                "visit_image_background.fits",
-            ),
+            os.path.join(testdata_dir, "dp2", "legacy", "visit_image_background.fits"),
             find_dataset_or_raise(butler, "visit_image_background", **DP2_VISIT_DETECTOR_DATA_ID),
         )
         extract_visit_image(
             butler,
-            os.path.join(
-                testdata_dir,
-                "dp2",
-                "legacy",
-                "preliminary_visit_image.fits",
-            ),
+            os.path.join(testdata_dir, "dp2", "legacy", "preliminary_visit_image.fits"),
             find_dataset_or_raise(butler, "preliminary_visit_image", **DP2_VISIT_DETECTOR_DATA_ID),
             shuffle=True,
         )
         extract_visit_image_background(
             butler,
-            os.path.join(
-                testdata_dir,
-                "dp2",
-                "legacy",
-                "preliminary_visit_image_background.fits",
-            ),
+            os.path.join(testdata_dir, "dp2", "legacy", "preliminary_visit_image_background.fits"),
             find_dataset_or_raise(butler, "preliminary_visit_image_background", **DP2_VISIT_DETECTOR_DATA_ID),
         )
     if coadds:
