@@ -11,8 +11,6 @@
 
 from __future__ import annotations
 
-import operator
-
 __all__ = (
     "ArrayReferenceModel",
     "ArrayReferenceQuantityModel",
@@ -102,15 +100,7 @@ class ArrayReferenceModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     """
 
     source: str | int = pydantic.Field(description="Location of the underlying binary data.")
-    shape: list[int] = pydantic.Field(
-        # In (e.g.) FITS this is stored outside of the JSON as well, and it
-        # be hard to get it right if we need to make a reference to a column
-        # before all rows have been written, so unlike ASDF we allow this to
-        # be omitted.
-        default_factory=list,
-        description="Size of the array in each dimension.",
-        exclude_if=operator.not_,
-    )
+    shape: list[int] = pydantic.Field(description="Size of the array in each dimension.")
     datatype: NumberType = pydantic.Field(description="Data type of the array.")
     byteorder: Literal["big"] = pydantic.Field(default="big", description="Byte order for the binary data.")
 

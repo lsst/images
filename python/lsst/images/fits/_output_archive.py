@@ -219,15 +219,20 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
     ) -> PointerModel:
         if (pointer := self._pointers_by_key.get(key)) is not None:
             return pointer
+        model = self.serialize_direct("", serializer)
+        json_bytes = model.model_dump_json().encode()
+        self._pointer_targets.append(json_bytes)
         pointer = PointerModel(
             column=TableColumnModel(
                 name=JSON_COLUMN,
-                data=ArrayReferenceModel(source=f"fits:{JSON_EXTNAME}[1]", datatype=NumberType.uint8),
+                data=ArrayReferenceModel(
+                    source=f"fits:{JSON_EXTNAME}[1]",
+                    shape=[len(json_bytes)],
+                    datatype=NumberType.uint8,
+                ),
             ),
-            row=len(self._pointer_targets) + 1,
+            row=len(self._pointer_targets),
         )
-        model = self.serialize_direct("", serializer)
-        self._pointer_targets.append(model.model_dump_json().encode())
         self._pointers_by_key[key] = pointer
         return pointer
 

@@ -111,7 +111,7 @@ class NdfInputArchiveDataTestCase(unittest.TestCase):
 
     def test_get_array_unrecognised_source_raises(self):
         image = Image(np.zeros((2, 2), dtype=np.float32))
-        bogus = ArrayReferenceModel(source="fits:NOTUS", datatype=NumberType.float32)
+        bogus = ArrayReferenceModel(source="fits:NOTUS", shape=[2, 2], datatype=NumberType.float32)
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
             write(image, tmp.name)
