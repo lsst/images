@@ -153,8 +153,6 @@ class GenericFormatter(FormatterV2):
             kwargs["update_header"] = self._update_header
             kwargs["compression_options"] = self._get_compression_options()
             kwargs["compression_seed"] = self._get_compression_seed()
-        elif ext == ".sdf":
-            kwargs["update_header"] = self._update_header
         backend.write(in_memory_dataset, uri.ospath, **kwargs)
 
     def add_provenance(

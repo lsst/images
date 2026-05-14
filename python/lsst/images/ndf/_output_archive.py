@@ -57,7 +57,6 @@ def write(
     *,
     metadata: dict[str, MetadataValue] | None = None,
     butler_info: ButlerInfo | None = None,
-    update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     compression_options: Mapping[str, Any] | None = None,
 ) -> ArchiveTree:
     """Write a serializable object to an NDF (HDS-on-HDF5) file.
@@ -68,7 +67,9 @@ def write(
         Object with a ``serialize`` method. May carry an
         ``_opaque_metadata`` attribute (a
         `~lsst.images.fits.FitsOpaqueMetadata`)
-        whose primary-HDU header gets written to ``/MORE/FITS``.
+        whose primary-HDU header gets written to ``/MORE/FITS``. This
+        preserves FITS cards on objects that originated from a FITS read;
+        butler provenance is conveyed through ``butler_info`` instead.
     filename
         Path to write to.  Must not already exist.  If `None`, an
         in-memory HDF5 file is used and the on-disk artefact is
@@ -77,9 +78,6 @@ def write(
     metadata, butler_info
         Optional caller-supplied entries that are written into the
         returned `~lsst.images.serialization.ArchiveTree`.
-    update_header
-        Callback that mutates the opaque primary FITS header, used by
-        the butler formatter to inject provenance.
     compression_options
         Optional dict forwarded to the archive constructor for h5py
         dataset compression.
@@ -100,10 +98,6 @@ def write(
         opaque_metadata = getattr(obj, "_opaque_metadata", None)
         if not isinstance(opaque_metadata, FitsOpaqueMetadata):
             opaque_metadata = FitsOpaqueMetadata()
-        primary_header = opaque_metadata.headers.get(ExtensionKey()) or astropy.io.fits.Header()
-        update_header(primary_header)
-        if len(primary_header):
-            opaque_metadata.headers[ExtensionKey()] = primary_header
 
         archive = NdfOutputArchive(
             h5_file,
