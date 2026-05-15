@@ -413,16 +413,20 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         if (pointer := self._pointers.get(key)) is not None:
             return pointer
         archive_path = name if name.startswith("/") else f"/{name}"
-        path = self._archive_path_to_hdf5_path(archive_path)
+        target_path = self._archive_path_to_hdf5_path(archive_path)
         # Run the serializer first so any nested add_array / serialize_pointer
         # calls write into the file before we dump this sub-tree to JSON.
         model = self.serialize_direct(name, serializer)
         json_text = model.model_dump_json()
-        parent_path, leaf = path.rsplit("/", 1)
-        parent = self._ensure_model_structure(parent_path, "EXT")
-        parent.children[leaf] = HdsPrimitive.char_array([json_text], width=max(80, len(json_text)))
+        # Store the JSON document as a "JSON" child of the target structure,
+        # mirroring the main /MORE/LSST/JSON tree. Writing it at the target
+        # path itself would clobber any nested arrays the serializer added
+        # under that path (IR.write_to_hdf5 deletes the existing node before
+        # writing a primitive).
+        target = self._ensure_model_structure(target_path, "EXT")
+        target.children["JSON"] = HdsPrimitive.char_array([json_text], width=max(80, len(json_text)))
         self._flush()
-        pointer = NdfPointerModel(path=path)
+        pointer = NdfPointerModel(path=f"{target_path}/JSON")
         self._pointers[key] = pointer
         return pointer
 

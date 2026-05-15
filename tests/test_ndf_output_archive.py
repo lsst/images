@@ -197,12 +197,11 @@ class NdfOutputArchivePointerTestCase(unittest.TestCase):
                     lambda nested: TinyTree(name="gaussian"),
                     key=("psf", 1),
                 )
-                self.assertEqual(ptr.path, "/MORE/LSST/PSF")
+                self.assertEqual(ptr.path, "/MORE/LSST/PSF/JSON")
             with h5py.File(tmp.name, "r") as f:
-                # The hoisted sub-tree is stored as a _CHAR*N dataset
-                # (1D byte-string array). Read it back and parse.
-                raw = f["/MORE/LSST/PSF"][()]
-                # Concatenate and decode (it may be a single padded line).
+                # The hoisted sub-tree is stored as a "JSON" _CHAR*N
+                # child of the target structure.
+                raw = f["/MORE/LSST/PSF/JSON"][()]
                 joined = b"".join(raw).decode("ascii").rstrip(" ")
                 self.assertIn('"name":"gaussian"', joined.replace(" ", ""))
 
@@ -224,10 +223,39 @@ class NdfOutputArchivePointerTestCase(unittest.TestCase):
                 )
                 self.assertEqual(ptr1, ptr2)
             with h5py.File(tmp.name, "r") as f:
-                raw = f["/MORE/LSST/PSF"][()]
+                raw = f["/MORE/LSST/PSF/JSON"][()]
                 joined = b"".join(raw).decode("ascii").rstrip(" ")
                 self.assertIn("first", joined)
                 self.assertNotIn("second", joined)
+
+    def test_serialize_pointer_preserves_nested_arrays(self):
+        # Regression test: a pointer target that writes a nested array via
+        # the nested archive must round-trip with that array still in the
+        # file. Previously the pointer JSON was written at the target path
+        # itself, clobbering any nested data the serializer produced.
+        class TreeWithArray(pydantic.BaseModel):
+            name: str
+            data: ArrayReferenceModel
+
+        payload = np.arange(6, dtype=np.float32).reshape(2, 3)
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                ptr = arch.serialize_pointer(
+                    "psf",
+                    lambda nested: TreeWithArray(
+                        name="gaussian",
+                        data=nested.add_array(payload, name="parameters"),
+                    ),
+                    key=("psf", 1),
+                )
+                self.assertEqual(ptr.path, "/MORE/LSST/PSF/JSON")
+            with h5py.File(tmp.name, "r") as f:
+                # JSON stayed at <path>/JSON; the nested array is still
+                # accessible at the sub-NDF path the serializer wrote.
+                self.assertIn("/MORE/LSST/PSF/JSON", f)
+                self.assertIn("/MORE/LSST/PSF/PARAMETERS/DATA_ARRAY/DATA", f)
+                np.testing.assert_array_equal(f["/MORE/LSST/PSF/PARAMETERS/DATA_ARRAY/DATA"][()], payload)
 
     def test_serialize_frame_set_records_for_iter(self):
         # serialize_frame_set is delegated to serialize_pointer plus
@@ -243,11 +271,11 @@ class NdfOutputArchivePointerTestCase(unittest.TestCase):
                     lambda nested: TinyTree(name="proj"),
                     key=("frame_set", 1),
                 )
-                self.assertEqual(ptr.path, "/MORE/LSST/WCS/PIXEL_TO_SKY")
+                self.assertEqual(ptr.path, "/MORE/LSST/WCS/PIXEL_TO_SKY/JSON")
                 recorded = list(arch.iter_frame_sets())
                 self.assertEqual(len(recorded), 1)
                 self.assertIs(recorded[0][0], frame_set)
-                self.assertEqual(recorded[0][1].path, "/MORE/LSST/WCS/PIXEL_TO_SKY")
+                self.assertEqual(recorded[0][1].path, "/MORE/LSST/WCS/PIXEL_TO_SKY/JSON")
 
 
 @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")

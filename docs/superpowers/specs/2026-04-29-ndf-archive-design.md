@@ -267,7 +267,7 @@ these rules:
 | `add_array(arr, name="mask")`                       | `/QUALITY/QUALITY` (compatible) **or** `/MORE/LSST/MASK/DATA` (incompatible)           | hoist                                              |
 | `serialize_frame_set(name="projection", ...)`       | `/WCS/DATA`                                                                            | hoist                                              |
 | `serialize_direct(name=any, ...)`                   | inline into the main JSON tree                                                         | inline                                             |
-| `serialize_pointer(name=any, ...)`                  | hoist: write subtree to `/MORE/LSST/<UPPER_PATH>`, return JSON Pointer                 | hoist                                              |
+| `serialize_pointer(name=any, ...)`                  | target is an EXT structure at `/MORE/LSST/<UPPER_PATH>`; its JSON document lives at the `JSON` primitive child, so nested arrays the serializer wrote under the structure are preserved. Pointer references the JSON child path. | hoist                                              |
 | `add_table(...)`                                    | hoist to `/MORE/LSST/<UPPER_PATH>` (JSON for v1)                                       | hoist                                              |
 | Opaque FITS cards (from `FitsOpaqueMetadata`)       | `/MORE/FITS`; not part of the JSON tree                                                | n/a                                                |
 
