@@ -245,21 +245,35 @@ class HdsStructure:
         parent = self.get_structure("/".join(parts[:-1]))
         parent.children.pop(parts[-1], None)
 
-    def ensure_structure(self, path: str, hds_type: str = "EXT") -> HdsStructure:
-        """Return an existing structure or create it and its parents."""
+    def ensure_structure(self, path: str, hds_type: str | None = None) -> HdsStructure:
+        """Return an existing structure or create it and its parents.
+
+        In HDS each structure carries a type tag distinct from its name.
+        Newly-created structures here default to having the part name as
+        their type (e.g. ``/MORE/LSST/PSF`` → types ``EXT``, ``LSST``,
+        ``PSF``). The well-known NDF extension container ``MORE`` is the
+        sole exception and defaults to ``EXT``. Pass ``hds_type`` to
+        override the type on the leaf component only; existing structures
+        retain their type unless overridden.
+        """
         if path in ("", "/"):
             return self
         cursor: HdsStructure = self
-        for index, part in enumerate(_split_path(path)):
+        parts = _split_path(path)
+        for index, part in enumerate(parts):
             existing = cursor.children.get(part)
+            is_leaf = index == len(parts) - 1
             if existing is None:
-                child_type = hds_type if index == len(_split_path(path)) - 1 else "EXT"
+                if is_leaf and hds_type is not None:
+                    child_type = hds_type
+                else:
+                    child_type = _default_hds_type_for_name(part)
                 existing = _new_structure(child_type)
                 cursor.children[part] = existing
             if not isinstance(existing, HdsStructure):
                 raise KeyError(f"{part!r} already exists as an HDS primitive.")
             cursor = existing
-        if cursor.hds_type != hds_type:
+        if hds_type is not None and cursor.hds_type != hds_type:
             cursor.hds_type = hds_type
         return cursor
 
@@ -479,6 +493,17 @@ def _new_structure(hds_type: str) -> HdsStructure:
     if hds_type == "EXT":
         return HdsExtension()
     return HdsStructure(hds_type)
+
+
+def _default_hds_type_for_name(name: str) -> str:
+    """Return the HDS type to use for a structure with the given name.
+
+    Mirrors the convention in real NDF files where each named structure
+    carries a type tag describing what it is. ``MORE`` is the standard
+    NDF extension container and is always ``EXT``; every other name is
+    used verbatim as its own type.
+    """
+    return "EXT" if name == "MORE" else name
 
 
 def _split_path(path: str) -> list[str]:

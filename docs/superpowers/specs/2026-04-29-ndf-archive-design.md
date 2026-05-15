@@ -86,7 +86,12 @@ Conventions follow the canonical Starlink `hds-v5` library
 
 - **Structure** → `h5py.Group` with attribute `CLASS` ∈
   `{"NDF", "WCS", "ARRAY", "EXT", "QUALITY", "STRUCT", ...}`. Children
-  named by HDS component name in uppercase.
+  named by HDS component name in uppercase. Non-NDF, non-primitive
+  structures default to having the part name as their type
+  (`/MORE/LSST` → `CLASS="LSST"`, `/MORE/LSST/PSF` → `CLASS="PSF"`),
+  matching the HDS convention where each structure carries a type tag
+  describing what it is. The standard NDF extension container ``MORE``
+  is the sole exception and stays ``CLASS="EXT"``.
 - **Arrays of structures** (deferred from v1; we only handle scalar
   structures): additionally carry `HDS_STRUCTURE_DIMS` and store
   per-element groups under the `ARRAY_OF_STRUCTURES_CELL` prefix.
@@ -198,9 +203,9 @@ NUMPY_TO_HDS: Mapping[np.dtype, str]
     DATA                           _CHAR*N — AST FrameSet text dump
   MORE/                            CLASS="EXT"
     FITS                           _CHAR*80 — opaque FITS cards (if any)
-    LSST/                          CLASS="EXT"
+    LSST/                          CLASS="LSST"
       JSON                         _CHAR*N — main Pydantic tree as JSON
-      <NAME>...                    hoisted blobs (none for plain Image)
+      <NAME>/                      hoisted blobs, CLASS="<NAME>"
 ```
 
 ### `MaskedImage` — compatible mask (`uint8` dtype, ≤8 planes)

@@ -108,10 +108,12 @@ class NdfImageLayoutTestCase(unittest.TestCase):
             self.assertEqual(int(origin[0]), 20)  # x_min from Box.factory[10:14, 20:25]
             self.assertEqual(int(origin[1]), 10)  # y_min
 
-            # /MORE/LSST is a general-purpose extension (EXT) group.
+            # /MORE is the standard NDF extension container (EXT) and
+            # /MORE/LSST carries the type "LSST" matching its name.
             self.assertIn("MORE", f)
+            self.assertEqual(_cls(f["/MORE"]), "EXT")
             self.assertIn("LSST", f["/MORE"])
-            self.assertEqual(_cls(f["/MORE/LSST"]), "EXT")
+            self.assertEqual(_cls(f["/MORE/LSST"]), "LSST")
 
             # Main JSON serialisation tree is present.
             self.assertIn("JSON", f["/MORE/LSST"])

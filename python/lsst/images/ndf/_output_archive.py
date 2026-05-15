@@ -366,12 +366,15 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         if unit is not None and isinstance(self._document.root, Ndf):
             self._document.ensure_ndf("/").set_units(_unit_to_ndf_string(unit))
         json_text = tree.model_dump_json()
-        lsst = self._ensure_model_structure(self._lsst_path, "EXT")
+        # Let ensure_structure derive types from path-component names so
+        # /MORE/LSST/... gets <MORE> stay as EXT and <LSST> typed LSST,
+        # mirroring HDS convention.
+        lsst = self._ensure_model_structure(self._lsst_path)
         lsst.children["JSON"] = HdsPrimitive.char_array([json_text], width=max(80, len(json_text)))
         primary = self._opaque_metadata.headers.get(ExtensionKey())
         if primary is not None and len(primary):
             cards = _fits_header_records(primary)
-            more = self._ensure_model_structure("/MORE", "EXT")
+            more = self._ensure_model_structure("/MORE")
             more.children["FITS"] = HdsPrimitive.char_array(cards, width=80)
         if bbox is not None:
             origin = _origin_from_bbox(bbox)
@@ -423,7 +426,9 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         # path itself would clobber any nested arrays the serializer added
         # under that path (IR.write_to_hdf5 deletes the existing node before
         # writing a primitive).
-        target = self._ensure_model_structure(target_path, "EXT")
+        # ensure_structure derives the HDS type from the leaf name, so
+        # /MORE/LSST/PSF is typed <PSF> rather than the generic <EXT>.
+        target = self._ensure_model_structure(target_path)
         target.children["JSON"] = HdsPrimitive.char_array([json_text], width=max(80, len(json_text)))
         self._flush()
         pointer = NdfPointerModel(path=f"{target_path}/JSON")
@@ -653,8 +658,12 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         struct.children["ORIGIN"] = HdsPrimitive.array(origin_array)
         self._flush()
 
-    def _ensure_model_structure(self, path: str, hds_type: str) -> HdsStructure:
-        """Return or create a structure in the NDF document model."""
+    def _ensure_model_structure(self, path: str, hds_type: str | None = None) -> HdsStructure:
+        """Return or create a structure in the NDF document model.
+
+        With ``hds_type=None`` the leaf type is derived from its name;
+        see `HdsStructure.ensure_structure`.
+        """
         if path in ("", "/"):
             return self._document.root
         return self._document.root.ensure_structure(path, hds_type)

@@ -256,6 +256,10 @@ class NdfOutputArchivePointerTestCase(unittest.TestCase):
                 self.assertIn("/MORE/LSST/PSF/JSON", f)
                 self.assertIn("/MORE/LSST/PSF/PARAMETERS/DATA_ARRAY/DATA", f)
                 np.testing.assert_array_equal(f["/MORE/LSST/PSF/PARAMETERS/DATA_ARRAY/DATA"][()], payload)
+                # The pointer-target structure is typed after its leaf
+                # name, not the generic EXT.
+                self.assertEqual(f["/MORE/LSST/PSF"].attrs["CLASS"], b"PSF")
+                self.assertEqual(f["/MORE/LSST"].attrs["CLASS"], b"LSST")
 
     def test_serialize_frame_set_records_for_iter(self):
         # serialize_frame_set is delegated to serialize_pointer plus
