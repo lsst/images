@@ -31,7 +31,8 @@ class CameraFrameSet(FrameSet):
 
     The `CameraFrameSet` class constructor is considered a private
     implementation detail.  At present, instances can only be obtained by
-    loading them from storage (`deserialize`) or converting a legacy
+    loading them from storage (via
+    `~CameraFrameSetSerializationModel.deserialize`) or converting a legacy
     `lsst.afw.cameraGeom` object (`from_legacy`).
     """
 
