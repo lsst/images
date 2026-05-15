@@ -21,6 +21,7 @@ from typing import Any, Literal, cast, overload
 import astropy.io.fits
 import astropy.units
 import astropy.wcs
+import numpy as np
 import pydantic
 from astro_metadata_translator import ObservationInfo, VisitInfoTranslator
 
@@ -351,6 +352,89 @@ class VisitImage(MaskedImage):
                 aperture_corrections=self.aperture_corrections.copy(),
             ),
             copy=True,
+        )
+
+    def convert_unit(self, unit: astropy.units.UnitBase = astropy.units.nJy) -> VisitImage:
+        """Return an equivalent image with different pixel units.
+
+        Parameters
+        ----------
+        unit
+            The unit to transform to.  This may be any of the following:
+
+            - any unit directly relatable to the current units via Astropy;
+            - any unit relatable to the product of the current units with the
+              `photometric_scaling` (i.e. if the current image is in
+              instrumental units but we know how to calibrate them)
+            - any unit relatable to the quotient of the current units with the
+              `photometric_scaling` (i.e. if the current image is in
+              calibrated units and we want to revert back to instrumental
+              units).
+
+        Returns
+        -------
+        `VisitImage`
+            An image with the given units.  Will always share most attributes
+            with self, with the `image` and `variance` copied only if they
+            need to be modified (i.e. they do not already have the right
+            units).
+        """
+        if (factor := _get_unit_conversion_factor(self.unit, unit)) is not None:
+            if factor == 1.0:
+                return self[...]
+            image = Image(self._image.array * factor, bbox=self.bbox, projection=self.projection, unit=unit)
+            variance = Image(
+                self._variance.array * factor**2,
+                bbox=self.bbox,
+                unit=unit**2,
+            )
+        elif self._photometric_scaling is None:
+            raise astropy.units.UnitConversionError(
+                "VisitImage.photometric_scaling is None, and there "
+                f"is no constant conversion from {self.unit} to {unit}."
+            )
+        else:
+            scaling = self._photometric_scaling
+            assert scaling.unit is not None, "Checked at construction."
+            if (constant_factor := _get_unit_conversion_factor(self.unit * scaling.unit, unit)) is not None:
+                if constant_factor != 1.0:
+                    scaling = scaling * constant_factor
+                scaling_array = scaling.render(self.bbox, dtype=self.image.array.dtype).array
+            elif (constant_factor := _get_unit_conversion_factor(self.unit / scaling.unit, unit)) is not None:
+                if constant_factor != 1.0:
+                    scaling = scaling / constant_factor
+                scaling_array = scaling.render(self.bbox, dtype=self.image.array.dtype).array
+                np.true_divide(1.0, scaling_array, out=scaling_array)
+            else:
+                raise astropy.units.UnitConversionError(
+                    f"photometric_scaling with units {scaling.unit} does not "
+                    f"provide a path from {self.unit} to {unit}."
+                )
+            # We needed to allocate a new array to evaluate the scaling field,
+            # and then we need to allocate another to hold its square for the
+            # variance scaling. But then we can multiply those arrays in-place
+            # to get the output image and variance to avoid yet more
+            # allocations (note we can't instead multiply the visit image's
+            # image and variance arrays in place because they might have other
+            # references that are still associated with the old units).
+            image = Image(scaling_array, bbox=self.bbox, unit=unit)
+            variance = Image(np.square(scaling_array), bbox=self.bbox, unit=unit**2)
+            image.array *= self._image.array
+            variance.array *= self._variance.array
+        return self._transfer_metadata(
+            VisitImage(
+                image=image,
+                mask=self._mask,
+                variance=variance,
+                projection=self.projection,
+                obs_info=self.obs_info,
+                psf=self._psf,
+                bounds=self._bounds,
+                summary_stats=self.summary_stats,
+                detector=self._detector,
+                photometric_scaling=self._photometric_scaling,
+                aperture_corrections=self.aperture_corrections,
+            )
         )
 
     def serialize(self, archive: OutputArchive[Any]) -> VisitImageSerializationModel:
@@ -914,3 +998,12 @@ def _extract_or_check_header[T](
     return _extract_or_check_value(
         key, given_value, ("ObservationInfo", obs_info_value), (f"header key {key}", hdr_value)
     )
+
+
+def _get_unit_conversion_factor(
+    original: astropy.units.UnitBase, new: astropy.units.UnitBase
+) -> float | None:
+    try:
+        return original.to(new)
+    except astropy.units.UnitConversionError:
+        return None

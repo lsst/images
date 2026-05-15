@@ -37,7 +37,7 @@ from lsst.images import (
 )
 from lsst.images.aperture_corrections import ApertureCorrectionMap, aperture_corrections_to_legacy
 from lsst.images.cameras import Detector
-from lsst.images.fields import ChebyshevField
+from lsst.images.fields import ChebyshevField, field_from_legacy_photo_calib
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
 from lsst.images.json import read as read_json
 from lsst.images.psfs import GaussianPointSpreadFunction, PointSpreadFunction
@@ -46,6 +46,7 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripNdf,
     TemporaryButler,
+    assert_close,
     assert_masked_images_equal,
     assert_projections_equal,
     compare_aperture_corrections_to_legacy,
@@ -604,6 +605,75 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
             cls.filename, preserve_quantization=True, plane_map=cls.plane_map
         )
         cls.unit = u.nJy
+
+    def test_convert_unit(self) -> None:
+        """Test using the ``photometric_scaling`` to swap between
+        calibrated and instrumental units.
+        """
+        from lsst.afw.table import ExposureCatalog
+
+        assert EXTERNAL_DATA_DIR is not None, "Guaranteed by decorator."
+        # We should not be able to convert to instrumental units when there is
+        # no photometric scaling.
+        with self.assertRaises(u.UnitConversionError):
+            self.visit_image.convert_unit(u.electron)
+        # Converting to the current unit should be a no-op that does not copy.
+        visit_image_nJy = self.visit_image.convert_unit(u.nJy)
+        self.assertTrue(np.may_share_memory(visit_image_nJy.image.array, self.visit_image.image.array))
+        self.assertTrue(np.may_share_memory(visit_image_nJy.variance.array, self.visit_image.variance.array))
+        # Even without a photometric_scaling attached, we should be convert to
+        # a compatible unit.
+        visit_image_mJy = self.visit_image.convert_unit(u.mJy)
+        self.assertEqual(visit_image_mJy.unit, u.mJy)
+        assert_close(self, visit_image_mJy.image.array, self.visit_image.image.array * 1e-6)
+        assert_close(self, visit_image_mJy.variance.array, self.visit_image.variance.array * 1e-12)
+        # Attach the final PhotoCalib (this isn't stored with the legacy file
+        # because that is the mapping to nJy, which is trivial).
+        visit_summary = ExposureCatalog.readFits(
+            os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_summary.fits")
+        )
+        legacy_photo_calib = visit_summary.find(DP2_VISIT_DETECTOR_DATA_ID["detector"]).getPhotoCalib()
+        self.visit_image.photometric_scaling = field_from_legacy_photo_calib(
+            legacy_photo_calib, bounds=self.visit_image.detector.bbox, post_isr_unit=u.electron
+        )
+        compare_photo_calib_to_legacy(
+            self,
+            self.visit_image.photometric_scaling,
+            self.legacy_exposure.getPhotoCalib(),
+            applied_legacy_photo_calib=legacy_photo_calib,
+            subimage_bbox=self.visit_image.bbox,
+        )
+        # We still can't convert to completely unrelated units.
+        with self.assertRaises(u.UnitConversionError):
+            self.visit_image.convert_unit(u.mm)
+        # Uncalibrating via the photometric_scaling matches what legacy code
+        # does.
+        legacy_masked_image_e = legacy_photo_calib.uncalibrateImage(self.legacy_exposure.maskedImage)
+        visit_image_e = self.visit_image.convert_unit(u.electron)
+        assert_close(self, visit_image_e.image.array, legacy_masked_image_e.image.array)
+        assert_close(self, visit_image_e.variance.array, legacy_masked_image_e.variance.array)
+        # We can also uncalibrate if we start with an image that has units
+        # that are compatible with the photometric_scaling but not identical
+        # to it.
+        visit_image_mJy.photometric_scaling = self.visit_image.photometric_scaling
+        visit_image_e = visit_image_mJy.convert_unit(u.electron)
+        assert_close(self, visit_image_e.image.array, legacy_masked_image_e.image.array)
+        assert_close(self, visit_image_e.variance.array, legacy_masked_image_e.variance.array)
+        # We can re-apply the scaling go go back to calibrated units.
+        visit_image_nJy = visit_image_e.convert_unit(u.nJy)
+        assert_close(self, visit_image_nJy.image.array, self.visit_image.image.array)
+        assert_close(self, visit_image_nJy.variance.array, self.visit_image.variance.array)
+        # Test that we haven't dropped any component objects along the way,
+        # and that they're all still the same objects or thin views.
+        self.assertTrue(np.may_share_memory(visit_image_nJy.mask.array, self.visit_image.mask.array))
+        self.assertIs(visit_image_nJy.projection, self.visit_image.projection)
+        self.assertIs(visit_image_nJy.obs_info, self.visit_image.obs_info)
+        self.assertIs(visit_image_nJy.summary_stats, self.visit_image.summary_stats)
+        self.assertIs(visit_image_nJy.psf, self.visit_image.psf)
+        self.assertIs(visit_image_nJy.detector, self.visit_image.detector)
+        self.assertIs(visit_image_nJy.bounds, self.visit_image.bounds)
+        self.assertIs(visit_image_nJy.aperture_corrections, self.visit_image.aperture_corrections)
+        self.assertIs(visit_image_nJy.photometric_scaling, self.visit_image.photometric_scaling)
 
 
 @unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
