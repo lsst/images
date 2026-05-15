@@ -836,8 +836,8 @@ class VisitImage(MaskedImage):
                     photometric_scaling = field_from_legacy_photo_calib(
                         legacy_photo_calib, bounds=detector_bbox, post_isr_unit=post_isr_unit
                     )
-                if component == "photometric_scaling":
-                    return photometric_scaling
+            if component == "photometric_scaling":
+                return photometric_scaling
             if component == "detector":
                 return Detector.from_legacy(
                     legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
