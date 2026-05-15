@@ -276,13 +276,16 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
         variance_arr, variance_bbox = _read_data_array_with_bbox(ndf_group["VARIANCE"])
     quality_arr: np.ndarray | None = None
     quality_bbox: Any | None = None
+    quality_badbits = 255
     if "QUALITY" in ndf_group and isinstance(ndf_group["QUALITY"], h5py.Group):
         q = ndf_group["QUALITY"]
+        quality_badbits = _read_quality_badbits(q)
         if "QUALITY" in q and isinstance(q["QUALITY"], h5py.Dataset):
-            quality_arr = _hds.read_array(q["QUALITY"])
+            quality_arr = _validate_quality_array(_hds.read_array(q["QUALITY"]))
             quality_bbox = _make_bbox(x_min=0, y_min=0, array=quality_arr)
         elif "QUALITY" in q and isinstance(q["QUALITY"], h5py.Group):
             quality_arr, quality_bbox = _read_data_array_with_bbox(q["QUALITY"])
+            quality_arr = _validate_quality_array(quality_arr)
 
     projection: Projection | None = None
     if "WCS" in ndf_group:
@@ -337,12 +340,12 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
     if cls is Image:
         obj = image
     elif issubclass(cls, MaskedImage):
-        schema = MaskSchema([MaskPlane(name="BAD", description="Bad pixel.")])
-        mask = (
-            Mask(quality_arr[:, :, np.newaxis], schema=schema, bbox=quality_bbox)
-            if quality_arr is not None
-            else None
-        )
+        if quality_arr is not None:
+            schema = _make_quality_mask_schema(quality_badbits)
+            mask = Mask(quality_arr[:, :, np.newaxis], schema=schema, bbox=quality_bbox)
+        else:
+            schema = MaskSchema([MaskPlane(name="BAD", description="Bad pixel.")])
+            mask = None
         variance = Image(variance_arr, bbox=variance_bbox) if variance_arr is not None else None
         obj = cls(
             image=image,
@@ -386,6 +389,36 @@ def _read_ndf_units(ndf_group: h5py.Group) -> u.UnitBase | None:
             continue
     _LOG.warning("Could not parse NDF UNITS value %r in %s.", units_text, ndf_group.name)
     return None
+
+
+def _read_quality_badbits(quality_group: h5py.Group) -> int:
+    """Read the scalar NDF QUALITY.BADBITS value."""
+    badbits = quality_group.get("BADBITS")
+    if not isinstance(badbits, h5py.Dataset):
+        return 255
+    value = np.asarray(_hds.read_array(badbits)).reshape(-1)
+    if value.size == 0:
+        return 255
+    return int(value[0])
+
+
+def _validate_quality_array(quality: np.ndarray) -> np.ndarray:
+    """Return an NDF QUALITY array as a `numpy.uint8` mask plane."""
+    if quality.dtype != np.dtype(np.uint8):
+        raise ArchiveReadError(f"NDF QUALITY array has dtype {quality.dtype}; expected uint8.")
+    return quality
+
+
+def _make_quality_mask_schema(badbits: int) -> MaskSchema:
+    """Create a fallback `MaskSchema` for an unnamed 8-bit QUALITY array."""
+    planes = []
+    for bit in range(8):
+        mask = 1 << bit
+        description = f"NDF QUALITY bit {bit}."
+        if badbits & mask:
+            description += " Selected by BADBITS."
+        planes.append(MaskPlane(name=f"MASK{bit}", description=description))
+    return MaskSchema(planes, dtype=np.uint8)
 
 
 def _locate_ndf_root(f: h5py.File) -> h5py.Group:

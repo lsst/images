@@ -299,9 +299,37 @@ class NdfReadFunctionTestCase(unittest.TestCase):
             result = read(MaskedImage, tmp.name)
             self.assertIsInstance(result.deserialized, MaskedImage)
             np.testing.assert_array_equal(result.deserialized.mask.array[:, :, 0], quality_array)
+            self.assertEqual(set(result.deserialized.mask.schema.names), {f"MASK{i}" for i in range(8)})
             image_result = read(Image, tmp.name)
             self.assertIsInstance(image_result.deserialized, Image)
             np.testing.assert_array_equal(image_result.deserialized.array, image_array)
+
+    def test_read_auto_detect_preserves_quality_bits(self):
+        image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
+        quality_array = np.array([[0, 2, 4], [2, 0, 6]], dtype=np.uint8)
+        expected_mask1 = np.array([[0, 1, 0], [1, 0, 1]], dtype=bool)
+        expected_mask2 = np.array([[0, 0, 1], [0, 0, 1]], dtype=bool)
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                _hds.set_root_name(f, "TEST", "NDF")
+                data_array = _hds.create_structure(f, "DATA_ARRAY", "ARRAY")
+                _hds.write_array(data_array, "DATA", image_array)
+                quality = _hds.create_structure(f, "QUALITY", "QUALITY")
+                quality_array_struct = _hds.create_structure(quality, "QUALITY", "ARRAY")
+                _hds.write_array(quality_array_struct, "DATA", quality_array)
+                _hds.write_array(quality_array_struct, "ORIGIN", np.array([0, 0], dtype=np.int32))
+                _hds.write_array(quality_array_struct, "BAD_PIXEL", np.array(False, dtype=np.bool_))
+                _hds.write_array(quality, "BADBITS", np.array(2, dtype=np.uint8))
+            result = read(MaskedImage, tmp.name)
+            self.assertIsInstance(result.deserialized, MaskedImage)
+            mask = result.deserialized.mask
+            np.testing.assert_array_equal(mask.array[:, :, 0], quality_array)
+            np.testing.assert_array_equal(mask.get("MASK1"), expected_mask1)
+            np.testing.assert_array_equal(mask.get("MASK2"), expected_mask2)
+            self.assertIn("Selected by BADBITS", mask.schema.descriptions["MASK1"])
+            self.assertNotIn("Selected by BADBITS", mask.schema.descriptions["MASK2"])
 
     def test_read_auto_detected_data_only_as_masked_image_uses_defaults(self):
         image_array = np.arange(6, dtype=np.float32).reshape(2, 3)

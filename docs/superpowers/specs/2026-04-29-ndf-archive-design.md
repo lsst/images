@@ -300,11 +300,13 @@ Plain English:
    blobs by JSON Pointer path → instantiate the lsst-images type the
    Pydantic discriminator identifies.
 4. If `MORE/LSST/JSON` absent → auto-detect: `Image` if no
-   `QUALITY`/`VARIANCE`, else `MaskedImage` with a default mask schema
-   (`BAD=bit 0`). If `VARIANCE` is present without `QUALITY`, the mask
-   is an empty (all-zero) `uint8` array with the default schema.
-   Reading Starlink-generated `MORE/IRQ`-named bits is a follow-up
-   that arrives with full IRQ write support. The longer-term direction
+   `QUALITY`/`VARIANCE`, else `MaskedImage`. When `QUALITY` is present,
+   preserve the full 8-bit quality byte as a `uint8` `Mask` with fallback
+   plane names `MASK0` through `MASK7`; `BADBITS` annotates which fallback
+   planes Starlink would treat as bad. If `VARIANCE` is present without
+   `QUALITY`, the mask is an empty (all-zero) `uint8` array with the default
+   schema (`BAD=bit 0`). Reading Starlink-generated `MORE/IRQ`-named bits
+   is a follow-up that arrives with full IRQ write support. The longer-term direction
    is to move this best-effort ingest off `ndf.read` and onto an
    external-read entry point on the data classes (e.g.
    `MaskedImage.read_external`) that dispatches to the right backend by
