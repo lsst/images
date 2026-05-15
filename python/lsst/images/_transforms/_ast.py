@@ -16,6 +16,9 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 __all__ = (
     "USING_STARLINK_PYAST",
+    "Channel",
+    "CmpFrame",
+    "CmpMap",
     "FitsChan",
     "Frame",
     "FrameSet",
@@ -33,6 +36,9 @@ if TYPE_CHECKING:
 else:
     try:
         from astshim import (
+            Channel,
+            CmpFrame,
+            CmpMap,
             FitsChan,
             Frame,
             FrameDict,
@@ -88,6 +94,9 @@ if USING_STARLINK_PYAST:
             if not self._lines:
                 return ""
             return "\n".join(self._lines) + "\n"
+
+        def getSinkData(self) -> str:
+            return self.to_string()
 
     class Object:
         """Bridge class that exposes the `astshim.Object` interface while
@@ -160,6 +169,12 @@ if USING_STARLINK_PYAST:
 
         _IMPL_TYPE: ClassVar[type[starlink.Ast.ShiftMap]] = starlink.Ast.ShiftMap
 
+    class CmpMap(Mapping):
+        def __init__(self, map_a: Mapping, map_b: Mapping, series: bool):
+            super().__init__(starlink.Ast.CmpMap(map_a._impl, map_b._impl, series))
+
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.CmpMap]] = starlink.Ast.CmpMap
+
     class Frame(Mapping):
         def __init__(self, n_axes: int, options: str = ""):
             super().__init__(starlink.Ast.Frame(n_axes, options))
@@ -169,6 +184,14 @@ if USING_STARLINK_PYAST:
         @property
         def ident(self) -> str:
             return self._impl.Ident
+
+        @property
+        def domain(self) -> str:
+            return self._impl.Domain
+
+        @domain.setter
+        def domain(self, value: str) -> None:
+            self._impl.Domain = value
 
         def setUnit(self, axis: int, unit: str) -> None:
             setattr(self._impl, f"Unit_{axis}", unit)
@@ -190,6 +213,12 @@ if USING_STARLINK_PYAST:
             Object.__init__(self, starlink.Ast.SkyFrame(options))
 
         _IMPL_TYPE: ClassVar[type[starlink.Ast.SkyFrame]] = starlink.Ast.SkyFrame
+
+    class CmpFrame(Frame):
+        def __init__(self, frame_a: Frame, frame_b: Frame):
+            Object.__init__(self, starlink.Ast.CmpFrame(frame_a._impl, frame_b._impl, ""))
+
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.CmpFrame]] = starlink.Ast.CmpFrame
 
     class FrameSet(Frame):
         def __init__(self, base_frame: Frame):
@@ -257,3 +286,12 @@ if USING_STARLINK_PYAST:
 
         def __iter__(self) -> Any:
             return iter(self._impl)
+
+    class Channel(Object):
+        def __init__(self, stream: StringStream, options: str = ""):
+            super().__init__(starlink.Ast.Channel(None, stream, options))
+
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.Channel]] = starlink.Ast.Channel
+
+        def write(self, obj: Object) -> int:
+            return self._impl.write(obj._impl)

@@ -51,6 +51,8 @@ gs = ["lsst-resources[gs]"]
 piff = ["piff >= 1.6", "galsim >= 2.7"]
 # Add feature for Butler support.
 butler = ["lsst-daf-butler"]
+# Add feature for Starlink NDF (HDS-on-HDF5) read/write support.
+ndf = ["h5py >= 3.10"]
 
 [tool.setuptools.packages.find]
 where = ["python"]
@@ -209,7 +211,7 @@ warn_redundant_casts = true
 plugins = "pydantic.mypy"
 
 [[tool.mypy.overrides]]
-module = ["fsspec.*", "astropy.*", "galsim.*", "piff.*", "lsst.*", "starlink.*"]
+module = ["fsspec.*", "astropy.*", "galsim.*", "h5py.*", "piff.*", "lsst.*", "starlink.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

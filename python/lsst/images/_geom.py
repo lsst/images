@@ -402,11 +402,9 @@ class Interval:
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: pydantic.GetCoreSchemaHandler
     ) -> pcs.CoreSchema:
-        from_typed_dict = pcs.chain_schema(
-            [
-                handler(_SerializedInterval),
-                pcs.no_info_plain_validator_function(cls._validate),
-            ]
+        from_typed_dict = pcs.no_info_after_validator_function(
+            cls._validate,
+            handler(_SerializedInterval),
         )
         return pcs.json_or_python_schema(
             json_schema=from_typed_dict,
@@ -783,11 +781,9 @@ class Box:
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: pydantic.GetCoreSchemaHandler
     ) -> pcs.CoreSchema:
-        from_typed_dict = pcs.chain_schema(
-            [
-                handler(_SerializedBox),
-                pcs.no_info_plain_validator_function(cls._validate),
-            ]
+        from_typed_dict = pcs.no_info_after_validator_function(
+            cls._validate,
+            handler(_SerializedBox),
         )
         return pcs.json_or_python_schema(
             json_schema=from_typed_dict,

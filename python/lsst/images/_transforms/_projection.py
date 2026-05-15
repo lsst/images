@@ -43,6 +43,14 @@ F = TypeVar("F", bound=Frame)
 P = TypeVar("P", bound=pydantic.BaseModel)
 
 
+def _set_ast_skyframe_system(frame: astshim.SkyFrame, system: str) -> None:
+    """Set an AST SkyFrame coordinate system across supported wrappers."""
+    if hasattr(frame, "_impl"):
+        frame._impl.System = system
+    else:
+        setattr(frame, "system", system)
+
+
 @final
 class Projection[F: Frame]:
     """A transform from pixel coordinates to sky coordinates.
@@ -116,6 +124,44 @@ class Projection[F: Frame]:
                 fits_wcs, pixel_frame, SkyFrame.ICRS, in_bounds=pixel_bounds, x0=x0, y0=y0
             )
         )
+
+    @staticmethod
+    def from_ast_frame_set(
+        ast_frame_set: astshim.FrameSet,
+        pixel_frame: F,
+        pixel_bounds: Bounds | None = None,
+    ) -> Projection[F]:
+        """Construct a projection from an AST FrameSet.
+
+        The current frame of the FrameSet must be an AST SkyFrame.  Its
+        coordinate system is forced to ICRS (AST adjusts the mapping
+        automatically) so the resulting Projection is always in ICRS
+        regardless of the original sky system.
+
+        Parameters
+        ----------
+        ast_frame_set
+            An AST FrameSet whose base frame is pixel coordinates and
+            whose current frame is a SkyFrame (in any supported sky
+            coordinate system).
+        pixel_frame
+            Coordinate frame for the pixel grid.
+        pixel_bounds
+            The region that bounds valid pixels for this transform.
+
+        Raises
+        ------
+        ValueError
+            If the current frame of the FrameSet is not a SkyFrame.
+        """
+        current_frame = ast_frame_set.getFrame(ast_frame_set.current, copy=False)
+        if not isinstance(current_frame, astshim.SkyFrame):
+            raise ValueError(
+                "The current frame of the AST FrameSet is not a SkyFrame "
+                f"(got {type(current_frame).__name__})."
+            )
+        _set_ast_skyframe_system(current_frame, "ICRS")
+        return Projection(Transform(pixel_frame, SkyFrame.ICRS, ast_frame_set, in_bounds=pixel_bounds))
 
     @property
     def pixel_frame(self) -> F:

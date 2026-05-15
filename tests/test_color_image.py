@@ -18,10 +18,20 @@ import numpy as np
 from lsst.images import Box, ColorImage, Image, TractFrame
 from lsst.images.tests import (
     RoundtripFits,
+    RoundtripNdf,
     assert_images_equal,
     assert_projections_equal,
     make_random_projection,
 )
+
+try:
+    import h5py
+
+    from lsst.images.ndf import _hds
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
 
 
 class ColorImageTestCase(unittest.TestCase):
@@ -86,6 +96,35 @@ class ColorImageTestCase(unittest.TestCase):
             pass
         self.assert_color_images_equal(roundtrip.result, self.color_image, expect_view=False)
 
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+    def test_ndf_roundtrip(self) -> None:
+        """Test round-tripping through NDF."""
+        with RoundtripNdf(self, self.color_image) as roundtrip:
+            pass
+        self.assert_color_images_equal(roundtrip.result, self.color_image, expect_view=False)
+
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+    def test_ndf_layout(self) -> None:
+        """ColorImage writes a top-level container with RGB child NDFs."""
+        with RoundtripNdf(self, self.color_image) as roundtrip:
+            f = roundtrip.inspect()
+            self.assertEqual(_cls(f["/"]), "EXT")
+            self.assertIn("LSST", f)
+            self.assertIn("JSON", f["/LSST"])
+            self.assertNotIn("MORE", f)
+            for channel, index in (("RED", 0), ("GREEN", 1), ("BLUE", 2)):
+                with self.subTest(channel=channel):
+                    self.assertIn(channel, f)
+                    self.assertEqual(_cls(f[channel]), "NDF")
+                    self.assertEqual(_cls(f[f"{channel}/DATA_ARRAY"]), "ARRAY")
+                    np.testing.assert_array_equal(
+                        f[f"{channel}/DATA_ARRAY/DATA"][()],
+                        self.array[:, :, index],
+                    )
+                    self.assertEqual(list(f[f"{channel}/DATA_ARRAY/ORIGIN"][()]), [40, 20])
+                    self.assertIn("WCS", f[channel])
+                    self.assertEqual(_cls(f[f"{channel}/WCS"]), "WCS")
+
     def assert_color_images_equal(
         self, a: ColorImage, b: ColorImage, expect_view: bool | None = None
     ) -> None:
@@ -97,6 +136,13 @@ class ColorImageTestCase(unittest.TestCase):
             self.assertEqual(np.may_share_memory(a.array, b.array), expect_view)
         if not expect_view:
             np.testing.assert_array_equal(a.array, b.array)
+
+
+def _cls(node: h5py.Group) -> str:
+    val = node.attrs.get(_hds.ATTR_CLASS)
+    if isinstance(val, bytes):
+        return val.decode("ascii")
+    return str(val)
 
 
 if __name__ == "__main__":

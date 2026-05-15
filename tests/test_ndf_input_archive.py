@@ -1,0 +1,409 @@
+# This file is part of lsst-images.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# Use of this source code is governed by a 3-clause BSD-style
+# license that can be found in the LICENSE file.
+
+from __future__ import annotations
+
+import os
+import tempfile
+import unittest
+
+import astropy.io.fits
+import astropy.units as u
+import numpy as np
+import pydantic
+
+from lsst.images import Box, Image, ImageSerializationModel, Mask, MaskedImage
+from lsst.images._transforms import FrameSet
+from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
+from lsst.images.serialization import (
+    ArchiveReadError,
+    ArrayReferenceModel,
+    InlineArrayModel,
+    NumberType,
+)
+
+try:
+    import h5py
+
+    from lsst.images.ndf import (
+        NdfInputArchive,
+        NdfOutputArchive,
+        NdfPointerModel,
+        _hds,
+        read,
+        write,
+    )
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
+
+
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+class NdfInputArchiveOpenTestCase(unittest.TestCase):
+    """Tests for `NdfInputArchive.open` and `get_tree`."""
+
+    def test_open_round_trips_image_tree(self):
+        image = Image(
+            np.arange(20, dtype=np.float32).reshape(4, 5),
+            bbox=Box.factory[10:14, 20:25],
+        )
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            written_tree = write(image, tmp.name)
+            with NdfInputArchive.open(tmp.name) as archive:
+                tree = archive.get_tree(type(written_tree))
+                self.assertEqual(tree.model_dump_json(), written_tree.model_dump_json())
+
+    def test_get_tree_raises_when_main_json_missing(self):
+        # A file with no /MORE/LSST/JSON should raise ArchiveReadError.
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                f["/"].attrs["CLASS"] = "NDF"
+            with NdfInputArchive.open(tmp.name) as archive:
+                model_type = ImageSerializationModel[NdfPointerModel]
+                with self.assertRaises(ArchiveReadError):
+                    archive.get_tree(model_type)
+
+
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+class NdfInputArchiveDataTestCase(unittest.TestCase):
+    """Tests for `get_array`, `deserialize_pointer`, and `get_frame_set`."""
+
+    def test_get_array_reads_image_array(self):
+        image = Image(np.arange(20, dtype=np.float32).reshape(4, 5))
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            tree = write(image, tmp.name)
+            with NdfInputArchive.open(tmp.name) as archive:
+                # The Image tree's `data` attribute is an
+                # ArrayReferenceModel pointing at /DATA_ARRAY/DATA.
+                arr = archive.get_array(tree.data)
+                np.testing.assert_array_equal(arr, image.array)
+
+    def test_get_array_supports_slicing(self):
+        image = Image(np.arange(20, dtype=np.float32).reshape(4, 5))
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            tree = write(image, tmp.name)
+            with NdfInputArchive.open(tmp.name) as archive:
+                arr = archive.get_array(tree.data, slices=(slice(0, 2), slice(1, 4)))
+                np.testing.assert_array_equal(arr, image.array[:2, 1:4])
+
+    def test_get_array_handles_inline_array(self):
+        inline = InlineArrayModel(data=[1.0, 2.0, 3.0], datatype=NumberType.float64)
+        image = Image(np.zeros((2, 2), dtype=np.float32))
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(image, tmp.name)
+            with NdfInputArchive.open(tmp.name) as archive:
+                arr = archive.get_array(inline)
+                np.testing.assert_array_equal(arr, np.array([1.0, 2.0, 3.0]))
+
+    def test_get_array_unrecognised_source_raises(self):
+        image = Image(np.zeros((2, 2), dtype=np.float32))
+        bogus = ArrayReferenceModel(source="fits:NOTUS", shape=[2, 2], datatype=NumberType.float32)
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(image, tmp.name)
+            with NdfInputArchive.open(tmp.name) as archive:
+                with self.assertRaises(ArchiveReadError):
+                    archive.get_array(bogus)
+
+    def test_deserialize_pointer_round_trips_subtree(self):
+        # Build a file with a hoisted sub-tree we can read back. Use the
+        # output archive directly to avoid pulling in the full Image stack.
+        class TinyTree(pydantic.BaseModel):
+            name: str
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                ptr = arch.serialize_pointer("psf", lambda nested: TinyTree(name="hello"), key=("psf", 1))
+            with NdfInputArchive.open(tmp.name) as archive:
+                # Deserializer just returns the model unchanged.
+                result = archive.deserialize_pointer(ptr, TinyTree, lambda m, _a: m)
+                self.assertEqual(result.name, "hello")
+
+    def test_deserialize_pointer_caches_by_ref(self):
+        class TinyTree(pydantic.BaseModel):
+            name: str
+
+        calls = []
+
+        def deserializer(model, _archive):
+            calls.append(model)
+            return model
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                ptr = arch.serialize_pointer("psf", lambda nested: TinyTree(name="x"), key=("psf", 1))
+            with NdfInputArchive.open(tmp.name) as archive:
+                first = archive.deserialize_pointer(ptr, TinyTree, deserializer)
+                second = archive.deserialize_pointer(ptr, TinyTree, deserializer)
+                self.assertIs(first, second)
+                self.assertEqual(len(calls), 1)
+
+    def test_deserialize_pointer_caches_frame_set_for_get_frame_set(self):
+        class TinyTree(pydantic.BaseModel):
+            name: str
+
+        class DummyFrameSet(FrameSet):
+            def __contains__(self, frame):
+                return False
+
+            def __getitem__(self, key):
+                raise AssertionError("DummyFrameSet should not be indexed in this test.")
+
+        sentinel = DummyFrameSet()
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                ptr = arch.serialize_frame_set(
+                    "frames",
+                    sentinel,
+                    lambda nested: TinyTree(name="frames"),
+                    key=("frames", 1),
+                )
+            with NdfInputArchive.open(tmp.name) as archive:
+                result = archive.deserialize_pointer(ptr, TinyTree, lambda _m, _a: sentinel)
+                self.assertIs(result, sentinel)
+                self.assertIs(archive.get_frame_set(ptr), sentinel)
+
+    def test_get_frame_set_returns_cached_value(self):
+        # Exercise the cache mechanism with a sentinel object pretending
+        # to be a FrameSet. Real FrameSet plumbing comes when the AST
+        # text dump for /WCS/DATA lands in a follow-up task.
+        sentinel = object()
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(Image(np.zeros((2, 2), dtype=np.float32)), tmp.name)
+            with NdfInputArchive.open(tmp.name) as archive:
+                # Manually populate the cache as deserialize_pointer would
+                # if a FrameSet deserializer ran.
+                archive._frame_set_cache["/MORE/LSST/PIXEL_TO_SKY"] = sentinel
+                pointer = NdfPointerModel(path="/MORE/LSST/PIXEL_TO_SKY")
+                self.assertIs(archive.get_frame_set(pointer), sentinel)
+
+    def test_get_frame_set_raises_if_not_cached(self):
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(Image(np.zeros((2, 2), dtype=np.float32)), tmp.name)
+            with NdfInputArchive.open(tmp.name) as archive:
+                pointer = NdfPointerModel(path="/MORE/LSST/UNKNOWN")
+                with self.assertRaises(AssertionError):
+                    archive.get_frame_set(pointer)
+
+
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+class NdfInputArchiveOpaqueMetadataTestCase(unittest.TestCase):
+    """Tests for `NdfInputArchive.get_opaque_metadata`."""
+
+    def test_more_fits_round_trips_via_opaque_metadata(self):
+        image = Image(np.zeros((2, 2), dtype=np.float32))
+        primary = astropy.io.fits.Header()
+        primary["FOO"] = ("bar", "test card")
+        opaque = FitsOpaqueMetadata()
+        opaque.add_header(primary, name="", ver=1)
+        image._opaque_metadata = opaque
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(image, tmp.name)
+            with NdfInputArchive.open(tmp.name) as archive:
+                recovered = archive.get_opaque_metadata()
+                self.assertIn(ExtensionKey(), recovered.headers)
+                self.assertEqual(recovered.headers[ExtensionKey()]["FOO"], "bar")
+
+    def test_get_opaque_metadata_empty_when_no_more_fits(self):
+        # Image with no opaque metadata -> /MORE/FITS is absent in the file.
+        image = Image(np.zeros((2, 2), dtype=np.float32))
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(image, tmp.name)
+            with NdfInputArchive.open(tmp.name) as archive:
+                recovered = archive.get_opaque_metadata()
+                self.assertIsInstance(recovered, FitsOpaqueMetadata)
+                # No primary header should be populated since /MORE/FITS
+                # was never written.
+                self.assertFalse(recovered.headers)
+
+
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+class NdfReadFunctionTestCase(unittest.TestCase):
+    """Tests for the module-level `ndf.read()` function."""
+
+    def test_read_round_trips_image(self):
+        image = Image(
+            np.arange(20, dtype=np.float32).reshape(4, 5),
+            bbox=Box.factory[10:14, 20:25],
+        )
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            write(image, tmp.name)
+            result = read(Image, tmp.name)
+            self.assertIsInstance(result.deserialized, Image)
+            np.testing.assert_array_equal(result.deserialized.array, image.array)
+            self.assertEqual(result.deserialized.bbox, image.bbox)
+
+    def test_read_starlink_file_auto_detects_image(self):
+        # The canonical fixture has no /MORE/LSST/JSON, no QUALITY,
+        # no VARIANCE -- auto-detect should return an Image whose array
+        # shape matches the file (611x609 int16).
+        example_path = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
+        result = read(Image, example_path)
+        self.assertIsInstance(result.deserialized, Image)
+        self.assertEqual(result.deserialized.array.shape, (611, 609))
+        self.assertEqual(result.deserialized.array.dtype, np.int16)
+        self.assertIsNotNone(result.deserialized.projection)
+
+    def test_read_starlink_file_recovers_opaque_fits_metadata(self):
+        example_path = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
+        result = read(Image, example_path)
+        opaque = result.deserialized._opaque_metadata
+        self.assertIn(ExtensionKey(), opaque.headers)
+        # The fixture is a real Starlink M57 image; sample one card we know
+        # is present (NAXIS).
+        primary = opaque.headers[ExtensionKey()]
+        self.assertIn("NAXIS", primary)
+
+    def test_read_auto_detects_nested_quality_array(self):
+        image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
+        quality_array = np.array([[0, 1, 0], [1, 0, 1]], dtype=np.uint8)
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                _hds.set_root_name(f, "TEST", "NDF")
+                data_array = _hds.create_structure(f, "DATA_ARRAY", "ARRAY")
+                _hds.write_array(data_array, "DATA", image_array)
+                quality = _hds.create_structure(f, "QUALITY", "QUALITY")
+                quality_array_struct = _hds.create_structure(quality, "QUALITY", "ARRAY")
+                _hds.write_array(quality_array_struct, "DATA", quality_array)
+                _hds.write_array(quality_array_struct, "ORIGIN", np.array([0, 0], dtype=np.int32))
+                _hds.write_array(quality_array_struct, "BAD_PIXEL", np.array(False, dtype=np.bool_))
+                _hds.write_array(quality, "BADBITS", np.array(1, dtype=np.uint8))
+            result = read(MaskedImage, tmp.name)
+            self.assertIsInstance(result.deserialized, MaskedImage)
+            np.testing.assert_array_equal(result.deserialized.mask.array[:, :, 0], quality_array)
+            self.assertEqual(set(result.deserialized.mask.schema.names), {f"MASK{i}" for i in range(8)})
+            image_result = read(Image, tmp.name)
+            self.assertIsInstance(image_result.deserialized, Image)
+            np.testing.assert_array_equal(image_result.deserialized.array, image_array)
+
+    def test_read_auto_detect_preserves_quality_bits(self):
+        image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
+        quality_array = np.array([[0, 2, 4], [2, 0, 6]], dtype=np.uint8)
+        expected_mask1 = np.array([[0, 1, 0], [1, 0, 1]], dtype=bool)
+        expected_mask2 = np.array([[0, 0, 1], [0, 0, 1]], dtype=bool)
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                _hds.set_root_name(f, "TEST", "NDF")
+                data_array = _hds.create_structure(f, "DATA_ARRAY", "ARRAY")
+                _hds.write_array(data_array, "DATA", image_array)
+                quality = _hds.create_structure(f, "QUALITY", "QUALITY")
+                quality_array_struct = _hds.create_structure(quality, "QUALITY", "ARRAY")
+                _hds.write_array(quality_array_struct, "DATA", quality_array)
+                _hds.write_array(quality_array_struct, "ORIGIN", np.array([0, 0], dtype=np.int32))
+                _hds.write_array(quality_array_struct, "BAD_PIXEL", np.array(False, dtype=np.bool_))
+                _hds.write_array(quality, "BADBITS", np.array(2, dtype=np.uint8))
+            result = read(MaskedImage, tmp.name)
+            self.assertIsInstance(result.deserialized, MaskedImage)
+            mask = result.deserialized.mask
+            np.testing.assert_array_equal(mask.array[:, :, 0], quality_array)
+            np.testing.assert_array_equal(mask.get("MASK1"), expected_mask1)
+            np.testing.assert_array_equal(mask.get("MASK2"), expected_mask2)
+            self.assertIn("Selected by BADBITS", mask.schema.descriptions["MASK1"])
+            self.assertNotIn("Selected by BADBITS", mask.schema.descriptions["MASK2"])
+
+    def test_read_auto_detected_data_only_as_masked_image_uses_defaults(self):
+        image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                _hds.set_root_name(f, "TEST", "NDF")
+                data_array = _hds.create_structure(f, "DATA_ARRAY", "ARRAY")
+                _hds.write_array(data_array, "DATA", image_array)
+                _hds.write_array(data_array, "ORIGIN", np.array([5, 4], dtype=np.int32))
+            result = read(MaskedImage, tmp.name)
+            self.assertIsInstance(result.deserialized, MaskedImage)
+            self.assertEqual(result.deserialized.bbox, Box.factory[4:6, 5:8])
+            np.testing.assert_array_equal(result.deserialized.image.array, image_array)
+            np.testing.assert_array_equal(
+                result.deserialized.mask.array,
+                np.zeros((2, 3, 1), dtype=np.uint8),
+            )
+            np.testing.assert_array_equal(
+                result.deserialized.variance.array,
+                np.ones((2, 3), dtype=np.float32),
+            )
+
+    def test_read_auto_detected_variance_as_masked_image_keeps_variance(self):
+        image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
+        variance_array = np.full((2, 3), 2.5, dtype=np.float32)
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                _hds.set_root_name(f, "TEST", "NDF")
+                data_array = _hds.create_structure(f, "DATA_ARRAY", "ARRAY")
+                _hds.write_array(data_array, "DATA", image_array)
+                _hds.write_array(data_array, "ORIGIN", np.array([5, 4], dtype=np.int32))
+                variance = _hds.create_structure(f, "VARIANCE", "ARRAY")
+                _hds.write_array(variance, "DATA", variance_array)
+                _hds.write_array(variance, "ORIGIN", np.array([5, 4], dtype=np.int32))
+            result = read(MaskedImage, tmp.name)
+            self.assertIsInstance(result.deserialized, MaskedImage)
+            np.testing.assert_array_equal(result.deserialized.variance.array, variance_array)
+            np.testing.assert_array_equal(
+                result.deserialized.mask.array,
+                np.zeros((2, 3, 1), dtype=np.uint8),
+            )
+
+    def test_read_auto_detected_units_component(self):
+        image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
+
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                _hds.set_root_name(f, "TEST", "NDF")
+                data_array = _hds.create_structure(f, "DATA_ARRAY", "ARRAY")
+                _hds.write_array(data_array, "DATA", image_array)
+                f.create_dataset("UNITS", data=np.bytes_("count"))
+            result = read(Image, tmp.name)
+            self.assertEqual(result.deserialized.unit, u.ct)
+
+    def test_read_missing_data_array_raises(self):
+        # A file with only /MORE/LSST/JSON is fine for the symmetric
+        # path. A file with NEITHER /MORE/LSST/JSON NOR DATA_ARRAY is a
+        # malformed NDF -- auto-detect must fail clearly.
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            with h5py.File(tmp.name, "w") as f:
+                f["/"].attrs["CLASS"] = "NDF"
+                # Note: no DATA_ARRAY, no /MORE/LSST/JSON.
+            with self.assertRaises(ArchiveReadError):
+                read(Image, tmp.name)
+
+    def test_read_auto_detect_wrong_target_type_raises(self):
+        # Auto-detect only knows how to produce Image-like objects from NDF
+        # components; unrelated target classes should fail clearly.
+        example_path = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
+        with self.assertRaises(ArchiveReadError):
+            read(Mask, example_path)

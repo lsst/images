@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import unittest
+import warnings
 
 import numpy as np
 
@@ -23,6 +24,7 @@ from lsst.images.psfs import (
     PointSpreadFunction,
     PSFExWrapper,
 )
+from lsst.images.psfs._piff import _ArchivePiffWriter
 from lsst.images.tests import RoundtripFits, RoundtripJson, compare_psf_to_legacy
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
@@ -64,6 +66,25 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             # Negative sigma.
             GaussianPointSpreadFunction(-2.5, bounds=bounds, stamp_size=33)
+
+    def test_piff_writer_normalizes_tuple_metadata(self) -> None:
+        """Piff metadata should be normalized to JSON-like values."""
+        writer = _ArchivePiffWriter()
+        writer.write_struct(
+            "interp",
+            {
+                "keys": ("u", "v"),
+                "scale": np.float64(1.5),
+                "flags": [np.bool_(True), np.int64(3)],
+            },
+        )
+        model = writer.serialize(None)  # type: ignore[arg-type]
+        self.assertEqual(model.structs["interp"]["keys"], ["u", "v"])
+        self.assertEqual(model.structs["interp"]["scale"], 1.5)
+        self.assertEqual(model.structs["interp"]["flags"], [True, 3])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            model.model_dump_json()
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_piff(self) -> None:
