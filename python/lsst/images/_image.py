@@ -117,7 +117,7 @@ class Image(GeneralizedImage):
         super().__init__(metadata)
         if isinstance(array_or_fill, np.ndarray):
             if dtype is not None:
-                array = np.array(array_or_fill, dtype=dtype)
+                array = np.array(array_or_fill, dtype=dtype, copy=None)
             else:
                 array = array_or_fill
             if bbox is None:
