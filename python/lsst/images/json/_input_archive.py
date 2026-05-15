@@ -39,8 +39,12 @@ if TYPE_CHECKING:
     import astropy.io.fits
 
 
-def read[T: Any](cls: type[T], target: ResourcePathExpression | ArchiveTree) -> ReadResult[T]:
-    """Read an object from a FITS file.
+def read[T: Any](
+    cls: type[T],
+    target: ResourcePathExpression | ArchiveTree,
+    **kwargs: Any,
+) -> ReadResult[T]:
+    """Read an object from a JSON file.
 
     Parameters
     ----------
@@ -48,6 +52,9 @@ def read[T: Any](cls: type[T], target: ResourcePathExpression | ArchiveTree) -> 
         File to read (convertible to `lsst.resources.ResourcePath`) or an
         `.serialization.ArchiveTree` to finish deserializing.  If the latter,
         its ``indirect`` `list` will be interpreted and then cleared.
+    **kwargs
+        Extra keyword arguments passed to ``cls.deserialize`` (e.g. ``bbox``
+        for image subset reads), matching the FITS and NDF backends.
 
     Returns
     -------
@@ -64,7 +71,7 @@ def read[T: Any](cls: type[T], target: ResourcePathExpression | ArchiveTree) -> 
     if not isinstance(target, ArchiveTree):
         target = tree_type.model_validate_json(ResourcePath(target).read())
     archive = JsonInputArchive(target.indirect)
-    obj: T = target.deserialize(archive)
+    obj: T = target.deserialize(archive, **kwargs)
     target.indirect = []
     return ReadResult(obj, target.metadata, target.butler_info)
 

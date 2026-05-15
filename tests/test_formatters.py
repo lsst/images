@@ -155,6 +155,44 @@ class ExtensionFromUriTestCase(unittest.TestCase):
             formatter._extension_from_uri(uri)
 
 
+class ImageFormatterFullReadTestCase(unittest.TestCase):
+    """`read_from_uri(component=None)` round-trips each backend."""
+
+    def _make_image(self):
+        return Image(
+            np.arange(20, dtype=np.float32).reshape(4, 5),
+            bbox=Box.factory[10:14, 20:25],
+        )
+
+    def test_fits_full_read(self):
+        image = self._make_image()
+        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False) as tmp:
+            tmp.close()
+            fits.write(image, tmp.name)
+            formatter = make_test_formatter(ImageFormatter, Image)
+            result = formatter.read_from_uri(ResourcePath(tmp.name))
+            np.testing.assert_array_equal(result.array, image.array)
+
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+    def test_sdf_full_read(self):
+        image = self._make_image()
+        with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
+            tmp.close()
+            ndf.write(image, tmp.name)
+            formatter = make_test_formatter(ImageFormatter, Image)
+            result = formatter.read_from_uri(ResourcePath(tmp.name))
+            np.testing.assert_array_equal(result.array, image.array)
+
+    def test_json_full_read(self):
+        image = self._make_image()
+        with tempfile.NamedTemporaryFile(suffix=".json", delete_on_close=False) as tmp:
+            tmp.close()
+            images_json.write(image, tmp.name)
+            formatter = make_test_formatter(ImageFormatter, Image)
+            result = formatter.read_from_uri(ResourcePath(tmp.name))
+            np.testing.assert_array_equal(result.array, image.array)
+
+
 class ImageFormatterComponentReadTestCase(unittest.TestCase):
     """ImageFormatter routes component reads per extension."""
 
