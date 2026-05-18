@@ -48,21 +48,13 @@ from ._geom import Box
 from ._masked_image import MaskedImageSerializationModel
 from ._transforms import ProjectionSerializationModel
 from ._visit_image import VisitImageSerializationModel
-from .fits._common import FitsCompressionOptions
-from .fits._common import PointerModel as _FitsPointerModel
-from .fits._input_archive import FitsInputArchive as _FitsInputArchive
 from .serialization import ButlerInfo
 
 try:
     from . import ndf as _ndf
-    from .ndf._common import NdfPointerModel as _NdfPointerModel
-    from .ndf._input_archive import NdfInputArchive as _NdfInputArchive
 
     _HAVE_NDF = True
 except ImportError:  # h5py is optional; see ndf/__init__.py
-    _ndf = None  # type: ignore[assignment]
-    _NdfPointerModel = None  # type: ignore[assignment,misc]
-    _NdfInputArchive = None  # type: ignore[assignment,misc]
     _HAVE_NDF = False
 
 
@@ -80,8 +72,8 @@ _BACKENDS: dict[str, _Backend] = {
     ".fits": _Backend(
         read=_fits.read,
         write=_fits.write,
-        input_archive=_FitsInputArchive,
-        pointer_model=_FitsPointerModel,
+        input_archive=_fits.FitsInputArchive,
+        pointer_model=_fits.PointerModel,
     ),
     ".json": _Backend(
         read=_json.read,
@@ -94,8 +86,8 @@ if _HAVE_NDF:
     _BACKENDS[".sdf"] = _Backend(
         read=_ndf.read,
         write=_ndf.write,
-        input_archive=_NdfInputArchive,
-        pointer_model=_NdfPointerModel,
+        input_archive=_ndf.NdfInputArchive,
+        pointer_model=_ndf.NdfPointerModel,
     )
 
 
@@ -184,7 +176,7 @@ class GenericFormatter(FormatterV2):
         # 10000] range allowed by FITS.
         return 1 + int.from_bytes(hash_bytes) % 9999
 
-    def _get_compression_options(self) -> dict[str, FitsCompressionOptions]:
+    def _get_compression_options(self) -> dict[str, _fits.FitsCompressionOptions]:
         recipe = self.write_parameters.get("recipe", "default")
         try:
             config = self.write_recipes[recipe]
@@ -193,7 +185,7 @@ class GenericFormatter(FormatterV2):
                 # If there's no default recipe just use the software defaults.
                 return {}
             raise RuntimeError(f"Invalid recipe for GenericFormatter: {recipe!r}.") from None
-        return {k: FitsCompressionOptions.model_validate(v) for k, v in config.items()}
+        return {k: _fits.FitsCompressionOptions.model_validate(v) for k, v in config.items()}
 
     def _update_header(self, header: astropy.io.fits.Header) -> None:
         # Logic here largely lifted from lsst.obs.base.utils, which we
