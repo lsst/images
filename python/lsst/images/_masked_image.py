@@ -24,7 +24,6 @@ import astropy.units
 import astropy.wcs
 import numpy as np
 import pydantic
-from astro_metadata_translator import ObservationInfo
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
@@ -61,9 +60,6 @@ class MaskedImage(GeneralizedImage):
         not provided.
     projection
         Projection that maps the pixel grid to the sky.
-    obs_info
-        General information about the associated observation in standardized
-        form.
     metadata
         Arbitrary flexible metadata to associate with the image.
     """
@@ -76,7 +72,6 @@ class MaskedImage(GeneralizedImage):
         variance: Image | None = None,
         mask_schema: MaskSchema | None = None,
         projection: Projection | None = None,
-        obs_info: ObservationInfo | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ):
         super().__init__(metadata)
@@ -84,20 +79,16 @@ class MaskedImage(GeneralizedImage):
             projection = image.projection
         else:
             image = image.view(projection=projection)
-        if obs_info is None:
-            obs_info = image.obs_info
-        else:
-            image = image.view(obs_info=obs_info)
         if mask is None:
             if mask_schema is None:
                 raise TypeError("'mask_schema' must be provided if 'mask' is not.")
-            mask = Mask(schema=mask_schema, bbox=image.bbox, projection=projection, obs_info=obs_info)
+            mask = Mask(schema=mask_schema, bbox=image.bbox, projection=projection)
         elif mask_schema is not None:
             raise TypeError("'mask_schema' may not be provided if 'mask' is.")
         else:
             if image.bbox != mask.bbox:
                 raise ValueError(f"Image ({image.bbox}) and mask ({mask.bbox}) bboxes do not agree.")
-            mask = mask.view(projection=projection, obs_info=obs_info)
+            mask = mask.view(projection=projection)
         if variance is None:
             variance = Image(
                 1.0,
@@ -105,12 +96,11 @@ class MaskedImage(GeneralizedImage):
                 bbox=image.bbox,
                 unit=None if image.unit is None else image.unit**2,
                 projection=projection,
-                obs_info=obs_info,
             )
         else:
             if image.bbox != variance.bbox:
                 raise ValueError(f"Image ({image.bbox}) and variance ({variance.bbox}) bboxes do not agree.")
-            variance = variance.view(projection=projection, obs_info=obs_info)
+            variance = variance.view(projection=projection)
             if image.unit is None:
                 if variance.unit is not None:
                     raise ValueError(f"Image has no units but variance does ({variance.unit}).")
@@ -158,13 +148,6 @@ class MaskedImage(GeneralizedImage):
         """
         return self._image.projection
 
-    @property
-    def obs_info(self) -> ObservationInfo | None:
-        """General information about the associated observation in standard
-        form. (`~astro_metadata_translator.ObservationInfo` | `None`).
-        """
-        return self._image.obs_info
-
     def __getitem__(self, bbox: Box | EllipsisType) -> MaskedImage:
         if bbox is ...:
             return self
@@ -206,13 +189,13 @@ class MaskedImage(GeneralizedImage):
             Archive to write to.
         """
         serialized_image = archive.serialize_direct(
-            "image", functools.partial(self.image.serialize, save_projection=False, save_obs_info=False)
+            "image", functools.partial(self.image.serialize, save_projection=False)
         )
         serialized_mask = archive.serialize_direct(
-            "mask", functools.partial(self.mask.serialize, save_projection=False, save_obs_info=False)
+            "mask", functools.partial(self.mask.serialize, save_projection=False)
         )
         serialized_variance = archive.serialize_direct(
-            "variance", functools.partial(self.variance.serialize, save_projection=False, save_obs_info=False)
+            "variance", functools.partial(self.variance.serialize, save_projection=False)
         )
         serialized_projection = (
             archive.serialize_direct("projection", self.projection.serialize)
@@ -224,7 +207,6 @@ class MaskedImage(GeneralizedImage):
             mask=serialized_mask,
             variance=serialized_variance,
             projection=serialized_projection,
-            obs_info=self.obs_info,
             metadata=self.metadata,
         )
 
@@ -495,11 +477,6 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         exclude_if=is_none,
         description="Projection that maps the pixel grid to the sky.",
     )
-    obs_info: ObservationInfo | None = pydantic.Field(
-        default=None,
-        exclude_if=is_none,
-        description="Standardized description of image metadata",
-    )
 
     @property
     def bbox(self) -> Box:
@@ -520,6 +497,6 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         mask = self.mask.deserialize(archive, bbox=bbox)
         variance = self.variance.deserialize(archive, bbox=bbox)
         projection = self.projection.deserialize(archive) if self.projection is not None else None
-        return MaskedImage(
-            image, mask=mask, variance=variance, projection=projection, obs_info=self.obs_info
-        )._finish_deserialize(self)
+        return MaskedImage(image, mask=mask, variance=variance, projection=projection)._finish_deserialize(
+            self
+        )

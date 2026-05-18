@@ -325,10 +325,6 @@ class ImageFormatter(GenericFormatter):
                 if isinstance(bbox := getattr(tree, "bbox", None), Box):
                     return bbox
                 return ComponentSentinel.INVALID_COMPONENT_MODEL
-            case "obs_info":
-                if isinstance(oi := getattr(tree, "obs_info", None), ObservationInfo):
-                    return oi
-                return ComponentSentinel.INVALID_COMPONENT_MODEL
         return ComponentSentinel.UNRECOGNIZED_COMPONENT
 
 
@@ -371,6 +367,10 @@ class VisitImageFormatter(MaskedImageFormatter):
                 if hasattr(tree, "deserialize_psf"):
                     return tree.deserialize_psf(archive)
                 return tree.psf.deserialize(archive)
+            case "obs_info":
+                if isinstance(oi := getattr(tree, "obs_info", None), ObservationInfo):
+                    return oi
+                return ComponentSentinel.INVALID_COMPONENT_MODEL
             case "summary_stats":
                 return tree.summary_stats
             case "detector":

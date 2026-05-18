@@ -15,7 +15,6 @@ import os
 import unittest
 
 import numpy as np
-from astro_metadata_translator import ObservationInfo
 
 import lsst.utils.tests
 from lsst.images import Box, Mask, MaskPlane, MaskSchema, get_legacy_visit_image_mask_planes
@@ -88,13 +87,11 @@ class MaskTestCase(unittest.TestCase):
             schema=schema,
             bbox=bbox,
             metadata={"four_and_a_half": 4.5},
-            obs_info=ObservationInfo(instrument="LSSTCam"),
         )
 
         self.assertIs(mask[...], mask)
         self.assertEqual(mask.__eq__(42), NotImplemented)
         self.assertEqual(mask, mask)
-        self.assertEqual(mask.obs_info.instrument, "LSSTCam")
         self.maxDiff = None
         self.assertEqual(
             str(mask),
@@ -136,7 +133,6 @@ class MaskTestCase(unittest.TestCase):
             schema=schema,
             bbox=bbox,
             metadata={"four_and_a_half": 4.5},
-            obs_info=ObservationInfo(instrument="LSSTCam"),
         )
         with lsst.utils.tests.getTempFilePath(".fits") as tmpFile:
             mask.write_fits(tmpFile)
@@ -145,8 +141,6 @@ class MaskTestCase(unittest.TestCase):
             self.assertEqual(new, mask)
             # __eq__ ignores metadata.
             self.assertEqual(new.metadata["four_and_a_half"], 4.5)
-            self.assertEqual(new.obs_info.instrument, "LSSTCam")
-            self.assertEqual(new.obs_info, mask.obs_info)
             self.assertEqual(new.metadata, mask.metadata)
 
     def test_serialize_multi(self) -> None:

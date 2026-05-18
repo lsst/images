@@ -199,15 +199,15 @@ class VisitImage(MaskedImage):
             variance=variance,
             mask_schema=mask_schema,
             projection=projection,
-            obs_info=obs_info,
             metadata=metadata,
         )
         if self.image.unit is None:
             raise TypeError("The image component of a VisitImage must have units.")
         if self.image.projection is None:
             raise TypeError("The projection component of a VisitImage cannot be None.")
-        if self.image.obs_info is None:
+        if obs_info is None:
             raise TypeError("The observation info component of a VisitImage cannot be None.")
+        self._obs_info = obs_info
         if not isinstance(self.image.projection.pixel_frame, DetectorFrame):
             raise TypeError("The projection's pixel frame must be a DetectorFrame for VisitImage.")
         if summary_stats is None:
@@ -246,9 +246,7 @@ class VisitImage(MaskedImage):
         """General information about this observation in standard form.
         (`~astro_metadata_translator.ObservationInfo`).
         """
-        obs_info = self.image.obs_info
-        assert obs_info is not None
-        return obs_info
+        return self._obs_info
 
     @property
     def astropy_wcs(self) -> ProjectionAstropyView:
@@ -496,7 +494,6 @@ class VisitImage(MaskedImage):
                     f"Cannot serialize VisitImage with unrecognized PSF type {type(self._psf).__name__}."
                 )
         assert masked_image_model.projection is not None, "VisitImage always has a projection."
-        assert masked_image_model.obs_info is not None, "VisitImage always has observation info."
         serialized_detector = archive.serialize_direct("detector", self._detector.serialize)
         serialized_photometric_scaling = (
             archive.serialize_direct("photometric_scaling", self._photometric_scaling.serialize)
@@ -513,7 +510,7 @@ class VisitImage(MaskedImage):
             mask=masked_image_model.mask,
             variance=masked_image_model.variance,
             projection=masked_image_model.projection,
-            obs_info=masked_image_model.obs_info,
+            obs_info=self.obs_info,
             photometric_scaling=serialized_photometric_scaling,
             psf=serialized_psf,
             summary_stats=self.summary_stats,
@@ -914,7 +911,7 @@ class VisitImage(MaskedImage):
         if component is not None:
             # This is the image, mask, or variance; attach the projection and
             # obs_info and return
-            return from_masked_image.view(projection=projection, obs_info=obs_info)
+            return from_masked_image.view(projection=projection)
         legacy_polygon = reader.readValidPolygon()
         result = VisitImage(
             from_masked_image.image,
@@ -996,7 +993,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
             variance=masked_image.variance,
             psf=psf,
             projection=masked_image.projection,
-            obs_info=masked_image.obs_info,
+            obs_info=self.obs_info,
             summary_stats=self.summary_stats,
             detector=detector,
             aperture_corrections=aperture_corrections,
