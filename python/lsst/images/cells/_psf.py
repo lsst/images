@@ -23,7 +23,13 @@ from .._cell_grid import CellGrid, CellGridBounds, CellIJ
 from .._geom import YX, Bounds, BoundsError, Box
 from .._image import Image
 from ..psfs import PointSpreadFunction
-from ..serialization import ArchiveTree, ArrayReferenceModel, InputArchive, OutputArchive
+from ..serialization import (
+    ArchiveTree,
+    ArrayReferenceModel,
+    InputArchive,
+    InvalidParameterError,
+    OutputArchive,
+)
 from ..utils import round_half_up
 
 if TYPE_CHECKING:
@@ -215,7 +221,13 @@ class CellPointSpreadFunctionSerializationModel(ArchiveTree):
         )
     )
 
-    def deserialize(self, archive: InputArchive[Any], *, bbox: Box | None = None) -> CellPointSpreadFunction:
+    def deserialize(
+        self, archive: InputArchive[Any], *, bbox: Box | None = None, **kwargs: Any
+    ) -> CellPointSpreadFunction:
+        if kwargs:
+            raise InvalidParameterError(
+                f"Unrecognized parameters for CellPointSpreadFunction: {set(kwargs.keys())}."
+            )
         bounds = self.bounds
         if bbox is not None:
             bounds, slices = CellPointSpreadFunction._subset_impl(bounds, bbox)

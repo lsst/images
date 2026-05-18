@@ -22,7 +22,7 @@ import pydantic
 
 from .._geom import Bounds, Box
 from .._image import Image
-from ..serialization import ArchiveTree, InputArchive, OutputArchive
+from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 from ._base import BaseField
 
 if TYPE_CHECKING:
@@ -156,6 +156,8 @@ class SumFieldSerializationModel(ArchiveTree):
 
     field_type: Literal["SUM"] = "SUM"
 
-    def deserialize(self, archive: InputArchive) -> SumField:
+    def deserialize(self, archive: InputArchive, **kwargs: Any) -> SumField:
         """Deserialize the field from an input archive."""
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for SumField: {set(kwargs.keys())}.")
         return SumField([operand.deserialize(archive) for operand in self.operands])

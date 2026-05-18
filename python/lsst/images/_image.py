@@ -38,6 +38,7 @@ from .serialization import (
     InlineArrayModel,
     InlineArrayQuantityModel,
     InputArchive,
+    InvalidParameterError,
     MetadataValue,
     OutputArchive,
     no_header_updates,
@@ -513,6 +514,7 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         *,
         bbox: Box | None = None,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        **kwargs: Any,
     ) -> Image:
         """Deserialize an image from an input archive.
 
@@ -526,7 +528,12 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
             `Image.serialize`.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide better
+            error messages (raising `serialization.InvalidParameterError`).
         """
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for Image: {set(kwargs.keys())}.")
         array_model: ArrayReferenceModel | InlineArrayModel
         unit: astropy.units.UnitBase | None = None
         if isinstance(self.data, ArrayReferenceQuantityModel | InlineArrayQuantityModel):
@@ -550,3 +557,8 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
             unit=unit,
             projection=projection,
         )._finish_deserialize(self)
+
+    def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
+        if kwargs:
+            raise InvalidParameterError(f"Unsupported parameters for Image components: {set(kwargs.keys())}.")
+        return super().deserialize_component(component, archive)

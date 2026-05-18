@@ -224,12 +224,16 @@ class PiffSerializationModel(serialization.ArchiveTree):
         description="The bounds object that represents the PSF's validity region."
     )
 
-    def deserialize(self, archive: serialization.InputArchive[Any]) -> PiffWrapper:
+    def deserialize(self, archive: serialization.InputArchive[Any], **kwargs: Any) -> PiffWrapper:
         """Deserialize the PSF from an archive.
 
         This method is intended to be usable as the callback function passed to
         `.serialization.InputArchive.deserialize_pointer`.
         """
+        if kwargs:
+            raise serialization.InvalidParameterError(
+                f"Unrecognized parameters for PiffWrapper: {set(kwargs.keys())}."
+            )
         try:
             from piff import PSF
             from piff.config import PiffLogger

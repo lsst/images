@@ -33,7 +33,7 @@ from ._geom import Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._transforms import Frame, Projection, ProjectionSerializationModel
-from .serialization import ArchiveTree, InputArchive, MetadataValue, OutputArchive
+from .serialization import ArchiveTree, InputArchive, InvalidParameterError, MetadataValue, OutputArchive
 from .utils import is_none
 
 
@@ -483,7 +483,9 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         """The bounding box of the image."""
         return self.image.bbox
 
-    def deserialize(self, archive: InputArchive[Any], *, bbox: Box | None = None) -> MaskedImage:
+    def deserialize(
+        self, archive: InputArchive[Any], *, bbox: Box | None = None, **kwargs: Any
+    ) -> MaskedImage:
         """Deserialize an image from an input archive.
 
         Parameters
@@ -492,7 +494,12 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
             Archive to read from.
         bbox
             Bounding box of a subimage to read instead.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide better
+            error messages (raising `serialization.InvalidParameterError`).
         """
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for MaskedImage: {set(kwargs.keys())}.")
         image = self.image.deserialize(archive, bbox=bbox)
         mask = self.mask.deserialize(archive, bbox=bbox)
         variance = self.variance.deserialize(archive, bbox=bbox)
@@ -500,3 +507,10 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         return MaskedImage(image, mask=mask, variance=variance, projection=projection)._finish_deserialize(
             self
         )
+
+    def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
+        if component == "bbox" and kwargs:
+            raise InvalidParameterError(
+                f"Unrecognized parameters for MaskedImage.bbox: {set(kwargs.keys())}."
+            )
+        return super().deserialize_component(component, archive, **kwargs)

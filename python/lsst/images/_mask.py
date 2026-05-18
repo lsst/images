@@ -46,6 +46,7 @@ from .serialization import (
     InlineArrayModel,
     InputArchive,
     IntegerType,
+    InvalidParameterError,
     MetadataValue,
     NumberType,
     OutputArchive,
@@ -876,6 +877,7 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         *,
         bbox: Box | None = None,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        **kwargs: Any,
     ) -> Mask:
         """Deserialize a mask from an input archive.
 
@@ -889,7 +891,12 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
             `Mask.serialize`.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide better
+            error messages (raising `serialization.InvalidParameterError`).
         """
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for Mask: {set(kwargs.keys())}.")
         slices: tuple[slice, ...] | EllipsisType = ...
         if bbox is not None:
             slices = bbox.slice_within(self.bbox)
@@ -934,6 +941,11 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
 
         array_2d = archive.get_array(ref, strip_header=_strip_header, slices=slices)
         return Mask(array_2d[:, :, np.newaxis], schema=schema_2d, start=start)
+
+    def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
+        if kwargs:
+            raise InvalidParameterError(f"Unsupported parameters for Mask components: {set(kwargs.keys())}.")
+        return super().deserialize_component(component, archive)
 
 
 def _archive_prefers_native_mask_arrays(archive: OutputArchive[Any]) -> bool:

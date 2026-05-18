@@ -25,7 +25,7 @@ from ._generalized_image import GeneralizedImage
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
 from ._transforms import Projection, ProjectionSerializationModel
-from .serialization import ArchiveTree, InputArchive, MetadataValue, OutputArchive
+from .serialization import ArchiveTree, InputArchive, InvalidParameterError, MetadataValue, OutputArchive
 from .utils import is_none
 
 
@@ -201,7 +201,9 @@ class ColorImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         """The bounding box of the image."""
         return self.red.bbox
 
-    def deserialize(self, archive: InputArchive[Any], *, bbox: Box | None = None) -> ColorImage:
+    def deserialize(
+        self, archive: InputArchive[Any], *, bbox: Box | None = None, **kwargs: Any
+    ) -> ColorImage:
         """Deserialize a image from an input archive.
 
         Parameters
@@ -214,6 +216,8 @@ class ColorImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         bbox
             Bounding box of a subimage to read instead.
         """
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for ColoImage: {set(kwargs.keys())}.")
         r = self.red.deserialize(archive, bbox=bbox)
         g = self.green.deserialize(archive, bbox=bbox)
         b = self.blue.deserialize(archive, bbox=bbox)

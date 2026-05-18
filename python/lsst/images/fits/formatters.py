@@ -52,32 +52,32 @@ class GenericFormatter(_unified.GenericFormatter):
         super().__init__(*args, **kwargs)
 
 
-class ImageFormatter(_unified.ImageFormatter):
-    """Deprecated alias for `lsst.images.formatters.ImageFormatter`."""
+class ImageFormatter(_unified.GenericFormatter):
+    """Deprecated alias for `lsst.images.formatters.GenericFormatter`."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         _warn("ImageFormatter")
         super().__init__(*args, **kwargs)
 
 
-class MaskedImageFormatter(_unified.MaskedImageFormatter):
-    """Deprecated alias for `lsst.images.formatters.MaskedImageFormatter`."""
+class MaskedImageFormatter(_unified.GenericFormatter):
+    """Deprecated alias for `lsst.images.formatters.GenericFormatter`."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         _warn("MaskedImageFormatter")
         super().__init__(*args, **kwargs)
 
 
-class VisitImageFormatter(_unified.VisitImageFormatter):
-    """Deprecated alias for `lsst.images.formatters.VisitImageFormatter`."""
+class VisitImageFormatter(_unified.GenericFormatter):
+    """Deprecated alias for `lsst.images.formatters.GenericFormatter`."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         _warn("VisitImageFormatter")
         super().__init__(*args, **kwargs)
 
 
-class CellCoaddFormatter(_unified.CellCoaddFormatter):
-    """Deprecated alias for `lsst.images.formatters.CellCoaddFormatter`."""
+class CellCoaddFormatter(_unified.GenericFormatter):
+    """Deprecated alias for `lsst.images.formatters.GenericFormatter`."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         _warn("CellCoaddFormatter")

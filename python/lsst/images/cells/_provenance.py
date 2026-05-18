@@ -23,7 +23,7 @@ import pydantic
 
 from .._cell_grid import CellIJ
 from .._polygon import Polygon
-from ..serialization import ArchiveTree, InputArchive, OutputArchive, TableModel
+from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive, TableModel
 
 if TYPE_CHECKING:
     try:
@@ -244,7 +244,7 @@ class CoaddProvenanceSerializationModel(ArchiveTree):
     inputs: TableModel = pydantic.Field(description="Table of all inputs to the coadd.")
     contributions: TableModel = pydantic.Field(description="Table of per-cell contributions to the coadd.")
 
-    def deserialize(self, archive: InputArchive[Any]) -> CoaddProvenance:
+    def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> CoaddProvenance:
         """Deserialize a provenance from an input archive.
 
         Parameters
@@ -259,6 +259,8 @@ class CoaddProvenanceSerializationModel(ArchiveTree):
         had from doing this during deserialization (the table data is not
         ordered by cell, and hence there's read-slicing we can do).
         """
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for CoaddProvenance: {set(kwargs.keys())}.")
         inputs = archive.get_table(self.inputs)
         contributions = archive.get_table(self.contributions)
         CoaddProvenanceSerializationModel._fix_str_for_deserialization(

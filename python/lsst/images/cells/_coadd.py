@@ -30,7 +30,7 @@ from .._image import Image, ImageSerializationModel
 from .._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from .._masked_image import MaskedImage, MaskedImageSerializationModel
 from .._transforms import Projection, ProjectionSerializationModel, TractFrame
-from ..serialization import ArchiveReadError, InputArchive, OutputArchive
+from ..serialization import InputArchive, InvalidParameterError, OutputArchive
 from ._provenance import CoaddProvenance, CoaddProvenanceSerializationModel
 from ._psf import CellPointSpreadFunction, CellPointSpreadFunctionSerializationModel
 
@@ -449,6 +449,7 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
         *,
         bbox: Box | None = None,
         provenance: bool = True,
+        **kwargs: Any,
     ) -> CellCoadd:
         """Deserialize an image from an input archive.
 
@@ -460,7 +461,12 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
             Bounding box of a subimage to read instead.
         provenance
             Whether to read and attach provenance information.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide better
+            error messages (raising `.serialization.InvalidParameterError`).
         """
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for CellCoadd: {set(kwargs.keys())}.")
         masked_image = super().deserialize(archive, bbox=bbox)
         mask_fractions = {
             k.removeprefix("mask_fractions/"): v.deserialize(archive) for k, v in self.mask_fractions.items()
@@ -488,12 +494,13 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
             backgrounds=backgrounds,
         )._finish_deserialize(self)
 
-    def deserialize_psf(self, archive: InputArchive[Any], bbox: Box | None = None) -> CellPointSpreadFunction:
-        """Finish deserializing the PSF model."""
-        return self.psf.deserialize(archive, bbox=bbox)
-
-    def deserialize_provenance(self, archive: InputArchive[Any]) -> CoaddProvenance:
-        """Finish deserializing the provenance information."""
-        if self.provenance is not None:
-            return self.provenance.deserialize(archive)
-        raise ArchiveReadError("No coadd provenance stored in this file.")
+    def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
+        match component:
+            case "mask_fractions":
+                return {
+                    name: image_model.deserialize(archive, **kwargs)
+                    for name, image_model in self.mask_fractions.items()
+                }
+            case "noise_realizations":
+                return [image_model.deserialize(archive, **kwargs) for image_model in self.noise_realizations]
+        return super().deserialize_component(component, archive, **kwargs)

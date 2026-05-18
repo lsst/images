@@ -13,15 +13,13 @@ from __future__ import annotations
 
 import os
 import pickle
-import tempfile
 import unittest
 from typing import Any
 
 import numpy as np
 
-from lsst.images import YX, Box, Interval, fits, get_legacy_deep_coadd_mask_planes
+from lsst.images import YX, Box, Interval, get_legacy_deep_coadd_mask_planes
 from lsst.images.cells import CellCoadd, CellIJ
-from lsst.images.formatters import CellCoaddFormatter
 from lsst.images.tests import (
     DP2_COADD_DATA_ID,
     DP2_COADD_MISSING_CELL,
@@ -29,9 +27,7 @@ from lsst.images.tests import (
     assert_masked_images_equal,
     assert_psfs_equal,
     compare_cell_coadd_to_legacy,
-    make_test_formatter,
 )
-from lsst.resources import ResourcePath
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -150,28 +146,6 @@ class CellCoaddTestCase(unittest.TestCase):
             alternates=alternates,
             psf_points=self.psf_points,
         )
-
-
-@unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
-class CellCoaddFormatterComponentReadTestCase(unittest.TestCase):
-    """CellCoaddFormatter reads psf/provenance components from FITS.
-
-    Reuses `CellCoaddTestCase`'s class-level fixture rather than
-    inheriting from it, so the parent's tests don't run twice.
-    """
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        CellCoaddTestCase.setUpClass()
-        cls.cell_coadd = CellCoaddTestCase.cell_coadd
-
-    def test_fits_psf_component(self):
-        with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False) as tmp:
-            tmp.close()
-            fits.write(self.cell_coadd, tmp.name)
-            formatter = make_test_formatter(CellCoaddFormatter, CellCoadd)
-            psf = formatter._read_component_from_uri("psf", ResourcePath(tmp.name))
-            self.assertIsNotNone(psf)
 
 
 if __name__ == "__main__":

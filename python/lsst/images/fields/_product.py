@@ -22,7 +22,7 @@ import pydantic
 
 from .._geom import Bounds, Box
 from .._image import Image
-from ..serialization import ArchiveTree, InputArchive, OutputArchive
+from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 from ._base import BaseField
 
 if TYPE_CHECKING:
@@ -161,6 +161,8 @@ class ProductFieldSerializationModel(ArchiveTree):
 
     field_type: Literal["PRODUCT"] = "PRODUCT"
 
-    def deserialize(self, archive: InputArchive) -> ProductField:
+    def deserialize(self, archive: InputArchive, **kwargs: Any) -> ProductField:
         """Deserialize the field from an input archive."""
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for ProductField: {set(kwargs.keys())}.")
         return ProductField([operand.deserialize(archive) for operand in self.operands])

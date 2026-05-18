@@ -24,7 +24,7 @@ from astropy.coordinates import ICRS, Latitude, Longitude, SkyCoord
 from astropy.wcs.wcsapi import BaseLowLevelWCS, HighLevelWCSMixin
 
 from .._geom import XY, YX, Bounds, Box
-from ..serialization import ArchiveTree, InputArchive, OutputArchive
+from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 from ..utils import is_none
 from . import _ast as astshim
 from ._frames import Frame, SkyFrame
@@ -476,14 +476,19 @@ class ProjectionSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         exclude_if=is_none,
     )
 
-    def deserialize(self, archive: InputArchive[P]) -> Projection[Any]:
+    def deserialize(self, archive: InputArchive[P], **kwargs: Any) -> Projection[Any]:
         """Deserialize a projection from an archive.
 
         Parameters
         ----------
         archive
             Archive to read from.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide better
+            error messages (raising `serialization.InvalidParameterError`).
         """
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for Projection: {set(kwargs.keys())}.")
         pixel_to_sky = self.pixel_to_sky.deserialize(archive)
         fits_approximation = (
             self.fits_approximation.deserialize(archive) if self.fits_approximation is not None else None

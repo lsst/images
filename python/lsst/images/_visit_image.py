@@ -52,7 +52,7 @@ from .psfs import (
     PSFExSerializationModel,
     PSFExWrapper,
 )
-from .serialization import ArchiveReadError, InputArchive, MetadataValue, OutputArchive
+from .serialization import ArchiveReadError, InputArchive, InvalidParameterError, MetadataValue, OutputArchive
 from .utils import is_none
 
 
@@ -979,9 +979,17 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
         description="Background models associated with this image.",
     )
 
-    def deserialize(self, archive: InputArchive[Any], *, bbox: Box | None = None) -> VisitImage:
+    def deserialize(
+        self, archive: InputArchive[Any], *, bbox: Box | None = None, **kwargs: Any
+    ) -> VisitImage:
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for VisitImage: {set(kwargs.keys())}.")
         masked_image = super().deserialize(archive, bbox=bbox)
-        psf = self.deserialize_psf(archive)
+        try:
+            psf = self.psf.deserialize(archive)
+        except ArchiveReadError as err:
+            # Defer this until/unless somebody actually asks for the PSF.
+            psf = err
         detector = self.detector.deserialize(archive)
         aperture_corrections = self.aperture_corrections.deserialize(archive)
         photometric_scaling = (
@@ -1002,14 +1010,12 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
             backgrounds=self.backgrounds.deserialize(archive),
         )._finish_deserialize(self)
 
-    def deserialize_psf(self, archive: InputArchive[Any]) -> PointSpreadFunction | ArchiveReadError:
-        """Finish deserializing the PSF model, or *return* any exception
-        raised in the attempt.
-        """
-        try:
-            return self.psf.deserialize(archive)
-        except ArchiveReadError as err:
-            return err
+    def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
+        if kwargs and component not in ("image", "mask", "variance"):
+            raise InvalidParameterError(
+                f"Unsupported parameters for VisitImage component {component}: {set(kwargs.keys())}."
+            )
+        return super().deserialize_component(component, archive)
 
 
 def _extract_or_check_value[T](

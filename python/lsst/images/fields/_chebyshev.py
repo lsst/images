@@ -23,7 +23,7 @@ import pydantic
 from .._concrete_bounds import SerializableBounds
 from .._geom import YX, Bounds, Box
 from .._image import Image
-from ..serialization import ArchiveTree, InlineArray, InputArchive, OutputArchive, Unit
+from ..serialization import ArchiveTree, InlineArray, InputArchive, InvalidParameterError, OutputArchive, Unit
 from ._base import BaseField
 
 if TYPE_CHECKING:
@@ -397,6 +397,8 @@ class ChebyshevFieldSerializationModel(ArchiveTree):
 
     field_type: Literal["CHEBYSHEV"] = "CHEBYSHEV"
 
-    def deserialize(self, archive: InputArchive) -> ChebyshevField:
+    def deserialize(self, archive: InputArchive, **kwargs: Any) -> ChebyshevField:
         """Deserialize the Chebyshev field from an input archive."""
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for ChebyshevField: {set(kwargs.keys())}.")
         return ChebyshevField(self.bounds.deserialize(), self.coefficients, unit=self.unit)

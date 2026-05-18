@@ -28,7 +28,7 @@ import pydantic
 
 from .._concrete_bounds import SerializableBounds
 from .._geom import XY, Bounds, Box
-from ..serialization import ArchiveReadError, ArchiveTree, InputArchive, OutputArchive
+from ..serialization import ArchiveReadError, ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 from . import _ast as astshim
 from ._frames import Frame, SerializableFrame, SkyFrame
 
@@ -561,14 +561,19 @@ class TransformSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         ),
     )
 
-    def deserialize(self, archive: InputArchive[P]) -> Transform[Any, Any]:
+    def deserialize(self, archive: InputArchive[P], **kwargs: Any) -> Transform[Any, Any]:
         """Deserialize a transform from an archive.
 
         Parameters
         ----------
         archive
             Archive to read from.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide better
+            error messages (raising `serialization.InvalidParameterError`).
         """
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for Transform: {set(kwargs.keys())}.")
         if len(self.frames) != len(self.bounds):
             raise ArchiveReadError(
                 f"Inconsistent lengths for 'frames' ({len(self.frames)}) and 'bounds' ({len(self.bounds)})."

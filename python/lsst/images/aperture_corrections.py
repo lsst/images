@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, cast, final
 import pydantic
 
 from .fields import Field, FieldSerializationModel, field_from_legacy
-from .serialization import ArchiveTree, InputArchive, OutputArchive
+from .serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 
 if TYPE_CHECKING:
     try:
@@ -83,6 +83,8 @@ class ApertureCorrectionMapSerializationModel(ArchiveTree):
             )
         return result
 
-    def deserialize(self, archive: InputArchive[Any]) -> ApertureCorrectionMap:
+    def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> ApertureCorrectionMap:
         """Read an aperture correction map from an archive."""
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for Image: {set(kwargs.keys())}.")
         return {name: field.deserialize(archive) for name, field in self.fields.items()}
