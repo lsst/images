@@ -634,7 +634,7 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
         )
         legacy_photo_calib = visit_summary.find(DP2_VISIT_DETECTOR_DATA_ID["detector"]).getPhotoCalib()
         self.visit_image.photometric_scaling = field_from_legacy_photo_calib(
-            legacy_photo_calib, bounds=self.visit_image.detector.bbox, post_isr_unit=u.electron
+            legacy_photo_calib, bounds=self.visit_image.detector.bbox, instrumental_unit=u.electron
         )
         compare_photo_calib_to_legacy(
             self,

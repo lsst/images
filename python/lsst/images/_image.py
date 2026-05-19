@@ -483,7 +483,7 @@ class Image(GeneralizedImage):
         unit: astropy.units.UnitBase | None = None
         if (fits_unit := hdu.header.pop("BUNIT", None)) is not None:
             unit = astropy.units.Unit(fits_unit, format="fits")
-            if opaque_metadata.get_post_isr_unit() == astropy.units.electron:
+            if opaque_metadata.get_instrumental_unit() == astropy.units.electron:
                 # Fix incorrect BUNIT='adu' in LSST preliminary_visit_image.
                 if unit == astropy.units.adu:
                     unit = astropy.units.electron

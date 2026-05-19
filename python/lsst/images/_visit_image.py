@@ -543,11 +543,11 @@ class VisitImage(MaskedImage):
             warnings.simplefilter("ignore", category=astropy.io.fits.verify.VerifyWarning)
             primary_header.update(md.toOrderedDict())
         opaque_fits_metadata.extract_legacy_primary_header(primary_header)
-        post_isr_unit = opaque_fits_metadata.get_post_isr_unit() or astropy.units.electron
+        instrumental_unit = opaque_fits_metadata.get_instrumental_unit() or astropy.units.electron
         hdr_unit: astropy.units.UnitBase | None = None
         if hdr_unit_str := md.get("BUNIT"):
             hdr_unit = astropy.units.Unit(hdr_unit_str, format="FITS")
-            if hdr_unit == astropy.units.adu and post_isr_unit == astropy.units.electron:
+            if hdr_unit == astropy.units.adu and instrumental_unit == astropy.units.electron:
                 # Fix incorrect BUNIT='adu' in LSST
                 # preliminary_visit_image.
                 hdr_unit = astropy.units.electron
@@ -596,7 +596,7 @@ class VisitImage(MaskedImage):
             bounds=Polygon.from_legacy(legacy_polygon) if legacy_polygon is not None else None,
             photometric_scaling=(
                 field_from_legacy_photo_calib(
-                    legacy_photo_calib, bounds=detector_bbox, post_isr_unit=post_isr_unit
+                    legacy_photo_calib, bounds=detector_bbox, instrumental_unit=instrumental_unit
                 )
                 if legacy_photo_calib is not None
                 else None
@@ -827,14 +827,14 @@ class VisitImage(MaskedImage):
             # this opaque_metadata down to MaskedImage._read_legacy_hdus
             # so it doesn't try to extract it again.
             opaque_metadata.extract_legacy_primary_header(primary_header)
-            if (post_isr_unit := opaque_metadata.get_post_isr_unit()) is None:
-                post_isr_unit = astropy.units.electron
+            if (instrumental_unit := opaque_metadata.get_instrumental_unit()) is None:
+                instrumental_unit = astropy.units.electron
             photometric_scaling: Field | None = None
             if component in (None, "photometric_scaling"):
                 legacy_photo_calib = reader.readPhotoCalib()
                 if legacy_photo_calib is not None:
                     photometric_scaling = field_from_legacy_photo_calib(
-                        legacy_photo_calib, bounds=detector_bbox, post_isr_unit=post_isr_unit
+                        legacy_photo_calib, bounds=detector_bbox, instrumental_unit=instrumental_unit
                     )
             if component == "photometric_scaling":
                 return photometric_scaling

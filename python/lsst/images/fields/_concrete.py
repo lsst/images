@@ -131,7 +131,7 @@ def field_from_legacy_background(
 def field_from_legacy_photo_calib(
     legacy_photo_calib: LegacyPhotoCalib,
     bounds: Bounds,
-    post_isr_unit: astropy.units.UnitBase = astropy.units.electron,
+    instrumental_unit: astropy.units.UnitBase = astropy.units.electron,
 ) -> Field | None:
     """Convert a legacy `lsst.afw.image.PhotoCalib` into a `BaseField` object.
 
@@ -141,7 +141,7 @@ def field_from_legacy_photo_calib(
         Calibration object to convert.
     bounds
         Bounds of the returned field.
-    post_isr_unit
+    instrumental_unit
         The instrumental units the legacy calibration transforms from.  These
         will be used as the denominator of the units of the returned field,
         with ``astropy.units.nJy`` as the numerator.
@@ -164,12 +164,12 @@ def field_from_legacy_photo_calib(
             return ChebyshevField(
                 bounds,
                 np.array([[calibration_mean]], dtype=np.float64),
-                unit=astropy.units.nJy / post_isr_unit,
+                unit=astropy.units.nJy / instrumental_unit,
             )
     else:
         normalized_field = field_from_legacy(
             legacy_photo_calib.computeScaledCalibration(),
-            unit=astropy.units.nJy / post_isr_unit,
+            unit=astropy.units.nJy / instrumental_unit,
             bounds=bounds,
         )
         return normalized_field * calibration_mean

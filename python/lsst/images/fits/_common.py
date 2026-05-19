@@ -383,13 +383,13 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         # Docstring inherited.
         return FitsOpaqueMetadata(headers=self.headers)
 
-    def get_post_isr_unit(self) -> astropy.units.UnitBase | None:
+    def get_instrumental_unit(self) -> astropy.units.UnitBase | None:
         """Extract the ``LSST ISR UNIT`` key from the primary header (if it
         exists) and wrap it with Astropy.
         """
         if (primary_header := self.headers.get(ExtensionKey())) is not None:
-            if (post_isr_unit_str := primary_header.get("LSST ISR UNITS")) is not None:
-                return astropy.units.Unit(post_isr_unit_str)
+            if (instrumental_unit_str := primary_header.get("LSST ISR UNITS")) is not None:
+                return astropy.units.Unit(instrumental_unit_str)
         return None
 
 
