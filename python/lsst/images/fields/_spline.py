@@ -191,9 +191,21 @@ class SplineField(BaseField):
     @staticmethod
     def from_legacy_background(
         legacy_background: LegacyBackground,
+        bounds: Bounds | None = None,
         unit: astropy.units.UnitBase | None = None,
     ) -> SplineField:
         """Convert from a legacy `lsst.afw.math.BackgroundMI` instance.
+
+        Parameters
+        ----------
+        legacy
+            Legacy background object to convert.
+        bounds
+            The bounds of the returned field, if they should be different from
+            the bounding box of ``legacy_background``.
+        unit
+            The units of the returned field (`lsst.afw.math.Background`
+            objects do not know their units).
 
         Notes
         -----
@@ -216,7 +228,11 @@ class SplineField(BaseField):
         x = legacy_background.getBinCentersX()
         y = legacy_background.getBinCentersY()
         return SplineField(
-            Box.from_legacy(legacy_background.getImageBBox()), stats_image.image.array, x=x, y=y, unit=unit
+            Box.from_legacy(legacy_background.getImageBBox()) if bounds is None else bounds,
+            stats_image.image.array,
+            x=x,
+            y=y,
+            unit=unit,
         )
 
     def _make_1d_interpolator(self, loc: np.ndarray, val: np.ndarray) -> Akima1DInterpolator | None:

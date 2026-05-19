@@ -67,11 +67,22 @@ SumFieldSerializationModel.model_rebuild()
 
 def field_from_legacy(
     legacy_bounded_field: LegacyBoundedField,
-    unit: astropy.units.UnitBase | None = None,
     bounds: Bounds | None = None,
+    unit: astropy.units.UnitBase | None = None,
 ) -> Field:
     """Convert a legacy `lsst.afw.math.BoundedField` subclass to a `BaseField`
     object.
+
+    Parameters
+    ----------
+    legacy_bounded_field
+        Legacy field to convert.
+    bounds
+        The bounds of the returned field, if they should be different from
+        the bounding box of ``legacy``.
+    unit
+        The units of the returned field (`lsst.afw.math.BoundedField`
+        objects do not know their units).
     """
     from lsst.afw.math import ChebyshevBoundedField, ProductBoundedField
 
@@ -87,10 +98,23 @@ def field_from_legacy(
 
 
 def field_from_legacy_background(
-    legacy_background: LegacyBackground | LegacyBackgroundList, unit: astropy.units.UnitBase | None = None
+    legacy_background: LegacyBackground | LegacyBackgroundList,
+    bounds: Bounds | None = None,
+    unit: astropy.units.UnitBase | None = None,
 ) -> Field:
     """Convert a legacy `lsst.afw.math.Background` or
     `lsst.afw.math.BackgroundList` instance to a `BaseField` object.
+
+    Parameters
+    ----------
+    legacy_background
+        Legacy background object to convert.
+    bounds
+        The bounds of the returned field, if they should be different from
+        the bounding box of ``legacy_background``.
+    unit
+        The units of the returned field (`lsst.afw.math.Background`
+        objects do not know their units).
     """
     from lsst.afw.math import ApproximateControl, BackgroundList
 

@@ -126,12 +126,27 @@ class SumField(BaseField):
     @staticmethod
     def from_legacy_background(
         legacy_background: LegacyBackgroundList,
+        bounds: Bounds | None = None,
         unit: astropy.units.UnitBase | None = None,
     ) -> SumField:
-        """Convert from a legacy `lsst.afw.math.BackgroundList` instance."""
+        """Convert from a legacy `lsst.afw.math.BackgroundList` instance.
+
+        Parameters
+        ----------
+        legacy
+            Legacy background object to convert.
+        bounds
+            The bounds of the returned field, if they should be different from
+            the bounding box of ``legacy_background``.
+        unit
+            The units of the returned field (`lsst.afw.math.BackgroundList`
+            objects do not know their units).
+        """
         from ._concrete import field_from_legacy_background
 
-        return SumField([field_from_legacy_background(b, unit) for b, *_ in legacy_background])
+        return SumField(
+            [field_from_legacy_background(b, bounds=bounds, unit=unit) for b, *_ in legacy_background]
+        )
 
 
 class SumFieldSerializationModel(ArchiveTree):
