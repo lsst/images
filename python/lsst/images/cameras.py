@@ -582,7 +582,7 @@ class Detector:
         return DetectorSerializationModel(
             attributes=self._attributes,
             amplifiers=self._amplifiers,
-            frames=self._frames.serialize(archive) if save_frames else None,
+            frames=archive.serialize_direct("frames", self._frames.serialize) if save_frames else None,
             visit=self.visit,
         )
 

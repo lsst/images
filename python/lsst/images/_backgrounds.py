@@ -15,7 +15,7 @@ __all__ = ("Background", "BackgroundMap", "BackgroundMapSerializationModel")
 import dataclasses
 import sys
 from collections.abc import Iterable, Iterator, Mapping
-from typing import Any, final
+from typing import Any, cast, final
 
 import pydantic
 
@@ -125,7 +125,10 @@ class BackgroundMap(Mapping[str, Background]):
         """Write a background map to an archive."""
         result = BackgroundMapSerializationModel(subtracted=self._subtracted)
         for name, background in self.items():
-            result.fields[name] = archive.serialize_direct(f"fields/{name}", background.field.serialize)
+            result.fields[name] = cast(
+                FieldSerializationModel,
+                archive.serialize_direct(f"fields/{name}", background.field.serialize),
+            )
             result.descriptions[name] = background.description
         return result
 

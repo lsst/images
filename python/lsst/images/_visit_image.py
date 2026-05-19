@@ -13,6 +13,7 @@ from __future__ import annotations
 
 __all__ = ("VisitImage", "VisitImageSerializationModel")
 
+import functools
 import warnings
 from collections.abc import Callable, Mapping, MutableMapping
 from types import EllipsisType
@@ -496,12 +497,15 @@ class VisitImage(MaskedImage):
                 )
         assert masked_image_model.projection is not None, "VisitImage always has a projection."
         assert masked_image_model.obs_info is not None, "VisitImage always has observation info."
-        serialized_detector = self._detector.serialize(archive)
+        serialized_detector = archive.serialize_direct("detector", self._detector.serialize)
         serialized_photometric_scaling = (
-            self._photometric_scaling.serialize(archive) if self._photometric_scaling is not None else None
+            archive.serialize_direct("photometric_scaling", self._photometric_scaling.serialize)
+            if self._photometric_scaling is not None
+            else None
         )
-        serialized_aperture_corrections = ApertureCorrectionMapSerializationModel.serialize(
-            self.aperture_corrections, archive
+        serialized_aperture_corrections = archive.serialize_direct(
+            "aperture_corrections",
+            functools.partial(ApertureCorrectionMapSerializationModel.serialize, self.aperture_corrections),
         )
         serialized_backgrounds = archive.serialize_direct("backgrounds", self._backgrounds.serialize)
         return VisitImageSerializationModel(
