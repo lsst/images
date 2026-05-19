@@ -617,16 +617,31 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
         # no photometric scaling.
         with self.assertRaises(u.UnitConversionError):
             self.visit_image.convert_unit(u.electron)
-        # Converting to the current unit should be a no-op that does not copy.
-        visit_image_nJy = self.visit_image.convert_unit(u.nJy)
+        # Converting to the current unit should be a no-op that does not need
+        # to copy.
+        visit_image_nJy = self.visit_image.convert_unit(u.nJy, copy=False)
         self.assertTrue(np.may_share_memory(visit_image_nJy.image.array, self.visit_image.image.array))
         self.assertTrue(np.may_share_memory(visit_image_nJy.variance.array, self.visit_image.variance.array))
-        # Even without a photometric_scaling attached, we should be convert to
-        # a compatible unit.
-        visit_image_mJy = self.visit_image.convert_unit(u.mJy)
+        # Even without a photometric_scaling attached, we should be able to
+        # convert to a compatible unit, but only if we allow copies.
+        with self.assertRaises(u.UnitConversionError):
+            self.visit_image.convert_unit(u.mJy, copy=False)
+        visit_image_mJy = self.visit_image.convert_unit(u.mJy, copy="as-needed")
         self.assertEqual(visit_image_mJy.unit, u.mJy)
         assert_close(self, visit_image_mJy.image.array, self.visit_image.image.array * 1e-6)
+        self.assertTrue(np.may_share_memory(visit_image_nJy.mask.array, self.visit_image.mask.array))
         assert_close(self, visit_image_mJy.variance.array, self.visit_image.variance.array * 1e-12)
+        # Test that we haven't dropped any component objects along the way,
+        # and that they're all still the same objects or thin views.
+        self.assertTrue(np.may_share_memory(visit_image_mJy.mask.array, self.visit_image.mask.array))
+        self.assertIs(visit_image_mJy.projection, self.visit_image.projection)
+        self.assertIs(visit_image_mJy.obs_info, self.visit_image.obs_info)
+        self.assertIs(visit_image_mJy.summary_stats, self.visit_image.summary_stats)
+        self.assertIs(visit_image_mJy.psf, self.visit_image.psf)
+        self.assertIs(visit_image_mJy.detector, self.visit_image.detector)
+        self.assertIs(visit_image_mJy.bounds, self.visit_image.bounds)
+        self.assertIs(visit_image_mJy.aperture_corrections, self.visit_image.aperture_corrections)
+        self.assertIs(visit_image_mJy.photometric_scaling, self.visit_image.photometric_scaling)
         # Attach the final PhotoCalib (this isn't stored with the legacy file
         # because that is the mapping to nJy, which is trivial).
         visit_summary = ExposureCatalog.readFits(
@@ -647,11 +662,14 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
         with self.assertRaises(u.UnitConversionError):
             self.visit_image.convert_unit(u.mm)
         # Uncalibrating via the photometric_scaling matches what legacy code
-        # does.
+        # does, and by default it copies everything.
+        with self.assertRaises(u.UnitConversionError):
+            self.visit_image.convert_unit(u.electron, copy=False)
         legacy_masked_image_e = legacy_photo_calib.uncalibrateImage(self.legacy_exposure.maskedImage)
         visit_image_e = self.visit_image.convert_unit(u.electron)
         assert_close(self, visit_image_e.image.array, legacy_masked_image_e.image.array)
         assert_close(self, visit_image_e.variance.array, legacy_masked_image_e.variance.array)
+        self.assertFalse(np.may_share_memory(visit_image_e.mask.array, self.visit_image.mask.array))
         # We can also uncalibrate if we start with an image that has units
         # that are compatible with the photometric_scaling but not identical
         # to it.
@@ -663,17 +681,6 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
         visit_image_nJy = visit_image_e.convert_unit(u.nJy)
         assert_close(self, visit_image_nJy.image.array, self.visit_image.image.array)
         assert_close(self, visit_image_nJy.variance.array, self.visit_image.variance.array)
-        # Test that we haven't dropped any component objects along the way,
-        # and that they're all still the same objects or thin views.
-        self.assertTrue(np.may_share_memory(visit_image_nJy.mask.array, self.visit_image.mask.array))
-        self.assertIs(visit_image_nJy.projection, self.visit_image.projection)
-        self.assertIs(visit_image_nJy.obs_info, self.visit_image.obs_info)
-        self.assertIs(visit_image_nJy.summary_stats, self.visit_image.summary_stats)
-        self.assertIs(visit_image_nJy.psf, self.visit_image.psf)
-        self.assertIs(visit_image_nJy.detector, self.visit_image.detector)
-        self.assertIs(visit_image_nJy.bounds, self.visit_image.bounds)
-        self.assertIs(visit_image_nJy.aperture_corrections, self.visit_image.aperture_corrections)
-        self.assertIs(visit_image_nJy.photometric_scaling, self.visit_image.photometric_scaling)
 
 
 @unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")

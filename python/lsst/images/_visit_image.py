@@ -354,7 +354,12 @@ class VisitImage(MaskedImage):
             copy=True,
         )
 
-    def convert_unit(self, unit: astropy.units.UnitBase = astropy.units.nJy) -> VisitImage:
+    def convert_unit(
+        self,
+        unit: astropy.units.UnitBase = astropy.units.nJy,
+        copy: Literal["as-needed"] | bool = True,
+        copy_detector: bool = False,
+    ) -> VisitImage:
         """Return an equivalent image with different pixel units.
 
         Parameters
@@ -370,18 +375,33 @@ class VisitImage(MaskedImage):
               `photometric_scaling` (i.e. if the current image is in
               calibrated units and we want to revert back to instrumental
               units).
+        copy
+            Whether to copy the images and other components.  If `True`, all
+            components that aren't controlled by some other argument will
+            always be deep-copied.  If `False`, the operation will fail if the
+            image is not already in the right units.  If ``as-needed``, only
+            the image and variance will be copied, and only if they are not
+            already in the right units.
+        copy_detector
+            Whether to deep-copy the `detector` attribute.
 
         Returns
         -------
         `VisitImage`
-            An image with the given units.  Will always share most attributes
-            with self, with the `image` and `variance` copied only if they
-            need to be modified (i.e. they do not already have the right
-            units).
+            An image with the given units.
         """
+        if copy not in (True, False, "as-needed"):
+            raise TypeError(f"Invalid value for 'copy' parameter: {copy!r}.")
         if (factor := _get_unit_conversion_factor(self.unit, unit)) is not None:
             if factor == 1.0:
-                return self[...]
+                if copy is True:  # not "as-needed"
+                    return self.copy()
+                else:
+                    return self[...]
+            elif copy is False:
+                raise astropy.units.UnitConversionError(
+                    f"Units must be converted ({self.unit} -> {unit}), but copy=False."
+                )
             image = Image(self._image.array * factor, bbox=self.bbox, projection=self.projection, unit=unit)
             variance = Image(
                 self._variance.array * factor**2,
@@ -394,6 +414,10 @@ class VisitImage(MaskedImage):
                 f"is no constant conversion from {self.unit} to {unit}."
             )
         else:
+            if copy is False:
+                raise astropy.units.UnitConversionError(
+                    f"Photometric scaling must be applied to go from ={self.unit} to {unit}, but copy=False."
+                )
             scaling = self._photometric_scaling
             assert scaling.unit is not None, "Checked at construction."
             if (constant_factor := _get_unit_conversion_factor(self.unit * scaling.unit, unit)) is not None:
@@ -421,19 +445,22 @@ class VisitImage(MaskedImage):
             variance = Image(np.square(scaling_array), bbox=self.bbox, unit=unit**2)
             image.array *= self._image.array
             variance.array *= self._variance.array
+        copy_components = copy is True
         return self._transfer_metadata(
             VisitImage(
                 image=image,
-                mask=self._mask,
+                mask=self._mask if not copy_components else self._mask.copy(),
                 variance=variance,
-                projection=self.projection,
-                obs_info=self.obs_info,
-                psf=self._psf,
-                bounds=self._bounds,
-                summary_stats=self.summary_stats,
-                detector=self._detector,
-                photometric_scaling=self._photometric_scaling,
-                aperture_corrections=self.aperture_corrections,
+                projection=self.projection,  # never copied; immutable
+                obs_info=self.obs_info if not copy_components else self.obs_info.model_copy(),
+                psf=self._psf,  # never copied; immutable
+                bounds=self._bounds,  # never copied; immutable
+                summary_stats=self.summary_stats if not copy_components else self.summary_stats.model_copy(),
+                detector=self._detector if not copy_detector else self._detector.copy(),
+                photometric_scaling=self._photometric_scaling,  # never copied; immutable
+                aperture_corrections=(
+                    self.aperture_corrections if not copy_components else self.aperture_corrections.copy()
+                ),
             )
         )
 
