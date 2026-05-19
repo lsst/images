@@ -383,6 +383,15 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         # Docstring inherited.
         return FitsOpaqueMetadata(headers=self.headers)
 
+    def get_instrumental_unit(self) -> astropy.units.UnitBase | None:
+        """Extract the ``LSST ISR UNIT`` key from the primary header (if it
+        exists) and wrap it with Astropy.
+        """
+        if (primary_header := self.headers.get(ExtensionKey())) is not None:
+            if (instrumental_unit_str := primary_header.get("LSST ISR UNITS")) is not None:
+                return astropy.units.Unit(instrumental_unit_str)
+        return None
+
 
 def add_offset_wcs(header: astropy.io.fits.Header, *, x: int | float, y: int | float, key: str = "A") -> None:
     """Add a trivial FITS WCS to a header that applies the appropriate offset

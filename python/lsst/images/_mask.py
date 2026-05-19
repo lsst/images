@@ -360,7 +360,7 @@ class Mask(GeneralizedImage):
         if start is not None:
             start = tuple(start)
         if isinstance(array_or_fill, np.ndarray):
-            array = np.array(array_or_fill, dtype=schema.dtype)
+            array = np.array(array_or_fill, dtype=schema.dtype, copy=None)
             if array.ndim != 3:
                 raise ValueError("Mask array must be 3-d.")
             if bbox is None:

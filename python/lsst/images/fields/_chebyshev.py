@@ -250,12 +250,32 @@ class ChebyshevField(BaseField):
 
     @staticmethod
     def from_legacy(
-        legacy: LegacyChebyshevBoundedField, unit: astropy.units.UnitBase | None = None
+        legacy: LegacyChebyshevBoundedField,
+        unit: astropy.units.UnitBase | None = None,
+        bounds: Bounds | None = None,
     ) -> ChebyshevField:
-        """Convert from a legacy `lsst.afw.math.ChebyshevBoundedField`."""
-        return ChebyshevField(
-            bounds=Box.from_legacy(legacy.getBBox()), coefficients=legacy.getCoefficients(), unit=unit
-        )
+        """Convert from a legacy `lsst.afw.math.ChebyshevBoundedField`.
+
+        Parameters
+        ----------
+        legacy
+            Legacy field to convert.
+        unit
+            The units of the returned field (`lsst.afw.math.BoundedField`
+            objects do not know their units).
+        bounds
+            The bounds of the returned field, if they should be different from
+            the bounding box of ``legacy``.
+        """
+        bbox = Box.from_legacy(legacy.getBBox())
+        if bounds is not None:
+            if bounds.bbox != bbox:
+                raise ValueError(
+                    "Custom bounds when converting a ChebyshevBoundedField must not change the bbox."
+                )
+        else:
+            bounds = bbox
+        return ChebyshevField(bounds=bounds, coefficients=legacy.getCoefficients(), unit=unit)
 
     def to_legacy(self) -> LegacyChebyshevBoundedField:
         """Convert to a legacy `lsst.afw.math.ChebyshevBoundedField`."""
@@ -266,9 +286,22 @@ class ChebyshevField(BaseField):
     @staticmethod
     def from_legacy_background(
         legacy_background: LegacyBackground,
+        bounds: Bounds | None = None,
         unit: astropy.units.UnitBase | None = None,
     ) -> ChebyshevField:
-        """Convert from a legacy `lsst.afw.math.BackgroundMI` instance."""
+        """Convert from a legacy `lsst.afw.math.BackgroundMI` instance.
+
+        Parameters
+        ----------
+        legacy
+            Legacy background object to convert.
+        bounds
+            The bounds of the returned field, if they should be different from
+            the bounding box of ``legacy_background``.
+        unit
+            The units of the returned field (`lsst.afw.math.Background`
+            objects do not know their units).
+        """
         from lsst.afw.math import ApproximateControl
 
         approx_control = legacy_background.getBackgroundControl().getApproximateControl()
@@ -281,8 +314,16 @@ class ChebyshevField(BaseField):
             weight = None
         x = legacy_background.getBinCentersX()
         y = legacy_background.getBinCentersY()
+        bbox = Box.from_legacy(legacy_background.getImageBBox())
+        if bounds is not None:
+            if bounds.bbox != bbox:
+                raise ValueError(
+                    "Custom bounds when converting a Chebyshev background must not change the bbox."
+                )
+        else:
+            bounds = bbox
         return ChebyshevField.fit(
-            Box.from_legacy(legacy_background.getImageBBox()),
+            bounds,
             stats_image.image.array,
             x=x,
             y=y,

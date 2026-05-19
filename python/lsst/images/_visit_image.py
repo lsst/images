@@ -21,6 +21,7 @@ from typing import Any, Literal, cast, overload
 import astropy.io.fits
 import astropy.units
 import astropy.wcs
+import numpy as np
 import pydantic
 from astro_metadata_translator import ObservationInfo, VisitInfoTranslator
 
@@ -38,6 +39,7 @@ from .aperture_corrections import (
     aperture_corrections_from_legacy,
 )
 from .cameras import Detector, DetectorSerializationModel
+from .fields import Field, FieldSerializationModel, field_from_legacy_photo_calib
 from .fits import FitsOpaqueMetadata
 from .psfs import (
     GaussianPointSpreadFunction,
@@ -151,6 +153,11 @@ class VisitImage(MaskedImage):
     summary_stats
         Summary statistics associated with this visit.  Initialized to default
         values if not provided.
+    photometric_scaling
+        Field that can be used to multiply a post-ISR image units to yield
+        calibrated image units.  This may be a scaling that was already
+        applied (so dividing by it will recover the post-ISR units) or a
+        scaling that has not been applied, depending on ``image.unit``.
     psf
         Point-spread function model for this image, or an exception explaining
         why it could not be read (to be raised if the PSF is requested later).
@@ -175,6 +182,7 @@ class VisitImage(MaskedImage):
         bounds: Bounds | None = None,
         obs_info: ObservationInfo | None = None,
         summary_stats: ObservationSummaryStats | None = None,
+        photometric_scaling: Field | None = None,
         psf: PointSpreadFunction | ArchiveReadError,
         detector: Detector,
         aperture_corrections: ApertureCorrectionMap | None = None,
@@ -200,6 +208,9 @@ class VisitImage(MaskedImage):
         if summary_stats is None:
             summary_stats = ObservationSummaryStats()
         self._summary_stats = summary_stats
+        if photometric_scaling is not None and photometric_scaling.unit is None:
+            raise TypeError("If a photometric_scaling is provided, it must have units.")
+        self._photometric_scaling = photometric_scaling
         self._psf = psf
         self._detector = detector
         self._aperture_corrections = aperture_corrections if aperture_corrections is not None else {}
@@ -257,6 +268,19 @@ class VisitImage(MaskedImage):
         return self._summary_stats
 
     @property
+    def photometric_scaling(self) -> Field | None:
+        """Field that multiplies a post-ISR image to yield the calibrated
+        image (~`fields.BaseField`).
+        """
+        return self._photometric_scaling
+
+    @photometric_scaling.setter
+    def photometric_scaling(self, value: Field):
+        if value.unit is None:
+            raise TypeError("The photometric_scaling for a VisitImage must have units.")
+        self._photometric_scaling = value
+
+    @property
     def psf(self) -> PointSpreadFunction:
         """The point-spread function model for this image
         (`.psfs.PointSpreadFunction`).
@@ -294,6 +318,7 @@ class VisitImage(MaskedImage):
                 bounds=self._bounds,  # don't need to intersect here, because __init__ will do that.
                 summary_stats=self.summary_stats,
                 detector=self._detector,
+                photometric_scaling=self._photometric_scaling,
                 aperture_corrections=self.aperture_corrections,
             ),
             bbox=bbox,
@@ -323,9 +348,120 @@ class VisitImage(MaskedImage):
                 bounds=self._bounds,
                 summary_stats=self.summary_stats.model_copy(),
                 detector=self._detector.copy() if copy_detector else self._detector,
+                photometric_scaling=self._photometric_scaling,
                 aperture_corrections=self.aperture_corrections.copy(),
             ),
             copy=True,
+        )
+
+    def convert_unit(
+        self,
+        unit: astropy.units.UnitBase = astropy.units.nJy,
+        copy: Literal["as-needed"] | bool = True,
+        copy_detector: bool = False,
+    ) -> VisitImage:
+        """Return an equivalent image with different pixel units.
+
+        Parameters
+        ----------
+        unit
+            The unit to transform to.  This may be any of the following:
+
+            - any unit directly relatable to the current units via Astropy;
+            - any unit relatable to the product of the current units with the
+              `photometric_scaling` (i.e. if the current image is in
+              instrumental units but we know how to calibrate them)
+            - any unit relatable to the quotient of the current units with the
+              `photometric_scaling` (i.e. if the current image is in
+              calibrated units and we want to revert back to instrumental
+              units).
+        copy
+            Whether to copy the images and other components.  If `True`, all
+            components that aren't controlled by some other argument will
+            always be deep-copied.  If `False`, the operation will fail if the
+            image is not already in the right units.  If ``as-needed``, only
+            the image and variance will be copied, and only if they are not
+            already in the right units.
+        copy_detector
+            Whether to deep-copy the `detector` attribute.
+
+        Returns
+        -------
+        `VisitImage`
+            An image with the given units.
+        """
+        if copy not in (True, False, "as-needed"):
+            raise TypeError(f"Invalid value for 'copy' parameter: {copy!r}.")
+        if (factor := _get_unit_conversion_factor(self.unit, unit)) is not None:
+            if factor == 1.0:
+                if copy is True:  # not "as-needed"
+                    return self.copy()
+                else:
+                    return self[...]
+            elif copy is False:
+                raise astropy.units.UnitConversionError(
+                    f"Units must be converted ({self.unit} -> {unit}), but copy=False."
+                )
+            image = Image(self._image.array * factor, bbox=self.bbox, projection=self.projection, unit=unit)
+            variance = Image(
+                self._variance.array * factor**2,
+                bbox=self.bbox,
+                unit=unit**2,
+            )
+        elif self._photometric_scaling is None:
+            raise astropy.units.UnitConversionError(
+                "VisitImage.photometric_scaling is None, and there "
+                f"is no constant conversion from {self.unit} to {unit}."
+            )
+        else:
+            if copy is False:
+                raise astropy.units.UnitConversionError(
+                    f"Photometric scaling must be applied to go from ={self.unit} to {unit}, but copy=False."
+                )
+            scaling = self._photometric_scaling
+            assert scaling.unit is not None, "Checked at construction."
+            if (constant_factor := _get_unit_conversion_factor(self.unit * scaling.unit, unit)) is not None:
+                if constant_factor != 1.0:
+                    scaling = scaling * constant_factor
+                scaling_array = scaling.render(self.bbox, dtype=self.image.array.dtype).array
+            elif (constant_factor := _get_unit_conversion_factor(self.unit / scaling.unit, unit)) is not None:
+                if constant_factor != 1.0:
+                    scaling = scaling / constant_factor
+                scaling_array = scaling.render(self.bbox, dtype=self.image.array.dtype).array
+                np.true_divide(1.0, scaling_array, out=scaling_array)
+            else:
+                raise astropy.units.UnitConversionError(
+                    f"photometric_scaling with units {scaling.unit} does not "
+                    f"provide a path from {self.unit} to {unit}."
+                )
+            # We needed to allocate a new array to evaluate the scaling field,
+            # and then we need to allocate another to hold its square for the
+            # variance scaling. But then we can multiply those arrays in-place
+            # to get the output image and variance to avoid yet more
+            # allocations (note we can't instead multiply the visit image's
+            # image and variance arrays in place because they might have other
+            # references that are still associated with the old units).
+            image = Image(scaling_array, bbox=self.bbox, unit=unit)
+            variance = Image(np.square(scaling_array), bbox=self.bbox, unit=unit**2)
+            image.array *= self._image.array
+            variance.array *= self._variance.array
+        copy_components = copy is True
+        return self._transfer_metadata(
+            VisitImage(
+                image=image,
+                mask=self._mask if not copy_components else self._mask.copy(),
+                variance=variance,
+                projection=self.projection,  # never copied; immutable
+                obs_info=self.obs_info if not copy_components else self.obs_info.model_copy(),
+                psf=self._psf,  # never copied; immutable
+                bounds=self._bounds,  # never copied; immutable
+                summary_stats=self.summary_stats if not copy_components else self.summary_stats.model_copy(),
+                detector=self._detector if not copy_detector else self._detector.copy(),
+                photometric_scaling=self._photometric_scaling,  # never copied; immutable
+                aperture_corrections=(
+                    self.aperture_corrections if not copy_components else self.aperture_corrections.copy()
+                ),
+            )
         )
 
     def serialize(self, archive: OutputArchive[Any]) -> VisitImageSerializationModel:
@@ -347,6 +483,9 @@ class VisitImage(MaskedImage):
         assert masked_image_model.projection is not None, "VisitImage always has a projection."
         assert masked_image_model.obs_info is not None, "VisitImage always has observation info."
         serialized_detector = self._detector.serialize(archive)
+        serialized_photometric_scaling = (
+            self._photometric_scaling.serialize(archive) if self._photometric_scaling is not None else None
+        )
         serialized_aperture_corrections = ApertureCorrectionMapSerializationModel.serialize(
             self.aperture_corrections, archive
         )
@@ -356,6 +495,7 @@ class VisitImage(MaskedImage):
             variance=masked_image_model.variance,
             projection=masked_image_model.projection,
             obs_info=masked_image_model.obs_info,
+            photometric_scaling=serialized_photometric_scaling,
             psf=serialized_psf,
             summary_stats=self.summary_stats,
             detector=serialized_detector,
@@ -379,7 +519,7 @@ class VisitImage(MaskedImage):
     def from_legacy(
         legacy: Any,
         *,
-        unit: astropy.units.Unit | None = None,
+        unit: astropy.units.UnitBase | None = None,
         plane_map: Mapping[str, MaskPlane] | None = None,
         instrument: str | None = None,
         visit: int | None = None,
@@ -412,9 +552,6 @@ class VisitImage(MaskedImage):
             "LSST BUTLER DATAID INSTRUMENT", instrument, md, obs_info.instrument, str
         )
         visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, None, int)
-        unit = _extract_or_check_header(
-            "BUNIT", unit, md, None, lambda x: astropy.units.Unit(x, format="fits")
-        )
         legacy_wcs = legacy.getWcs()
         if legacy_wcs is None:
             raise ValueError("Exposure does not have a SkyWcs.")
@@ -433,6 +570,18 @@ class VisitImage(MaskedImage):
             warnings.simplefilter("ignore", category=astropy.io.fits.verify.VerifyWarning)
             primary_header.update(md.toOrderedDict())
         opaque_fits_metadata.extract_legacy_primary_header(primary_header)
+        instrumental_unit = opaque_fits_metadata.get_instrumental_unit() or astropy.units.electron
+        hdr_unit: astropy.units.UnitBase | None = None
+        if hdr_unit_str := md.get("BUNIT"):
+            hdr_unit = astropy.units.Unit(hdr_unit_str, format="FITS")
+            if hdr_unit == astropy.units.adu and instrumental_unit == astropy.units.electron:
+                # Fix incorrect BUNIT='adu' in LSST
+                # preliminary_visit_image.
+                hdr_unit = astropy.units.electron
+        if unit is None:
+            unit = hdr_unit
+        elif hdr_unit is not None and hdr_unit != unit:
+            raise ValueError(f"BUNIT value {hdr_unit} disagrees with given unit {unit}.")
         projection = Projection.from_legacy(
             legacy_wcs,
             DetectorFrame(
@@ -450,6 +599,7 @@ class VisitImage(MaskedImage):
         legacy_summary_stats = legacy.info.getSummaryStats()
         legacy_ap_corr_map = legacy.info.getApCorrMap()
         legacy_polygon = legacy.info.getValidPolygon()
+        legacy_photo_calib = legacy.info.getPhotoCalib()
         result = VisitImage(
             image=masked_image.image.view(unit=unit),
             mask=masked_image.mask,
@@ -471,6 +621,13 @@ class VisitImage(MaskedImage):
                 else None
             ),
             bounds=Polygon.from_legacy(legacy_polygon) if legacy_polygon is not None else None,
+            photometric_scaling=(
+                field_from_legacy_photo_calib(
+                    legacy_photo_calib, bounds=detector_bbox, instrumental_unit=instrumental_unit
+                )
+                if legacy_photo_calib is not None
+                else None
+            ),
         )
 
         result._opaque_metadata = opaque_fits_metadata
@@ -556,6 +713,14 @@ class VisitImage(MaskedImage):
     def read_legacy(
         filename: str,
         *,
+        component: Literal["photometric_scaling"],
+    ) -> Field | None: ...
+
+    @overload
+    @staticmethod
+    def read_legacy(
+        filename: str,
+        *,
         component: Literal["summary_stats"],
     ) -> ObservationSummaryStats: ...
 
@@ -595,6 +760,7 @@ class VisitImage(MaskedImage):
             "projection",
             "psf",
             "detector",
+            "photometric_scaling",
             "obs_info",
             "summary_stats",
             "aperture_corrections",
@@ -663,9 +829,16 @@ class VisitImage(MaskedImage):
                 aperture_corrections = aperture_corrections_from_legacy(legacy_ap_corr_map)
             if component == "aperture_corrections":
                 return aperture_corrections
-        assert component in (None, "image", "mask", "variance", "projection", "obs_info", "detector"), (
-            component
-        )  # for MyPy
+        assert component in (
+            None,
+            "image",
+            "mask",
+            "variance",
+            "projection",
+            "obs_info",
+            "detector",
+            "photometric_scaling",
+        ), component  # for MyPy
         with astropy.io.fits.open(filename) as hdu_list:
             primary_header = hdu_list[0].header
             obs_info = _obs_info_from_md(primary_header)
@@ -676,6 +849,22 @@ class VisitImage(MaskedImage):
                 "LSST BUTLER DATAID INSTRUMENT", instrument, primary_header, obs_info.instrument, str
             )
             visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, primary_header, None, int)
+            opaque_metadata = FitsOpaqueMetadata()
+            # This extraction is destructive, so we need to be sure to pass
+            # this opaque_metadata down to MaskedImage._read_legacy_hdus
+            # so it doesn't try to extract it again.
+            opaque_metadata.extract_legacy_primary_header(primary_header)
+            if (instrumental_unit := opaque_metadata.get_instrumental_unit()) is None:
+                instrumental_unit = astropy.units.electron
+            photometric_scaling: Field | None = None
+            if component in (None, "photometric_scaling"):
+                legacy_photo_calib = reader.readPhotoCalib()
+                if legacy_photo_calib is not None:
+                    photometric_scaling = field_from_legacy_photo_calib(
+                        legacy_photo_calib, bounds=detector_bbox, instrumental_unit=instrumental_unit
+                    )
+            if component == "photometric_scaling":
+                return photometric_scaling
             if component == "detector":
                 return Detector.from_legacy(
                     legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
@@ -697,6 +886,7 @@ class VisitImage(MaskedImage):
             from_masked_image = MaskedImage._read_legacy_hdus(
                 hdu_list,
                 filename,
+                opaque_metadata=opaque_metadata,
                 preserve_quantization=preserve_quantization,
                 plane_map=plane_map,
                 component=component,
@@ -719,6 +909,7 @@ class VisitImage(MaskedImage):
             summary_stats=summary_stats,
             aperture_corrections=aperture_corrections,
             bounds=Polygon.from_legacy(legacy_polygon) if legacy_polygon is not None else None,
+            photometric_scaling=photometric_scaling,
         )
         result._opaque_metadata = from_masked_image._opaque_metadata
         return result
@@ -747,6 +938,10 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     obs_info: ObservationInfo = pydantic.Field(
         description="Standardized description of visit metadata",
     )
+    photometric_scaling: FieldSerializationModel | None = pydantic.Field(
+        default=None,
+        description="Scaling that can be used to multiply a post-ISR image to yield calibrated pixel values.",
+    )
     summary_stats: ObservationSummaryStats = pydantic.Field(
         description="Summary statistics for the observation."
     )
@@ -768,6 +963,9 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
         psf = self.deserialize_psf(archive)
         detector = self.detector.deserialize(archive)
         aperture_corrections = self.aperture_corrections.deserialize(archive)
+        photometric_scaling = (
+            self.photometric_scaling.deserialize(archive) if self.photometric_scaling is not None else None
+        )
         return VisitImage(
             masked_image.image,
             mask=masked_image.mask,
@@ -778,6 +976,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
             summary_stats=self.summary_stats,
             detector=detector,
             aperture_corrections=aperture_corrections,
+            photometric_scaling=photometric_scaling,
             bounds=self.bounds.deserialize() if self.bounds is not None else None,
         )._finish_deserialize(self)
 
@@ -826,3 +1025,12 @@ def _extract_or_check_header[T](
     return _extract_or_check_value(
         key, given_value, ("ObservationInfo", obs_info_value), (f"header key {key}", hdr_value)
     )
+
+
+def _get_unit_conversion_factor(
+    original: astropy.units.UnitBase, new: astropy.units.UnitBase
+) -> float | None:
+    try:
+        return original.to(new)
+    except astropy.units.UnitConversionError:
+        return None

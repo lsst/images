@@ -379,6 +379,12 @@ class VisitImageFormatter(MaskedImageFormatter):
                 return ComponentSentinel.INVALID_COMPONENT_MODEL
             case "aperture_corrections":
                 return tree.aperture_corrections.deserialize(archive)
+            case "photometric_scaling":
+                return (
+                    tree.photometric_scaling.deserialize(archive)
+                    if tree.photometric_scaling is not None
+                    else None
+                )
         return ComponentSentinel.UNRECOGNIZED_COMPONENT
 
 

@@ -117,7 +117,7 @@ class Image(GeneralizedImage):
         super().__init__(metadata)
         if isinstance(array_or_fill, np.ndarray):
             if dtype is not None:
-                array = np.array(array_or_fill, dtype=dtype)
+                array = np.array(array_or_fill, dtype=dtype, copy=None)
             else:
                 array = array_or_fill
             if bbox is None:
@@ -483,6 +483,12 @@ class Image(GeneralizedImage):
         unit: astropy.units.UnitBase | None = None
         if (fits_unit := hdu.header.pop("BUNIT", None)) is not None:
             unit = astropy.units.Unit(fits_unit, format="fits")
+            if opaque_metadata.get_instrumental_unit() == astropy.units.electron:
+                # Fix incorrect BUNIT='adu' in LSST preliminary_visit_image.
+                if unit == astropy.units.adu:
+                    unit = astropy.units.electron
+                if unit == astropy.units.adu**2:
+                    unit = astropy.units.electron**2
         dx: int = hdu.header.pop("LTV1")
         dy: int = hdu.header.pop("LTV2")
         start = YX(y=-dy, x=-dx)

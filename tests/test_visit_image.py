@@ -37,7 +37,7 @@ from lsst.images import (
 )
 from lsst.images.aperture_corrections import ApertureCorrectionMap, aperture_corrections_to_legacy
 from lsst.images.cameras import Detector
-from lsst.images.fields import ChebyshevField
+from lsst.images.fields import ChebyshevField, field_from_legacy_photo_calib
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
 from lsst.images.json import read as read_json
 from lsst.images.psfs import GaussianPointSpreadFunction, PointSpreadFunction
@@ -46,10 +46,12 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripNdf,
     TemporaryButler,
+    assert_close,
     assert_masked_images_equal,
     assert_projections_equal,
     compare_aperture_corrections_to_legacy,
     compare_detector_to_legacy,
+    compare_photo_calib_to_legacy,
     compare_visit_image_to_legacy,
     make_random_projection,
 )
@@ -333,27 +335,19 @@ class VisitImageTestCase(unittest.TestCase):
         self.assertEqual(roundtrip.result.bounds, self.polygon)
 
 
-@unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
-class VisitImageLegacyTestCase(unittest.TestCase):
-    """Tests for the VisitImage class and the basics of the archive system.
+class VisitImageLegacyTestMixin:
+    """Tests for the VisitImage class and the basics of the archive, to be
+    specialized for a particular test image.
 
-    Requires legacy code.
+    `setUp` or `setUpClass` must be implemented to set the attributes declared
+    in the class.
     """
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        assert EXTERNAL_DATA_DIR is not None, "Guaranteed by decorator."
-        cls.filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
-        try:
-            from lsst.afw.image import ExposureFitsReader
-
-            cls.legacy_exposure = ExposureFitsReader(cls.filename).read()
-        except ImportError:
-            raise unittest.SkipTest("afw not available; cannot read legacy visit images") from None
-        cls.plane_map = plane_map = get_legacy_visit_image_mask_planes()
-        cls.visit_image = VisitImage.read_legacy(
-            cls.filename, preserve_quantization=True, plane_map=plane_map
-        )
+    filename: str
+    legacy_exposure: Any
+    plane_map: dict[str, MaskPlane]
+    visit_image: VisitImage
+    unit: u.UnitBase
 
     def test_legacy_errors(self) -> None:
         """Legacy read failure modes."""
@@ -364,9 +358,9 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             VisitImage.from_legacy(self.legacy_exposure, unit=u.mJy)
         visit = VisitImage.from_legacy(
-            self.legacy_exposure, instrument="LSSTCam", unit=u.nJy, visit=2025052000177
+            self.legacy_exposure, instrument="LSSTCam", unit=self.unit, visit=2025052000177
         )
-        self.assertEqual(visit.unit, u.nJy)
+        self.assertEqual(visit.unit, self.unit)
 
         with self.assertRaises(ValueError):
             VisitImage.read_legacy(self.filename, instrument="HSC")
@@ -396,7 +390,7 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         self.check_legacy_obs_info(obs_info)
         summary_stats = VisitImage.read_legacy(self.filename, component="summary_stats")
         self.assertIsInstance(summary_stats, ObservationSummaryStats)
-        self.assertEqual(summary_stats.nPsfStar, 93)
+        self.assertEqual(summary_stats.nPsfStar, self.legacy_exposure.info.getSummaryStats().nPsfStar)
         compare_aperture_corrections_to_legacy(
             self,
             VisitImage.read_legacy(self.filename, component="aperture_corrections"),
@@ -405,6 +399,13 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         )
         detector = VisitImage.read_legacy(self.filename, component="detector")
         compare_detector_to_legacy(self, detector, self.legacy_exposure.getDetector(), is_raw_assembled=True)
+        photometric_scaling = VisitImage.read_legacy(self.filename, component="photometric_scaling")
+        compare_photo_calib_to_legacy(
+            self,
+            photometric_scaling,
+            self.legacy_exposure.getPhotoCalib(),
+            subimage_bbox=visit.bbox,
+        )
 
     def check_legacy_obs_info(self, obs_info: ObservationInfo | None) -> None:
         """Check that an `ObservationInfo` instance is not `None`, and that it
@@ -442,7 +443,7 @@ class VisitImageLegacyTestCase(unittest.TestCase):
         `VisitImage.read_legacy`.
         """
         # Check that we read the units from BUNIT.
-        self.assertEqual(self.visit_image.unit, astropy.units.nJy)
+        self.assertEqual(self.visit_image.unit, self.unit)
         # Check that the primary header has the keys we want, and none of the
         # keys we don't want.
         header = self.visit_image._opaque_metadata.headers[ExtensionKey()]
@@ -503,6 +504,7 @@ class VisitImageLegacyTestCase(unittest.TestCase):
                         "summary_stats",
                         "aperture_corrections",
                         "detector",
+                        "photometric_scaling",
                     ]
                 }
             # Try to do a butler get of a component with storage class
@@ -579,6 +581,131 @@ class VisitImageLegacyTestCase(unittest.TestCase):
                 alternates=alternates,
                 **DP2_VISIT_DETECTOR_DATA_ID,
             )
+
+
+@unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
+class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
+    """Tests for the VisitImage class using a DRP-final visit_image dataset.
+
+    Requires legacy code.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        assert EXTERNAL_DATA_DIR is not None, "Guaranteed by decorator."
+        cls.filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
+        try:
+            from lsst.afw.image import ExposureFitsReader
+
+            cls.legacy_exposure = ExposureFitsReader(cls.filename).read()
+        except ImportError:
+            raise unittest.SkipTest("afw not available; cannot read legacy visit images") from None
+        cls.plane_map = get_legacy_visit_image_mask_planes()
+        cls.visit_image = VisitImage.read_legacy(
+            cls.filename, preserve_quantization=True, plane_map=cls.plane_map
+        )
+        cls.unit = u.nJy
+
+    def test_convert_unit(self) -> None:
+        """Test using the ``photometric_scaling`` to swap between
+        calibrated and instrumental units.
+        """
+        from lsst.afw.table import ExposureCatalog
+
+        assert EXTERNAL_DATA_DIR is not None, "Guaranteed by decorator."
+        # We should not be able to convert to instrumental units when there is
+        # no photometric scaling.
+        with self.assertRaises(u.UnitConversionError):
+            self.visit_image.convert_unit(u.electron)
+        # Converting to the current unit should be a no-op that does not need
+        # to copy.
+        visit_image_nJy = self.visit_image.convert_unit(u.nJy, copy=False)
+        self.assertTrue(np.may_share_memory(visit_image_nJy.image.array, self.visit_image.image.array))
+        self.assertTrue(np.may_share_memory(visit_image_nJy.variance.array, self.visit_image.variance.array))
+        # Even without a photometric_scaling attached, we should be able to
+        # convert to a compatible unit, but only if we allow copies.
+        with self.assertRaises(u.UnitConversionError):
+            self.visit_image.convert_unit(u.mJy, copy=False)
+        visit_image_mJy = self.visit_image.convert_unit(u.mJy, copy="as-needed")
+        self.assertEqual(visit_image_mJy.unit, u.mJy)
+        assert_close(self, visit_image_mJy.image.array, self.visit_image.image.array * 1e-6)
+        self.assertTrue(np.may_share_memory(visit_image_nJy.mask.array, self.visit_image.mask.array))
+        assert_close(self, visit_image_mJy.variance.array, self.visit_image.variance.array * 1e-12)
+        # Test that we haven't dropped any component objects along the way,
+        # and that they're all still the same objects or thin views.
+        self.assertTrue(np.may_share_memory(visit_image_mJy.mask.array, self.visit_image.mask.array))
+        self.assertIs(visit_image_mJy.projection, self.visit_image.projection)
+        self.assertIs(visit_image_mJy.obs_info, self.visit_image.obs_info)
+        self.assertIs(visit_image_mJy.summary_stats, self.visit_image.summary_stats)
+        self.assertIs(visit_image_mJy.psf, self.visit_image.psf)
+        self.assertIs(visit_image_mJy.detector, self.visit_image.detector)
+        self.assertIs(visit_image_mJy.bounds, self.visit_image.bounds)
+        self.assertIs(visit_image_mJy.aperture_corrections, self.visit_image.aperture_corrections)
+        self.assertIs(visit_image_mJy.photometric_scaling, self.visit_image.photometric_scaling)
+        # Attach the final PhotoCalib (this isn't stored with the legacy file
+        # because that is the mapping to nJy, which is trivial).
+        visit_summary = ExposureCatalog.readFits(
+            os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_summary.fits")
+        )
+        legacy_photo_calib = visit_summary.find(DP2_VISIT_DETECTOR_DATA_ID["detector"]).getPhotoCalib()
+        self.visit_image.photometric_scaling = field_from_legacy_photo_calib(
+            legacy_photo_calib, bounds=self.visit_image.detector.bbox, instrumental_unit=u.electron
+        )
+        compare_photo_calib_to_legacy(
+            self,
+            self.visit_image.photometric_scaling,
+            self.legacy_exposure.getPhotoCalib(),
+            applied_legacy_photo_calib=legacy_photo_calib,
+            subimage_bbox=self.visit_image.bbox,
+        )
+        # We still can't convert to completely unrelated units.
+        with self.assertRaises(u.UnitConversionError):
+            self.visit_image.convert_unit(u.mm)
+        # Uncalibrating via the photometric_scaling matches what legacy code
+        # does, and by default it copies everything.
+        with self.assertRaises(u.UnitConversionError):
+            self.visit_image.convert_unit(u.electron, copy=False)
+        legacy_masked_image_e = legacy_photo_calib.uncalibrateImage(self.legacy_exposure.maskedImage)
+        visit_image_e = self.visit_image.convert_unit(u.electron)
+        assert_close(self, visit_image_e.image.array, legacy_masked_image_e.image.array)
+        assert_close(self, visit_image_e.variance.array, legacy_masked_image_e.variance.array)
+        self.assertFalse(np.may_share_memory(visit_image_e.mask.array, self.visit_image.mask.array))
+        # We can also uncalibrate if we start with an image that has units
+        # that are compatible with the photometric_scaling but not identical
+        # to it.
+        visit_image_mJy.photometric_scaling = self.visit_image.photometric_scaling
+        visit_image_e = visit_image_mJy.convert_unit(u.electron)
+        assert_close(self, visit_image_e.image.array, legacy_masked_image_e.image.array)
+        assert_close(self, visit_image_e.variance.array, legacy_masked_image_e.variance.array)
+        # We can re-apply the scaling go go back to calibrated units.
+        visit_image_nJy = visit_image_e.convert_unit(u.nJy)
+        assert_close(self, visit_image_nJy.image.array, self.visit_image.image.array)
+        assert_close(self, visit_image_nJy.variance.array, self.visit_image.variance.array)
+
+
+@unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
+class PreliminaryVisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
+    """Tests for the VisitImage class using a DRP preliminary_visit_image
+    dataset.
+
+    Requires legacy code.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        assert EXTERNAL_DATA_DIR is not None, "Guaranteed by decorator."
+        cls.filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "preliminary_visit_image.fits")
+        try:
+            from lsst.afw.image import ExposureFitsReader
+
+            cls.legacy_exposure = ExposureFitsReader(cls.filename).read()
+        except ImportError:
+            raise unittest.SkipTest("afw not available; cannot read legacy visit images") from None
+        cls.plane_map = get_legacy_visit_image_mask_planes()
+        cls.visit_image = VisitImage.read_legacy(
+            cls.filename, preserve_quantization=True, plane_map=cls.plane_map
+        )
+        cls.unit = u.electron
 
 
 if __name__ == "__main__":

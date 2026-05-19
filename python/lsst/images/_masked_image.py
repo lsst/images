@@ -290,7 +290,7 @@ class MaskedImage(GeneralizedImage):
     def from_legacy(
         legacy: Any,
         *,
-        unit: astropy.units.Unit | None = None,
+        unit: astropy.units.UnitBase | None = None,
         plane_map: Mapping[str, MaskPlane] | None = None,
     ) -> MaskedImage:
         """Convert from an `lsst.afw.image.MaskedImage` instance.
@@ -426,13 +426,15 @@ class MaskedImage(GeneralizedImage):
         hdu_list: astropy.io.fits.HDUList,
         uri: ResourcePathExpression,
         *,
+        opaque_metadata: fits.FitsOpaqueMetadata | None = None,
         preserve_quantization: bool = False,
         plane_map: Mapping[str, MaskPlane] | None = None,
         component: Literal["image", "mask", "variance"] | None,
         fits_wcs_frame: Frame | None = None,
     ) -> Any:
-        opaque_metadata = fits.FitsOpaqueMetadata()
-        opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
+        if opaque_metadata is None:
+            opaque_metadata = fits.FitsOpaqueMetadata()
+            opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
         image_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
         variance_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
         result: Any

@@ -119,14 +119,28 @@ class ProductField(BaseField):
 
     @staticmethod
     def from_legacy(
-        legacy: LegacyProductBoundedField, unit: astropy.units.UnitBase | None = None
+        legacy: LegacyProductBoundedField,
+        unit: astropy.units.UnitBase | None = None,
+        bounds: Bounds | None = None,
     ) -> ProductField:
-        """Convert from a legacy `lsst.afw.math.ProductBoundedField`."""
+        """Convert from a legacy `lsst.afw.math.ProductBoundedField`.
+
+        Parameters
+        ----------
+        legacy
+            Legacy field to convert.
+        unit
+            The units of the returned field (`lsst.afw.math.BoundedField`
+            objects do not know their units).
+        bounds
+            The bounds of the returned field, if they should be different from
+            the bounding box of ``legacy``.
+        """
         from ._concrete import field_from_legacy
 
         legacy_factors = legacy.getFactors()
-        operands = [field_from_legacy(f) for f in legacy_factors[:-1]]
-        operands.append(field_from_legacy(legacy_factors[-1], unit=unit))
+        operands = [field_from_legacy(f, bounds=bounds) for f in legacy_factors[:-1]]
+        operands.append(field_from_legacy(legacy_factors[-1], unit=unit, bounds=bounds))
         return ProductField(operands)
 
     def to_legacy(self) -> LegacyProductBoundedField:
