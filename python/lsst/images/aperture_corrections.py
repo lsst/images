@@ -17,7 +17,7 @@ __all__ = (
     "aperture_corrections_to_legacy",
 )
 
-from typing import TYPE_CHECKING, Any, final
+from typing import TYPE_CHECKING, Any, cast, final
 
 import pydantic
 
@@ -78,7 +78,9 @@ class ApertureCorrectionMapSerializationModel(ArchiveTree):
         """Write an aperture correction map to an archive."""
         result = ApertureCorrectionMapSerializationModel()
         for name, field in map.items():
-            result.fields[name] = field.serialize(archive)
+            result.fields[name] = cast(
+                FieldSerializationModel, archive.serialize_direct(f"fields/{name}", field.serialize)
+            )
         return result
 
     def deserialize(self, archive: InputArchive[Any]) -> ApertureCorrectionMap:

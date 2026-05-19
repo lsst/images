@@ -23,6 +23,7 @@ import astropy.units
 import astropy.wcs
 import pydantic
 
+from .._backgrounds import BackgroundMap, BackgroundMapSerializationModel
 from .._cell_grid import CellGrid, CellGridBounds, PatchDefinition
 from .._geom import YX, Box
 from .._image import Image, ImageSerializationModel
@@ -86,6 +87,8 @@ class CellCoadd(MaskedImage):
         bounds select a subset of that area.
     provenance
         Information about the images that went into the coadd.
+    backgrounds
+        Background models associated with this image.
     """
 
     def __init__(
@@ -102,6 +105,7 @@ class CellCoadd(MaskedImage):
         psf: CellPointSpreadFunction,
         patch: PatchDefinition | None = None,
         provenance: CoaddProvenance | None = None,
+        backgrounds: BackgroundMap | None = None,
     ):
         super().__init__(
             image,
@@ -126,6 +130,7 @@ class CellCoadd(MaskedImage):
         self._provenance = provenance
         if self._provenance and not self._patch:
             raise TypeError("A CellCoadd cannot carry provenance without a patch definition.")
+        self._backgrounds = backgrounds if backgrounds is not None else BackgroundMap()
 
     @property
     def skymap(self) -> str:
@@ -206,6 +211,13 @@ class CellCoadd(MaskedImage):
             raise AttributeError("Coadd has no provenance information.")
         return self._provenance
 
+    @property
+    def backgrounds(self) -> BackgroundMap:
+        """A mapping of backgrounds associated with this image
+        (`.BackgroundMap`).
+        """
+        return self._backgrounds
+
     def __getitem__(self, bbox: Box | EllipsisType) -> CellCoadd:
         if bbox is ...:
             return self
@@ -227,6 +239,7 @@ class CellCoadd(MaskedImage):
                     if self._provenance is not None
                     else None
                 ),
+                backgrounds=self._backgrounds,
             ),
             bbox=bbox,
         )
@@ -251,6 +264,7 @@ class CellCoadd(MaskedImage):
                 psf=self.psf,
                 patch=self.patch,
                 provenance=self.provenance,
+                backgrounds=self._backgrounds.copy(),
             ),
             copy=True,
         )
@@ -287,6 +301,7 @@ class CellCoadd(MaskedImage):
             if self._provenance is not None
             else None
         )
+        serialized_backgrounds = archive.serialize_direct("background", self._backgrounds.serialize)
         return CellCoaddSerializationModel(
             image=serialized_image,
             mask=serialized_mask,
@@ -298,6 +313,7 @@ class CellCoadd(MaskedImage):
             psf=serialized_psf,
             patch=self._patch,
             provenance=serialized_provenance,
+            backgrounds=serialized_backgrounds,
             metadata=self.metadata,
         )
 
@@ -422,6 +438,10 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
     provenance: CoaddProvenanceSerializationModel | None = pydantic.Field(
         description="Information about the images that went into the coadd."
     )
+    backgrounds: BackgroundMapSerializationModel = pydantic.Field(
+        default_factory=BackgroundMapSerializationModel,
+        description="Background models associated with this image.",
+    )
 
     def deserialize(  # type: ignore[override]
         self,
@@ -453,6 +473,7 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
             coadd_provenance = self.provenance.deserialize(archive)
             if bbox is not None:
                 coadd_provenance = coadd_provenance.subset(psf.bounds.cell_indices())
+        backgrounds = self.backgrounds.deserialize(archive)
         return CellCoadd(
             masked_image.image,
             mask=masked_image.mask,
@@ -464,6 +485,7 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
             psf=psf,
             patch=self.patch,
             provenance=coadd_provenance,
+            backgrounds=backgrounds,
         )._finish_deserialize(self)
 
     def deserialize_psf(self, archive: InputArchive[Any], bbox: Box | None = None) -> CellPointSpreadFunction:

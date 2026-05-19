@@ -385,6 +385,8 @@ class VisitImageFormatter(MaskedImageFormatter):
                     if tree.photometric_scaling is not None
                     else None
                 )
+            case "backgrounds":
+                return tree.backgrounds.deserialize(archive)
         return ComponentSentinel.UNRECOGNIZED_COMPONENT
 
 
@@ -407,4 +409,6 @@ class CellCoaddFormatter(MaskedImageFormatter):
                 return tree.deserialize_psf(archive, bbox=bbox)
             case "provenance":
                 return tree.deserialize_provenance(archive)
+            case "backgrounds":
+                return tree.backgrounds.deserialize(archive)
         return ComponentSentinel.UNRECOGNIZED_COMPONENT

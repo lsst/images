@@ -13,6 +13,7 @@ from __future__ import annotations
 
 __all__ = ("VisitImage", "VisitImageSerializationModel")
 
+import functools
 import warnings
 from collections.abc import Callable, Mapping, MutableMapping
 from types import EllipsisType
@@ -25,6 +26,7 @@ import numpy as np
 import pydantic
 from astro_metadata_translator import ObservationInfo, VisitInfoTranslator
 
+from ._backgrounds import BackgroundMap, BackgroundMapSerializationModel
 from ._concrete_bounds import SerializableBounds
 from ._geom import Bounds, Box
 from ._image import Image, ImageSerializationModel
@@ -167,6 +169,8 @@ class VisitImage(MaskedImage):
     aperture_corrections : `dict` [`str`, `~fields.BaseField`]
         Mapping from photometry algorithm name to the aperture correction for
         that algorithm.
+    backgrounds
+        Background models associated with this image.
     metadata
         Arbitrary flexible metadata to associate with the image.
     """
@@ -186,6 +190,7 @@ class VisitImage(MaskedImage):
         psf: PointSpreadFunction | ArchiveReadError,
         detector: Detector,
         aperture_corrections: ApertureCorrectionMap | None = None,
+        backgrounds: BackgroundMap | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ):
         super().__init__(
@@ -217,6 +222,7 @@ class VisitImage(MaskedImage):
         self._bounds = bounds if bounds is not None else self.bbox
         if not self.bbox.contains(self._bounds.bbox):
             self._bounds = self._bounds.intersection(self.bbox)
+        self._backgrounds = backgrounds if backgrounds is not None else BackgroundMap()
 
     @property
     def unit(self) -> astropy.units.UnitBase:
@@ -303,6 +309,13 @@ class VisitImage(MaskedImage):
         """
         return self._aperture_corrections
 
+    @property
+    def backgrounds(self) -> BackgroundMap:
+        """A mapping of backgrounds associated with this image
+        (`BackgroundMap`).
+        """
+        return self._backgrounds
+
     def __getitem__(self, bbox: Box | EllipsisType) -> VisitImage:
         if bbox is ...:
             return self
@@ -320,6 +333,7 @@ class VisitImage(MaskedImage):
                 detector=self._detector,
                 photometric_scaling=self._photometric_scaling,
                 aperture_corrections=self.aperture_corrections,
+                backgrounds=self._backgrounds,
             ),
             bbox=bbox,
         )
@@ -350,6 +364,7 @@ class VisitImage(MaskedImage):
                 detector=self._detector.copy() if copy_detector else self._detector,
                 photometric_scaling=self._photometric_scaling,
                 aperture_corrections=self.aperture_corrections.copy(),
+                backgrounds=self._backgrounds.copy(),
             ),
             copy=True,
         )
@@ -482,13 +497,17 @@ class VisitImage(MaskedImage):
                 )
         assert masked_image_model.projection is not None, "VisitImage always has a projection."
         assert masked_image_model.obs_info is not None, "VisitImage always has observation info."
-        serialized_detector = self._detector.serialize(archive)
+        serialized_detector = archive.serialize_direct("detector", self._detector.serialize)
         serialized_photometric_scaling = (
-            self._photometric_scaling.serialize(archive) if self._photometric_scaling is not None else None
+            archive.serialize_direct("photometric_scaling", self._photometric_scaling.serialize)
+            if self._photometric_scaling is not None
+            else None
         )
-        serialized_aperture_corrections = ApertureCorrectionMapSerializationModel.serialize(
-            self.aperture_corrections, archive
+        serialized_aperture_corrections = archive.serialize_direct(
+            "aperture_corrections",
+            functools.partial(ApertureCorrectionMapSerializationModel.serialize, self.aperture_corrections),
         )
+        serialized_backgrounds = archive.serialize_direct("backgrounds", self._backgrounds.serialize)
         return VisitImageSerializationModel(
             image=masked_image_model.image,
             mask=masked_image_model.mask,
@@ -501,6 +520,7 @@ class VisitImage(MaskedImage):
             detector=serialized_detector,
             aperture_corrections=serialized_aperture_corrections,
             bounds=self._bounds.serialize() if self._bounds != self.bbox else None,
+            backgrounds=serialized_backgrounds,
             metadata=self.metadata,
         )
 
@@ -957,6 +977,10 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
         description="Pixel validity region, if different from the image bounding box.",
         exclude_if=is_none,
     )
+    backgrounds: BackgroundMapSerializationModel = pydantic.Field(
+        default_factory=BackgroundMapSerializationModel,
+        description="Background models associated with this image.",
+    )
 
     def deserialize(self, archive: InputArchive[Any], *, bbox: Box | None = None) -> VisitImage:
         masked_image = super().deserialize(archive, bbox=bbox)
@@ -978,6 +1002,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
             aperture_corrections=aperture_corrections,
             photometric_scaling=photometric_scaling,
             bounds=self.bounds.deserialize() if self.bounds is not None else None,
+            backgrounds=self.backgrounds.deserialize(archive),
         )._finish_deserialize(self)
 
     def deserialize_psf(self, archive: InputArchive[Any]) -> PointSpreadFunction | ArchiveReadError:

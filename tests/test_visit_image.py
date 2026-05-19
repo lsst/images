@@ -23,6 +23,7 @@ import numpy as np
 from astro_metadata_translator import ObservationInfo
 
 from lsst.images import (
+    BackgroundMap,
     Box,
     DetectorFrame,
     Image,
@@ -110,6 +111,12 @@ class VisitImageTestCase(unittest.TestCase):
             detector=cls.detector,
             bounds=cls.polygon,
             aperture_corrections=cls.aperture_corrections,
+        )
+        cls.visit_image.backgrounds.add(
+            "standard",
+            ChebyshevField(det_frame.bbox, np.array([[2.0]])),
+            description="Background subtracted from the image.",
+            is_subtracted=True,
         )
         cls.visit_image._opaque_metadata = opaque
         cls.simplest_visit_image = VisitImage(
@@ -245,6 +252,11 @@ class VisitImageTestCase(unittest.TestCase):
         self.assertIsNot(copy.aperture_corrections, visit.aperture_corrections)
         self.assertEqual(subvisit.aperture_corrections.keys(), visit.aperture_corrections.keys())
         self.assertIs(subvisit.aperture_corrections, visit.aperture_corrections)
+        # Check backgrounds.
+        self.assertEqual(copy.backgrounds.keys(), visit.backgrounds.keys())
+        self.assertIsNot(copy.backgrounds, visit.backgrounds)
+        self.assertEqual(subvisit.backgrounds.keys(), visit.backgrounds.keys())
+        self.assertIs(subvisit.backgrounds, visit.backgrounds)
         # Check bounds.
         self.assertIs(copy.bounds, self.polygon)
         self.assertEqual(subvisit.bounds, subvisit.bbox)  # original polygon wholly encloses subvisit.bbox
@@ -311,6 +323,16 @@ class VisitImageTestCase(unittest.TestCase):
                 psf = roundtrip.get("psf")
                 self.assertIsInstance(psf, GaussianPointSpreadFunction)
                 self.assertEqual(psf.kernel_bbox, self.gaussian_psf.kernel_bbox)
+            with self.subTest():
+                backgrounds = roundtrip.get("backgrounds")
+                self.assertIsInstance(backgrounds, BackgroundMap)
+                self.assertEqual(backgrounds.keys(), {"standard"})
+                self.assertIsInstance(backgrounds["standard"].field, ChebyshevField)
+                self.assertEqual(backgrounds.subtracted.name, "standard")
+                self.assertEqual(
+                    roundtrip.result.backgrounds.subtracted.description,
+                    "Background subtracted from the image.",
+                )
 
         assert_masked_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
         # Check that the round-tripped headers are the same (up to card order).
@@ -333,6 +355,13 @@ class VisitImageTestCase(unittest.TestCase):
             self.visit_image.summary_stats.zeroPoint,
         )
         self.assertEqual(roundtrip.result.bounds, self.polygon)
+        self.assertIsInstance(roundtrip.result.backgrounds, BackgroundMap)
+        self.assertEqual(roundtrip.result.backgrounds.keys(), {"standard"})
+        self.assertIsInstance(roundtrip.result.backgrounds["standard"].field, ChebyshevField)
+        self.assertEqual(roundtrip.result.backgrounds.subtracted.name, "standard")
+        self.assertEqual(
+            roundtrip.result.backgrounds.subtracted.description, "Background subtracted from the image."
+        )
 
 
 class VisitImageLegacyTestMixin:

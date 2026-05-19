@@ -133,8 +133,14 @@ class CellCoaddTestCase(unittest.TestCase):
                     k: roundtrip.get(k)
                     for k in ["projection", "image", "mask", "variance", "psf", "provenance"]
                 }
+                with self.subTest():
+                    backgrounds = roundtrip.get("backgrounds")
+                    self.assertEqual(backgrounds.keys(), set())
+                    self.assertIsNone(backgrounds.subtracted)
         self.assertEqual(self.cell_coadd.bounds.missing, {self.missing_cell})
         self.assertEqual(self.cell_coadd.bbox, Box.factory[12900:13500, 9600:10050])
+        self.assertEqual(self.cell_coadd.backgrounds.keys(), roundtrip.result.backgrounds.keys())
+        self.assertIsNone(roundtrip.result.backgrounds.subtracted)
         compare_cell_coadd_to_legacy(
             self,
             roundtrip.result,
