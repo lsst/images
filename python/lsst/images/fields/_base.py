@@ -55,6 +55,12 @@ class BaseField(ABC):
         """The units of the field (`astropy.units.UnitBase` or `None`)."""
         raise NotImplementedError()
 
+    @property
+    @abstractmethod
+    def is_constant(self) -> bool:
+        """Whether the field is spatially constant (`bool`)."""
+        return False
+
     @overload
     def __call__(self, *, x: np.ndarray, y: np.ndarray, quantity: Literal[False] = False) -> np.ndarray: ...
 

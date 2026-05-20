@@ -202,6 +202,10 @@ class ChebyshevField(BaseField):
         """
         return self._coefficients
 
+    @property
+    def is_constant(self) -> bool:
+        return self.x_order == 0 and self.y_order == 0
+
     def evaluate(
         self, *, x: np.ndarray, y: np.ndarray, quantity: bool
     ) -> np.ndarray | astropy.units.Quantity:

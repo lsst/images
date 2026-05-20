@@ -127,6 +127,11 @@ class SplineField(BaseField):
         """Coordinates for the first dimension of `data` (`numpy.ndarray`)."""
         return self._y
 
+    @property
+    def is_constant(self) -> bool:
+        # We really do want an exact floating-point comparison here.
+        return (self._data == self._data[0, 0]).all()
+
     def evaluate(
         self, *, x: np.ndarray, y: np.ndarray, quantity: bool = False
     ) -> np.ndarray | astropy.units.Quantity:
