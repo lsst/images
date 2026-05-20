@@ -15,6 +15,8 @@ __all__ = (
     "ArchiveReadError",
     "ArchiveTree",
     "ButlerInfo",
+    "InvalidComponentError",
+    "InvalidParameterError",
     "JsonRef",
     "MetadataValue",
     "OpaqueArchiveMetadata",
@@ -93,9 +95,81 @@ class ArchiveTree(
     )
 
     @abstractmethod
-    def deserialize(self, archive: InputArchive[Any]) -> Any:
-        """Return the in-memory object that was serialized to this tree."""
+    def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> Any:
+        """Return the in-memory object that was serialized to this tree.
+
+        Parameters
+        ----------
+        archive
+            The input archive to read from.
+        **kwargs
+            Additional keyword arguments specific to this type.
+
+        Raises
+        ------
+        ~lsst.images.serialization.InvalidParameterError
+            Raised for unsupported ``**kwargs``.
+
+        Notes
+        -----
+        Subclass implementations may take additional keyword-only arguments.
+        Callers that invoke this method without knowing what those might be
+        should catch `TypeError` and re-raise as
+        `~lsst.images.serialization.InvalidParameterError` if they pass
+        additional keyword arguments.
+        """
         raise NotImplementedError()
+
+    def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
+        """Return a component in-memory object that was serialized to this
+        tree.
+
+        Parameters
+        ----------
+        component
+            Name of the component to read.
+        archive
+            The input archive to read from.
+        **kwargs
+            Additional keyword arguments specific to this type.
+
+        Raises
+        ------
+        ~lsst.images.serialization.InvalidComponentError
+            Raise if ``component`` is not recognized.
+        ~lsst.images.serialization.InvalidParameterError
+            Raised for unsupported ``**kwargs``.
+
+        Notes
+        -----
+        The default implementation for this method tries to get an attribute
+        with the component's name from ``self``, and then:
+
+         - returns `None` if it is `None`;
+         - calls `deserialize` on that object if it is also an
+           `~lsst.images.serialization.ArchiveTree`;
+         - returns it directly otherwise.
+
+        If there is no such attribute, it raises
+        `~lsst.images.serialization.InvalidComponentError`.
+
+        ``**kwargs`` are forwarded to component `deserialize` methods, but
+        are otherwise not checked.  Subclasses are generally expected to
+        implement this method to do that checking and handle any components
+        for which the other will not work, and then delegate to `super` at
+        the end.
+        """
+        try:
+            component_model = getattr(self, component)
+        except AttributeError:
+            raise InvalidComponentError(
+                f"Component {component!r} is not recognized by {type(self).__name__}."
+            ) from None
+        if component_model is None:
+            return None
+        if isinstance(component_model, ArchiveTree):
+            return component_model.deserialize(archive, **kwargs)
+        return component_model
 
 
 class ReadResult[T: Any](NamedTuple):
@@ -116,6 +190,19 @@ class ReadResult[T: Any](NamedTuple):
 
 class ArchiveReadError(RuntimeError):
     """Exception raised when the contents of an archive cannot be read."""
+
+
+class InvalidParameterError(ArchiveReadError):
+    """Exception raised by `ArchiveTree.deserialize` or
+    `ArchiveTree.deserialize_component` when passed an invalid keyword
+    argument.
+    """
+
+
+class InvalidComponentError(ArchiveReadError):
+    """Exception `ArchiveTree.deserialize_component` when passed an invalid
+    component name.
+    """
 
 
 class OpaqueArchiveMetadata(Protocol):

@@ -127,7 +127,13 @@ class GaussianPSFSerializationModel(serialization.ArchiveTree):
         description="The bounds object that represents the PSF's validity region."
     )
 
-    def deserialize(self, archive: serialization.InputArchive[Any]) -> GaussianPointSpreadFunction:
+    def deserialize(
+        self, archive: serialization.InputArchive[Any], **kwargs: Any
+    ) -> GaussianPointSpreadFunction:
+        if kwargs:
+            raise serialization.InvalidParameterError(
+                f"Unrecognized parameters for GaussianPointSpreadFunction: {set(kwargs.keys())}."
+            )
         return GaussianPointSpreadFunction(
             sigma=self.sigma, bounds=self.bounds.deserialize(), stamp_size=self.stamp_size
         )

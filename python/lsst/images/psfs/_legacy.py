@@ -174,12 +174,16 @@ class PSFExSerializationModel(serialization.ArchiveTree):
 
     model_config = pydantic.ConfigDict(ser_json_inf_nan="constants")
 
-    def deserialize(self, archive: serialization.InputArchive[Any]) -> PSFExWrapper:
+    def deserialize(self, archive: serialization.InputArchive[Any], **kwargs: Any) -> PSFExWrapper:
         """Deserialize the PSF from an archive.
 
         This method is intended to be usable as the callback function passed to
         `.serialization.InputArchive.deserialize_pointer`.
         """
+        if kwargs:
+            raise serialization.InvalidParameterError(
+                f"Unrecognized parameters for PsfExWrapper: {set(kwargs.keys())}."
+            )
         try:
             from lsst.meas.extensions.psfex import PsfexPsf, PsfexPsfSerializationData
         except ImportError:

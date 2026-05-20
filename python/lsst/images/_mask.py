@@ -32,7 +32,6 @@ import astropy.wcs
 import numpy as np
 import numpy.typing as npt
 import pydantic
-from astro_metadata_translator import ObservationInfo
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
@@ -47,6 +46,7 @@ from .serialization import (
     InlineArrayModel,
     InputArchive,
     IntegerType,
+    InvalidParameterError,
     MetadataValue,
     NumberType,
     OutputArchive,
@@ -322,9 +322,6 @@ class Mask(GeneralizedImage):
         include the last dimension of the array.
     projection
         Projection that maps the pixel grid to the sky.
-    obs_info
-        General information about the associated observation in standardized
-        form.
     metadata
         Arbitrary flexible metadata to associate with the mask.
 
@@ -351,7 +348,6 @@ class Mask(GeneralizedImage):
         start: Sequence[int] | None = None,
         shape: Sequence[int] | None = None,
         projection: Projection | None = None,
-        obs_info: ObservationInfo | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ):
         super().__init__(metadata)
@@ -386,7 +382,6 @@ class Mask(GeneralizedImage):
         self._bbox: Box = bbox
         self._schema: MaskSchema = schema
         self._projection = projection
-        self._obs_info = obs_info
 
     @property
     def array(self) -> np.ndarray:
@@ -428,13 +423,6 @@ class Mask(GeneralizedImage):
         """
         return self._projection
 
-    @property
-    def obs_info(self) -> ObservationInfo | None:
-        """General information about the associated observation in standard
-        form. (`~astro_metadata_translator.ObservationInfo` | `None`).
-        """
-        return self._obs_info
-
     def __getitem__(self, bbox: Box | EllipsisType) -> Mask:
         if bbox is ...:
             return self
@@ -444,6 +432,7 @@ class Mask(GeneralizedImage):
                 self.array[bbox.y.slice_within(self._bbox.y), bbox.x.slice_within(self._bbox.x), :],
                 bbox=bbox,
                 schema=self.schema,
+                projection=self._projection,
             ),
             bbox=bbox,
         )
@@ -471,13 +460,7 @@ class Mask(GeneralizedImage):
     def copy(self) -> Mask:
         """Deep-copy the mask and metadata."""
         return self._transfer_metadata(
-            Mask(
-                self._array.copy(),
-                bbox=self._bbox,
-                schema=self._schema,
-                projection=self._projection,
-                obs_info=self._obs_info,
-            ),
+            Mask(self._array.copy(), bbox=self._bbox, schema=self._schema, projection=self._projection),
             copy=True,
         )
 
@@ -487,7 +470,6 @@ class Mask(GeneralizedImage):
         schema: MaskSchema | EllipsisType = ...,
         projection: Projection | None | EllipsisType = ...,
         start: Sequence[int] | EllipsisType = ...,
-        obs_info: ObservationInfo | None | EllipsisType = ...,
     ) -> Mask:
         """Make a view of the mask, with optional updates.
 
@@ -505,11 +487,7 @@ class Mask(GeneralizedImage):
             projection = self._projection
         if start is ...:
             start = self._bbox.start
-        if obs_info is ...:
-            obs_info = self._obs_info
-        return self._transfer_metadata(
-            Mask(self._array, start=start, schema=schema, projection=projection, obs_info=obs_info)
-        )
+        return self._transfer_metadata(Mask(self._array, start=start, schema=schema, projection=projection))
 
     def update(self, other: Mask) -> None:
         """Update ``self`` to include all common mask values set in ``other``.
@@ -595,7 +573,6 @@ class Mask(GeneralizedImage):
         *,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
         save_projection: bool = True,
-        save_obs_info: bool = True,
         add_offset_wcs: str | None = "A",
     ) -> MaskSerializationModel[P]:
         """Serialize the mask to an output archive.
@@ -615,10 +592,6 @@ class Mask(GeneralizedImage):
             is one.  This does not affect whether a FITS WCS corresponding to
             the projection is written (it always is, if available, and if
             ``add_offset_wcs`` is not ``" "``).
-        save_obs_info
-            If `True`, save the
-            `~astro_metadata_translator.ObservationInfo` attached to the
-            image, if there is one.
         add_offset_wcs
             A FITS WCS single-character suffix to use when adding a linear
             WCS that maps the FITS array to the logical pixel coordinates
@@ -639,9 +612,7 @@ class Mask(GeneralizedImage):
         else:
             data = []
             for schema_2d in self.schema.split(np.int32):
-                mask_2d = Mask(
-                    0, bbox=self.bbox, schema=schema_2d, projection=self._projection, obs_info=self._obs_info
-                )
+                mask_2d = Mask(0, bbox=self.bbox, schema=schema_2d, projection=self._projection)
                 mask_2d.update(self)
                 data.append(
                     mask_2d._serialize_2d(archive, update_header=update_header, add_offset_wcs=add_offset_wcs)
@@ -657,7 +628,6 @@ class Mask(GeneralizedImage):
             planes=list(self.schema),
             dtype=serialized_dtype,
             projection=serialized_projection,
-            obs_info=self._obs_info if save_obs_info else None,
             metadata=self.metadata,
         )
 
@@ -892,11 +862,6 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         exclude_if=is_none,
         description="Projection that maps the logical pixel grid onto the sky.",
     )
-    obs_info: ObservationInfo | None = pydantic.Field(
-        default=None,
-        exclude_if=is_none,
-        description="Standardized description of image metadata",
-    )
 
     @property
     def bbox(self) -> Box:
@@ -912,6 +877,7 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         *,
         bbox: Box | None = None,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        **kwargs: Any,
     ) -> Mask:
         """Deserialize a mask from an input archive.
 
@@ -925,7 +891,12 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
             `Mask.serialize`.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide better
+            error messages (raising `serialization.InvalidParameterError`).
         """
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for Mask: {set(kwargs.keys())}.")
         slices: tuple[slice, ...] | EllipsisType = ...
         if bbox is not None:
             slices = bbox.slice_within(self.bbox)
@@ -939,20 +910,8 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
             storage_slices = slices if slices is ... else (slice(None),) + slices
             array = archive.get_array(self.data[0], strip_header=strip_header, slices=storage_slices)
             array = np.moveaxis(array, 0, -1)
-            return Mask(
-                array,
-                schema=schema,
-                bbox=bbox,
-                projection=projection,
-                obs_info=self.obs_info,
-            )._finish_deserialize(self)
-        result = Mask(
-            0,
-            schema=schema,
-            bbox=bbox,
-            projection=projection,
-            obs_info=self.obs_info,
-        )
+            return Mask(array, schema=schema, bbox=bbox, projection=projection)._finish_deserialize(self)
+        result = Mask(0, schema=schema, bbox=bbox, projection=projection)
         schemas_2d = schema.split(np.int32)
         if len(schemas_2d) != len(self.data):
             raise ArchiveReadError(
@@ -982,6 +941,11 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
 
         array_2d = archive.get_array(ref, strip_header=_strip_header, slices=slices)
         return Mask(array_2d[:, :, np.newaxis], schema=schema_2d, start=start)
+
+    def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
+        if kwargs:
+            raise InvalidParameterError(f"Unsupported parameters for Mask components: {set(kwargs.keys())}.")
+        return super().deserialize_component(component, archive)
 
 
 def _archive_prefers_native_mask_arrays(archive: OutputArchive[Any]) -> bool:

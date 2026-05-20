@@ -17,7 +17,6 @@ import unittest
 import astropy.io.fits
 import astropy.units as u
 import numpy as np
-from astro_metadata_translator import ObservationInfo
 
 import lsst.utils.tests
 from lsst.images import Box, DetectorFrame, Image
@@ -168,7 +167,6 @@ class ImageTestCase(unittest.TestCase):
         """
         data = np.array([[1.0, 2.0, np.nan, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]])
         md = {"int": 1, "float": 42.0, "bool": False, "long string header": "This is a string"}
-        obsinfo = ObservationInfo(telescope="Simonyi", instrument="LSSTCam", relative_humidity=23.5)
         det_frame = DetectorFrame(instrument="Inst", visit=1234, detector=1, bbox=Box.factory[1:4096, 1:4096])
         rng = np.random.default_rng(500)
         projection = make_random_projection(rng, det_frame, Box.factory[1:4096, 1:4096])
@@ -177,7 +175,6 @@ class ImageTestCase(unittest.TestCase):
             data,
             unit=u.dn,
             metadata=md,
-            obs_info=obsinfo,
             bbox=Box.factory[-2:1, 3:7],
             projection=projection,
         )
@@ -189,7 +186,6 @@ class ImageTestCase(unittest.TestCase):
             self.assertEqual(new, image)
 
             # __eq__ does not test all components.
-            self.assertEqual(new.obs_info, image.obs_info)
             self.assertEqual(new.metadata, image.metadata)
             self.maxDiff = None
             assert_projections_equal(self, new.projection, image.projection, expect_identity=False)

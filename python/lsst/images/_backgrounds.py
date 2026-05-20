@@ -20,7 +20,7 @@ from typing import Any, cast, final
 import pydantic
 
 from .fields import Field, FieldSerializationModel
-from .serialization import ArchiveTree, InputArchive, OutputArchive
+from .serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 
 
 @dataclasses.dataclass(frozen=True)
@@ -152,8 +152,9 @@ class BackgroundMapSerializationModel(ArchiveTree):
         description="Name of the background that was subtracted, or `None` if no background was subtracted.",
     )
 
-    def deserialize(self, archive: InputArchive[Any]) -> BackgroundMap:
-        """Read a background map from an archive."""
+    def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> BackgroundMap:
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for BackgroundMap: {set(kwargs.keys())}.")
         return BackgroundMap(
             [
                 Background(

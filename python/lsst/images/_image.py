@@ -24,7 +24,6 @@ import astropy.wcs
 import numpy as np
 import numpy.typing as npt
 import pydantic
-from astro_metadata_translator import ObservationInfo
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
@@ -39,6 +38,7 @@ from .serialization import (
     InlineArrayModel,
     InlineArrayQuantityModel,
     InputArchive,
+    InvalidParameterError,
     MetadataValue,
     OutputArchive,
     no_header_updates,
@@ -72,9 +72,6 @@ class Image(GeneralizedImage):
         Units for the image's pixel values.
     projection
         Projection that maps the pixel grid to the sky.
-    obs_info
-        General information about the associated observation in standardized
-        form.
     metadata
         Arbitrary flexible metadata to associate with the image.
 
@@ -111,7 +108,6 @@ class Image(GeneralizedImage):
         dtype: npt.DTypeLike | None = None,
         unit: astropy.units.UnitBase | None = None,
         projection: Projection[Any] | None = None,
-        obs_info: ObservationInfo | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ):
         super().__init__(metadata)
@@ -140,7 +136,6 @@ class Image(GeneralizedImage):
         self._bbox: Box = bbox
         self._unit = unit
         self._projection = projection
-        self._obs_info = obs_info
 
     @property
     def array(self) -> np.ndarray:
@@ -192,26 +187,13 @@ class Image(GeneralizedImage):
         """
         return self._projection
 
-    @property
-    def obs_info(self) -> ObservationInfo | None:
-        """General information about the associated observation in standard
-        form. (`~astro_metadata_translator.ObservationInfo` | `None`).
-        """
-        return self._obs_info
-
     def __getitem__(self, bbox: Box | EllipsisType) -> Image:
         if bbox is ...:
             return self
         super().__getitem__(bbox)
         indices = bbox.slice_within(self._bbox)
         return self._transfer_metadata(
-            Image(
-                self._array[indices],
-                bbox=bbox,
-                unit=self._unit,
-                projection=self._projection,
-                obs_info=self._obs_info,
-            ),
+            Image(self._array[indices], bbox=bbox, unit=self._unit, projection=self._projection),
             bbox=bbox,
         )
 
@@ -235,13 +217,7 @@ class Image(GeneralizedImage):
 
     def copy(self) -> Image:
         return self._transfer_metadata(
-            Image(
-                self._array.copy(),
-                bbox=self._bbox,
-                unit=self._unit,
-                projection=self._projection,
-                obs_info=self._obs_info,
-            ),
+            Image(self._array.copy(), bbox=self._bbox, unit=self._unit, projection=self._projection),
             copy=True,
         )
 
@@ -251,7 +227,6 @@ class Image(GeneralizedImage):
         unit: astropy.units.UnitBase | None | EllipsisType = ...,
         projection: Projection | None | EllipsisType = ...,
         start: Sequence[int] | EllipsisType = ...,
-        obs_info: ObservationInfo | None | EllipsisType = ...,
     ) -> Image:
         """Make a view of the image, with optional updates."""
         if unit is ...:
@@ -260,11 +235,7 @@ class Image(GeneralizedImage):
             projection = self._projection
         if start is ...:
             start = self._bbox.start
-        if obs_info is ...:
-            obs_info = self._obs_info
-        return self._transfer_metadata(
-            Image(self._array, start=start, unit=unit, projection=projection, obs_info=obs_info)
-        )
+        return self._transfer_metadata(Image(self._array, start=start, unit=unit, projection=projection))
 
     def serialize[P: pydantic.BaseModel](
         self,
@@ -272,7 +243,6 @@ class Image(GeneralizedImage):
         *,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
         save_projection: bool = True,
-        save_obs_info: bool = True,
         add_offset_wcs: str | None = "A",
     ) -> ImageSerializationModel[P]:
         """Serialize the image to an output archive.
@@ -291,10 +261,6 @@ class Image(GeneralizedImage):
             is one.  This does not affect whether a FITS WCS corresponding to
             the projection is written (it always is, if available, and if
             ``add_offset_wcs`` is not ``" "``).
-        save_obs_info
-            If `True`, save the
-            `~astro_metadata_translator.ObservationInfo` attached to the
-            image, if there is one.
         add_offset_wcs
             A FITS WCS single-character suffix to use when adding a linear
             WCS that maps the FITS array to the logical pixel coordinates
@@ -326,7 +292,6 @@ class Image(GeneralizedImage):
             data=data,
             start=list(self.bbox.start),
             projection=serialized_projection,
-            obs_info=self._obs_info if save_obs_info else None,
             metadata=self.metadata,
         )
 
@@ -532,11 +497,6 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         exclude_if=is_none,
         description="Projection that maps the logical pixel grid onto the sky.",
     )
-    obs_info: ObservationInfo | None = pydantic.Field(
-        default=None,
-        exclude_if=is_none,
-        description="Standardized description of image metadata",
-    )
 
     @property
     def bbox(self) -> Box:
@@ -554,6 +514,7 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         *,
         bbox: Box | None = None,
         strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        **kwargs: Any,
     ) -> Image:
         """Deserialize an image from an input archive.
 
@@ -567,7 +528,12 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
             `Image.serialize`.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide better
+            error messages (raising `serialization.InvalidParameterError`).
         """
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for Image: {set(kwargs.keys())}.")
         array_model: ArrayReferenceModel | InlineArrayModel
         unit: astropy.units.UnitBase | None = None
         if isinstance(self.data, ArrayReferenceQuantityModel | InlineArrayQuantityModel):
@@ -590,5 +556,9 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
             start=self.start if bbox is None else bbox.start,
             unit=unit,
             projection=projection,
-            obs_info=self.obs_info,
         )._finish_deserialize(self)
+
+    def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
+        if kwargs:
+            raise InvalidParameterError(f"Unsupported parameters for Image components: {set(kwargs.keys())}.")
+        return super().deserialize_component(component, archive)

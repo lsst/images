@@ -403,16 +403,13 @@ class VisitImageLegacyTestMixin:
         assert_projections_equal(self, proj, visit.projection, expect_identity=False)
         image = VisitImage.read_legacy(self.filename, component="image")
         self.assertEqual(image, visit.image)
-        self.check_legacy_obs_info(image.obs_info)
         assert_projections_equal(self, proj, image.projection, expect_identity=False)
         variance = VisitImage.read_legacy(self.filename, component="variance")
         self.assertEqual(variance, visit.variance)
         assert_projections_equal(self, proj, variance.projection, expect_identity=False)
-        self.check_legacy_obs_info(variance.obs_info)
         mask = VisitImage.read_legacy(self.filename, component="mask")
         self.assertEqual(mask, visit.mask)
         assert_projections_equal(self, proj, mask.projection, expect_identity=False)
-        self.check_legacy_obs_info(mask.obs_info)
         psf = VisitImage.read_legacy(self.filename, component="psf")
         self.assertIsInstance(psf, PointSpreadFunction)
         obs_info = VisitImage.read_legacy(self.filename, component="obs_info")
@@ -677,39 +674,39 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
             os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_summary.fits")
         )
         legacy_photo_calib = visit_summary.find(DP2_VISIT_DETECTOR_DATA_ID["detector"]).getPhotoCalib()
-        self.visit_image.photometric_scaling = field_from_legacy_photo_calib(
+        visit_image_nJy.photometric_scaling = field_from_legacy_photo_calib(
             legacy_photo_calib, bounds=self.visit_image.detector.bbox, instrumental_unit=u.electron
         )
         compare_photo_calib_to_legacy(
             self,
-            self.visit_image.photometric_scaling,
+            visit_image_nJy.photometric_scaling,
             self.legacy_exposure.getPhotoCalib(),
             applied_legacy_photo_calib=legacy_photo_calib,
-            subimage_bbox=self.visit_image.bbox,
+            subimage_bbox=visit_image_nJy.bbox,
         )
         # We still can't convert to completely unrelated units.
         with self.assertRaises(u.UnitConversionError):
-            self.visit_image.convert_unit(u.mm)
+            visit_image_nJy.convert_unit(u.mm)
         # Uncalibrating via the photometric_scaling matches what legacy code
         # does, and by default it copies everything.
         with self.assertRaises(u.UnitConversionError):
-            self.visit_image.convert_unit(u.electron, copy=False)
+            visit_image_nJy.convert_unit(u.electron, copy=False)
         legacy_masked_image_e = legacy_photo_calib.uncalibrateImage(self.legacy_exposure.maskedImage)
-        visit_image_e = self.visit_image.convert_unit(u.electron)
+        visit_image_e = visit_image_nJy.convert_unit(u.electron)
         assert_close(self, visit_image_e.image.array, legacy_masked_image_e.image.array)
         assert_close(self, visit_image_e.variance.array, legacy_masked_image_e.variance.array)
-        self.assertFalse(np.may_share_memory(visit_image_e.mask.array, self.visit_image.mask.array))
+        self.assertFalse(np.may_share_memory(visit_image_e.mask.array, visit_image_nJy.mask.array))
         # We can also uncalibrate if we start with an image that has units
         # that are compatible with the photometric_scaling but not identical
         # to it.
-        visit_image_mJy.photometric_scaling = self.visit_image.photometric_scaling
+        visit_image_mJy.photometric_scaling = visit_image_nJy.photometric_scaling
         visit_image_e = visit_image_mJy.convert_unit(u.electron)
         assert_close(self, visit_image_e.image.array, legacy_masked_image_e.image.array)
         assert_close(self, visit_image_e.variance.array, legacy_masked_image_e.variance.array)
         # We can re-apply the scaling go go back to calibrated units.
-        visit_image_nJy = visit_image_e.convert_unit(u.nJy)
-        assert_close(self, visit_image_nJy.image.array, self.visit_image.image.array)
-        assert_close(self, visit_image_nJy.variance.array, self.visit_image.variance.array)
+        visit_image_nJy_2 = visit_image_e.convert_unit(u.nJy)
+        assert_close(self, visit_image_nJy_2.image.array, visit_image_nJy.image.array)
+        assert_close(self, visit_image_nJy_2.variance.array, self.visit_image.variance.array)
 
 
 @unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")

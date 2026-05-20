@@ -45,6 +45,7 @@ from .serialization import (
     ArchiveTree,
     InlineArray,
     InputArchive,
+    InvalidParameterError,
     OutputArchive,
     Quantity,
 )
@@ -699,7 +700,9 @@ class DetectorSerializationModel(ArchiveTree):
 
     visit: int | None = pydantic.Field(description="ID of the visit this detector is associated with.")
 
-    def deserialize(self, archive: InputArchive[Any], frames: CameraFrameSet | None = None) -> Detector:
+    def deserialize(
+        self, archive: InputArchive[Any], frames: CameraFrameSet | None = None, **kwargs: Any
+    ) -> Detector:
         """Deserialize this detector from an archive.
 
         Parameters
@@ -710,6 +713,8 @@ class DetectorSerializationModel(ArchiveTree):
             Coordinate systems and transforms to use instead of what is saved
             in ``model``.  Must be provided if ``model.frames`` is `None`.
         """
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for Detector: {set(kwargs.keys())}.")
         if frames is None:
             if self.frames is None:
                 raise ArchiveReadError(

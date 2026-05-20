@@ -20,83 +20,22 @@ all of their logic.
 
 from __future__ import annotations
 
-__all__ = (
-    "CellCoaddFormatter",
-    "ComponentSentinel",
-    "GenericFormatter",
-    "ImageFormatter",
-    "MaskedImageFormatter",
-    "VisitImageFormatter",
-)
+__all__ = ("GenericFormatter",)
 
-import enum
 import hashlib
 import json as _stdlib_json  # disambiguates from .json subpackage
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any, ClassVar
 
 import astropy.io.fits
-from astro_metadata_translator import ObservationInfo
 
 from lsst.daf.butler import DatasetProvenance, FormatterV2
 from lsst.resources import ResourcePath
 
 from . import fits as _fits
 from . import json as _json
-from ._geom import Box
-from ._masked_image import MaskedImageSerializationModel
-from ._transforms import ProjectionSerializationModel
-from ._visit_image import VisitImageSerializationModel
-from .fits._common import FitsCompressionOptions
-from .fits._common import PointerModel as _FitsPointerModel
-from .fits._input_archive import FitsInputArchive as _FitsInputArchive
-from .serialization import ButlerInfo
-
-try:
-    from . import ndf as _ndf
-    from .ndf._common import NdfPointerModel as _NdfPointerModel
-    from .ndf._input_archive import NdfInputArchive as _NdfInputArchive
-
-    _HAVE_NDF = True
-except ImportError:  # h5py is optional; see ndf/__init__.py
-    _ndf = None  # type: ignore[assignment]
-    _NdfPointerModel = None  # type: ignore[assignment,misc]
-    _NdfInputArchive = None  # type: ignore[assignment,misc]
-    _HAVE_NDF = False
-
-
-@dataclass(frozen=True)
-class _Backend:
-    """One row of the extension-to-backend lookup table."""
-
-    read: Callable[..., Any]
-    write: Callable[..., Any]
-    input_archive: type | None
-    pointer_model: type | None
-
-
-_BACKENDS: dict[str, _Backend] = {
-    ".fits": _Backend(
-        read=_fits.read,
-        write=_fits.write,
-        input_archive=_FitsInputArchive,
-        pointer_model=_FitsPointerModel,
-    ),
-    ".json": _Backend(
-        read=_json.read,
-        write=_json.write,
-        input_archive=None,
-        pointer_model=None,
-    ),
-}
-if _HAVE_NDF:
-    _BACKENDS[".sdf"] = _Backend(
-        read=_ndf.read,
-        write=_ndf.write,
-        input_archive=_NdfInputArchive,
-        pointer_model=_NdfPointerModel,
-    )
+from .serialization import ArchiveTree, ButlerInfo, InputArchive, JsonRef
 
 
 class GenericFormatter(FormatterV2):
@@ -143,17 +82,25 @@ class GenericFormatter(FormatterV2):
     def write_local_file(self, in_memory_dataset: Any, uri: ResourcePath) -> None:
         self._validate_write_parameters()
         ext = self.get_write_extension()
-        backend = _BACKENDS[ext]
         butler_info = ButlerInfo(
             dataset=self.dataset_ref.to_simple(),
             provenance=self.butler_provenance if self.butler_provenance is not None else DatasetProvenance(),
         )
         kwargs: dict[str, Any] = {"butler_info": butler_info}
-        if ext == ".fits":
-            kwargs["update_header"] = self._update_header
-            kwargs["compression_options"] = self._get_compression_options()
-            kwargs["compression_seed"] = self._get_compression_seed()
-        backend.write(in_memory_dataset, uri.ospath, **kwargs)
+        write_func: Callable[..., ArchiveTree]
+        match ext:
+            case ".fits":
+                kwargs["update_header"] = self._update_header
+                kwargs["compression_options"] = self._get_compression_options()
+                kwargs["compression_seed"] = self._get_compression_seed()
+                write_func = _fits.write
+            case ".json":
+                write_func = _json.write
+            case ".sdf":
+                from . import ndf as _ndf
+
+                write_func = _ndf.write
+        write_func(in_memory_dataset, uri.ospath, **kwargs)
 
     def add_provenance(
         self,
@@ -184,7 +131,7 @@ class GenericFormatter(FormatterV2):
         # 10000] range allowed by FITS.
         return 1 + int.from_bytes(hash_bytes) % 9999
 
-    def _get_compression_options(self) -> dict[str, FitsCompressionOptions]:
+    def _get_compression_options(self) -> dict[str, _fits.FitsCompressionOptions]:
         recipe = self.write_parameters.get("recipe", "default")
         try:
             config = self.write_recipes[recipe]
@@ -193,7 +140,7 @@ class GenericFormatter(FormatterV2):
                 # If there's no default recipe just use the software defaults.
                 return {}
             raise RuntimeError(f"Invalid recipe for GenericFormatter: {recipe!r}.") from None
-        return {k: FitsCompressionOptions.model_validate(v) for k, v in config.items()}
+        return {k: _fits.FitsCompressionOptions.model_validate(v) for k, v in config.items()}
 
     def _update_header(self, header: astropy.io.fits.Header) -> None:
         # Logic here largely lifted from lsst.obs.base.utils, which we
@@ -222,193 +169,43 @@ class GenericFormatter(FormatterV2):
             raise RuntimeError(f"Cannot read {uri}: unsupported extension {ext!r}.")
         return ext
 
+    @contextmanager
+    def _open_archive_and_tree(
+        self, uri: ResourcePath, partial: bool
+    ) -> Iterator[tuple[InputArchive[Any], ArchiveTree]]:
+        pytype: type[Any] = self.dataset_ref.datasetType.storageClass.pytype
+        ext = self._extension_from_uri(uri)
+        archive: InputArchive[Any]
+        match ext:
+            case ".fits":
+                tree_type = pytype._get_archive_tree_type(_fits.PointerModel)
+                with _fits.FitsInputArchive.open(uri, partial=partial) as archive:
+                    tree = archive.get_tree(tree_type)
+                    yield archive, tree
+            case ".json":
+                tree_type = pytype._get_archive_tree_type(JsonRef)
+                tree = tree_type.model_validate_json(ResourcePath(uri).read())
+                archive = _json.JsonInputArchive(tree.indirect)
+                yield archive, tree
+            case ".sdf":
+                from . import ndf as _ndf
+
+                tree_type = pytype._get_archive_tree_type(_ndf.NdfPointerModel)
+                with _ndf.NdfInputArchive.open(uri) as archive:
+                    tree = archive.get_tree(tree_type)
+                    yield archive, tree
+
     def read_from_uri(
         self,
         uri: ResourcePath,
         component: str | None = None,
         expected_size: int = -1,
     ) -> Any:
-        pytype = self.dataset_ref.datasetType.storageClass.pytype
-        ext = self._extension_from_uri(uri)
-        backend = _BACKENDS[ext]
         kwargs = self.file_descriptor.parameters or {}
-        return backend.read(pytype, uri, **kwargs).deserialized
-
-
-class ComponentSentinel(enum.Enum):
-    """Special return values from `ImageFormatter.read_component`."""
-
-    UNRECOGNIZED_COMPONENT = enum.auto()
-    """Subclasses might still recognise this component."""
-
-    INVALID_COMPONENT_MODEL = enum.auto()
-    """Component name is known but the model attribute is missing or
-    has the wrong type.
-    """
-
-
-class ImageFormatter(GenericFormatter):
-    """Adds component-level read support for image-like types.
-
-    Subclasses override `read_component` to handle additional components
-    (image/mask/variance for MaskedImage; psf/summary_stats/etc. for
-    VisitImage).
-    """
-
-    def read_from_uri(
-        self,
-        uri: ResourcePath,
-        component: str | None = None,
-        expected_size: int = -1,
-    ) -> Any:
-        pytype: Any = self.file_descriptor.storageClass.pytype
-        ext = self._extension_from_uri(uri)
-        backend = _BACKENDS[ext]
-        if component is None:
-            result = backend.read(pytype, uri, bbox=self.pop_bbox_from_parameters()).deserialized
-        else:
-            result = self._read_component_from_uri(component, uri)
-        self.check_unhandled_parameters()
-        return result
-
-    def _read_component_from_uri(self, component: str, uri: ResourcePath) -> Any:
-        ext = self._extension_from_uri(uri)
-        backend = _BACKENDS[ext]
-        pytype: Any = self.file_descriptor.storageClass.pytype
-        if ext == ".json":
-            obj = backend.read(pytype, uri).deserialized
-            try:
-                return getattr(obj, component)
-            except AttributeError as exc:
-                raise NotImplementedError(f"Unrecognized component {component!r} for JSON read.") from exc
-        # FITS/NDF archive path. backend.input_archive and pointer_model are
-        # typed as `type | None` to allow the JSON row to opt out; here we
-        # know they are populated.
-        archive_cls: Any = backend.input_archive
-        pointer_model: Any = backend.pointer_model
-        assert archive_cls is not None
-        assert pointer_model is not None
-        # FitsInputArchive uses partial=True for component reads; NDF
-        # has no such kwarg.
-        open_kwargs = {"partial": True} if ext == ".fits" else {}
-        with archive_cls.open(uri, **open_kwargs) as archive:
-            tree_type = pytype._get_archive_tree_type(pointer_model)
-            tree = archive.get_tree(tree_type)
-            result = self.read_component(component, tree, archive)
-        if result is ComponentSentinel.UNRECOGNIZED_COMPONENT:
-            raise NotImplementedError(f"Unrecognized component {component!r} for {type(self).__name__}.")
-        if result is ComponentSentinel.INVALID_COMPONENT_MODEL:
-            raise NotImplementedError(
-                f"Invalid serialization model for component {component!r} for {type(self).__name__}."
-            )
-        return result
-
-    def pop_bbox_from_parameters(self) -> Box | None:
-        parameters = self.file_descriptor.parameters or {}
-        return parameters.pop("bbox", None)
-
-    def check_unhandled_parameters(self) -> None:
-        parameters = self.file_descriptor.parameters
-        if parameters:
-            raise RuntimeError(f"Parameters {list(parameters.keys())} not recognized.")
-
-    def read_component(self, component: str, tree: Any, archive: Any) -> Any:
-        match component:
-            case "projection":
-                if isinstance(
-                    p := getattr(tree, "projection", None),
-                    ProjectionSerializationModel,
-                ):
-                    return p.deserialize(archive)
-                return ComponentSentinel.INVALID_COMPONENT_MODEL
-            case "bbox":
-                if isinstance(bbox := getattr(tree, "bbox", None), Box):
-                    return bbox
-                return ComponentSentinel.INVALID_COMPONENT_MODEL
-            case "obs_info":
-                if isinstance(oi := getattr(tree, "obs_info", None), ObservationInfo):
-                    return oi
-                return ComponentSentinel.INVALID_COMPONENT_MODEL
-        return ComponentSentinel.UNRECOGNIZED_COMPONENT
-
-
-class MaskedImageFormatter(ImageFormatter):
-    """Adds image/mask/variance component support."""
-
-    def read_component(self, component: str, tree: Any, archive: Any) -> Any:
-        match super().read_component(component, tree, archive):
-            case ComponentSentinel():
-                pass
-            case handled:
-                return handled
-        if not isinstance(tree, MaskedImageSerializationModel):
-            return ComponentSentinel.INVALID_COMPONENT_MODEL
-        match component:
-            case "image":
-                return tree.image.deserialize(archive, bbox=self.pop_bbox_from_parameters())
-            case "mask":
-                return tree.mask.deserialize(archive, bbox=self.pop_bbox_from_parameters())
-            case "variance":
-                return tree.variance.deserialize(archive, bbox=self.pop_bbox_from_parameters())
-        return ComponentSentinel.UNRECOGNIZED_COMPONENT
-
-
-class VisitImageFormatter(MaskedImageFormatter):
-    """Adds psf/summary_stats/detector/aperture_corrections."""
-
-    def read_component(self, component: str, tree: Any, archive: Any) -> Any:
-        match super().read_component(component, tree, archive):
-            case ComponentSentinel():
-                pass
-            case handled:
-                return handled
-        if not isinstance(tree, VisitImageSerializationModel):
-            return ComponentSentinel.INVALID_COMPONENT_MODEL
-        match component:
-            case "psf":
-                # The FITS path uses tree.psf.deserialize; the NDF tree
-                # exposes deserialize_psf for the same effect.
-                if hasattr(tree, "deserialize_psf"):
-                    return tree.deserialize_psf(archive)
-                return tree.psf.deserialize(archive)
-            case "summary_stats":
-                return tree.summary_stats
-            case "detector":
-                if getattr(tree, "detector", None) is not None:
-                    return tree.detector.deserialize(archive)
-                return ComponentSentinel.INVALID_COMPONENT_MODEL
-            case "aperture_corrections":
-                return tree.aperture_corrections.deserialize(archive)
-            case "photometric_scaling":
-                return (
-                    tree.photometric_scaling.deserialize(archive)
-                    if tree.photometric_scaling is not None
-                    else None
-                )
-            case "backgrounds":
-                return tree.backgrounds.deserialize(archive)
-        return ComponentSentinel.UNRECOGNIZED_COMPONENT
-
-
-class CellCoaddFormatter(MaskedImageFormatter):
-    """Adds CellCoadd-specific psf and provenance components."""
-
-    def read_component(self, component: str, tree: Any, archive: Any) -> Any:
-        from .cells import CellCoaddSerializationModel  # avoid cycles
-
-        match super().read_component(component, tree, archive):
-            case ComponentSentinel():
-                pass
-            case handled:
-                return handled
-        if not isinstance(tree, CellCoaddSerializationModel):
-            return ComponentSentinel.INVALID_COMPONENT_MODEL
-        match component:
-            case "psf":
-                bbox = self.pop_bbox_from_parameters()
-                return tree.deserialize_psf(archive, bbox=bbox)
-            case "provenance":
-                return tree.deserialize_provenance(archive)
-            case "backgrounds":
-                return tree.backgrounds.deserialize(archive)
-        return ComponentSentinel.UNRECOGNIZED_COMPONENT
+        with self._open_archive_and_tree(uri, partial=bool(kwargs or component)) as (archive, tree):
+            if component is None:
+                result = tree.deserialize(archive, **kwargs)
+                result._opaque_metadata = archive.get_opaque_metadata()
+                return result
+            else:
+                return tree.deserialize_component(component, archive, **kwargs)

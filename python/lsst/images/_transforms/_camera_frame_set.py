@@ -19,7 +19,7 @@ import astropy.units as u
 import pydantic
 
 from .._geom import Bounds, Box
-from ..serialization import ArchiveTree, InputArchive, OutputArchive
+from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 from . import _ast as astshim
 from . import _frames  # use this import style to facilitate pattern matching
 from ._frame_set import FrameLookupError, FrameSet
@@ -215,12 +215,17 @@ class CameraFrameSetSerializationModel(ArchiveTree):
         description="A serialized Starlink AST FrameSet, using the AST native encoding."
     )
 
-    def deserialize(self, archive: InputArchive[Any]) -> CameraFrameSet:
+    def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> CameraFrameSet:
         """Deserialize a frame set from an archive.
 
         Parameters
         ----------
         archive
             Archive to read from.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide better
+            error messages (raising `serialization.InvalidParameterError`).
         """
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for CameraFrameSet: {set(kwargs.keys())}.")
         return CameraFrameSet(self.instrument, astshim.FrameSet.fromString(self.ast))

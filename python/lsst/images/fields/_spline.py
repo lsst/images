@@ -23,7 +23,15 @@ from scipy.interpolate import Akima1DInterpolator
 from .._concrete_bounds import SerializableBounds
 from .._geom import Bounds, Box
 from .._image import Image
-from ..serialization import ArchiveTree, ArrayReferenceModel, InlineArray, InputArchive, OutputArchive, Unit
+from ..serialization import (
+    ArchiveTree,
+    ArrayReferenceModel,
+    InlineArray,
+    InputArchive,
+    InvalidParameterError,
+    OutputArchive,
+    Unit,
+)
 from ._base import BaseField
 
 if TYPE_CHECKING:
@@ -275,8 +283,10 @@ class SplineFieldSerializationModel(ArchiveTree):
 
     field_type: Literal["SPLINE"] = "SPLINE"
 
-    def deserialize(self, archive: InputArchive) -> SplineField:
+    def deserialize(self, archive: InputArchive, **kwargs: Any) -> SplineField:
         """Deserialize the spline field from an input archive."""
+        if kwargs:
+            raise InvalidParameterError(f"Unrecognized parameters for SplineField: {set(kwargs.keys())}.")
         return SplineField(
             self.bounds.deserialize(),
             archive.get_array(self.data),

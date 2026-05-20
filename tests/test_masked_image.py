@@ -18,7 +18,6 @@ import unittest
 import astropy.io.fits
 import astropy.units as u
 import numpy as np
-from astro_metadata_translator import ObservationInfo
 
 from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema, get_legacy_visit_image_mask_planes
 from lsst.images.fits import FitsCompressionOptions
@@ -45,7 +44,6 @@ class MaskedImageTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.maxDiff = None
         self.rng = np.random.default_rng(500)
-        self.obs_info = ObservationInfo(instrument="LSSTCam", detector_num=4)
         self.masked_image = MaskedImage(
             Image(self.rng.normal(100.0, 8.0, size=(200, 251)), dtype=np.float64, unit=u.nJy, start=(5, 8)),
             mask_schema=MaskSchema(
@@ -55,7 +53,6 @@ class MaskedImageTestCase(unittest.TestCase):
                 ]
             ),
             metadata={"fifty": "5 * 10"},
-            obs_info=self.obs_info,
         )
         self.masked_image.mask.array |= np.multiply.outer(
             self.masked_image.image.array < 102.0,
@@ -78,7 +75,6 @@ class MaskedImageTestCase(unittest.TestCase):
         self.assertEqual(self.masked_image.unit, u.nJy)
         self.assertEqual(self.masked_image.variance.unit, u.nJy**2)
         self.assertEqual(self.masked_image.metadata, {"fifty": "5 * 10"})
-        self.assertEqual(self.masked_image.obs_info.instrument, "LSSTCam")
         # The checks below are subject to the vagaries of the RNG, but we want
         # the seed to be such that they all pass, or other tests will be
         # weaker.
@@ -220,7 +216,6 @@ class MaskedImageTestCase(unittest.TestCase):
                 start=(0, 0),
             ),
             mask_schema=MaskSchema(planes),
-            obs_info=self.obs_info,
         )
         wide.variance.array = rng.normal(64.0, 0.5, size=wide.bbox.shape)
         with RoundtripNdf(self, wide) as roundtrip:
@@ -239,7 +234,6 @@ class MaskedImageTestCase(unittest.TestCase):
                 start=(0, 0),
             ),
             mask_schema=MaskSchema(planes),
-            obs_info=self.obs_info,
         )
         wide.mask.set("P0", wide.image.array > 100.0)
         wide.mask.set("P17", wide.image.array < 95.0)
