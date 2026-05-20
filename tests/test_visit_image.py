@@ -624,6 +624,12 @@ class VisitImageLegacyTestMixin:
                 # Silence warnings about data ID and filter label disagreeing.
                 warnings.simplefilter("ignore", category=UserWarning)
                 visit_image = helper.butler.get(visit_image_ref)
+                # We didn't ask for the quantization to be preserved, so it
+                # shouldn't be.
+                self.assertEqual(visit_image._opaque_metadata.precompressed.keys(), set())
+                # This time preserve the quantization
+                visit_image = helper.butler.get(visit_image_ref, parameters={"preserve_quantization": True})
+                self.assertEqual(visit_image._opaque_metadata.precompressed.keys(), {"IMAGE", "VARIANCE"})
             bbox = helper.butler.get(visit_image_ref.makeComponentRef("bbox"))
             self.assertEqual(bbox, visit_image.bbox)
             alternates = {
@@ -633,7 +639,7 @@ class VisitImageLegacyTestMixin:
                 # valid for the *internal* storage class, not the requested
                 # one, and that's difficult to fix because it's tied up with
                 # the data ID standardization logic.
-                for k in ["image", "mask", "variance", "psf", "detector"]
+                for k in ["image", "mask", "variance", "bbox", "psf", "detector"]
             }
             compare_visit_image_to_legacy(
                 self,

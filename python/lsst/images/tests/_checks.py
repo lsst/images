@@ -343,6 +343,8 @@ def compare_visit_image_to_legacy(
         subimage_bbox=tiny_bbox,
     )
     if alternates:
+        if (bbox := alternates.get("bbox")) is not None:
+            tc.assertEqual(bbox, visit_image.bbox)
         if projection := alternates.get("projection"):
             compare_projection_to_legacy_wcs(
                 tc,
