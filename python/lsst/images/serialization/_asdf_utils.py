@@ -32,6 +32,7 @@ import astropy.units
 import numpy as np
 import pydantic
 import pydantic_core.core_schema as pcs
+from pydantic.json_schema import GetJsonSchemaHandler, JsonSchemaValue
 
 from ._dtypes import NumberType
 
@@ -175,6 +176,12 @@ class _InlineArraySerialization:
         )
 
     @classmethod
+    def __get_pydantic_json_schema__(
+        cls, schema: pcs.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        return handler(InlineArrayModel.__pydantic_core_schema__)
+
+    @classmethod
     def from_model(cls, model: InlineArrayModel) -> np.ndarray:
         return np.array(model.data, dtype=model.datatype.to_numpy())
 
@@ -254,6 +261,12 @@ class _QuantitySerialization:
         )
 
     @classmethod
+    def __get_pydantic_json_schema__(
+        cls, schema: pcs.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        return handler(QuantityModel.__pydantic_core_schema__)
+
+    @classmethod
     def from_model(cls, model: QuantityModel) -> astropy.units.Quantity:
         return astropy.units.Quantity(model.value, unit=model.unit)
 
@@ -286,6 +299,12 @@ class _InlineArrayQuantitySerialization:
             ),
             serialization=pcs.plain_serializer_function_ser_schema(cls.to_model),
         )
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, schema: pcs.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        return handler(InlineArrayQuantityModel.__pydantic_core_schema__)
 
     @classmethod
     def from_model(cls, model: InlineArrayQuantityModel) -> astropy.units.Quantity:
@@ -341,6 +360,12 @@ class _TimeSerialization:
             python_schema=pcs.union_schema([pcs.is_instance_schema(astropy.time.Time), from_model_schema]),
             serialization=pcs.plain_serializer_function_ser_schema(cls.to_model, info_arg=False),
         )
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, schema: pcs.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        return handler(TimeModel.__pydantic_core_schema__)
 
     @classmethod
     def from_model(cls, model: TimeModel) -> astropy.time.Time:

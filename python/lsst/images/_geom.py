@@ -40,6 +40,7 @@ from typing import (
 import numpy as np
 import pydantic
 import pydantic_core.core_schema as pcs
+from pydantic.json_schema import GetJsonSchemaHandler, JsonSchemaValue
 
 if TYPE_CHECKING:
     from ._concrete_bounds import SerializableBounds
@@ -402,15 +403,23 @@ class Interval:
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: pydantic.GetCoreSchemaHandler
     ) -> pcs.CoreSchema:
-        from_typed_dict = pcs.no_info_after_validator_function(
-            cls._validate,
-            handler(_SerializedInterval),
+        from_typed_dict = pcs.chain_schema(
+            [
+                handler(_SerializedInterval),
+                pcs.no_info_plain_validator_function(cls._validate),
+            ]
         )
         return pcs.json_or_python_schema(
             json_schema=from_typed_dict,
             python_schema=pcs.union_schema([pcs.is_instance_schema(Interval), from_typed_dict]),
             serialization=pcs.plain_serializer_function_ser_schema(cls._serialize, info_arg=False),
         )
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, schema: pcs.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        return handler(pydantic.TypeAdapter(_SerializedInterval).core_schema)
 
     @classmethod
     def _validate(cls, data: _SerializedInterval) -> Interval:
@@ -781,15 +790,23 @@ class Box:
     def __get_pydantic_core_schema__(
         cls, source_type: Any, handler: pydantic.GetCoreSchemaHandler
     ) -> pcs.CoreSchema:
-        from_typed_dict = pcs.no_info_after_validator_function(
-            cls._validate,
-            handler(_SerializedBox),
+        from_typed_dict = pcs.chain_schema(
+            [
+                handler(_SerializedBox),
+                pcs.no_info_plain_validator_function(cls._validate),
+            ]
         )
         return pcs.json_or_python_schema(
             json_schema=from_typed_dict,
             python_schema=pcs.union_schema([pcs.is_instance_schema(Box), from_typed_dict]),
             serialization=pcs.plain_serializer_function_ser_schema(cls._serialize, info_arg=False),
         )
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, schema: pcs.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        return handler(pydantic.TypeAdapter(_SerializedBox).core_schema)
 
     @classmethod
     def _validate(cls, data: _SerializedBox) -> Box:
