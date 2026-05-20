@@ -16,7 +16,7 @@ __all__ = ("Image", "ImageSerializationModel")
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from types import EllipsisType
-from typing import Any, ClassVar, final
+from typing import TYPE_CHECKING, Any, ClassVar, final
 
 import astropy.io.fits
 import astropy.units
@@ -44,6 +44,12 @@ from .serialization import (
     no_header_updates,
 )
 from .utils import is_none
+
+if TYPE_CHECKING:
+    try:
+        from lsst.afw.image import Image as LegacyImage
+    except ImportError:
+        type LegacyImage = Any  # type: ignore[no-redef]
 
 
 @final
@@ -348,7 +354,7 @@ class Image(GeneralizedImage):
         return fits.read(Image, url, bbox=bbox).deserialized
 
     @staticmethod
-    def from_legacy(legacy: Any, unit: astropy.units.UnitBase | None = None) -> Image:
+    def from_legacy(legacy: LegacyImage, unit: astropy.units.UnitBase | None = None) -> Image:
         """Convert from an `lsst.afw.image.Image` instance.
 
         Parameters
@@ -361,7 +367,7 @@ class Image(GeneralizedImage):
         """
         return Image(legacy.array, start=(legacy.getY0(), legacy.getX0()), unit=unit)
 
-    def to_legacy(self, *, copy: bool | None = None) -> Any:
+    def to_legacy(self, *, copy: bool | None = None) -> LegacyImage:
         """Convert to an `lsst.afw.image.Image` instance.
 
         Parameters

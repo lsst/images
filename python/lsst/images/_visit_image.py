@@ -17,7 +17,7 @@ import functools
 import warnings
 from collections.abc import Callable, Mapping, MutableMapping
 from types import EllipsisType
-from typing import Any, Literal, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 import astropy.io.fits
 import astropy.units
@@ -54,6 +54,18 @@ from .psfs import (
 )
 from .serialization import ArchiveReadError, InputArchive, InvalidParameterError, MetadataValue, OutputArchive
 from .utils import is_none
+
+if TYPE_CHECKING:
+    try:
+        from lsst.afw.cameraGeom import Detector as LegacyDetector
+        from lsst.afw.image import Exposure as LegacyExposure
+        from lsst.afw.image import FilterLabel as LegacyFilterLabel
+        from lsst.afw.image import VisitInfo as LegacyVisitInfo
+    except ImportError:
+        type LegacyDetector = Any  # type: ignore[no-redef]
+        type LegacyExposure = Any  # type: ignore[no-redef]
+        type LegacyFilterLabel = Any  # type: ignore[no-redef]
+        type LegacyVisitInfo = Any  # type: ignore[no-redef]
 
 
 class VisitImage(MaskedImage):
@@ -472,7 +484,7 @@ class VisitImage(MaskedImage):
 
     @staticmethod
     def from_legacy(
-        legacy: Any,
+        legacy: LegacyExposure,
         *,
         unit: astropy.units.UnitBase | None = None,
         plane_map: Mapping[str, MaskPlane] | None = None,
@@ -956,7 +968,9 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
         return super().deserialize_component(component, archive)
 
 
-def _obs_info_from_md(md: MutableMapping[str, Any], visit_info: Any = None) -> ObservationInfo:
+def _obs_info_from_md(
+    md: MutableMapping[str, Any], visit_info: LegacyVisitInfo | None = None
+) -> ObservationInfo:
     # Try to get an ObservationInfo from the primary header as if
     # it's a raw header. Else fallback.
     try:
@@ -982,7 +996,9 @@ def _obs_info_from_md(md: MutableMapping[str, Any], visit_info: Any = None) -> O
 
 
 def _update_obs_info_from_legacy(
-    obs_info: ObservationInfo, detector: Any = None, filter_label: Any = None
+    obs_info: ObservationInfo,
+    detector: LegacyDetector | None = None,
+    filter_label: LegacyFilterLabel | None = None,
 ) -> ObservationInfo:
     extra_md: dict[str, str | int] = {}
 

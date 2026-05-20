@@ -25,7 +25,7 @@ import dataclasses
 import math
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
 from types import EllipsisType
-from typing import Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import astropy.io.fits
 import astropy.wcs
@@ -54,6 +54,12 @@ from .serialization import (
     no_header_updates,
 )
 from .utils import is_none
+
+if TYPE_CHECKING:
+    try:
+        from lsst.afw.image import Mask as LegacyMask
+    except ImportError:
+        type LegacyMask = Any  # type: ignore[no-redef]
 
 
 @dataclasses.dataclass(frozen=True)
