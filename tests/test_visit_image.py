@@ -587,7 +587,10 @@ class VisitImageLegacyTestMixin:
 
             helper.butler.ingest(FileDataset(path=self.filename, refs=[helper.legacy]), transfer="symlink")
             visit_image_ref = helper.legacy.overrideStorageClass("VisitImage")
-            visit_image = helper.butler.get(visit_image_ref)
+            with warnings.catch_warnings():
+                # Silence warnings about data ID and filter label disagreeing.
+                warnings.simplefilter("ignore", category=UserWarning)
+                visit_image = helper.butler.get(visit_image_ref)
             bbox = helper.butler.get(visit_image_ref.makeComponentRef("bbox"))
             self.assertEqual(bbox, visit_image.bbox)
             alternates = {
