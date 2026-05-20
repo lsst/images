@@ -511,6 +511,8 @@ class VisitImageLegacyTestMixin:
         """Test that we can rewrite the visit image and preserve both
         lossy-compressed pixel values and components exactly.
         """
+        import lsst.afw.image
+
         with RoundtripFits(self, self.visit_image, "VisitImage") as roundtrip:
             # Check that we're still using the right compression, and that we
             # wrote WCSs.
@@ -543,11 +545,36 @@ class VisitImageLegacyTestMixin:
                         "photometric_scaling",
                     ]
                 }
+            # Test reading back in as an Exposure.
+            with self.subTest():
+                legacy_exposure = roundtrip.get(storageClass="Exposure")
+                self.assertIsInstance(legacy_exposure, lsst.afw.image.Exposure)
+                # This covers most of the compnents, which have clean 1-1
+                # mappings from legacy to new:
+                compare_visit_image_to_legacy(
+                    self,
+                    self.visit_image,
+                    legacy_exposure,
+                    expect_view=False,
+                    plane_map=self.plane_map,
+                    **DP2_VISIT_DETECTOR_DATA_ID,
+                )
+                # A few components are different enough to merit extra
+                # attention:
+                if self.visit_image.unit == u.nJy:
+                    self.assertTrue(legacy_exposure.getPhotoCalib()._isConstant)
+                    self.assertEqual(legacy_exposure.getPhotoCalib().getCalibrationMean(), 1.0)
+                else:
+                    compare_photo_calib_to_legacy(
+                        self,
+                        self.visit_image.photometric_scaling,
+                        legacy_exposure.getPhotoCalib(),
+                        subimage_bbox=subbox,
+                    )
+                self.assertEqual(legacy_exposure.info.getId(), self.legacy_exposure.info.getId())
             # Try to do a butler get of a component with storage class
             # override.
             with self.subTest():
-                import lsst.afw.image
-
                 # We have VisitInfo available.
                 visit_info = roundtrip.get("obs_info", storageClass="VisitInfo")
                 self.assertIsInstance(visit_info, lsst.afw.image.VisitInfo)
@@ -645,6 +672,9 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
     def test_convert_unit(self) -> None:
         """Test using the ``photometric_scaling`` to swap between
         calibrated and instrumental units.
+
+        This includes tests of the `VisitImage.to_legacy` logic for units that
+        don't map directly to `lsst.afw.image.PhotoCalib` conventions.
         """
         from lsst.afw.table import ExposureCatalog
 
@@ -670,6 +700,15 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
         assert_close(self, visit_image_mJy.image.array, original.image.array * 1e-6)
         self.assertTrue(np.may_share_memory(visit_image_nJy.mask.array, original.mask.array))
         assert_close(self, visit_image_mJy.variance.array, original.variance.array * 1e-12)
+        # Converting a mJy image to legacy should make a PhotoCalib that maps
+        # mJy to nJy.
+        legacy_exposure_mJy = visit_image_mJy.to_legacy()
+        assert_close(self, legacy_exposure_mJy.getPhotoCalib().getCalibrationMean(), 1e6)
+        legacy_masked_image_nJy = legacy_exposure_mJy.getPhotoCalib().calibrateImage(
+            legacy_exposure_mJy.maskedImage
+        )
+        assert_close(self, visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
+        assert_close(self, visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)
         # Test that we haven't dropped any component objects along the way,
         # and that they're all still the same objects or thin views.
         self.assertTrue(np.may_share_memory(visit_image_mJy.mask.array, original.mask.array))
@@ -716,10 +755,30 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
         visit_image_e = visit_image_mJy.convert_unit(u.electron)
         assert_close(self, visit_image_e.image.array, legacy_masked_image_e.image.array)
         assert_close(self, visit_image_e.variance.array, legacy_masked_image_e.variance.array)
-        # We can re-apply the scaling go go back to calibrated units.
+        # We can re-apply the scaling to go back to calibrated units.
         visit_image_nJy_2 = visit_image_e.convert_unit(u.nJy)
         assert_close(self, visit_image_nJy_2.image.array, visit_image_nJy.image.array)
         assert_close(self, visit_image_nJy_2.variance.array, original.variance.array)
+        # Try calibrating an image with a scaling that has units other than
+        # nJy in the numerator.
+        visit_image_e.photometric_scaling = visit_image_nJy.photometric_scaling * (1e-6 * u.mJy / u.nJy)
+        visit_image_nJy_3 = visit_image_e.convert_unit(u.nJy)
+        assert_close(self, visit_image_nJy_3.image.array, visit_image_nJy.image.array)
+        assert_close(self, visit_image_nJy_3.variance.array, original.variance.array)
+        # Try converting that uncalibrated image to legacy; the extra mJy/nJy
+        # factor should get included in the PhotoCalib to recover the original
+        # PhotoCalib.
+        legacy_exposure_e = visit_image_e.to_legacy()
+        assert_close(
+            self,
+            legacy_exposure_e.getPhotoCalib().getCalibrationMean(),
+            legacy_photo_calib.getCalibrationMean(),
+        )
+        legacy_masked_image_nJy = legacy_exposure_e.getPhotoCalib().calibrateImage(
+            legacy_exposure_e.maskedImage
+        )
+        assert_close(self, visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
+        assert_close(self, visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)
 
 
 @unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")

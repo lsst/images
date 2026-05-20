@@ -39,13 +39,15 @@ from .aperture_corrections import (
     ApertureCorrectionMap,
     ApertureCorrectionMapSerializationModel,
     aperture_corrections_from_legacy,
+    aperture_corrections_to_legacy,
 )
 from .cameras import Detector, DetectorSerializationModel
-from .fields import Field, FieldSerializationModel, field_from_legacy_photo_calib
-from .fits import FitsOpaqueMetadata
+from .fields import BaseField, Field, FieldSerializationModel, field_from_legacy_photo_calib
+from .fits import ExtensionKey, FitsOpaqueMetadata
 from .psfs import (
     GaussianPointSpreadFunction,
     GaussianPSFSerializationModel,
+    LegacyPointSpreadFunction,
     PiffSerializationModel,
     PiffWrapper,
     PointSpreadFunction,
@@ -622,6 +624,57 @@ class VisitImage(MaskedImage):
         )
         result.metadata["id"] = legacy.info.getId()
         result._opaque_metadata = opaque_fits_metadata
+        return result
+
+    def to_legacy(
+        self, *, copy: bool | None = None, plane_map: Mapping[str, MaskPlane] | None = None
+    ) -> LegacyExposure:
+        """Convert to an `lsst.afw.image.Exposure` instance.
+
+        Parameters
+        ----------
+        copy
+            If `True`, always copy the image and variance pixel data.
+            If `False`, return a view, and raise `TypeError` if the pixel data
+            is read-only (this is not supported by afw).  If `None`, only copy
+            if the pixel data is read-only.  Mask pixel data is always copied.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.  If `None` (default),
+            `get_legacy_visit_image_mask_planes` is used.
+        """
+        from lsst.afw.image import Exposure as LegacyExposure
+        from lsst.afw.image import FilterLabel as LegacyFilterLabel
+        from lsst.obs.base.makeRawVisitInfoViaObsInfo import MakeRawVisitInfoViaObsInfo
+
+        if plane_map is None:
+            plane_map = get_legacy_visit_image_mask_planes()
+        legacy_masked_image = super().to_legacy(copy=copy, plane_map=plane_map)
+        result = LegacyExposure(legacy_masked_image, dtype=self.image.array.dtype)
+        result_info = result.info
+        result_info.setId(self.metadata.get("id"))
+        result_info.setWcs(self.projection.to_legacy())
+        result_info.setDetector(self.detector.to_legacy())
+        result_info.setFilter(LegacyFilterLabel.fromBandPhysical(self.band, self.obs_info.physical_filter))
+        if self._photometric_scaling is not None:
+            result_info.setPhotoCalib(self._photometric_scaling.to_legacy_photo_calib(self.unit))
+        else:
+            result_info.setPhotoCalib(BaseField.make_legacy_photo_calib(self.unit))
+        # We just dump all of the FITS headers and non-FITS metadata into the
+        # legacy metadata component, to make sure we have everything.
+        if isinstance(self._opaque_metadata, FitsOpaqueMetadata):
+            result_info.getMetadata().update(self._opaque_metadata.headers[ExtensionKey()])
+        result_info.getMetadata().update(self.metadata)
+        if isinstance(self._psf, LegacyPointSpreadFunction):
+            result_info.setPsf(self._psf.legacy_psf)
+        elif isinstance(self._psf, PiffWrapper):
+            result_info.setPsf(self._psf.to_legacy())
+        if isinstance(self.bounds, Polygon):
+            result_info.setValidPolygon(self.bounds.to_legacy())
+        if self.aperture_corrections:
+            result_info.setApCorrMap(aperture_corrections_to_legacy(self.aperture_corrections))
+        result_info.setVisitInfo(MakeRawVisitInfoViaObsInfo.observationInfo2visitInfo(self.obs_info))
+        result_info.setSummaryStats(self.summary_stats.to_legacy())
         return result
 
     @overload  # type: ignore[override]
