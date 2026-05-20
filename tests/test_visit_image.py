@@ -533,18 +533,19 @@ class VisitImageLegacyTestMixin:
                         "photometric_scaling",
                     ]
                 }
+            # Test reading back in as an Exposure.
+            with self.subTest():
+                legacy_exposure = roundtrip.get(storageClass="Exposure")
+                self.assertIsInstance(legacy_exposure, lsst.afw.image.Exposure)
             # Try to do a butler get of a component with storage class
             # override.
             with self.subTest():
-                if self.legacy_exposure is not None:
-                    import lsst.afw.image
+                import lsst.afw.image
 
-                    # We have VisitInfo available.
-                    visit_info = roundtrip.get("obs_info", storageClass="VisitInfo")
-                    self.assertIsInstance(visit_info, lsst.afw.image.VisitInfo)
-                    self.assertEqual(visit_info.getInstrumentLabel(), "LSSTCam")
-                else:
-                    raise unittest.SkipTest("Can not test VisitInfo conversion without afw")
+                # We have VisitInfo available.
+                visit_info = roundtrip.get("obs_info", storageClass="VisitInfo")
+                self.assertIsInstance(visit_info, lsst.afw.image.VisitInfo)
+                self.assertEqual(visit_info.getInstrumentLabel(), "LSSTCam")
 
         assert_masked_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
         # Check that the round-tripped headers are the same (up to card order).
