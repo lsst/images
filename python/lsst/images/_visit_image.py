@@ -121,6 +121,9 @@ class VisitImage(MaskedImage):
         that algorithm.
     backgrounds
         Background models associated with this image.
+    band
+        Name of the passband the image was observed with (this is a shorter,
+        less specific version of ``obs_info.physical_filter``).
     metadata
         Arbitrary flexible metadata to associate with the image.
     """
@@ -141,6 +144,7 @@ class VisitImage(MaskedImage):
         detector: Detector,
         aperture_corrections: ApertureCorrectionMap | None = None,
         backgrounds: BackgroundMap | None = None,
+        band: str,
         metadata: dict[str, MetadataValue] | None = None,
     ):
         super().__init__(
@@ -157,6 +161,8 @@ class VisitImage(MaskedImage):
             raise TypeError("The projection component of a VisitImage cannot be None.")
         if obs_info is None:
             raise TypeError("The observation info component of a VisitImage cannot be None.")
+        if obs_info.physical_filter is None:
+            raise ValueError("The obs_info.physical_filter attribute of a VisitImage cannot be None.")
         self._obs_info = obs_info
         if not isinstance(self.image.projection.pixel_frame, DetectorFrame):
             raise TypeError("The projection's pixel frame must be a DetectorFrame for VisitImage.")
@@ -173,6 +179,7 @@ class VisitImage(MaskedImage):
         if not self.bbox.contains(self._bounds.bbox):
             self._bounds = self._bounds.intersection(self.bbox)
         self._backgrounds = backgrounds if backgrounds is not None else BackgroundMap()
+        self._band = band
 
     @property
     def unit(self) -> astropy.units.UnitBase:
@@ -197,6 +204,17 @@ class VisitImage(MaskedImage):
         (`~astro_metadata_translator.ObservationInfo`).
         """
         return self._obs_info
+
+    @property
+    def physical_filter(self) -> str:
+        """Full name of the physical bandpass filter (`str`)."""
+        assert self._obs_info.physical_filter is not None, "Guaranteed at construction."
+        return self._obs_info.physical_filter
+
+    @property
+    def band(self) -> str:
+        """Short name of the bandpass filter (`str`)."""
+        return self._band
 
     @property
     def astropy_wcs(self) -> ProjectionAstropyView:
@@ -282,6 +300,7 @@ class VisitImage(MaskedImage):
                 photometric_scaling=self._photometric_scaling,
                 aperture_corrections=self.aperture_corrections,
                 backgrounds=self._backgrounds,
+                band=self._band,
             ),
             bbox=bbox,
         )
@@ -313,6 +332,7 @@ class VisitImage(MaskedImage):
                 photometric_scaling=self._photometric_scaling,
                 aperture_corrections=self.aperture_corrections.copy(),
                 backgrounds=self._backgrounds.copy(),
+                band=self.band,
             ),
             copy=True,
         )
@@ -424,6 +444,7 @@ class VisitImage(MaskedImage):
                 aperture_corrections=(
                     self.aperture_corrections if not copy_components else self.aperture_corrections.copy()
                 ),
+                band=self.band,
             )
         )
 
@@ -468,6 +489,7 @@ class VisitImage(MaskedImage):
             aperture_corrections=serialized_aperture_corrections,
             bounds=self._bounds.serialize() if self._bounds != self.bbox else None,
             backgrounds=serialized_backgrounds,
+            band=self.band,
             metadata=self.metadata,
         )
 
@@ -595,8 +617,9 @@ class VisitImage(MaskedImage):
                 if legacy_photo_calib is not None
                 else None
             ),
+            band=legacy.info.getFilter().bandLabel,
         )
-
+        result.metadata["id"] = legacy.info.getId()
         result._opaque_metadata = opaque_fits_metadata
         return result
 
@@ -806,10 +829,11 @@ class VisitImage(MaskedImage):
             "detector",
             "photometric_scaling",
         ), component  # for MyPy
+        filter_label = reader.readFilter()
         with astropy.io.fits.open(filename) as hdu_list:
             primary_header = hdu_list[0].header
             obs_info = _obs_info_from_md(primary_header)
-            obs_info = _update_obs_info_from_legacy(obs_info, legacy_detector, reader.readFilter())
+            obs_info = _update_obs_info_from_legacy(obs_info, legacy_detector, filter_label)
             if component == "obs_info":
                 return obs_info
             instrument = _extract_or_check_header(
@@ -877,8 +901,10 @@ class VisitImage(MaskedImage):
             aperture_corrections=aperture_corrections,
             bounds=Polygon.from_legacy(legacy_polygon) if legacy_polygon is not None else None,
             photometric_scaling=photometric_scaling,
+            band=filter_label.bandLabel,
         )
         result._opaque_metadata = from_masked_image._opaque_metadata
+        result.metadata["id"] = reader.readExposureId()
         return result
 
 
@@ -928,6 +954,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
         default_factory=BackgroundMapSerializationModel,
         description="Background models associated with this image.",
     )
+    band: str = pydantic.Field(description="Short name of the bandpass filter.")
 
     def deserialize(
         self, archive: InputArchive[Any], *, bbox: Box | None = None, **kwargs: Any
@@ -958,6 +985,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
             photometric_scaling=photometric_scaling,
             bounds=self.bounds.deserialize() if self.bounds is not None else None,
             backgrounds=self.backgrounds.deserialize(archive),
+            band=self.band,
         )._finish_deserialize(self)
 
     def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:

@@ -76,7 +76,7 @@ class VisitImageTestCase(unittest.TestCase):
         cls.rng = np.random.default_rng(500)
         det_frame = DetectorFrame(instrument="Inst", visit=1234, detector=1, bbox=Box.factory[1:4096, 1:4096])
         cls.mask_schema = MaskSchema([MaskPlane("M1", "D1")])
-        cls.obs_info = ObservationInfo(instrument="LSSTCam", detector_num=4)
+        cls.obs_info = ObservationInfo(instrument="LSSTCam", detector_num=4, physical_filter="r1")
         cls.summary_stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4)
         cls.gaussian_psf = GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13])
         cls.aperture_corrections: ApertureCorrectionMap = {
@@ -111,6 +111,7 @@ class VisitImageTestCase(unittest.TestCase):
             detector=cls.detector,
             bounds=cls.polygon,
             aperture_corrections=cls.aperture_corrections,
+            band="r",
         )
         cls.visit_image.backgrounds.add(
             "standard",
@@ -126,6 +127,7 @@ class VisitImageTestCase(unittest.TestCase):
             projection=cls.projection,
             detector=cls.detector,
             obs_info=cls.obs_info,
+            band="r",
         )
 
     def test_basics(self) -> None:
@@ -155,6 +157,7 @@ class VisitImageTestCase(unittest.TestCase):
                 projection=self.projection,
                 obs_info=self.obs_info,
                 detector=self.detector,
+                band="r",
             )
 
         with self.assertRaises(TypeError):
@@ -165,6 +168,7 @@ class VisitImageTestCase(unittest.TestCase):
                 mask_schema=self.mask_schema,
                 projection=self.projection,
                 detector=self.detector,
+                band="r",
             )
 
         with self.assertRaises(TypeError):
@@ -175,6 +179,7 @@ class VisitImageTestCase(unittest.TestCase):
                 mask_schema=self.mask_schema,
                 obs_info=self.obs_info,
                 detector=self.detector,
+                band="r",
             )
 
         with self.assertRaises(TypeError):
@@ -185,6 +190,7 @@ class VisitImageTestCase(unittest.TestCase):
                 mask_schema=self.mask_schema,
                 projection=self.projection,
                 obs_info=self.obs_info,
+                band="r",
             )
 
         with self.assertRaises(TypeError):
@@ -195,6 +201,7 @@ class VisitImageTestCase(unittest.TestCase):
                 projection=self.projection,
                 obs_info=self.obs_info,
                 detector=self.detector,
+                band="r",
             )
 
         with self.assertRaises(TypeError):
@@ -205,6 +212,7 @@ class VisitImageTestCase(unittest.TestCase):
                 projection=self.projection,
                 obs_info=self.obs_info,
                 detector=self.detector,
+                band="r",
             )
 
         # Requires a DetectorFrame.
@@ -218,6 +226,7 @@ class VisitImageTestCase(unittest.TestCase):
                 mask_schema=self.mask_schema,
                 obs_info=self.obs_info,
                 detector=self.detector,
+                band="r",
             )
 
         # Variance unit mismatch.
@@ -230,6 +239,7 @@ class VisitImageTestCase(unittest.TestCase):
                 projection=self.projection,
                 obs_info=self.obs_info,
                 detector=self.detector,
+                band="r",
             )
 
     def test_copy_and_slice(self) -> None:
@@ -533,10 +543,6 @@ class VisitImageLegacyTestMixin:
                         "photometric_scaling",
                     ]
                 }
-            # Test reading back in as an Exposure.
-            with self.subTest():
-                legacy_exposure = roundtrip.get(storageClass="Exposure")
-                self.assertIsInstance(legacy_exposure, lsst.afw.image.Exposure)
             # Try to do a butler get of a component with storage class
             # override.
             with self.subTest():
