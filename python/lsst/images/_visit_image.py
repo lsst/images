@@ -56,68 +56,6 @@ from .serialization import ArchiveReadError, InputArchive, InvalidParameterError
 from .utils import is_none
 
 
-def _obs_info_from_md(md: MutableMapping[str, Any], visit_info: Any = None) -> ObservationInfo:
-    # Try to get an ObservationInfo from the primary header as if
-    # it's a raw header. Else fallback.
-    try:
-        obs_info = ObservationInfo.from_header(md, quiet=True)
-    except ValueError:
-        # Not known translator. Must fall back to visit info. If we have
-        # an actual VisitInfo, serialize it since we know that it will be
-        # complete.
-        if visit_info is not None:
-            from lsst.afw.image import setVisitInfoMetadata
-            from lsst.daf.base import PropertyList
-
-            pl = PropertyList()
-            setVisitInfoMetadata(pl, visit_info)
-            # Merge so that we still have access to butler provenance.
-            md.update(pl)
-
-        # Try the given header looking for VisitInfo hints.
-        # We get lots of warnings if nothing can be found. Currently
-        # no way to disable those without capturing them.
-        obs_info = ObservationInfo.from_header(md, translator_class=VisitInfoTranslator, quiet=True)
-    return obs_info
-
-
-def _update_obs_info_from_legacy(
-    obs_info: ObservationInfo, detector: Any = None, filter_label: Any = None
-) -> ObservationInfo:
-    extra_md: dict[str, str | int] = {}
-
-    if filter_label is not None and filter_label.hasBandLabel():
-        extra_md["physical_filter"] = filter_label.physicalLabel
-
-    # Fill in detector metadata, check for consistency.
-    # ObsInfo detector name and group can not be derived from
-    # the getName() information without knowing how the components
-    # are separated.
-    if detector is not None:
-        detector_md = {
-            "detector_num": detector.getId(),
-            "detector_serial": detector.getSerial(),
-            "detector_unique_name": detector.getName(),
-        }
-        extra_md.update(detector_md)
-
-    obs_info_updates: dict[str, str | int] = {}
-    for k, v in extra_md.items():
-        current = getattr(obs_info, k)
-        if current is None:
-            obs_info_updates[k] = v
-            continue
-        if current != v:
-            raise RuntimeError(
-                f"ObservationInfo contains value for '{k}' that is inconsistent "
-                f"with given legacy object: {v} != {current}"
-            )
-
-    if obs_info_updates:
-        obs_info = obs_info.model_copy(update=obs_info_updates)
-    return obs_info
-
-
 class VisitImage(MaskedImage):
     """A calibrated single-visit image.
 
@@ -1016,6 +954,68 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
                 f"Unsupported parameters for VisitImage component {component}: {set(kwargs.keys())}."
             )
         return super().deserialize_component(component, archive)
+
+
+def _obs_info_from_md(md: MutableMapping[str, Any], visit_info: Any = None) -> ObservationInfo:
+    # Try to get an ObservationInfo from the primary header as if
+    # it's a raw header. Else fallback.
+    try:
+        obs_info = ObservationInfo.from_header(md, quiet=True)
+    except ValueError:
+        # Not known translator. Must fall back to visit info. If we have
+        # an actual VisitInfo, serialize it since we know that it will be
+        # complete.
+        if visit_info is not None:
+            from lsst.afw.image import setVisitInfoMetadata
+            from lsst.daf.base import PropertyList
+
+            pl = PropertyList()
+            setVisitInfoMetadata(pl, visit_info)
+            # Merge so that we still have access to butler provenance.
+            md.update(pl)
+
+        # Try the given header looking for VisitInfo hints.
+        # We get lots of warnings if nothing can be found. Currently
+        # no way to disable those without capturing them.
+        obs_info = ObservationInfo.from_header(md, translator_class=VisitInfoTranslator, quiet=True)
+    return obs_info
+
+
+def _update_obs_info_from_legacy(
+    obs_info: ObservationInfo, detector: Any = None, filter_label: Any = None
+) -> ObservationInfo:
+    extra_md: dict[str, str | int] = {}
+
+    if filter_label is not None and filter_label.hasBandLabel():
+        extra_md["physical_filter"] = filter_label.physicalLabel
+
+    # Fill in detector metadata, check for consistency.
+    # ObsInfo detector name and group can not be derived from
+    # the getName() information without knowing how the components
+    # are separated.
+    if detector is not None:
+        detector_md = {
+            "detector_num": detector.getId(),
+            "detector_serial": detector.getSerial(),
+            "detector_unique_name": detector.getName(),
+        }
+        extra_md.update(detector_md)
+
+    obs_info_updates: dict[str, str | int] = {}
+    for k, v in extra_md.items():
+        current = getattr(obs_info, k)
+        if current is None:
+            obs_info_updates[k] = v
+            continue
+        if current != v:
+            raise RuntimeError(
+                f"ObservationInfo contains value for '{k}' that is inconsistent "
+                f"with given legacy object: {v} != {current}"
+            )
+
+    if obs_info_updates:
+        obs_info = obs_info.model_copy(update=obs_info_updates)
+    return obs_info
 
 
 def _extract_or_check_value[T](
