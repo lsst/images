@@ -14,9 +14,15 @@ __all__ = ("ObservationSummaryStats",)
 
 import dataclasses
 import math
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self, get_origin
 
 import pydantic
+
+if TYPE_CHECKING:
+    try:
+        from lsst.afw.image import ExposureSummaryStats as LegacyExposureSummaryStats
+    except ImportError:
+        type LegacyExposureSummaryStats = Any  # type: ignore[no-redef]
 
 
 def _default_corners() -> tuple[float, float, float, float]:
@@ -309,7 +315,7 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
         return True
 
     @classmethod
-    def from_legacy(cls, exposure_summary_stats: Any) -> Self:
+    def from_legacy(cls, exposure_summary_stats: LegacyExposureSummaryStats) -> Self:
         """Return an `ObservationSummaryStats` from a legacy
         `lsst.afw.image.ExposureSummaryStats`.
         """
@@ -317,3 +323,20 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
         # are compatible with an ObservationSummaryStats.
         summary_stats = dataclasses.asdict(exposure_summary_stats)
         return cls.model_validate(summary_stats)
+
+    def to_legacy(self) -> LegacyExposureSummaryStats:
+        """Convert to an `lsst.afw.image.ExposureSummaryStats` instance."""
+        from lsst.afw.image import ExposureSummaryStats as LegacyExposureSummaryStats
+
+        kwargs: dict[str, Any] = {}
+        for name, info in ObservationSummaryStats.model_fields.items():
+            # Doing this in general is hard, so we handle the fields that we
+            # know about and raise if somebody adds a field with a new type
+            # without updating this function.
+            if info.annotation in (float, int):
+                kwargs[name] = getattr(self, name)
+            elif get_origin(info.annotation) is tuple:
+                kwargs[name] = list(getattr(self, name))
+            else:
+                raise NotImplementedError(f"Unsupported field type: {info.annotation}.")
+        return LegacyExposureSummaryStats(**kwargs)
