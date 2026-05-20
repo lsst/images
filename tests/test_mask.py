@@ -193,6 +193,18 @@ class MaskTestCase(unittest.TestCase):
         compare_mask_to_legacy(self, mask, legacy_mask, plane_map)
         compare_mask_to_legacy(self, mask, mask.to_legacy(plane_map), plane_map)
         assert_masks_equal(self, mask, Mask.from_legacy(legacy_mask, plane_map=plane_map))
+        # Write the mask out in the new format, and test that we can read it
+        # back either way.
+        with RoundtripFits(self, mask, storage_class="MaskV2") as roundtrip:
+            with self.subTest():
+                try:
+                    import lsst.afw.image
+                except ImportError:
+                    raise unittest.SkipTest("afw could not be imported") from None
+                legacy_mask = roundtrip.get(storageClass="Mask")
+                self.assertIsInstance(legacy_mask, lsst.afw.image.Mask)
+                compare_mask_to_legacy(self, mask, legacy_mask)
+        assert_masks_equal(self, roundtrip.result, mask)
 
 
 if __name__ == "__main__":

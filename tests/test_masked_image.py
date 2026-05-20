@@ -166,6 +166,17 @@ class MaskedImageTestCase(unittest.TestCase):
             self.assertEqual(fits[1].header["ZCMPTYPE"], "GZIP_2")
             self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
             self.assertEqual(fits[3].header["ZCMPTYPE"], "GZIP_2")
+            # Test reading back in as a legacy MaskedImage.
+            with self.subTest():
+                try:
+                    import lsst.afw.image
+                except ImportError:
+                    raise unittest.SkipTest("afw could not be imported") from None
+                legacy_masked_image = roundtrip.get(storageClass="MaskedImage")
+                self.assertIsInstance(legacy_masked_image, lsst.afw.image.MaskedImage)
+                compare_masked_image_to_legacy(
+                    self, self.masked_image, legacy_masked_image, expect_view=False
+                )
         assert_masked_images_equal(self, roundtrip.result, self.masked_image, expect_view=False)
         assert_masked_images_equal(self, subimage, roundtrip.result[subbox], expect_view=False)
 
