@@ -444,6 +444,7 @@ class VisitImage(MaskedImage):
                 aperture_corrections=(
                     self.aperture_corrections if not copy_components else self.aperture_corrections.copy()
                 ),
+                backgrounds=self.backgrounds if not copy_components else self.backgrounds.copy(),
                 band=self.band,
             )
         )
