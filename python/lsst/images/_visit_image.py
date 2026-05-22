@@ -543,7 +543,7 @@ class VisitImage(MaskedImage):
         instrument = _extract_or_check_header(
             "LSST BUTLER DATAID INSTRUMENT", instrument, md, obs_info.instrument, str
         )
-        visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, None, int)
+        visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, obs_info.exposure_id, int)
         legacy_wcs = legacy.getWcs()
         if legacy_wcs is None:
             raise ValueError("Exposure does not have a SkyWcs.")
@@ -561,7 +561,7 @@ class VisitImage(MaskedImage):
             # Silence warnings about long keys becoming HIERARCH.
             warnings.simplefilter("ignore", category=astropy.io.fits.verify.VerifyWarning)
             primary_header.update(md.toOrderedDict())
-        opaque_fits_metadata.extract_legacy_primary_header(primary_header)
+        metadata = opaque_fits_metadata.extract_legacy_primary_header(primary_header)
         instrumental_unit = opaque_fits_metadata.get_instrumental_unit() or astropy.units.electron
         hdr_unit: astropy.units.UnitBase | None = None
         if hdr_unit_str := md.get("BUNIT"):
@@ -621,6 +621,7 @@ class VisitImage(MaskedImage):
                 else None
             ),
             band=legacy.info.getFilter().bandLabel,
+            metadata=metadata,
         )
         result.metadata["id"] = legacy.info.getId()
         result._opaque_metadata = opaque_fits_metadata
@@ -661,10 +662,22 @@ class VisitImage(MaskedImage):
         else:
             result_info.setPhotoCalib(BaseField.make_legacy_photo_calib(self.unit))
         # We just dump all of the FITS headers and non-FITS metadata into the
-        # legacy metadata component, to make sure we have everything.
+        # legacy metadata component, to make sure we have everything. We dump
+        # the latter into a pair of special cards to be able to full round-trip
+        # them (including case preservation).
+        result_md = result_info.getMetadata()
+        try:
+            result_md["BUNIT"] = self.unit.to_string(format="fits")
+        except ValueError:
+            # Write units that astropy doesn't think FITS will accept anyway;
+            # FITS standard says "SHOULD" about using it's recommended units,
+            # and coloring outside the lines is better than lying.
+            result_md["BUNIT"] = self.unit.to_string()
         if isinstance(self._opaque_metadata, FitsOpaqueMetadata):
-            result_info.getMetadata().update(self._opaque_metadata.headers[ExtensionKey()])
-        result_info.getMetadata().update(self.metadata)
+            result_md.update(self._opaque_metadata.headers[ExtensionKey()])
+        for n, (k, v) in enumerate(self.metadata.items()):
+            result_md[f"LSST IMAGES KEY {n + 1}"] = k
+            result_md[f"LSST IMAGES VALUE {n + 1}"] = v
         if isinstance(self._psf, LegacyPointSpreadFunction):
             result_info.setPsf(self._psf.legacy_psf)
         elif isinstance(self._psf, PiffWrapper):
@@ -893,12 +906,14 @@ class VisitImage(MaskedImage):
             instrument = _extract_or_check_header(
                 "LSST BUTLER DATAID INSTRUMENT", instrument, primary_header, obs_info.instrument, str
             )
-            visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, primary_header, None, int)
+            visit = _extract_or_check_header(
+                "LSST BUTLER DATAID VISIT", visit, primary_header, obs_info.exposure_id, int
+            )
             opaque_metadata = FitsOpaqueMetadata()
             # This extraction is destructive, so we need to be sure to pass
             # this opaque_metadata down to MaskedImage._read_legacy_hdus
             # so it doesn't try to extract it again.
-            opaque_metadata.extract_legacy_primary_header(primary_header)
+            metadata = opaque_metadata.extract_legacy_primary_header(primary_header)
             if (instrumental_unit := opaque_metadata.get_instrumental_unit()) is None:
                 instrumental_unit = astropy.units.electron
             photometric_scaling: Field | None = None
@@ -956,6 +971,7 @@ class VisitImage(MaskedImage):
             bounds=Polygon.from_legacy(legacy_polygon) if legacy_polygon is not None else None,
             photometric_scaling=photometric_scaling,
             band=filter_label.bandLabel,
+            metadata=metadata,
         )
         result._opaque_metadata = from_masked_image._opaque_metadata
         result.metadata["id"] = reader.readExposureId()

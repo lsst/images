@@ -650,6 +650,36 @@ class VisitImageLegacyTestMixin:
                 alternates=alternates,
                 **DP2_VISIT_DETECTOR_DATA_ID,
             )
+            # Add some metadata to the new VisitImage and then do a converting
+            # `put` that should write to the old format (we have to delete the
+            # old one first, which just deletes a symlink).
+            helper.butler.pruneDatasets([helper.legacy], purge=True, unstore=True, disassociate=True)
+            visit_image.metadata["MixedCaseKey"] = 52
+            helper.butler.put(visit_image, visit_image_ref)
+            # Check that we can read *that* back in as a legacy exposure.
+            legacy_exposure = helper.butler.get(helper.legacy)
+            compare_visit_image_to_legacy(
+                self,
+                visit_image,
+                legacy_exposure,
+                expect_view=False,
+                plane_map=self.plane_map,
+                alternates=alternates,
+                **DP2_VISIT_DETECTOR_DATA_ID,
+            )
+            # Check that we can read it back in as a VisitImage, and that the
+            # new metadata is preserved.
+            visit_image_2 = helper.butler.get(visit_image_ref)
+            compare_visit_image_to_legacy(
+                self,
+                visit_image_2,
+                legacy_exposure,
+                expect_view=False,
+                plane_map=self.plane_map,
+                alternates=alternates,
+                **DP2_VISIT_DETECTOR_DATA_ID,
+            )
+            self.assertEqual(visit_image_2.metadata["MixedCaseKey"], 52)
 
 
 @unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")

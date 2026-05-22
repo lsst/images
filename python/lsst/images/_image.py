@@ -281,8 +281,10 @@ class Image(GeneralizedImage):
                 try:
                     header["BUNIT"] = self.unit.to_string(format="fits")
                 except ValueError:
-                    # Units not supported by FITS.
-                    pass
+                    # Units not supported by FITS; write it anyway because
+                    # the accepted units are just a recommendation in the
+                    # standard.
+                    header["BUNIT"] = self.unit.to_string()
             if self.projection is not None and add_offset_wcs != " ":
                 if self.fits_wcs:
                     header.update(self.fits_wcs.to_header(relax=True))
@@ -453,7 +455,12 @@ class Image(GeneralizedImage):
     ) -> Image:
         unit: astropy.units.UnitBase | None = None
         if (fits_unit := hdu.header.pop("BUNIT", None)) is not None:
-            unit = astropy.units.Unit(fits_unit, format="fits")
+            try:
+                unit = astropy.units.Unit(fits_unit, format="fits")
+            except ValueError:
+                # Accept non-FITS units by assuming Astropy can still figure
+                # them out if we don't specify the format.
+                unit = astropy.units.Unit(fits_unit)
             if opaque_metadata.get_instrumental_unit() == astropy.units.electron:
                 # Fix incorrect BUNIT='adu' in LSST preliminary_visit_image.
                 if unit == astropy.units.adu:

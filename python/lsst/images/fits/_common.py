@@ -37,7 +37,7 @@ import enum
 import itertools
 import re
 import string
-from typing import ClassVar, Self, final
+from typing import Any, ClassVar, Self, final
 
 import astropy.io.fits
 import numpy as np
@@ -362,9 +362,11 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
             return None
         return astropy.io.fits.BinTableHDU(precompressed.data, header=precompressed.header.copy(), name=name)
 
-    def extract_legacy_primary_header(self, header: astropy.io.fits.Header) -> None:
+    def extract_legacy_primary_header(self, header: astropy.io.fits.Header) -> dict[str, Any]:
         """Update the opaque metadata with the header of the primary HDU
-        of a legacy (`lsst.afw.image`) FITS file.
+        of a legacy (`lsst.afw.image`) FITS file, stripping cards we know we
+        don't need and extracting any ``LSST IMAGES ...`` cards into a
+        dictionary we return.
         """
         primary_header = header.copy(strip=True)
         # No idea what these spare TAN-SIP headers are doing in the afw
@@ -373,7 +375,14 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         primary_header.remove("B_ORDER", ignore_missing=True)
         strip_legacy_exposure_cards(primary_header)
         strip_butler_cards(primary_header)
+        metadata: dict[str, Any] = {}
+        for n in itertools.count():
+            if (key := header.pop(f"LSST IMAGES KEY {n + 1}", ...)) is ...:
+                break
+            value = header.pop(f"LSST IMAGES VALUE {n + 1}")
+            metadata[key] = value
         self.headers[ExtensionKey()] = primary_header
+        return metadata
 
     def copy(self) -> FitsOpaqueMetadata:
         # Docstring inherited.
