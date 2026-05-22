@@ -17,7 +17,7 @@ import functools
 import warnings
 from collections.abc import Callable, Mapping, MutableMapping
 from types import EllipsisType
-from typing import Any, Literal, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 import astropy.io.fits
 import astropy.units
@@ -39,13 +39,15 @@ from .aperture_corrections import (
     ApertureCorrectionMap,
     ApertureCorrectionMapSerializationModel,
     aperture_corrections_from_legacy,
+    aperture_corrections_to_legacy,
 )
 from .cameras import Detector, DetectorSerializationModel
-from .fields import Field, FieldSerializationModel, field_from_legacy_photo_calib
-from .fits import FitsOpaqueMetadata
+from .fields import BaseField, Field, FieldSerializationModel, field_from_legacy_photo_calib
+from .fits import ExtensionKey, FitsOpaqueMetadata
 from .psfs import (
     GaussianPointSpreadFunction,
     GaussianPSFSerializationModel,
+    LegacyPointSpreadFunction,
     PiffSerializationModel,
     PiffWrapper,
     PointSpreadFunction,
@@ -55,67 +57,17 @@ from .psfs import (
 from .serialization import ArchiveReadError, InputArchive, InvalidParameterError, MetadataValue, OutputArchive
 from .utils import is_none
 
-
-def _obs_info_from_md(md: MutableMapping[str, Any], visit_info: Any = None) -> ObservationInfo:
-    # Try to get an ObservationInfo from the primary header as if
-    # it's a raw header. Else fallback.
+if TYPE_CHECKING:
     try:
-        obs_info = ObservationInfo.from_header(md, quiet=True)
-    except ValueError:
-        # Not known translator. Must fall back to visit info. If we have
-        # an actual VisitInfo, serialize it since we know that it will be
-        # complete.
-        if visit_info is not None:
-            from lsst.afw.image import setVisitInfoMetadata
-            from lsst.daf.base import PropertyList
-
-            pl = PropertyList()
-            setVisitInfoMetadata(pl, visit_info)
-            # Merge so that we still have access to butler provenance.
-            md.update(pl)
-
-        # Try the given header looking for VisitInfo hints.
-        # We get lots of warnings if nothing can be found. Currently
-        # no way to disable those without capturing them.
-        obs_info = ObservationInfo.from_header(md, translator_class=VisitInfoTranslator, quiet=True)
-    return obs_info
-
-
-def _update_obs_info_from_legacy(
-    obs_info: ObservationInfo, detector: Any = None, filter_label: Any = None
-) -> ObservationInfo:
-    extra_md: dict[str, str | int] = {}
-
-    if filter_label is not None and filter_label.hasBandLabel():
-        extra_md["physical_filter"] = filter_label.physicalLabel
-
-    # Fill in detector metadata, check for consistency.
-    # ObsInfo detector name and group can not be derived from
-    # the getName() information without knowing how the components
-    # are separated.
-    if detector is not None:
-        detector_md = {
-            "detector_num": detector.getId(),
-            "detector_serial": detector.getSerial(),
-            "detector_unique_name": detector.getName(),
-        }
-        extra_md.update(detector_md)
-
-    obs_info_updates: dict[str, str | int] = {}
-    for k, v in extra_md.items():
-        current = getattr(obs_info, k)
-        if current is None:
-            obs_info_updates[k] = v
-            continue
-        if current != v:
-            raise RuntimeError(
-                f"ObservationInfo contains value for '{k}' that is inconsistent "
-                f"with given legacy object: {v} != {current}"
-            )
-
-    if obs_info_updates:
-        obs_info = obs_info.model_copy(update=obs_info_updates)
-    return obs_info
+        from lsst.afw.cameraGeom import Detector as LegacyDetector
+        from lsst.afw.image import Exposure as LegacyExposure
+        from lsst.afw.image import FilterLabel as LegacyFilterLabel
+        from lsst.afw.image import VisitInfo as LegacyVisitInfo
+    except ImportError:
+        type LegacyDetector = Any  # type: ignore[no-redef]
+        type LegacyExposure = Any  # type: ignore[no-redef]
+        type LegacyFilterLabel = Any  # type: ignore[no-redef]
+        type LegacyVisitInfo = Any  # type: ignore[no-redef]
 
 
 class VisitImage(MaskedImage):
@@ -171,6 +123,9 @@ class VisitImage(MaskedImage):
         that algorithm.
     backgrounds
         Background models associated with this image.
+    band
+        Name of the passband the image was observed with (this is a shorter,
+        less specific version of ``obs_info.physical_filter``).
     metadata
         Arbitrary flexible metadata to associate with the image.
     """
@@ -191,6 +146,7 @@ class VisitImage(MaskedImage):
         detector: Detector,
         aperture_corrections: ApertureCorrectionMap | None = None,
         backgrounds: BackgroundMap | None = None,
+        band: str,
         metadata: dict[str, MetadataValue] | None = None,
     ):
         super().__init__(
@@ -207,6 +163,8 @@ class VisitImage(MaskedImage):
             raise TypeError("The projection component of a VisitImage cannot be None.")
         if obs_info is None:
             raise TypeError("The observation info component of a VisitImage cannot be None.")
+        if obs_info.physical_filter is None:
+            raise ValueError("The obs_info.physical_filter attribute of a VisitImage cannot be None.")
         self._obs_info = obs_info
         if not isinstance(self.image.projection.pixel_frame, DetectorFrame):
             raise TypeError("The projection's pixel frame must be a DetectorFrame for VisitImage.")
@@ -223,6 +181,7 @@ class VisitImage(MaskedImage):
         if not self.bbox.contains(self._bounds.bbox):
             self._bounds = self._bounds.intersection(self.bbox)
         self._backgrounds = backgrounds if backgrounds is not None else BackgroundMap()
+        self._band = band
 
     @property
     def unit(self) -> astropy.units.UnitBase:
@@ -247,6 +206,17 @@ class VisitImage(MaskedImage):
         (`~astro_metadata_translator.ObservationInfo`).
         """
         return self._obs_info
+
+    @property
+    def physical_filter(self) -> str:
+        """Full name of the physical bandpass filter (`str`)."""
+        assert self._obs_info.physical_filter is not None, "Guaranteed at construction."
+        return self._obs_info.physical_filter
+
+    @property
+    def band(self) -> str:
+        """Short name of the bandpass filter (`str`)."""
+        return self._band
 
     @property
     def astropy_wcs(self) -> ProjectionAstropyView:
@@ -332,6 +302,7 @@ class VisitImage(MaskedImage):
                 photometric_scaling=self._photometric_scaling,
                 aperture_corrections=self.aperture_corrections,
                 backgrounds=self._backgrounds,
+                band=self._band,
             ),
             bbox=bbox,
         )
@@ -363,6 +334,7 @@ class VisitImage(MaskedImage):
                 photometric_scaling=self._photometric_scaling,
                 aperture_corrections=self.aperture_corrections.copy(),
                 backgrounds=self._backgrounds.copy(),
+                band=self.band,
             ),
             copy=True,
         )
@@ -474,6 +446,8 @@ class VisitImage(MaskedImage):
                 aperture_corrections=(
                     self.aperture_corrections if not copy_components else self.aperture_corrections.copy()
                 ),
+                backgrounds=self.backgrounds if not copy_components else self.backgrounds.copy(),
+                band=self.band,
             )
         )
 
@@ -518,6 +492,7 @@ class VisitImage(MaskedImage):
             aperture_corrections=serialized_aperture_corrections,
             bounds=self._bounds.serialize() if self._bounds != self.bbox else None,
             backgrounds=serialized_backgrounds,
+            band=self.band,
             metadata=self.metadata,
         )
 
@@ -534,7 +509,7 @@ class VisitImage(MaskedImage):
 
     @staticmethod
     def from_legacy(
-        legacy: Any,
+        legacy: LegacyExposure,
         *,
         unit: astropy.units.UnitBase | None = None,
         plane_map: Mapping[str, MaskPlane] | None = None,
@@ -568,7 +543,7 @@ class VisitImage(MaskedImage):
         instrument = _extract_or_check_header(
             "LSST BUTLER DATAID INSTRUMENT", instrument, md, obs_info.instrument, str
         )
-        visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, None, int)
+        visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, obs_info.exposure_id, int)
         legacy_wcs = legacy.getWcs()
         if legacy_wcs is None:
             raise ValueError("Exposure does not have a SkyWcs.")
@@ -586,7 +561,7 @@ class VisitImage(MaskedImage):
             # Silence warnings about long keys becoming HIERARCH.
             warnings.simplefilter("ignore", category=astropy.io.fits.verify.VerifyWarning)
             primary_header.update(md.toOrderedDict())
-        opaque_fits_metadata.extract_legacy_primary_header(primary_header)
+        metadata = opaque_fits_metadata.extract_legacy_primary_header(primary_header)
         instrumental_unit = opaque_fits_metadata.get_instrumental_unit() or astropy.units.electron
         hdr_unit: astropy.units.UnitBase | None = None
         if hdr_unit_str := md.get("BUNIT"):
@@ -645,9 +620,74 @@ class VisitImage(MaskedImage):
                 if legacy_photo_calib is not None
                 else None
             ),
+            band=legacy.info.getFilter().bandLabel,
+            metadata=metadata,
         )
-
+        result.metadata["id"] = legacy.info.getId()
         result._opaque_metadata = opaque_fits_metadata
+        return result
+
+    def to_legacy(
+        self, *, copy: bool | None = None, plane_map: Mapping[str, MaskPlane] | None = None
+    ) -> LegacyExposure:
+        """Convert to an `lsst.afw.image.Exposure` instance.
+
+        Parameters
+        ----------
+        copy
+            If `True`, always copy the image and variance pixel data.
+            If `False`, return a view, and raise `TypeError` if the pixel data
+            is read-only (this is not supported by afw).  If `None`, only copy
+            if the pixel data is read-only.  Mask pixel data is always copied.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.  If `None` (default),
+            `get_legacy_visit_image_mask_planes` is used.
+        """
+        from lsst.afw.image import Exposure as LegacyExposure
+        from lsst.afw.image import FilterLabel as LegacyFilterLabel
+        from lsst.obs.base.makeRawVisitInfoViaObsInfo import MakeRawVisitInfoViaObsInfo
+
+        if plane_map is None:
+            plane_map = get_legacy_visit_image_mask_planes()
+        legacy_masked_image = super().to_legacy(copy=copy, plane_map=plane_map)
+        result = LegacyExposure(legacy_masked_image, dtype=self.image.array.dtype)
+        result_info = result.info
+        result_info.setId(self.metadata.get("id"))
+        result_info.setWcs(self.projection.to_legacy())
+        result_info.setDetector(self.detector.to_legacy())
+        result_info.setFilter(LegacyFilterLabel.fromBandPhysical(self.band, self.obs_info.physical_filter))
+        if self._photometric_scaling is not None:
+            result_info.setPhotoCalib(self._photometric_scaling.to_legacy_photo_calib(self.unit))
+        else:
+            result_info.setPhotoCalib(BaseField.make_legacy_photo_calib(self.unit))
+        # We just dump all of the FITS headers and non-FITS metadata into the
+        # legacy metadata component, to make sure we have everything. We dump
+        # the latter into a pair of special cards to be able to full round-trip
+        # them (including case preservation).
+        result_md = result_info.getMetadata()
+        try:
+            result_md["BUNIT"] = self.unit.to_string(format="fits")
+        except ValueError:
+            # Write units that astropy doesn't think FITS will accept anyway;
+            # FITS standard says "SHOULD" about using it's recommended units,
+            # and coloring outside the lines is better than lying.
+            result_md["BUNIT"] = self.unit.to_string()
+        if isinstance(self._opaque_metadata, FitsOpaqueMetadata):
+            result_md.update(self._opaque_metadata.headers[ExtensionKey()])
+        for n, (k, v) in enumerate(self.metadata.items()):
+            result_md[f"LSST IMAGES KEY {n + 1}"] = k
+            result_md[f"LSST IMAGES VALUE {n + 1}"] = v
+        if isinstance(self._psf, LegacyPointSpreadFunction):
+            result_info.setPsf(self._psf.legacy_psf)
+        elif isinstance(self._psf, PiffWrapper):
+            result_info.setPsf(self._psf.to_legacy())
+        if isinstance(self.bounds, Polygon):
+            result_info.setValidPolygon(self.bounds.to_legacy())
+        if self.aperture_corrections:
+            result_info.setApCorrMap(aperture_corrections_to_legacy(self.aperture_corrections))
+        result_info.setVisitInfo(MakeRawVisitInfoViaObsInfo.observationInfo2visitInfo(self.obs_info))
+        result_info.setSummaryStats(self.summary_stats.to_legacy())
         return result
 
     @overload  # type: ignore[override]
@@ -856,21 +896,24 @@ class VisitImage(MaskedImage):
             "detector",
             "photometric_scaling",
         ), component  # for MyPy
+        filter_label = reader.readFilter()
         with astropy.io.fits.open(filename) as hdu_list:
             primary_header = hdu_list[0].header
             obs_info = _obs_info_from_md(primary_header)
-            obs_info = _update_obs_info_from_legacy(obs_info, legacy_detector, reader.readFilter())
+            obs_info = _update_obs_info_from_legacy(obs_info, legacy_detector, filter_label)
             if component == "obs_info":
                 return obs_info
             instrument = _extract_or_check_header(
                 "LSST BUTLER DATAID INSTRUMENT", instrument, primary_header, obs_info.instrument, str
             )
-            visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, primary_header, None, int)
+            visit = _extract_or_check_header(
+                "LSST BUTLER DATAID VISIT", visit, primary_header, obs_info.exposure_id, int
+            )
             opaque_metadata = FitsOpaqueMetadata()
             # This extraction is destructive, so we need to be sure to pass
             # this opaque_metadata down to MaskedImage._read_legacy_hdus
             # so it doesn't try to extract it again.
-            opaque_metadata.extract_legacy_primary_header(primary_header)
+            metadata = opaque_metadata.extract_legacy_primary_header(primary_header)
             if (instrumental_unit := opaque_metadata.get_instrumental_unit()) is None:
                 instrumental_unit = astropy.units.electron
             photometric_scaling: Field | None = None
@@ -927,8 +970,11 @@ class VisitImage(MaskedImage):
             aperture_corrections=aperture_corrections,
             bounds=Polygon.from_legacy(legacy_polygon) if legacy_polygon is not None else None,
             photometric_scaling=photometric_scaling,
+            band=filter_label.bandLabel,
+            metadata=metadata,
         )
         result._opaque_metadata = from_masked_image._opaque_metadata
+        result.metadata["id"] = reader.readExposureId()
         return result
 
 
@@ -978,6 +1024,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
         default_factory=BackgroundMapSerializationModel,
         description="Background models associated with this image.",
     )
+    band: str = pydantic.Field(description="Short name of the bandpass filter.")
 
     def deserialize(
         self, archive: InputArchive[Any], *, bbox: Box | None = None, **kwargs: Any
@@ -1008,6 +1055,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
             photometric_scaling=photometric_scaling,
             bounds=self.bounds.deserialize() if self.bounds is not None else None,
             backgrounds=self.backgrounds.deserialize(archive),
+            band=self.band,
         )._finish_deserialize(self)
 
     def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
@@ -1016,6 +1064,72 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
                 f"Unsupported parameters for VisitImage component {component}: {set(kwargs.keys())}."
             )
         return super().deserialize_component(component, archive)
+
+
+def _obs_info_from_md(
+    md: MutableMapping[str, Any], visit_info: LegacyVisitInfo | None = None
+) -> ObservationInfo:
+    # Try to get an ObservationInfo from the primary header as if
+    # it's a raw header. Else fallback.
+    try:
+        obs_info = ObservationInfo.from_header(md, quiet=True)
+    except ValueError:
+        # Not known translator. Must fall back to visit info. If we have
+        # an actual VisitInfo, serialize it since we know that it will be
+        # complete.
+        if visit_info is not None:
+            from lsst.afw.image import setVisitInfoMetadata
+            from lsst.daf.base import PropertyList
+
+            pl = PropertyList()
+            setVisitInfoMetadata(pl, visit_info)
+            # Merge so that we still have access to butler provenance.
+            md.update(pl)
+
+        # Try the given header looking for VisitInfo hints.
+        # We get lots of warnings if nothing can be found. Currently
+        # no way to disable those without capturing them.
+        obs_info = ObservationInfo.from_header(md, translator_class=VisitInfoTranslator, quiet=True)
+    return obs_info
+
+
+def _update_obs_info_from_legacy(
+    obs_info: ObservationInfo,
+    detector: LegacyDetector | None = None,
+    filter_label: LegacyFilterLabel | None = None,
+) -> ObservationInfo:
+    extra_md: dict[str, str | int] = {}
+
+    if filter_label is not None and filter_label.hasBandLabel():
+        extra_md["physical_filter"] = filter_label.physicalLabel
+
+    # Fill in detector metadata, check for consistency.
+    # ObsInfo detector name and group can not be derived from
+    # the getName() information without knowing how the components
+    # are separated.
+    if detector is not None:
+        detector_md = {
+            "detector_num": detector.getId(),
+            "detector_serial": detector.getSerial(),
+            "detector_unique_name": detector.getName(),
+        }
+        extra_md.update(detector_md)
+
+    obs_info_updates: dict[str, str | int] = {}
+    for k, v in extra_md.items():
+        current = getattr(obs_info, k)
+        if current is None:
+            obs_info_updates[k] = v
+            continue
+        if current != v:
+            raise RuntimeError(
+                f"ObservationInfo contains value for '{k}' that is inconsistent "
+                f"with given legacy object: {v} != {current}"
+            )
+
+    if obs_info_updates:
+        obs_info = obs_info.model_copy(update=obs_info_updates)
+    return obs_info
 
 
 def _extract_or_check_value[T](

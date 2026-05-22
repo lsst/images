@@ -230,6 +230,18 @@ class ImageTestCase(unittest.TestCase):
         compare_image_to_legacy(self, image_view, legacy_image, expect_view=True)
         # Converting back to afw from the in-memory view will be another view.
         compare_image_to_legacy(self, image_view, image_view.to_legacy(), expect_view=True)
+        # Write the image out in the new format, and test that we can read it
+        # back either way.
+        with RoundtripFits(self, image, storage_class="ImageV2") as roundtrip:
+            with self.subTest():
+                try:
+                    import lsst.afw.image
+                except ImportError:
+                    raise unittest.SkipTest("afw could not be imported") from None
+                legacy_image = roundtrip.get(storageClass="Image")
+                self.assertIsInstance(legacy_image, lsst.afw.image.Image)
+                compare_image_to_legacy(self, image, legacy_image, expect_view=False)
+        assert_images_equal(self, roundtrip.result, image, expect_view=False)
 
 
 if __name__ == "__main__":

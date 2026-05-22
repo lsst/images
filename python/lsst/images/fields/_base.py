@@ -14,13 +14,21 @@ from __future__ import annotations
 __all__ = ("BaseField",)
 
 from abc import ABC, abstractmethod
-from typing import Literal, Self, overload
+from typing import TYPE_CHECKING, Any, Literal, Self, overload
 
 import astropy.units
 import numpy as np
 
 from .._geom import Bounds, Box
 from .._image import Image
+
+if TYPE_CHECKING:
+    try:
+        from lsst.afw.image import PhotoCalib as LegacyPhotoCalib
+        from lsst.afw.math import BoundedField as LegacyBoundedField
+    except ImportError:
+        type LegacyBoundedField = Any  # type: ignore[no-redef]
+        type LegacyPhotoCalib = Any  # type: ignore[no-redef]
 
 
 class BaseField(ABC):
@@ -53,6 +61,12 @@ class BaseField(ABC):
     @abstractmethod
     def unit(self) -> astropy.units.UnitBase | None:
         """The units of the field (`astropy.units.UnitBase` or `None`)."""
+        raise NotImplementedError()
+
+    @property
+    @abstractmethod
+    def is_constant(self) -> bool:
+        """Whether the field is spatially constant (`bool`)."""
         raise NotImplementedError()
 
     @overload
@@ -133,6 +147,64 @@ class BaseField(ABC):
             ``self.unit is None``.
         """
         raise NotImplementedError()
+
+    def to_legacy(self) -> LegacyBoundedField:
+        """Convert to a legacy `lsst.afw.math.BoundedField`."""
+        raise NotImplementedError(f"{type(self).__name__} has no lsst.afw.math.BoundedField representation.")
+
+    def to_legacy_photo_calib(self, image_unit: astropy.units.UnitBase) -> LegacyPhotoCalib:
+        """Convert to a legacy `lsst.afw.image.PhotoCalib`.
+
+        Parameters
+        ----------
+        image_unit
+            The units of the pixels the returned ``PhotoCalib`` will be
+            associated with.
+        """
+        from lsst.afw.image import PhotoCalib
+
+        if (result := self.make_legacy_photo_calib(image_unit)) is not None:
+            return result
+        field = self
+        factor = image_unit.to(astropy.units.nJy / self.unit)
+        if factor != 1.0:
+            # TODO[DM-54556]: make sure this shouldn't be 1/factor.
+            field = self.multiply_constant(factor)  # this lies about units, but we'll discard them anyway.
+        (field_at_center,) = field(
+            x=np.array([field.bounds.bbox.x.center]),
+            y=np.array([field.bounds.bbox.y.center]),
+        )
+        if field.is_constant:
+            return PhotoCalib(field_at_center)
+        else:
+            # Constructing a legacy PhotoCalib from a BoundedField alone
+            # doesn't always work, because ProductBoundedField doesn't
+            # implement computeMean(). Luckily PhotoCalib doesn't really care
+            # about getting a true mean; it just wants some sort of central
+            # tendency, so we can evaluate the field at the bbox center and use
+            # that (this is what fgcmcal does when it makes a
+            # ProductBoundedField PhotoCalib).
+            return PhotoCalib(
+                calibrationMean=field_at_center,
+                calibrationErr=0.0,  # we don't round-trip this; it's not useful
+                calibration=field.to_legacy(),
+                isConstant=False,
+            )
+
+    @staticmethod
+    def make_legacy_photo_calib(image_unit: astropy.units.UnitBase) -> LegacyPhotoCalib | None:
+        """Make a legacy `lsst.afw.image.PhotoCalib` for an image with the
+        given units, if that is possible without a photometric scaling field.
+        """
+        from lsst.afw.image import PhotoCalib
+
+        try:
+            factor = image_unit.to(astropy.units.nJy)
+        except astropy.units.UnitConversionError:
+            pass
+        else:
+            return PhotoCalib(factor)
+        return None
 
     def _handle_factor_units(
         self, factor: float | astropy.units.Quantity | astropy.units.UnitBase

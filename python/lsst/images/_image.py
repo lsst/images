@@ -16,7 +16,7 @@ __all__ = ("Image", "ImageSerializationModel")
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from types import EllipsisType
-from typing import Any, ClassVar, final
+from typing import TYPE_CHECKING, Any, ClassVar, final
 
 import astropy.io.fits
 import astropy.units
@@ -44,6 +44,12 @@ from .serialization import (
     no_header_updates,
 )
 from .utils import is_none
+
+if TYPE_CHECKING:
+    try:
+        from lsst.afw.image import Image as LegacyImage
+    except ImportError:
+        type LegacyImage = Any  # type: ignore[no-redef]
 
 
 @final
@@ -275,8 +281,10 @@ class Image(GeneralizedImage):
                 try:
                     header["BUNIT"] = self.unit.to_string(format="fits")
                 except ValueError:
-                    # Units not supported by FITS.
-                    pass
+                    # Units not supported by FITS; write it anyway because
+                    # the accepted units are just a recommendation in the
+                    # standard.
+                    header["BUNIT"] = self.unit.to_string()
             if self.projection is not None and add_offset_wcs != " ":
                 if self.fits_wcs:
                     header.update(self.fits_wcs.to_header(relax=True))
@@ -348,7 +356,7 @@ class Image(GeneralizedImage):
         return fits.read(Image, url, bbox=bbox).deserialized
 
     @staticmethod
-    def from_legacy(legacy: Any, unit: astropy.units.UnitBase | None = None) -> Image:
+    def from_legacy(legacy: LegacyImage, unit: astropy.units.UnitBase | None = None) -> Image:
         """Convert from an `lsst.afw.image.Image` instance.
 
         Parameters
@@ -361,7 +369,7 @@ class Image(GeneralizedImage):
         """
         return Image(legacy.array, start=(legacy.getY0(), legacy.getX0()), unit=unit)
 
-    def to_legacy(self, *, copy: bool | None = None) -> Any:
+    def to_legacy(self, *, copy: bool | None = None) -> LegacyImage:
         """Convert to an `lsst.afw.image.Image` instance.
 
         Parameters
@@ -447,7 +455,12 @@ class Image(GeneralizedImage):
     ) -> Image:
         unit: astropy.units.UnitBase | None = None
         if (fits_unit := hdu.header.pop("BUNIT", None)) is not None:
-            unit = astropy.units.Unit(fits_unit, format="fits")
+            try:
+                unit = astropy.units.Unit(fits_unit, format="fits")
+            except ValueError:
+                # Accept non-FITS units by assuming Astropy can still figure
+                # them out if we don't specify the format.
+                unit = astropy.units.Unit(fits_unit)
             if opaque_metadata.get_instrumental_unit() == astropy.units.electron:
                 # Fix incorrect BUNIT='adu' in LSST preliminary_visit_image.
                 if unit == astropy.units.adu:

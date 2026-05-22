@@ -17,7 +17,7 @@ import functools
 from collections.abc import Mapping
 from contextlib import ExitStack
 from types import EllipsisType
-from typing import Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import astropy.io.fits
 import astropy.units
@@ -35,6 +35,12 @@ from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._transforms import Frame, Projection, ProjectionSerializationModel
 from .serialization import ArchiveTree, InputArchive, InvalidParameterError, MetadataValue, OutputArchive
 from .utils import is_none
+
+if TYPE_CHECKING:
+    try:
+        from lsst.afw.image import MaskedImage as LegacyMaskedImage
+    except ImportError:
+        type LegacyMaskedImage = Any  # type: ignore[no-redef]
 
 
 class MaskedImage(GeneralizedImage):
@@ -270,7 +276,7 @@ class MaskedImage(GeneralizedImage):
 
     @staticmethod
     def from_legacy(
-        legacy: Any,
+        legacy: LegacyMaskedImage,
         *,
         unit: astropy.units.UnitBase | None = None,
         plane_map: Mapping[str, MaskPlane] | None = None,
@@ -294,7 +300,9 @@ class MaskedImage(GeneralizedImage):
             variance=Image.from_legacy(legacy.getVariance()),
         )
 
-    def to_legacy(self, *, copy: bool | None = None, plane_map: Mapping[str, MaskPlane] | None = None) -> Any:
+    def to_legacy(
+        self, *, copy: bool | None = None, plane_map: Mapping[str, MaskPlane] | None = None
+    ) -> LegacyMaskedImage:
         """Convert to an `lsst.afw.image.MaskedImage` instance.
 
         Parameters
@@ -302,8 +310,8 @@ class MaskedImage(GeneralizedImage):
         copy
             If `True`, always copy the image and variance pixel data.
             If `False`, return a view, and raise `TypeError` if the pixel data
-            is read-only (this is not supported by afw).  If `None`, onyl if
-            the pixel data is read-only.  Mask pixel data is always copied.
+            is read-only (this is not supported by afw).  If `None`, only copy
+            if the pixel data is read-only.  Mask pixel data is always copied.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
             description.

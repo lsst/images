@@ -35,7 +35,14 @@ from ._base import PointSpreadFunction
 
 if TYPE_CHECKING:
     import galsim.wcs
+    import piff
     import piff.config
+
+    try:
+        from lsst.meas.extensions.piff.piffPsf import PiffPsf as LegacyPiffPsf
+    except ImportError:
+        type LegacyPiffPsf = Any  # type: ignore[no-redef]
+
 
 _LOG = getLogger(__name__)
 
@@ -90,7 +97,7 @@ class PiffWrapper(PointSpreadFunction):
         return Box.factory[yi - r : yi + r + 1, xi - r : xi + r + 1]
 
     @property
-    def piff_psf(self) -> Any:
+    def piff_psf(self) -> piff.PSF:
         """The backing `piff.PSF` object.
 
         This is an internal object that must not be modified in place.
@@ -98,8 +105,14 @@ class PiffWrapper(PointSpreadFunction):
         return self._impl
 
     @classmethod
-    def from_legacy(cls, legacy_psf: Any, bounds: Bounds) -> PiffWrapper:
+    def from_legacy(cls, legacy_psf: LegacyPiffPsf, bounds: Bounds) -> PiffWrapper:
         return cls(impl=legacy_psf._piffResult, bounds=bounds, stamp_size=int(legacy_psf.width))
+
+    def to_legacy(self) -> LegacyPiffPsf:
+        """Convert to a legacy `lsst.meas.extensions.piff.piffPsf`."""
+        from lsst.meas.extensions.piff.piffPsf import PiffPsf as LegacyPiffPsf
+
+        return LegacyPiffPsf(self._stamp_size, self._stamp_size, self._impl)
 
     def serialize(self, archive: serialization.OutputArchive[Any]) -> PiffSerializationModel:
         """Serialize the PSF to an archive.

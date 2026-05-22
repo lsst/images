@@ -80,6 +80,10 @@ class SumField(BaseField):
         """The fields that are summed together (`tuple` [`BaseField`, ...])."""
         return self._operands
 
+    @property
+    def is_constant(self) -> bool:
+        return all(operand.is_constant for operand in self._operands)
+
     def evaluate(
         self, *, x: np.ndarray, y: np.ndarray, quantity: bool = False
     ) -> np.ndarray | astropy.units.Quantity:

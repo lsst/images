@@ -76,7 +76,7 @@ class VisitImageTestCase(unittest.TestCase):
         cls.rng = np.random.default_rng(500)
         det_frame = DetectorFrame(instrument="Inst", visit=1234, detector=1, bbox=Box.factory[1:4096, 1:4096])
         cls.mask_schema = MaskSchema([MaskPlane("M1", "D1")])
-        cls.obs_info = ObservationInfo(instrument="LSSTCam", detector_num=4)
+        cls.obs_info = ObservationInfo(instrument="LSSTCam", detector_num=4, physical_filter="r1")
         cls.summary_stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4)
         cls.gaussian_psf = GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13])
         cls.aperture_corrections: ApertureCorrectionMap = {
@@ -111,6 +111,7 @@ class VisitImageTestCase(unittest.TestCase):
             detector=cls.detector,
             bounds=cls.polygon,
             aperture_corrections=cls.aperture_corrections,
+            band="r",
         )
         cls.visit_image.backgrounds.add(
             "standard",
@@ -126,6 +127,7 @@ class VisitImageTestCase(unittest.TestCase):
             projection=cls.projection,
             detector=cls.detector,
             obs_info=cls.obs_info,
+            band="r",
         )
 
     def test_basics(self) -> None:
@@ -155,6 +157,7 @@ class VisitImageTestCase(unittest.TestCase):
                 projection=self.projection,
                 obs_info=self.obs_info,
                 detector=self.detector,
+                band="r",
             )
 
         with self.assertRaises(TypeError):
@@ -165,6 +168,7 @@ class VisitImageTestCase(unittest.TestCase):
                 mask_schema=self.mask_schema,
                 projection=self.projection,
                 detector=self.detector,
+                band="r",
             )
 
         with self.assertRaises(TypeError):
@@ -175,6 +179,7 @@ class VisitImageTestCase(unittest.TestCase):
                 mask_schema=self.mask_schema,
                 obs_info=self.obs_info,
                 detector=self.detector,
+                band="r",
             )
 
         with self.assertRaises(TypeError):
@@ -185,6 +190,7 @@ class VisitImageTestCase(unittest.TestCase):
                 mask_schema=self.mask_schema,
                 projection=self.projection,
                 obs_info=self.obs_info,
+                band="r",
             )
 
         with self.assertRaises(TypeError):
@@ -195,6 +201,7 @@ class VisitImageTestCase(unittest.TestCase):
                 projection=self.projection,
                 obs_info=self.obs_info,
                 detector=self.detector,
+                band="r",
             )
 
         with self.assertRaises(TypeError):
@@ -205,6 +212,7 @@ class VisitImageTestCase(unittest.TestCase):
                 projection=self.projection,
                 obs_info=self.obs_info,
                 detector=self.detector,
+                band="r",
             )
 
         # Requires a DetectorFrame.
@@ -218,6 +226,7 @@ class VisitImageTestCase(unittest.TestCase):
                 mask_schema=self.mask_schema,
                 obs_info=self.obs_info,
                 detector=self.detector,
+                band="r",
             )
 
         # Variance unit mismatch.
@@ -230,6 +239,7 @@ class VisitImageTestCase(unittest.TestCase):
                 projection=self.projection,
                 obs_info=self.obs_info,
                 detector=self.detector,
+                band="r",
             )
 
     def test_copy_and_slice(self) -> None:
@@ -501,6 +511,8 @@ class VisitImageLegacyTestMixin:
         """Test that we can rewrite the visit image and preserve both
         lossy-compressed pixel values and components exactly.
         """
+        import lsst.afw.image
+
         with RoundtripFits(self, self.visit_image, "VisitImage") as roundtrip:
             # Check that we're still using the right compression, and that we
             # wrote WCSs.
@@ -533,18 +545,40 @@ class VisitImageLegacyTestMixin:
                         "photometric_scaling",
                     ]
                 }
+            # Test reading back in as an Exposure.
+            with self.subTest():
+                legacy_exposure = roundtrip.get(storageClass="Exposure")
+                self.assertIsInstance(legacy_exposure, lsst.afw.image.Exposure)
+                # This covers most of the compnents, which have clean 1-1
+                # mappings from legacy to new:
+                compare_visit_image_to_legacy(
+                    self,
+                    self.visit_image,
+                    legacy_exposure,
+                    expect_view=False,
+                    plane_map=self.plane_map,
+                    **DP2_VISIT_DETECTOR_DATA_ID,
+                )
+                # A few components are different enough to merit extra
+                # attention:
+                if self.visit_image.unit == u.nJy:
+                    self.assertTrue(legacy_exposure.getPhotoCalib()._isConstant)
+                    self.assertEqual(legacy_exposure.getPhotoCalib().getCalibrationMean(), 1.0)
+                else:
+                    compare_photo_calib_to_legacy(
+                        self,
+                        self.visit_image.photometric_scaling,
+                        legacy_exposure.getPhotoCalib(),
+                        subimage_bbox=subbox,
+                    )
+                self.assertEqual(legacy_exposure.info.getId(), self.legacy_exposure.info.getId())
             # Try to do a butler get of a component with storage class
             # override.
             with self.subTest():
-                if self.legacy_exposure is not None:
-                    import lsst.afw.image
-
-                    # We have VisitInfo available.
-                    visit_info = roundtrip.get("obs_info", storageClass="VisitInfo")
-                    self.assertIsInstance(visit_info, lsst.afw.image.VisitInfo)
-                    self.assertEqual(visit_info.getInstrumentLabel(), "LSSTCam")
-                else:
-                    raise unittest.SkipTest("Can not test VisitInfo conversion without afw")
+                # We have VisitInfo available.
+                visit_info = roundtrip.get("obs_info", storageClass="VisitInfo")
+                self.assertIsInstance(visit_info, lsst.afw.image.VisitInfo)
+                self.assertEqual(visit_info.getInstrumentLabel(), "LSSTCam")
 
         assert_masked_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
         # Check that the round-tripped headers are the same (up to card order).
@@ -586,7 +620,16 @@ class VisitImageLegacyTestMixin:
 
             helper.butler.ingest(FileDataset(path=self.filename, refs=[helper.legacy]), transfer="symlink")
             visit_image_ref = helper.legacy.overrideStorageClass("VisitImage")
-            visit_image = helper.butler.get(visit_image_ref)
+            with warnings.catch_warnings():
+                # Silence warnings about data ID and filter label disagreeing.
+                warnings.simplefilter("ignore", category=UserWarning)
+                visit_image = helper.butler.get(visit_image_ref)
+                # We didn't ask for the quantization to be preserved, so it
+                # shouldn't be.
+                self.assertEqual(visit_image._opaque_metadata.precompressed.keys(), set())
+                # This time preserve the quantization
+                visit_image = helper.butler.get(visit_image_ref, parameters={"preserve_quantization": True})
+                self.assertEqual(visit_image._opaque_metadata.precompressed.keys(), {"IMAGE", "VARIANCE"})
             bbox = helper.butler.get(visit_image_ref.makeComponentRef("bbox"))
             self.assertEqual(bbox, visit_image.bbox)
             alternates = {
@@ -596,7 +639,7 @@ class VisitImageLegacyTestMixin:
                 # valid for the *internal* storage class, not the requested
                 # one, and that's difficult to fix because it's tied up with
                 # the data ID standardization logic.
-                for k in ["image", "mask", "variance", "psf", "detector"]
+                for k in ["image", "mask", "variance", "bbox", "psf", "detector"]
             }
             compare_visit_image_to_legacy(
                 self,
@@ -607,6 +650,36 @@ class VisitImageLegacyTestMixin:
                 alternates=alternates,
                 **DP2_VISIT_DETECTOR_DATA_ID,
             )
+            # Add some metadata to the new VisitImage and then do a converting
+            # `put` that should write to the old format (we have to delete the
+            # old one first, which just deletes a symlink).
+            helper.butler.pruneDatasets([helper.legacy], purge=True, unstore=True, disassociate=True)
+            visit_image.metadata["MixedCaseKey"] = 52
+            helper.butler.put(visit_image, visit_image_ref)
+            # Check that we can read *that* back in as a legacy exposure.
+            legacy_exposure = helper.butler.get(helper.legacy)
+            compare_visit_image_to_legacy(
+                self,
+                visit_image,
+                legacy_exposure,
+                expect_view=False,
+                plane_map=self.plane_map,
+                alternates=alternates,
+                **DP2_VISIT_DETECTOR_DATA_ID,
+            )
+            # Check that we can read it back in as a VisitImage, and that the
+            # new metadata is preserved.
+            visit_image_2 = helper.butler.get(visit_image_ref)
+            compare_visit_image_to_legacy(
+                self,
+                visit_image_2,
+                legacy_exposure,
+                expect_view=False,
+                plane_map=self.plane_map,
+                alternates=alternates,
+                **DP2_VISIT_DETECTOR_DATA_ID,
+            )
+            self.assertEqual(visit_image_2.metadata["MixedCaseKey"], 52)
 
 
 @unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
@@ -635,6 +708,9 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
     def test_convert_unit(self) -> None:
         """Test using the ``photometric_scaling`` to swap between
         calibrated and instrumental units.
+
+        This includes tests of the `VisitImage.to_legacy` logic for units that
+        don't map directly to `lsst.afw.image.PhotoCalib` conventions.
         """
         from lsst.afw.table import ExposureCatalog
 
@@ -660,6 +736,15 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
         assert_close(self, visit_image_mJy.image.array, original.image.array * 1e-6)
         self.assertTrue(np.may_share_memory(visit_image_nJy.mask.array, original.mask.array))
         assert_close(self, visit_image_mJy.variance.array, original.variance.array * 1e-12)
+        # Converting a mJy image to legacy should make a PhotoCalib that maps
+        # mJy to nJy.
+        legacy_exposure_mJy = visit_image_mJy.to_legacy()
+        assert_close(self, legacy_exposure_mJy.getPhotoCalib().getCalibrationMean(), 1e6)
+        legacy_masked_image_nJy = legacy_exposure_mJy.getPhotoCalib().calibrateImage(
+            legacy_exposure_mJy.maskedImage
+        )
+        assert_close(self, visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
+        assert_close(self, visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)
         # Test that we haven't dropped any component objects along the way,
         # and that they're all still the same objects or thin views.
         self.assertTrue(np.may_share_memory(visit_image_mJy.mask.array, original.mask.array))
@@ -706,10 +791,30 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
         visit_image_e = visit_image_mJy.convert_unit(u.electron)
         assert_close(self, visit_image_e.image.array, legacy_masked_image_e.image.array)
         assert_close(self, visit_image_e.variance.array, legacy_masked_image_e.variance.array)
-        # We can re-apply the scaling go go back to calibrated units.
+        # We can re-apply the scaling to go back to calibrated units.
         visit_image_nJy_2 = visit_image_e.convert_unit(u.nJy)
         assert_close(self, visit_image_nJy_2.image.array, visit_image_nJy.image.array)
         assert_close(self, visit_image_nJy_2.variance.array, original.variance.array)
+        # Try calibrating an image with a scaling that has units other than
+        # nJy in the numerator.
+        visit_image_e.photometric_scaling = visit_image_nJy.photometric_scaling * (1e-6 * u.mJy / u.nJy)
+        visit_image_nJy_3 = visit_image_e.convert_unit(u.nJy)
+        assert_close(self, visit_image_nJy_3.image.array, visit_image_nJy.image.array)
+        assert_close(self, visit_image_nJy_3.variance.array, original.variance.array)
+        # Try converting that uncalibrated image to legacy; the extra mJy/nJy
+        # factor should get included in the PhotoCalib to recover the original
+        # PhotoCalib.
+        legacy_exposure_e = visit_image_e.to_legacy()
+        assert_close(
+            self,
+            legacy_exposure_e.getPhotoCalib().getCalibrationMean(),
+            legacy_photo_calib.getCalibrationMean(),
+        )
+        legacy_masked_image_nJy = legacy_exposure_e.getPhotoCalib().calibrateImage(
+            legacy_exposure_e.maskedImage
+        )
+        assert_close(self, visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
+        assert_close(self, visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)
 
 
 @unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
