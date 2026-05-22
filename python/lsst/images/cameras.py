@@ -96,12 +96,16 @@ class Orientation(pydantic.BaseModel, ser_json_inf_nan="constants"):
     focal_plane_z: float = pydantic.Field(description="Focal plane Z coordinate of the reference position.")
     pixel_reference_x: float = pydantic.Field(0.5, description="Pixel X coordinate of the reference point.")
     pixel_reference_y: float = pydantic.Field(0.5, description="Pixel Y coordinate of the reference point.")
-    yaw: Quantity = pydantic.Field(0.0 * astropy.units.radian, description="Rotation about the Z axis.")
+    yaw: Quantity = pydantic.Field(
+        default_factory=lambda: 0.0 * astropy.units.radian,
+        description="Rotation about the Z axis.",
+    )
     pitch: Quantity = pydantic.Field(
-        0.0 * astropy.units.radian, description="Rotation about the Y axis (as defined after applying 'yaw')."
+        default_factory=lambda: 0.0 * astropy.units.radian,
+        description="Rotation about the Y axis (as defined after applying 'yaw').",
     )
     roll: Quantity = pydantic.Field(
-        0.0 * astropy.units.radian,
+        default_factory=lambda: 0.0 * astropy.units.radian,
         description="Rotation about the X axis (as defined after applying 'yaw' and 'pitch').",
     )
 
