@@ -759,13 +759,13 @@ class Mask(GeneralizedImage):
         plane_map: Mapping[str, MaskPlane] | None = None,
         projection: Projection | None = None,
     ) -> Mask:
-        planes: list[MaskPlane] = []
+        planes: list[MaskPlane] = list(plane_map.values()) if plane_map is not None else []
         new_name_to_old_bitmask: dict[str, int] = {}
         for old_name, old_bit in old_planes.items():
             old_bitmask = 1 << old_bit
             if plane_map is not None:
                 if new_plane := plane_map.get(old_name):
-                    planes.append(new_plane)
+                    # Already added to 'planes' at initialization.
                     new_name_to_old_bitmask[new_plane.name] = old_bitmask
                 else:
                     if n_orphaned := np.count_nonzero(array2d & old_bitmask):
