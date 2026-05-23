@@ -2986,6 +2986,13 @@
         }
       }
     },
+    "stars": [
+      {
+        "image_pos": {"y": 2002, "x": 2048},
+        "is_flagged": false,
+        "is_reserve": false
+      }
+    ],
     "stamp_size": 27,
     "bounds": {
       "y": {

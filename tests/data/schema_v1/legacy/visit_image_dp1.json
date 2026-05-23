@@ -2978,6 +2978,13 @@
         }
       }
     },
+    "stars": [
+      {
+        "image_pos": {"y": 2000, "x": 2036},
+        "is_flagged": false,
+        "is_reserve": false
+      }
+    ],
     "stamp_size": 25,
     "bounds": {
       "y": {

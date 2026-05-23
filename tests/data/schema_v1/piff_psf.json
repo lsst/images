@@ -224,6 +224,13 @@
       }
     }
   },
+  "stars": [
+    {
+      "image_pos": {"y": 0, "x": 0},
+      "is_flagged": false,
+      "is_reserve": false
+    }
+  ],
   "stamp_size": 7,
   "bounds": {
     "y": {
