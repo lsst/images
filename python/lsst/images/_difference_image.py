@@ -15,7 +15,7 @@ __all__ = ("DifferenceImage", "DifferenceImageSerializationModel")
 
 from collections.abc import Mapping
 from types import EllipsisType
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import astropy.io.fits
 import astropy.units
@@ -293,117 +293,6 @@ class DifferenceImage(VisitImage):
             plane_map = get_legacy_difference_image_mask_planes()
         return super().to_legacy(copy=copy, plane_map=plane_map)
 
-    @overload  # type: ignore[override]
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["bbox"],
-    ) -> Box: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        preserve_quantization: bool = False,
-        instrument: str | None = None,
-        visit: int | None = None,
-        component: Literal["image"],
-    ) -> Image: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        plane_map: Mapping[str, MaskPlane] | None = None,
-        instrument: str | None = None,
-        visit: int | None = None,
-        component: Literal["mask"],
-    ) -> Mask: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        preserve_quantization: bool = False,
-        instrument: str | None = None,
-        visit: int | None = None,
-        component: Literal["variance"],
-    ) -> Image: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        instrument: str | None = None,
-        visit: int | None = None,
-        component: Literal["projection"],
-    ) -> Projection[DetectorFrame]: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["psf"],
-    ) -> PointSpreadFunction: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["detector"],
-    ) -> Detector: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["obs_info"],
-    ) -> ObservationInfo: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["photometric_scaling"],
-    ) -> Field | None: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["summary_stats"],
-    ) -> ObservationSummaryStats: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["aperture_corrections"],
-    ) -> ApertureCorrectionMap: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        preserve_quantization: bool = False,
-        plane_map: Mapping[str, MaskPlane] | None = None,
-        instrument: str | None = None,
-        visit: int | None = None,
-        component: None = None,
-    ) -> DifferenceImage: ...
-
     @staticmethod
     def read_legacy(  # type: ignore[override]
         filename: str,
@@ -461,7 +350,7 @@ class DifferenceImage(VisitImage):
             plane_map=plane_map,
             instrument=instrument,
             visit=visit,
-            component=component,  # type: ignore[arg-type]
+            component=component,
         )
         if component is None:
             return DifferenceImage._from_visit_image(result)

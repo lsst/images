@@ -17,7 +17,7 @@ import functools
 from collections.abc import Mapping
 from contextlib import ExitStack
 from types import EllipsisType
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import astropy.io.fits
 import astropy.units
@@ -337,47 +337,6 @@ class MaskedImage(GeneralizedImage):
             variance=self.variance.to_legacy(copy=copy),
             dtype=self.image.array.dtype,
         )
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        uri: ResourcePathExpression,
-        *,
-        preserve_quantization: bool = False,
-        component: Literal["image"],
-        fits_wcs_frame: Frame | None = None,
-    ) -> Image: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        uri: ResourcePathExpression,
-        *,
-        plane_map: Mapping[str, MaskPlane] | None = None,
-        component: Literal["mask"],
-        fits_wcs_frame: Frame | None = None,
-    ) -> Mask: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        uri: ResourcePathExpression,
-        *,
-        preserve_quantization: bool = False,
-        component: Literal["variance"],
-        fits_wcs_frame: Frame | None = None,
-    ) -> Image: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        uri: ResourcePathExpression,
-        *,
-        preserve_quantization: bool = False,
-        plane_map: Mapping[str, MaskPlane] | None = None,
-        component: None = None,
-        fits_wcs_frame: Frame | None = None,
-    ) -> MaskedImage: ...
 
     @staticmethod
     def read_legacy(

@@ -17,7 +17,7 @@ import functools
 import warnings
 from collections.abc import Callable, Mapping, MutableMapping
 from types import EllipsisType
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 import astropy.io.fits
 import astropy.units
@@ -690,117 +690,6 @@ class VisitImage(MaskedImage):
         result_info.setVisitInfo(MakeRawVisitInfoViaObsInfo.observationInfo2visitInfo(self.obs_info))
         result_info.setSummaryStats(self.summary_stats.to_legacy())
         return result
-
-    @overload  # type: ignore[override]
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["bbox"],
-    ) -> Box: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        preserve_quantization: bool = False,
-        instrument: str | None = None,
-        visit: int | None = None,
-        component: Literal["image"],
-    ) -> Image: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        plane_map: Mapping[str, MaskPlane] | None = None,
-        instrument: str | None = None,
-        visit: int | None = None,
-        component: Literal["mask"],
-    ) -> Mask: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        preserve_quantization: bool = False,
-        instrument: str | None = None,
-        visit: int | None = None,
-        component: Literal["variance"],
-    ) -> Image: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        instrument: str | None = None,
-        visit: int | None = None,
-        component: Literal["projection"],
-    ) -> Projection[DetectorFrame]: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["psf"],
-    ) -> PointSpreadFunction: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["detector"],
-    ) -> Detector: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["obs_info"],
-    ) -> ObservationInfo: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["photometric_scaling"],
-    ) -> Field | None: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["summary_stats"],
-    ) -> ObservationSummaryStats: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["aperture_corrections"],
-    ) -> ApertureCorrectionMap: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        preserve_quantization: bool = False,
-        plane_map: Mapping[str, MaskPlane] | None = None,
-        instrument: str | None = None,
-        visit: int | None = None,
-        component: None = None,
-    ) -> VisitImage: ...
 
     @staticmethod
     def read_legacy(  # type: ignore[override]
