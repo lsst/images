@@ -1,3 +1,4 @@
 click >= 8.3.1
 scipy-stubs
 types-shapely
+types-tqdm
