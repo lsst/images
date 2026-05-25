@@ -216,7 +216,9 @@ class GeneralizedImage(ABC):
 
         return DatasetProvenance.model_validate(self._butler_info.provenance)
 
-    def _transfer_metadata(self, new: Self, copy: bool = False, bbox: Box | None = None) -> Self:
+    def _transfer_metadata[T: GeneralizedImage](
+        self, new: T, copy: bool = False, bbox: Box | None = None
+    ) -> T:
         """Transfer metadata held by this base class to a new instance.
 
         Parameters

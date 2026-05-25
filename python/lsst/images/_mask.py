@@ -18,6 +18,7 @@ __all__ = (
     "MaskSchema",
     "MaskSerializationModel",
     "get_legacy_deep_coadd_mask_planes",
+    "get_legacy_difference_image_mask_planes",
     "get_legacy_visit_image_mask_planes",
 )
 
@@ -1001,6 +1002,19 @@ def get_legacy_visit_image_mask_planes() -> dict[str, MaskPlane]:
             "SPIKE", "Pixel is in the neighborhood of a diffraction spike from a bright star."
         ),
     }
+
+
+def get_legacy_difference_image_mask_planes() -> dict[str, MaskPlane]:
+    """Return a mapping from legacy mask plane name to `MaskPlane` instance
+    for LSST difference images, c. DP2.
+    """
+    result = get_legacy_visit_image_mask_planes()
+    result["DETECTED_NEGATIVE"] = MaskPlane(
+        "DETECTED_NEGATIVE", "Pixel was part of a detected source with negative flux."
+    )
+    result["SAT_TEMPLATE"] = MaskPlane("SAT_TEMPLATE", "Template pixel was saturated.")
+    result["HIGH_VARIANCE"] = MaskPlane("HIGH_VARIANCE", "TODO[DM-55036]")
+    return result
 
 
 def get_legacy_deep_coadd_mask_planes() -> dict[str, MaskPlane]:

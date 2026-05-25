@@ -452,49 +452,50 @@ class VisitImage(MaskedImage):
         )
 
     def serialize(self, archive: OutputArchive[Any]) -> VisitImageSerializationModel:
-        masked_image_model = super().serialize(archive)
-        serialized_psf: PiffSerializationModel | PSFExSerializationModel | GaussianPSFSerializationModel
+        return self._serialize_impl(VisitImageSerializationModel, archive)
+
+    # This is slightly bad Liskov substitution - we're demanding M be a
+    # VisitImageSerializationModel, not just a MaskedImageSerializationModel,
+    # but that's because we know only `serialize` will call it.
+    def _serialize_impl[M: VisitImageSerializationModel](  # type: ignore[override]
+        self, model_type: type[M], archive: OutputArchive[Any]
+    ) -> M:
+        result = super()._serialize_impl(model_type, archive)
         match self._psf:
             # MyPy is able to figure things out here with this match statement,
-            # but not a single isinstance check on both types.
+            # but not a single isinstance check on the three types.
             case PiffWrapper():
-                serialized_psf = archive.serialize_direct("psf", self._psf.serialize)
+                result.psf = archive.serialize_direct("psf", self._psf.serialize)
             case PSFExWrapper():
-                serialized_psf = archive.serialize_direct("psf", self._psf.serialize)
+                result.psf = archive.serialize_direct("psf", self._psf.serialize)
             case GaussianPointSpreadFunction():
-                serialized_psf = archive.serialize_direct("psf", self._psf.serialize)
+                result.psf = archive.serialize_direct("psf", self._psf.serialize)
             case _:
                 raise TypeError(
                     f"Cannot serialize VisitImage with unrecognized PSF type {type(self._psf).__name__}."
                 )
-        assert masked_image_model.projection is not None, "VisitImage always has a projection."
-        serialized_detector = archive.serialize_direct("detector", self._detector.serialize)
-        serialized_photometric_scaling = (
-            archive.serialize_direct("photometric_scaling", self._photometric_scaling.serialize)
+        assert result.projection is not None, "VisitImage always has a projection."
+        result.obs_info = self.obs_info
+        result.summary_stats = self.summary_stats
+        result.bounds = self._bounds.serialize() if self._bounds != self.bbox else None
+        result.detector = archive.serialize_direct("detector", self._detector.serialize)
+        result.band = self.band
+        result.photometric_scaling = (
+            # MyPy can't quite follow the type union through the serialize
+            # method return types.
+            archive.serialize_direct(
+                "photometric_scaling",
+                self._photometric_scaling.serialize,
+            )  # type: ignore[assignment]
             if self._photometric_scaling is not None
             else None
         )
-        serialized_aperture_corrections = archive.serialize_direct(
+        result.aperture_corrections = archive.serialize_direct(
             "aperture_corrections",
             functools.partial(ApertureCorrectionMapSerializationModel.serialize, self.aperture_corrections),
         )
-        serialized_backgrounds = archive.serialize_direct("backgrounds", self._backgrounds.serialize)
-        return VisitImageSerializationModel(
-            image=masked_image_model.image,
-            mask=masked_image_model.mask,
-            variance=masked_image_model.variance,
-            projection=masked_image_model.projection,
-            obs_info=self.obs_info,
-            photometric_scaling=serialized_photometric_scaling,
-            psf=serialized_psf,
-            summary_stats=self.summary_stats,
-            detector=serialized_detector,
-            aperture_corrections=serialized_aperture_corrections,
-            bounds=self._bounds.serialize() if self._bounds != self.bbox else None,
-            backgrounds=serialized_backgrounds,
-            band=self.band,
-            metadata=self.metadata,
-        )
+        result.backgrounds = archive.serialize_direct("backgrounds", self._backgrounds.serialize)
+        return result
 
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](

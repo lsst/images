@@ -194,6 +194,11 @@ class MaskedImage(GeneralizedImage):
         archive
             Archive to write to.
         """
+        return self._serialize_impl(MaskedImageSerializationModel, archive)
+
+    def _serialize_impl[M: MaskedImageSerializationModel](
+        self, model_type: type[M], archive: OutputArchive[Any]
+    ) -> M:
         serialized_image = archive.serialize_direct(
             "image", functools.partial(self.image.serialize, save_projection=False)
         )
@@ -208,7 +213,15 @@ class MaskedImage(GeneralizedImage):
             if self.projection is not None
             else None
         )
-        return MaskedImageSerializationModel(
+        # When M is a subclass of MaskedImageSerializationModel, it probably
+        # has fields that aren't being set here. We're intentionally making use
+        # of the fact that model_construct doesn't guard against that so we can
+        # instead set them in a subclass implementation later, after calling
+        # super() to construct an instance of the right type. MyPy is actually
+        # fine with this, but only because it incorrectly thinks model_type is
+        # only ever MaskedImageSerializationModel, not a subclass, and that
+        # makes it incorrectly unhappy about the return type.
+        return model_type.model_construct(  # type: ignore[return-value]
             image=serialized_image,
             mask=serialized_mask,
             variance=serialized_variance,
