@@ -249,8 +249,8 @@ class SplineField(BaseField):
         stats_image = legacy_background.getStatsImage()
         if approx_control.getStyle() != ApproximateControl.UNKNOWN:
             raise TypeError("Legacy background uses Chebyshev approximation, not splines.")
-        if bg_control.getInterpStyle() != Interpolate.AKIMA_SPLINE:
-            raise TypeError("Legacy background does not use Akima spline interpolation.")
+        if bg_control.getInterpStyle() == Interpolate.UNKNOWN:
+            raise TypeError("Legacy background does not use spline interpolation.")
         x = legacy_background.getBinCentersX()
         y = legacy_background.getBinCentersY()
         return SplineField(
