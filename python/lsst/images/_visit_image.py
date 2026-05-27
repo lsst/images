@@ -14,6 +14,7 @@ from __future__ import annotations
 __all__ = ("VisitImage", "VisitImageSerializationModel")
 
 import functools
+import logging
 import warnings
 from collections.abc import Callable, Mapping, MutableMapping
 from types import EllipsisType
@@ -68,6 +69,8 @@ if TYPE_CHECKING:
         type LegacyExposure = Any  # type: ignore[no-redef]
         type LegacyFilterLabel = Any  # type: ignore[no-redef]
         type LegacyVisitInfo = Any  # type: ignore[no-redef]
+
+_LOG = logging.getLogger("lsst.images")
 
 
 class VisitImage(MaskedImage):
@@ -593,6 +596,10 @@ class VisitImage(MaskedImage):
         legacy_ap_corr_map = legacy.info.getApCorrMap()
         legacy_polygon = legacy.info.getValidPolygon()
         legacy_photo_calib = legacy.info.getPhotoCalib()
+        detector = Detector.from_legacy(
+            legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
+        )
+        _reconcile_detector_serial(obs_info, detector)
         result = VisitImage(
             image=masked_image.image.view(unit=unit),
             mask=masked_image.mask,
@@ -605,9 +612,7 @@ class VisitImage(MaskedImage):
                 if legacy_summary_stats is not None
                 else None
             ),
-            detector=Detector.from_legacy(
-                legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
-            ),
+            detector=detector,
             aperture_corrections=(
                 aperture_corrections_from_legacy(legacy_ap_corr_map)
                 if legacy_ap_corr_map is not None
@@ -815,10 +820,14 @@ class VisitImage(MaskedImage):
                     )
             if component == "photometric_scaling":
                 return photometric_scaling
-            if component == "detector":
-                return Detector.from_legacy(
+            if component in ("detector", None):
+                detector = Detector.from_legacy(
                     legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
                 )
+                _reconcile_detector_serial(obs_info, detector)
+                if component == "detector":
+                    return detector
+            assert component != "detector", "MyPy can't work this out from the above."
             projection = Projection.from_legacy(
                 legacy_wcs,
                 DetectorFrame(
@@ -852,9 +861,7 @@ class VisitImage(MaskedImage):
             variance=from_masked_image.variance,
             projection=projection,
             psf=psf,
-            detector=Detector.from_legacy(
-                legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
-            ),
+            detector=detector,
             obs_info=obs_info,
             summary_stats=summary_stats,
             aperture_corrections=aperture_corrections,
@@ -1004,7 +1011,6 @@ def _update_obs_info_from_legacy(
     if detector is not None:
         detector_md = {
             "detector_num": detector.getId(),
-            "detector_serial": detector.getSerial(),
             "detector_unique_name": detector.getName(),
         }
         extra_md.update(detector_md)
@@ -1024,6 +1030,21 @@ def _update_obs_info_from_legacy(
     if obs_info_updates:
         obs_info = obs_info.model_copy(update=obs_info_updates)
     return obs_info
+
+
+def _reconcile_detector_serial(obs_info: ObservationInfo, detector: Detector) -> None:
+    # Some LSSTCam detector serial numbers are/were incorrect in the camera
+    # geometry (DM-55080), so if they conflict it's the ObservationInfo (from
+    # the headers) that's correct.
+    if obs_info.detector_serial is not None and detector.serial != obs_info.detector_serial:
+        _LOG.warning(
+            "Detector serial from ObservationInfo (%s) for detector %d does not agree "
+            "with camera geometry %s; assuming the former is correct.",
+            obs_info.detector_serial,
+            detector.id,
+            detector.serial,
+        )
+        detector._attributes.serial = obs_info.detector_serial
 
 
 def _extract_or_check_value[T](
