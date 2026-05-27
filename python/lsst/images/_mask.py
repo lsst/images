@@ -1001,6 +1001,7 @@ def get_legacy_visit_image_mask_planes() -> dict[str, MaskPlane]:
         "SPIKE": MaskPlane(
             "SPIKE", "Pixel is in the neighborhood of a diffraction spike from a bright star."
         ),
+        "UNMASKEDNAN": MaskPlane("UNMASKED_NAN", "Pixel was found to be NaN unexpectedly."),
     }
 
 
