@@ -26,6 +26,7 @@ from ..psfs import PointSpreadFunction
 from ..serialization import (
     ArchiveTree,
     ArrayReferenceModel,
+    InlineArrayModel,
     InputArchive,
     InvalidParameterError,
     OutputArchive,
@@ -208,7 +209,7 @@ class CellPointSpreadFunction(PointSpreadFunction):
 class CellPointSpreadFunctionSerializationModel(ArchiveTree):
     """Model used to serialize CellPointSpreadFunction objects."""
 
-    array: ArrayReferenceModel = pydantic.Field(
+    array: ArrayReferenceModel | InlineArrayModel = pydantic.Field(
         description=(
             "A 4-d array of PSF kernel images with with shape "
             "(n_cells_y, n_cells_x, psf_shape_y, psf_shape_x)."
