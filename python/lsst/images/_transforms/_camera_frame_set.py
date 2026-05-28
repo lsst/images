@@ -71,6 +71,16 @@ class CameraFrameSet(FrameSet):
         if self._field_angle_frame_id == 0:
             raise ValueError("No FIELD_ANGLE frame in camera AST FrameSet.")
 
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not CameraFrameSet:
+            return NotImplemented
+        # Every cached attribute on this class is derived from ``_ast`` and
+        # the instrument name; ``astshim.FrameSet`` already supplies a
+        # structural ``__eq__`` so comparing those two is sufficient.
+        return self.instrument == other.instrument and self._ast == other._ast
+
+    __hash__ = None  # type: ignore[assignment]
+
     @property
     def instrument(self) -> str:
         """Name of the instrument (`str`)."""

@@ -331,6 +331,24 @@ class AmplifierCalibrations(pydantic.BaseModel, ser_json_inf_nan="constants"):
     linearity_coefficients: InlineArray
     linearity_type: str
 
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not AmplifierCalibrations:
+            return NotImplemented
+        # ``suspect_level`` is a float whose "unset" sentinel is ``NaN``;
+        # treat NaN==NaN as equal here so a round-tripped calibration
+        # block does not spuriously compare unequal to its source.
+        return (
+            self.gain == other.gain
+            and self.read_noise == other.read_noise
+            and self.saturation == other.saturation
+            and (
+                self.suspect_level == other.suspect_level
+                or (np.isnan(self.suspect_level) and np.isnan(other.suspect_level))
+            )
+            and np.array_equal(self.linearity_coefficients, other.linearity_coefficients)
+            and self.linearity_type == other.linearity_type
+        )
+
     @staticmethod
     def from_legacy_amplifier(legacy_amplifier: LegacyAmplifier) -> AmplifierCalibrations:
         """Convert from a `lsst.afw.cameraGeom.Amplifier`.
@@ -471,6 +489,18 @@ class Detector:
         self._amplifiers = list(amplifiers)
         self._frames = frames
         self._frame = frames.detector(attributes.id, visit=visit)
+
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not Detector:
+            return NotImplemented
+        return (
+            self._attributes == other._attributes
+            and self._amplifiers == other._amplifiers
+            and self._frames == other._frames
+            and self.visit == other.visit
+        )
+
+    __hash__ = None  # type: ignore[assignment]
 
     @property
     def instrument(self) -> str:

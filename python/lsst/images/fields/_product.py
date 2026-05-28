@@ -60,6 +60,15 @@ class ProductField(BaseField):
                 else:
                     self._unit *= operand.unit
 
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not ProductField:
+            return NotImplemented
+        # ``_bounds`` and ``_unit`` are derived from the operands, so
+        # comparing the operand tuple is sufficient.
+        return self._operands == other._operands
+
+    __hash__ = None  # type: ignore[assignment]
+
     @property
     def bounds(self) -> Bounds:
         return self._bounds
