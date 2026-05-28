@@ -101,6 +101,19 @@ class SplineField(BaseField):
         self._y.flags.writeable = False
         self._unit = unit
 
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not SplineField:
+            return NotImplemented
+        return (
+            self._bounds == other._bounds
+            and self._unit == other._unit
+            and np.array_equal(self._data, other._data, equal_nan=True)
+            and np.array_equal(self._x, other._x, equal_nan=True)
+            and np.array_equal(self._y, other._y, equal_nan=True)
+        )
+
+    __hash__ = None  # type: ignore[assignment]
+
     @property
     def bounds(self) -> Bounds:
         return self._bounds

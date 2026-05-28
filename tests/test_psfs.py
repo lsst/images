@@ -25,7 +25,19 @@ from lsst.images.psfs import (
     PSFExWrapper,
 )
 from lsst.images.psfs._piff import _ArchivePiffWriter
-from lsst.images.tests import RoundtripFits, RoundtripJson, compare_psf_to_legacy
+from lsst.images.tests import (
+    RoundtripFits,
+    RoundtripJson,
+    RoundtripNdf,
+    compare_psf_to_legacy,
+)
+
+try:
+    import h5py  # noqa: F401
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -120,6 +132,12 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         with RoundtripJson(self, psf) as roundtrip2:
             pass
         compare_psf_to_legacy(self, roundtrip2.result, legacy_psf)
+        with self.subTest("NDF round-trip"):
+            if not HAVE_H5PY:
+                raise unittest.SkipTest("h5py is not available.")
+            with RoundtripNdf(self, psf) as roundtrip3:
+                pass
+            compare_psf_to_legacy(self, roundtrip3.result, legacy_psf)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_psfex(self) -> None:

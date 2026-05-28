@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     import h5py
 
 try:
-    from lsst.daf.butler import Butler, DataCoordinate, DatasetProvenance, DatasetRef, DatasetType
+    from lsst.daf.butler import Butler, Config, DataCoordinate, DatasetProvenance, DatasetRef, DatasetType
 
     HAVE_BUTLER = True
 except ImportError:
@@ -49,6 +49,13 @@ class TemporaryButler:
     run
         Name of a `~lsst.daf.butler.CollectionType.RUN` collection to
         register and use as the default run for the returned butler.
+    format
+        Optional on-disk format name (``fits``, ``json``, ``sdf``,
+        ``zarr``, ...) to bind to every storage class registered by
+        ``**kwargs``.  When set, the datastore config is overlaid so that
+        `~lsst.images.formatters.GenericFormatter` writes that format for
+        those storage classes, overriding its ``.fits`` default.  Leave as
+        `None` to keep the default formatter behaviour.
     **kwargs
         A mapping from a dataset type name to its storage class.  For each
         entry, a dataset type will be registered with empty dimensions, and a
@@ -65,8 +72,9 @@ class TemporaryButler:
         of the test to continue.
     """
 
-    def __init__(self, run: str = "test_run", **kwargs: str):
+    def __init__(self, run: str = "test_run", *, format: str | None = None, **kwargs: str):
         self.run = run
+        self._format = format
         self._kwargs = kwargs
         self._exit_stack = ExitStack()
 
@@ -77,7 +85,27 @@ class TemporaryButler:
         root = self._exit_stack.enter_context(
             tempfile.TemporaryDirectory(ignore_cleanup_errors=True, delete=True)
         )
-        butler_config = Butler.makeRepo(root)
+        if self._format is not None:
+            # Overlay a per-storage-class formatter binding so the default
+            # FITS-writing GenericFormatter writes the requested format
+            # instead.  Keyed by the storage class name (matched by the
+            # daf_butler formatter factory).
+            overlay = Config(
+                {
+                    "datastore": {
+                        "formatters": {
+                            storage_class: {
+                                "formatter": "lsst.images.formatters.GenericFormatter",
+                                "parameters": {"format": self._format},
+                            }
+                            for storage_class in self._kwargs.values()
+                        }
+                    }
+                }
+            )
+            butler_config = Butler.makeRepo(root, config=overlay)
+        else:
+            butler_config = Butler.makeRepo(root)
         self.butler = self._exit_stack.enter_context(Butler.from_config(butler_config, run=self.run))
         empty_data_id = DataCoordinate.make_empty(self.butler.dimensions)
         for name, storage_class in self._kwargs.items():
@@ -238,7 +266,13 @@ class RoundtripBase[T](ABC):
 
     def _run_with_butler(self) -> None:
         assert self._storage_class is not None, "Should not use butler if no storage class"
-        butler_helper = self._exit_stack.enter_context(TemporaryButler(test_dataset=self._storage_class))
+        # ``GenericFormatter`` defaults to FITS; tell the temporary butler
+        # which format this Roundtrip variant wants so the on-disk file
+        # matches ``_get_extension()`` on the round-trip check below.
+        fmt = self._get_extension().lstrip(".")
+        butler_helper = self._exit_stack.enter_context(
+            TemporaryButler(test_dataset=self._storage_class, format=fmt)
+        )
         self.butler = butler_helper.butler
         quantum_id = uuid.uuid4()
         self.ref = self.butler.put(
@@ -250,7 +284,10 @@ class RoundtripBase[T](ABC):
                 DatasetRef.from_simple(self.result.butler_dataset, universe=self.butler.dimensions), self.ref
             )
             self._tc.assertEqual(self.result.butler_provenance.quantum_id, quantum_id)
-        self._tc.assertTrue(self.filename.endswith(self._get_extension()))
+        self._tc.assertTrue(
+            self.filename.endswith(self._get_extension()),
+            f"{self.filename} did not end with {self._get_extension()}",
+        )
 
     def _run_without_butler(self) -> None:
         tmp = self._exit_stack.enter_context(

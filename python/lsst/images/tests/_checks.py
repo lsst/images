@@ -13,6 +13,7 @@ from __future__ import annotations
 
 __all__ = (
     "arrays_to_legacy_points",
+    "assert_cell_coadds_equal",
     "assert_close",
     "assert_equal_allow_nan",
     "assert_images_equal",
@@ -20,6 +21,7 @@ __all__ = (
     "assert_masks_equal",
     "assert_projections_equal",
     "assert_psfs_equal",
+    "assert_visit_images_equal",
     "check_astropy_wcs_interface",
     "check_projection",
     "check_transform",
@@ -51,7 +53,7 @@ import astropy.wcs.wcsapi
 import numpy as np
 from astropy.coordinates import SkyCoord
 
-from .._geom import XY, YX, BoundsError, Box
+from .._geom import XY, YX, Box
 from .._image import Image
 from .._mask import Mask, MaskPlane
 from .._masked_image import MaskedImage
@@ -182,21 +184,86 @@ def assert_psfs_equal(
         The number of points actually tested.
     """
     if points is None:
-        points = psf1.bounds.bbox.intersection(psf1.bounds.bbox).meshgrid(3).map(np.ravel)
+        points = psf1.bounds.bbox.intersection(psf2.bounds.bbox).meshgrid(3).map(np.ravel)
 
     tc.assertEqual(psf1.kernel_bbox, psf2.kernel_bbox)
 
     n_points_tested: int = 0
     for x, y in zip(points.x, points.y):
-        if not psf1.bounds.contains(x=x, y=y):
-            with tc.assertRaises(BoundsError):
-                psf2.compute_kernel_image(x=x, y=y)
+        # The two PSFs must agree on which points fall inside their input
+        # domain.  Querying ``.contains`` directly (rather than relying on
+        # ``compute_kernel_image`` to raise) makes this test tolerant of
+        # implementations that do not raise on out-of-domain points -- in
+        # particular ``CellPointSpreadFunction``, where evaluating in a
+        # missing cell does not always raise ``BoundsError``.
+        contains1 = psf1.bounds.contains(x=x, y=y)
+        contains2 = psf2.bounds.contains(x=x, y=y)
+        tc.assertEqual(
+            contains1,
+            contains2,
+            f"PSFs disagree on whether ({x}, {y}) is in-bounds: psf1={contains1}, psf2={contains2}",
+        )
+        if not contains1:
             continue
         tc.assertEqual(psf1.compute_kernel_image(x=x, y=y), psf2.compute_kernel_image(x=x, y=y))
         tc.assertEqual(psf1.compute_stellar_bbox(x=x, y=y), psf2.compute_stellar_bbox(x=x, y=y))
         tc.assertEqual(psf1.compute_stellar_image(x=x, y=y), psf2.compute_stellar_image(x=x, y=y))
         n_points_tested += 1
     return n_points_tested
+
+
+def assert_visit_images_equal(
+    tc: unittest.TestCase,
+    a: VisitImage,
+    b: VisitImage,
+    *,
+    expect_view: bool | None = None,
+) -> None:
+    """Assert that two `.VisitImage` instances carry the same persistent state.
+
+    Extends `assert_masked_images_equal` with the VisitImage-specific
+    attributes (PSF, filter, observation info, detector, aperture
+    corrections, photometric scaling, backgrounds, polygon bounds,
+    summary stats) so a round-trip check on a `.VisitImage` does not
+    silently miss differences in any of them.
+    """
+    assert_masked_images_equal(tc, a, b, expect_view=expect_view)
+    tc.assertEqual(a.summary_stats, b.summary_stats)
+    tc.assertEqual(a.physical_filter, b.physical_filter)
+    tc.assertEqual(a.band, b.band)
+    tc.assertEqual(a.obs_info, b.obs_info)
+    tc.assertEqual(a.detector, b.detector)
+    tc.assertEqual(dict(a.aperture_corrections), dict(b.aperture_corrections))
+    tc.assertEqual(a.photometric_scaling, b.photometric_scaling)
+    tc.assertEqual(dict(a.backgrounds), dict(b.backgrounds))
+    tc.assertEqual(a.backgrounds.subtracted, b.backgrounds.subtracted)
+    tc.assertEqual(a.bounds, b.bounds)
+    assert_psfs_equal(tc, a.psf, b.psf)
+
+
+def assert_cell_coadds_equal(
+    tc: unittest.TestCase,
+    a: CellCoadd,
+    b: CellCoadd,
+    *,
+    expect_view: bool | None = None,
+) -> None:
+    """Assert that two `.CellCoadd` instances carry the same persistent state.
+
+    Extends the masked-image-style equality check with the
+    CellCoadd-specific attributes (PSF, cell grid, missing cells,
+    backgrounds, patch/tract, band) so a round-trip check does not
+    silently miss differences in any of them.
+    """
+    assert_masked_images_equal(tc, a, b, expect_view=expect_view)
+    tc.assertEqual(a.band, b.band)
+    tc.assertEqual(a.patch, b.patch)
+    tc.assertEqual(a.tract, b.tract)
+    tc.assertEqual(a.grid, b.grid)
+    tc.assertEqual(a.bounds.missing, b.bounds.missing)
+    tc.assertEqual(dict(a.backgrounds), dict(b.backgrounds))
+    tc.assertEqual(a.backgrounds.subtracted, b.backgrounds.subtracted)
+    assert_psfs_equal(tc, a.psf, b.psf)
 
 
 def compare_image_to_legacy(

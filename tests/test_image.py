@@ -96,7 +96,7 @@ class ImageTestCase(unittest.TestCase):
             np.arange(15).reshape(5, 3),
             start=(2, -1),
         )
-        with RoundtripJson(self, image) as roundtrip:
+        with RoundtripJson(self, image, "ImageV2") as roundtrip:
             pass
         assert_images_equal(self, image, roundtrip.result)
 
@@ -106,7 +106,7 @@ class ImageTestCase(unittest.TestCase):
             np.arange(15).reshape(5, 3),
             start=(2, -1),
         )
-        with RoundtripFits(self, image) as roundtrip:
+        with RoundtripFits(self, image, "ImageV2") as roundtrip:
             subbox = Box.factory[3:5, 0:1]
             assert_images_equal(self, image[subbox], roundtrip.get(bbox=subbox))
         assert_images_equal(self, image, roundtrip.result)
@@ -118,7 +118,7 @@ class ImageTestCase(unittest.TestCase):
             np.arange(15).reshape(5, 3),
             start=(2, -1),
         )
-        with RoundtripNdf(self, image) as roundtrip:
+        with RoundtripNdf(self, image, "ImageV2") as roundtrip:
             pass
         assert_images_equal(self, image, roundtrip.result)
 
@@ -138,6 +138,22 @@ class ImageTestCase(unittest.TestCase):
             assert_images_equal(self, image, fits_rt.result)
             assert_images_equal(self, image, ndf_rt.result)
             assert_images_equal(self, fits_rt.result, ndf_rt.result)
+
+    def test_fits_json_consistency(self):
+        """Writing via FITS and via JSON, then reading back, produces equal
+        Images.
+        """
+        rng = np.random.default_rng(321)
+        image = Image(
+            rng.normal(100.0, 8.0, size=(60, 80)),
+            dtype=np.float64,
+            unit=u.nJy,
+            start=(0, 0),
+        )
+        with RoundtripFits(self, image) as fits_rt, RoundtripJson(self, image) as json_rt:
+            assert_images_equal(self, image, fits_rt.result)
+            assert_images_equal(self, image, json_rt.result)
+            assert_images_equal(self, fits_rt.result, json_rt.result)
 
     def test_quantity(self):
         """Test quantities."""

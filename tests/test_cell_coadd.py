@@ -24,6 +24,8 @@ from lsst.images.tests import (
     DP2_COADD_DATA_ID,
     DP2_COADD_MISSING_CELL,
     RoundtripFits,
+    RoundtripJson,
+    assert_cell_coadds_equal,
     assert_masked_images_equal,
     assert_psfs_equal,
     compare_cell_coadd_to_legacy,
@@ -133,10 +135,12 @@ class CellCoaddTestCase(unittest.TestCase):
                     backgrounds = roundtrip.get("backgrounds")
                     self.assertEqual(backgrounds.keys(), set())
                     self.assertIsNone(backgrounds.subtracted)
+        # Fixture self-consistency: bbox and missing-cell set are what setUp
+        # claims they are.
         self.assertEqual(self.cell_coadd.bounds.missing, {self.missing_cell})
         self.assertEqual(self.cell_coadd.bbox, Box.factory[12900:13500, 9600:10050])
-        self.assertEqual(self.cell_coadd.backgrounds.keys(), roundtrip.result.backgrounds.keys())
-        self.assertIsNone(roundtrip.result.backgrounds.subtracted)
+        # Full round-trip fidelity, including background contents.
+        assert_cell_coadds_equal(self, roundtrip.result, self.cell_coadd, expect_view=False)
         compare_cell_coadd_to_legacy(
             self,
             roundtrip.result,
@@ -146,6 +150,16 @@ class CellCoaddTestCase(unittest.TestCase):
             alternates=alternates,
             psf_points=self.psf_points,
         )
+
+    def test_fits_json_consistency(self) -> None:
+        """FITS and JSON backends produce equal CellCoadds on round-trip."""
+        with (
+            RoundtripFits(self, self.cell_coadd) as fits_rt,
+            RoundtripJson(self, self.cell_coadd) as json_rt,
+        ):
+            assert_cell_coadds_equal(self, self.cell_coadd, fits_rt.result, expect_view=False)
+            assert_cell_coadds_equal(self, self.cell_coadd, json_rt.result, expect_view=False)
+            assert_cell_coadds_equal(self, fits_rt.result, json_rt.result, expect_view=False)
 
 
 if __name__ == "__main__":

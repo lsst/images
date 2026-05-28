@@ -117,6 +117,18 @@ if USING_STARLINK_PYAST:
             chan.write(self._impl)
             return sink.to_string()
 
+        def __eq__(self, other: object) -> bool:
+            if not isinstance(other, Object) or type(self) is not type(other):
+                return NotImplemented
+            # ``astshim.Object`` ships a structural ``__eq__``; mirror that on
+            # the starlink-pyast wrapper by comparing the AST channel
+            # serialisation, which is the canonical content-faithful
+            # representation for AST objects.  Strip comments so cosmetic
+            # changes between equivalent objects do not break equality.
+            return self.show(showComments=False) == other.show(showComments=False)
+
+        __hash__ = None  # type: ignore[assignment]
+
         @classmethod
         def fromString(cls, serialized: str) -> Self:
             source = StringStream(serialized)

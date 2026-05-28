@@ -70,6 +70,17 @@ class ChebyshevField(BaseField):
         self._ys = 2.0 / bbox.y.size
         self._yt = bbox.y.min + 0.5 * bbox.y.size - 0.5
 
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not ChebyshevField:
+            return NotImplemented
+        return (
+            self._bounds == other._bounds
+            and self._unit == other._unit
+            and np.array_equal(self._coefficients, other._coefficients, equal_nan=True)
+        )
+
+    __hash__ = None  # type: ignore[assignment]
+
     @staticmethod
     def fit(
         bounds: Bounds,

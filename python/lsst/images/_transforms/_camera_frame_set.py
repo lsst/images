@@ -71,6 +71,22 @@ class CameraFrameSet(FrameSet):
         if self._field_angle_frame_id == 0:
             raise ValueError("No FIELD_ANGLE frame in camera AST FrameSet.")
 
+    def __eq__(self, other: object) -> bool:
+        if type(other) is not CameraFrameSet:
+            return NotImplemented
+        # Every cached attribute on this class is derived from ``_ast`` and
+        # the instrument name.  Compare the *simplified* AST serialisations
+        # explicitly rather than relying on ``Object.__eq__``: what we care
+        # about is that the two frame sets describe the same transforms, and
+        # simplifying first makes the check about behaviour rather than the
+        # particular intermediate representation.
+        return (
+            self.instrument == other.instrument
+            and self._ast.simplified().show() == other._ast.simplified().show()
+        )
+
+    __hash__ = None  # type: ignore[assignment]
+
     @property
     def instrument(self) -> str:
         """Name of the instrument (`str`)."""
