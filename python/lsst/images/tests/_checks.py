@@ -235,7 +235,7 @@ def assert_visit_images_equal(
     tc.assertEqual(a.detector, b.detector)
     tc.assertEqual(dict(a.aperture_corrections), dict(b.aperture_corrections))
     tc.assertEqual(a.photometric_scaling, b.photometric_scaling)
-    tc.assertEqual(set(a.backgrounds.keys()), set(b.backgrounds.keys()))
+    tc.assertEqual(dict(a.backgrounds), dict(b.backgrounds))
     tc.assertEqual(a.backgrounds.subtracted, b.backgrounds.subtracted)
     tc.assertEqual(a.bounds, b.bounds)
     assert_psfs_equal(tc, a.psf, b.psf)
@@ -261,7 +261,7 @@ def assert_cell_coadds_equal(
     tc.assertEqual(a.tract, b.tract)
     tc.assertEqual(a.grid, b.grid)
     tc.assertEqual(a.bounds.missing, b.bounds.missing)
-    tc.assertEqual(set(a.backgrounds.keys()), set(b.backgrounds.keys()))
+    tc.assertEqual(dict(a.backgrounds), dict(b.backgrounds))
     tc.assertEqual(a.backgrounds.subtracted, b.backgrounds.subtracted)
     assert_psfs_equal(tc, a.psf, b.psf)
 

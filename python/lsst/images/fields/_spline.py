@@ -107,9 +107,9 @@ class SplineField(BaseField):
         return (
             self._bounds == other._bounds
             and self._unit == other._unit
-            and np.array_equal(self._data, other._data)
-            and np.array_equal(self._x, other._x)
-            and np.array_equal(self._y, other._y)
+            and np.array_equal(self._data, other._data, equal_nan=True)
+            and np.array_equal(self._x, other._x, equal_nan=True)
+            and np.array_equal(self._y, other._y, equal_nan=True)
         )
 
     __hash__ = None  # type: ignore[assignment]

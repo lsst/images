@@ -139,8 +139,7 @@ class CellCoaddTestCase(unittest.TestCase):
         # claims they are.
         self.assertEqual(self.cell_coadd.bounds.missing, {self.missing_cell})
         self.assertEqual(self.cell_coadd.bbox, Box.factory[12900:13500, 9600:10050])
-        # Full round-trip fidelity (subsumes the previous backgrounds.keys
-        # and backgrounds.subtracted spot checks).
+        # Full round-trip fidelity, including background contents.
         assert_cell_coadds_equal(self, roundtrip.result, self.cell_coadd, expect_view=False)
         compare_cell_coadd_to_legacy(
             self,

@@ -132,7 +132,9 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         with RoundtripJson(self, psf) as roundtrip2:
             pass
         compare_psf_to_legacy(self, roundtrip2.result, legacy_psf)
-        if HAVE_H5PY:
+        with self.subTest("NDF round-trip"):
+            if not HAVE_H5PY:
+                raise unittest.SkipTest("h5py is not available.")
             with RoundtripNdf(self, psf) as roundtrip3:
                 pass
             compare_psf_to_legacy(self, roundtrip3.result, legacy_psf)

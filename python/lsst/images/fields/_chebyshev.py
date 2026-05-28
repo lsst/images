@@ -76,7 +76,7 @@ class ChebyshevField(BaseField):
         return (
             self._bounds == other._bounds
             and self._unit == other._unit
-            and np.array_equal(self._coefficients, other._coefficients)
+            and np.array_equal(self._coefficients, other._coefficients, equal_nan=True)
         )
 
     __hash__ = None  # type: ignore[assignment]

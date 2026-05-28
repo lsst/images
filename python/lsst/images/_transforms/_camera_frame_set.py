@@ -75,9 +75,15 @@ class CameraFrameSet(FrameSet):
         if type(other) is not CameraFrameSet:
             return NotImplemented
         # Every cached attribute on this class is derived from ``_ast`` and
-        # the instrument name; ``astshim.FrameSet`` already supplies a
-        # structural ``__eq__`` so comparing those two is sufficient.
-        return self.instrument == other.instrument and self._ast == other._ast
+        # the instrument name.  Compare the *simplified* AST serialisations
+        # explicitly rather than relying on ``Object.__eq__``: what we care
+        # about is that the two frame sets describe the same transforms, and
+        # simplifying first makes the check about behaviour rather than the
+        # particular intermediate representation.
+        return (
+            self.instrument == other.instrument
+            and self._ast.simplified().show() == other._ast.simplified().show()
+        )
 
     __hash__ = None  # type: ignore[assignment]
 

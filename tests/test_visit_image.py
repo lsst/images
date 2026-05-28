@@ -364,8 +364,9 @@ class VisitImageTestCase(unittest.TestCase):
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("IMAGE")])
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("MASK")])
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("VARIANCE")])
-        # Background structure (names / types / descriptions) is not part of
-        # ``assert_visit_images_equal``'s contract; spot-check it here.
+        # Spot-check the concrete background contents (names, field types,
+        # subtracted entry) against the known fixture, so the equality check
+        # above is not vacuously satisfied by empty background maps.
         self.assertIsInstance(roundtrip.result.backgrounds, BackgroundMap)
         self.assertEqual(roundtrip.result.backgrounds.keys(), {"standard"})
         self.assertIsInstance(roundtrip.result.backgrounds["standard"].field, ChebyshevField)
