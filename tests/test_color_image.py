@@ -18,6 +18,7 @@ import numpy as np
 from lsst.images import Box, ColorImage, Image, TractFrame
 from lsst.images.tests import (
     RoundtripFits,
+    RoundtripJson,
     RoundtripNdf,
     assert_images_equal,
     assert_projections_equal,
@@ -99,14 +100,24 @@ class ColorImageTestCase(unittest.TestCase):
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_ndf_roundtrip(self) -> None:
         """Test round-tripping through NDF."""
-        with RoundtripNdf(self, self.color_image) as roundtrip:
+        with RoundtripNdf(self, self.color_image, "ColorImage") as roundtrip:
             pass
         self.assert_color_images_equal(roundtrip.result, self.color_image, expect_view=False)
+
+    def test_fits_json_consistency(self) -> None:
+        """FITS and JSON backends produce equal ColorImages on round-trip."""
+        with (
+            RoundtripFits(self, self.color_image) as fits_rt,
+            RoundtripJson(self, self.color_image) as json_rt,
+        ):
+            self.assert_color_images_equal(fits_rt.result, self.color_image, expect_view=False)
+            self.assert_color_images_equal(json_rt.result, self.color_image, expect_view=False)
+            self.assert_color_images_equal(fits_rt.result, json_rt.result, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_ndf_layout(self) -> None:
         """ColorImage writes a top-level container with RGB child NDFs."""
-        with RoundtripNdf(self, self.color_image) as roundtrip:
+        with RoundtripNdf(self, self.color_image, "ColorImage") as roundtrip:
             f = roundtrip.inspect()
             self.assertEqual(_cls(f["/"]), "EXT")
             self.assertIn("LSST", f)

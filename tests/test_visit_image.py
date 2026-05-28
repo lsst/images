@@ -45,11 +45,13 @@ from lsst.images.psfs import GaussianPointSpreadFunction, PointSpreadFunction
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
+    RoundtripJson,
     RoundtripNdf,
     TemporaryButler,
     assert_close,
     assert_masked_images_equal,
     assert_projections_equal,
+    assert_visit_images_equal,
     compare_aperture_corrections_to_legacy,
     compare_detector_to_legacy,
     compare_photo_calib_to_legacy,
@@ -290,18 +292,26 @@ class VisitImageTestCase(unittest.TestCase):
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_round_trip_ndf(self):
         """NDF round-trip for VisitImage."""
-        with RoundtripNdf(self, self.visit_image) as roundtrip:
-            assert_masked_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
-            self.assertEqual(roundtrip.result.summary_stats, self.visit_image.summary_stats)
-            self.assertEqual(type(roundtrip.result.psf), type(self.visit_image.psf))
+        with RoundtripNdf(self, self.visit_image, "VisitImage") as roundtrip:
+            assert_visit_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_fits_ndf_consistency(self):
         """FITS and NDF backends produce equal VisitImages on round-trip."""
         with RoundtripFits(self, self.visit_image) as fits_rt, RoundtripNdf(self, self.visit_image) as ndf_rt:
-            assert_masked_images_equal(self, self.visit_image, fits_rt.result, expect_view=False)
-            assert_masked_images_equal(self, self.visit_image, ndf_rt.result, expect_view=False)
-            assert_masked_images_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
+            assert_visit_images_equal(self, self.visit_image, fits_rt.result, expect_view=False)
+            assert_visit_images_equal(self, self.visit_image, ndf_rt.result, expect_view=False)
+            assert_visit_images_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
+
+    def test_fits_json_consistency(self):
+        """FITS and JSON backends produce equal VisitImages on round-trip."""
+        with (
+            RoundtripFits(self, self.visit_image) as fits_rt,
+            RoundtripJson(self, self.visit_image) as json_rt,
+        ):
+            assert_visit_images_equal(self, self.visit_image, fits_rt.result, expect_view=False)
+            assert_visit_images_equal(self, self.visit_image, json_rt.result, expect_view=False)
+            assert_visit_images_equal(self, fits_rt.result, json_rt.result, expect_view=False)
 
     def test_read_write(self) -> None:
         """Test that a visit can round trip through a FITS file."""
@@ -344,7 +354,7 @@ class VisitImageTestCase(unittest.TestCase):
                     "Background subtracted from the image.",
                 )
 
-        assert_masked_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
+        assert_visit_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
         # Check that the round-tripped headers are the same (up to card order).
         self.assertEqual(len(roundtrip.result._opaque_metadata.headers[ExtensionKey()]), 1)
         self.assertEqual(
@@ -354,17 +364,8 @@ class VisitImageTestCase(unittest.TestCase):
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("IMAGE")])
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("MASK")])
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("VARIANCE")])
-        self.assertEqual(roundtrip.result.obs_info, self.visit_image.obs_info)
-        self.assertIsNotNone(roundtrip.result.summary_stats)
-        self.assertEqual(
-            roundtrip.result.summary_stats.psfSigma,
-            self.visit_image.summary_stats.psfSigma,
-        )
-        self.assertEqual(
-            roundtrip.result.summary_stats.zeroPoint,
-            self.visit_image.summary_stats.zeroPoint,
-        )
-        self.assertEqual(roundtrip.result.bounds, self.polygon)
+        # Background structure (names / types / descriptions) is not part of
+        # ``assert_visit_images_equal``'s contract; spot-check it here.
         self.assertIsInstance(roundtrip.result.backgrounds, BackgroundMap)
         self.assertEqual(roundtrip.result.backgrounds.keys(), {"standard"})
         self.assertIsInstance(roundtrip.result.backgrounds["standard"].field, ChebyshevField)
@@ -580,7 +581,7 @@ class VisitImageLegacyTestMixin:
                 self.assertIsInstance(visit_info, lsst.afw.image.VisitInfo)
                 self.assertEqual(visit_info.getInstrumentLabel(), "LSSTCam")
 
-        assert_masked_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
+        assert_visit_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
         # Check that the round-tripped headers are the same (up to card order).
         self.assertEqual(
             dict(self.visit_image._opaque_metadata.headers[ExtensionKey()]),

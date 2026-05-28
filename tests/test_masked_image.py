@@ -23,6 +23,7 @@ from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema, get_lega
 from lsst.images.fits import FitsCompressionOptions
 from lsst.images.tests import (
     RoundtripFits,
+    RoundtripJson,
     RoundtripNdf,
     assert_masked_images_equal,
     compare_masked_image_to_legacy,
@@ -209,7 +210,7 @@ class MaskedImageTestCase(unittest.TestCase):
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_round_trip_ndf_compatible_mask(self):
         """NDF round-trip for the default-setup MaskedImage (2 planes ≤ 8)."""
-        with RoundtripNdf(self, self.masked_image) as roundtrip:
+        with RoundtripNdf(self, self.masked_image, "MaskedImageV2") as roundtrip:
             assert_masked_images_equal(self, roundtrip.result, self.masked_image, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
@@ -229,7 +230,7 @@ class MaskedImageTestCase(unittest.TestCase):
             mask_schema=MaskSchema(planes),
         )
         wide.variance.array = rng.normal(64.0, 0.5, size=wide.bbox.shape)
-        with RoundtripNdf(self, wide) as roundtrip:
+        with RoundtripNdf(self, wide, "MaskedImageV2") as roundtrip:
             assert_masked_images_equal(self, roundtrip.result, wide, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
@@ -250,7 +251,7 @@ class MaskedImageTestCase(unittest.TestCase):
         wide.mask.set("P17", wide.image.array < 95.0)
         wide.mask.set("P39", wide.image.array > 110.0)
         wide.variance.array = rng.normal(64.0, 0.5, size=wide.bbox.shape)
-        with RoundtripNdf(self, wide) as roundtrip:
+        with RoundtripNdf(self, wide, "MaskedImageV2") as roundtrip:
             assert_masked_images_equal(self, roundtrip.result, wide, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
@@ -263,6 +264,16 @@ class MaskedImageTestCase(unittest.TestCase):
             assert_masked_images_equal(self, self.masked_image, fits_rt.result, expect_view=False)
             assert_masked_images_equal(self, self.masked_image, ndf_rt.result, expect_view=False)
             assert_masked_images_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
+
+    def test_fits_json_consistency(self):
+        """FITS and JSON backends produce equal MaskedImages on round-trip."""
+        with (
+            RoundtripFits(self, self.masked_image) as fits_rt,
+            RoundtripJson(self, self.masked_image) as json_rt,
+        ):
+            assert_masked_images_equal(self, self.masked_image, fits_rt.result, expect_view=False)
+            assert_masked_images_equal(self, self.masked_image, json_rt.result, expect_view=False)
+            assert_masked_images_equal(self, fits_rt.result, json_rt.result, expect_view=False)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_legacy(self) -> None:
