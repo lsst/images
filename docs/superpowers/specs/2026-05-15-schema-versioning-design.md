@@ -200,11 +200,11 @@ class ArchiveTree(pydantic.BaseModel, ABC, ...):
     MIN_READ_VERSION: ClassVar[int]       # e.g. 1
 
     schema_version: str = pydantic.Field(
-        default="",  # filled in by _populate_and_check_schema_version
+        default="1.0.0",
         description="Data-model schema version of this tree (major.minor.patch).",
     )
     min_read_version: int = pydantic.Field(
-        default=0,  # filled in by _populate_and_check_schema_version
+        default=1,
         description="Smallest reader major that can interpret this tree.",
     )
 
@@ -217,22 +217,22 @@ class ArchiveTree(pydantic.BaseModel, ABC, ...):
             f"{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION}"
         )
 
-    @pydantic.model_validator(mode="before")
-    @classmethod
-    def _populate_and_check_schema_version(cls, data):
-        if not isinstance(data, dict):
-            return data
-        on_disk_version = data.pop("schema_version", "1.0.0")
-        on_disk_min_read = data.pop("min_read_version", 1)
-        # Strip the computed-field key if present (it's read-only).
-        data.pop("schema_url", None)
+    @pydantic.model_validator(mode="after")
+    def _check_and_normalize_schema_version(self) -> Self:
+        cls = type(self)
         _check_compat(
-            cls.SCHEMA_NAME, on_disk_version, on_disk_min_read, cls.SCHEMA_VERSION
+            cls.SCHEMA_NAME,
+            self.schema_version,
+            self.min_read_version,
+            cls.SCHEMA_VERSION,
         )
-        # Normalise so re-serializing this instance carries the in-code values.
-        data["schema_version"] = cls.SCHEMA_VERSION
-        data["min_read_version"] = cls.MIN_READ_VERSION
-        return data
+        # Normalise so re-serializing this instance carries the in-code
+        # values (e.g. a 1.0.0 file becomes 1.1.0 once read by 1.1.0 code).
+        if self.schema_version != cls.SCHEMA_VERSION:
+            self.schema_version = cls.SCHEMA_VERSION
+        if self.min_read_version != cls.MIN_READ_VERSION:
+            self.min_read_version = cls.MIN_READ_VERSION
+        return self
 ```
 
 `SCHEMA_NAME`, `SCHEMA_VERSION`, and `MIN_READ_VERSION` are `ClassVar`s,
@@ -240,15 +240,22 @@ so they don't become Pydantic fields. The base class has no value for
 them — only concrete subclasses can be instantiated, and each must
 declare all three.
 
-The `model_validator(mode="before")` does three jobs in one place:
+The validator runs in `mode="after"` rather than `mode="before"` for
+performance: pydantic-core's compiled fast path handles the field
+parsing, and our Python-level callback only runs once per instance on
+already-parsed values rather than poking at the raw input dict. The
+field defaults (`"1.0.0"` and `1`) supply the absence-policy values
+when the keys are missing from input. The computed `schema_url` doesn't
+need to be stripped because Pydantic's default `extra="ignore"` already
+drops it from input dicts.
 
-1. *Check compatibility* of the on-disk version against the in-code
-   reader.
-2. *Normalise* the field so the instance always carries the in-code
+The validator does two jobs:
+
+1. *Check compatibility* of the written `schema_version`/`min_read_version`
+   against the in-code reader.
+2. *Normalise* the fields so the instance always carries the in-code
    values (so re-serializing immediately bumps a file from `1.0.0` to
    `1.1.0` if the in-code version has moved up).
-3. *Strip* the computed `schema_url` from input data so Pydantic doesn't
-   reject it as extra.
 
 ### 4.2 The compatibility check
 
