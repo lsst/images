@@ -27,12 +27,16 @@ concern raised in review (see
 [`2026-05-28-schema-compat-tradeoffs.md`](./2026-05-28-schema-compat-tradeoffs.md)
 for the full trade-off analysis):
 
-- `schema_version` — full `major.minor.patch`, identifies the on-disk shape.
+- `schema_version` — full `major.minor.patch`, identifies the
+  data-model shape (i.e. the Pydantic model the tree was written
+  against). It is independent of the backend layout; the same
+  `schema_version` may appear in a JSON file, a FITS file, or an NDF
+  file.
 - `min_read_version` — integer (major only); the smallest reader major
-  that can safely interpret this file. Acts as the sole gate for
+  that can safely interpret this tree. Acts as the sole gate for
   rejecting "old reader vs new file" combinations. The opposite
   direction ("new reader vs old file") is gated only by whether the
-  in-code Pydantic model can validate the older shape; this design adds
+  in-code Pydantic model can validate the older tree; this design adds
   no separate gate there.
 
 These let new code keep reading older files whenever Pydantic and any
@@ -101,8 +105,8 @@ older readers.
 Data-model versions follow `major.minor.patch` with the ASDF interpretation
 (see [ASDF versioning conventions][asdf-versioning]):
 
-- **major**: backward-incompatible — the on-disk shape no longer validates
-  under the current Pydantic model without help.
+- **major**: backward-incompatible — the older data-model shape no
+  longer validates under the current Pydantic model without help.
 - **minor**: backward-compatible additions (new optional field).
 - **patch**: changes that don't affect file-format interpretation
   (description tweaks, doc fixes).
@@ -258,7 +262,7 @@ def _check_compat(
     in_code_major = int(in_code_version.split(".", 1)[0])
     if on_disk_min_read > in_code_major:
         raise ArchiveReadError(
-            f"{name}: on-disk schema requires reader major >= "
+            f"{name}: tree requires reader major >= "
             f"{on_disk_min_read}; this release is {in_code_version}."
         )
     # Otherwise: silent. min_read_version is the sole gate for
@@ -276,8 +280,8 @@ to be deliberately readable by major-1 code).
 
 The "new code reading old file" direction is *not* gated here at all.
 That direction is purely a Pydantic-shape question: if the in-code model
-accepts the on-disk shape, the read works; otherwise Pydantic raises its
-own validation error downstream. When we make a backward-incompatible
+accepts the older tree shape, the read works; otherwise Pydantic raises
+its own validation error downstream. When we make a backward-incompatible
 change that we still want new code to handle, we add backfill logic in
 the model validator (or a dedicated migration in the future).
 
@@ -461,8 +465,9 @@ A single generic class:
 
 ```python
 class _ReadFailed(ArchiveTree):
-    """Substitute for an ArchiveTree subclass whose on-disk version is
-    incompatible. Validates trivially; raises on use.
+    """Substitute for an ArchiveTree subclass whose written
+    schema_version/min_read_version is incompatible. Validates
+    trivially; raises on use.
     """
     on_disk_data: dict[str, Any]
     reason: str
