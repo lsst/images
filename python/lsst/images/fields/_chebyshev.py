@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("ChebyshevField", "ChebyshevFieldSerializationModel")
 
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any, Literal, final
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
 import astropy.units
 import numpy as np
@@ -392,6 +392,10 @@ class ChebyshevField(BaseField):
 
 class ChebyshevFieldSerializationModel(ArchiveTree):
     """Serialization model for `ChebyshevField`."""
+
+    SCHEMA_NAME: ClassVar[str] = "chebyshev_field"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     bounds: SerializableBounds = pydantic.Field(
         description=(

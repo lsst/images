@@ -855,6 +855,10 @@ class Mask(GeneralizedImage):
 class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """Pydantic model used to represent the serialized form of a `.Mask`."""
 
+    SCHEMA_NAME: ClassVar[str] = "mask"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
+
     data: list[ArrayReferenceModel | InlineArrayModel] = pydantic.Field(
         description="References to pixel data."
     )

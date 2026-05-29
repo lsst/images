@@ -16,7 +16,7 @@ __all__ = ("ColorImage",)
 import functools
 from collections.abc import Sequence
 from types import EllipsisType
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import numpy as np
 import pydantic
@@ -186,6 +186,10 @@ class ColorImage(GeneralizedImage):
 
 class ColorImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """A Pydantic model used to represent a serialized `ColorImage`."""
+
+    SCHEMA_NAME: ClassVar[str] = "color_image"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     red: ImageSerializationModel[P] = pydantic.Field(description="The red channel.")
     green: ImageSerializationModel[P] = pydantic.Field(description="The green channel.")

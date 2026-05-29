@@ -13,7 +13,7 @@ from __future__ import annotations
 
 __all__ = ("SplineField", "SplineFieldSerializationModel")
 
-from typing import TYPE_CHECKING, Any, Literal, final
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
 import astropy.units
 import numpy as np
@@ -286,6 +286,10 @@ class SplineField(BaseField):
 
 class SplineFieldSerializationModel(ArchiveTree):
     """Serialization model for `SplineField`."""
+
+    SCHEMA_NAME: ClassVar[str] = "spline_field"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     bounds: SerializableBounds = pydantic.Field(description=("The region where this field can be evaluated."))
 

@@ -26,7 +26,7 @@ __all__ = (
 
 import operator
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, NamedTuple, Protocol, Self
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, Protocol, Self
 
 import astropy.table
 import astropy.units
@@ -80,6 +80,18 @@ class ArchiveTree(
     archives.
     """
 
+    SCHEMA_NAME: ClassVar[str]
+    SCHEMA_VERSION: ClassVar[str]
+    MIN_READ_VERSION: ClassVar[int]
+
+    schema_version: str = pydantic.Field(
+        default="1.0.0",
+        description="Data-model schema version of this tree (major.minor.patch).",
+    )
+    min_read_version: int = pydantic.Field(
+        default=1,
+        description="Smallest reader major that can interpret this tree.",
+    )
     metadata: dict[str, MetadataValue] = pydantic.Field(
         default_factory=dict, description="Additional unstructured metadata.", exclude_if=operator.not_
     )
@@ -93,6 +105,65 @@ class ArchiveTree(
         description="Serialized nested objects that may be saved or read more than once.",
         exclude_if=operator.not_,
     )
+
+    @pydantic.computed_field(description="Canonical schema URL for this tree.")  # type: ignore[prop-decorator]
+    @property
+    def schema_url(self) -> str:
+        """Return the schema URL of this tree's class.
+
+        Computed from ``SCHEMA_NAME`` and ``SCHEMA_VERSION`` ClassVars.
+        """
+        cls = type(self)
+        return f"https://images.lsst.io/schemas/{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION}"
+
+    @pydantic.model_validator(mode="after")
+    def _check_and_normalize_schema_version(self) -> Self:
+        """Validate and normalise the schema version fields.
+
+        Compares the on-tree ``schema_version`` / ``min_read_version`` against
+        the in-code values from the subclass's ClassVars; raises if
+        incompatible, otherwise normalises the fields to the in-code values.
+        """
+        cls = type(self)
+        # ArchiveTree itself is abstract (deserialize is @abstractmethod).
+        # Subclasses that haven't yet declared SCHEMA_NAME are skipped — this
+        # matters during incremental rollout and remains a safe no-op
+        # afterwards (a class-invariants test ensures every concrete subclass
+        # has the constants).
+        if not hasattr(cls, "SCHEMA_NAME"):
+            return self
+        _check_compat(
+            cls.SCHEMA_NAME,
+            self.schema_version,
+            self.min_read_version,
+            cls.SCHEMA_VERSION,
+        )
+        if self.schema_version != cls.SCHEMA_VERSION:
+            self.schema_version = cls.SCHEMA_VERSION
+        if self.min_read_version != cls.MIN_READ_VERSION:
+            self.min_read_version = cls.MIN_READ_VERSION
+        return self
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+        """Inject ``$id`` and ``title`` into the subclass's JSON Schema.
+
+        Populates ``model_config['json_schema_extra']`` with values derived
+        from the subclass's ``SCHEMA_NAME`` / ``SCHEMA_VERSION`` ClassVars.
+        Subclasses that haven't declared the ClassVars are skipped.
+        """
+        super().__pydantic_init_subclass__(**kwargs)
+        name = cls.__dict__.get("SCHEMA_NAME")
+        version = cls.__dict__.get("SCHEMA_VERSION")
+        if name is None or version is None:
+            return
+        json_schema_extra = cls.model_config.get("json_schema_extra") or {}
+        if not isinstance(json_schema_extra, dict):
+            return
+        existing = dict(json_schema_extra)
+        existing.setdefault("$id", f"https://images.lsst.io/schemas/{name}-{version}")
+        existing.setdefault("title", name)
+        cls.model_config = {**cls.model_config, "json_schema_extra": existing}
 
     @abstractmethod
     def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> Any:

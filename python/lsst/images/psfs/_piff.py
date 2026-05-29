@@ -20,7 +20,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import cached_property
 from logging import getLogger
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal
 
 import astropy.io.fits
 import numpy as np
@@ -226,6 +226,10 @@ class PiffObjectModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
 
 class PiffSerializationModel(serialization.ArchiveTree):
     """Serialization model for a Piff PSF."""
+
+    SCHEMA_NAME: ClassVar[str] = "piff_psf"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     piff: PiffObjectModel = pydantic.Field(description="The Piff PSF object itself.")
 

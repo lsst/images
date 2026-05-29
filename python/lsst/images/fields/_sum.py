@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("SumField", "SumFieldSerializationModel")
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any, Literal, final
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
 import astropy.units
 import numpy as np
@@ -164,6 +164,10 @@ class SumField(BaseField):
 
 class SumFieldSerializationModel(ArchiveTree):
     """Serialization model for `SumField`."""
+
+    SCHEMA_NAME: ClassVar[str] = "sum_field"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     operands: list[FieldSerializationModel] = pydantic.Field(default_factory=list)
 

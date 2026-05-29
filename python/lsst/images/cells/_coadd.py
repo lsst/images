@@ -16,7 +16,7 @@ __all__ = ("CellCoadd", "CellCoaddSerializationModel")
 import functools
 from collections.abc import Mapping, Sequence
 from types import EllipsisType
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import astropy.io.fits
 import astropy.units
@@ -405,6 +405,10 @@ class CellCoadd(MaskedImage):
 
 class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializationModel[P]):
     """A Pydantic model used to represent a serialized `CellCoadd`."""
+
+    SCHEMA_NAME: ClassVar[str] = "cell_coadd"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     # Inherited attributes are duplicated because that improves the docs
     # (some limitation in the sphinx/pydantic integration), and these are

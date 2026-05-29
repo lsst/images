@@ -17,7 +17,7 @@ import functools
 from collections.abc import Mapping
 from contextlib import ExitStack
 from types import EllipsisType
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, overload
 
 import astropy.io.fits
 import astropy.units
@@ -472,6 +472,10 @@ class MaskedImage(GeneralizedImage):
 
 class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """A Pydantic model used to represent a serialized `MaskedImage`."""
+
+    SCHEMA_NAME: ClassVar[str] = "masked_image"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     image: ImageSerializationModel[P] = pydantic.Field(description="The main data image.")
     mask: MaskSerializationModel[P] = pydantic.Field(
