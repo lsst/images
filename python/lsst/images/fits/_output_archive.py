@@ -47,6 +47,13 @@ from ._common import (
     PointerModel,
 )
 
+_FITS_FORMAT_VERSION = 1
+"""Container layout version for files written by `FitsOutputArchive`.
+
+Bumps when the on-disk FITS layout (HDU placement, INDX/JSON keyword schema)
+changes. Independent of any data-model ``SCHEMA_VERSION``.
+"""
+
 
 def write(
     obj: Any,
@@ -125,7 +132,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         self._pointers_by_key: dict[Hashable, PointerModel] = {}
         self._hdu_list = hdu_list
         self._primary_hdu = astropy.io.fits.PrimaryHDU()
-        # TODO: add subformat description and version to primary HDU.
+        self._primary_hdu.header.set("FMTVER", _FITS_FORMAT_VERSION, "FITS container layout version.")
         self._primary_hdu.header.set("INDXADDR", 0, "Offset in bytes to the HDU index.")
         self._primary_hdu.header.set("INDXSIZE", 0, "Size of the HDU index.")
         self._primary_hdu.header.set("JSONADDR", 0, "Offset in bytes to the JSON tree HDU.")
@@ -348,6 +355,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         tree
             Pydantic model that represents the tree.
         """
+        self._primary_hdu.header.set("DATAMODL", tree.schema_url, "Schema URL.")
         json_hdu = astropy.io.fits.BinTableHDU.from_columns(
             [astropy.io.fits.Column(JSON_COLUMN, "PB")],
             nrows=len(self._pointer_targets) + 1,

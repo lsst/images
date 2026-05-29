@@ -43,6 +43,7 @@ from ..serialization import (
     TableModel,
     no_header_updates,
 )
+from ..serialization._common import _check_format_version
 from ._common import (
     JSON_COLUMN,
     JSON_EXTNAME,
@@ -52,6 +53,9 @@ from ._common import (
     InvalidFitsArchiveError,
     PointerModel,
 )
+
+_FITS_FORMAT_VERSION = 1
+"""Container layout version this release of `FitsInputArchive` understands."""
 
 
 def read[T: Any](
@@ -111,9 +115,11 @@ class FitsInputArchive(InputArchive[PointerModel]):
 
     def __init__(self, stream: IO[bytes]):
         self._primary_hdu = astropy.io.fits.PrimaryHDU.readfrom(stream)
-        # TODO: read and strip subformat declaration and version, once we start
-        # writing those.
-        #
+        on_disk_fmtver: int = self._primary_hdu.header.pop("FMTVER", 1)
+        # DATAMODL is informational only on read; the JSON tree's
+        # schema_version / min_read_version drive data-model checks.
+        self._primary_hdu.header.pop("DATAMODL", None)
+        _check_format_version("fits", on_disk_fmtver, _FITS_FORMAT_VERSION)
         # TODO: do some basic checks that the file format conforms to our
         # expectations (e.g. primary HDU should have no data).
         #
