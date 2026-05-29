@@ -45,11 +45,15 @@ from ..serialization import (
     TableModel,
     no_header_updates,
 )
+from ..serialization._common import _check_format_version
 from . import _hds
 from ._common import NdfPointerModel
 from ._model import HdsPrimitive, NdfDocument
 
 _LOG = logging.getLogger(__name__)
+
+_NDF_FORMAT_VERSION = 1
+"""Container layout version this release of `NdfInputArchive` understands."""
 
 
 class NdfInputArchive(InputArchive[NdfPointerModel]):
@@ -72,6 +76,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         self._deserialized_pointer_cache: dict[str, Any] = {}
         self._frame_set_cache: dict[str, FrameSet] = {}
         self._read_opaque_fits_metadata()
+        self._check_format_version()
 
     @classmethod
     @contextmanager
@@ -200,6 +205,24 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
             if self._has_model_path(path):
                 return path
         return None
+
+    def _check_format_version(self) -> None:
+        """Read FORMAT_VERSION from the NDF top-level structure and check it.
+
+        Absence is treated as ``1`` (legacy default). DATA_MODEL is
+        informational only on read; the JSON tree's ``schema_version`` /
+        ``min_read_version`` drive data-model compatibility.
+        """
+        on_disk = 1
+        for prefix in ("/MORE/LSST", "/LSST"):
+            path = f"{prefix}/FORMAT_VERSION"
+            if self._has_model_path(path):
+                primitive = self._get_primitive(path)
+                # We wrote the version as a 0-d int32 numpy array; .item()
+                # unwraps to a Python int.
+                on_disk = int(primitive.read_array().item())
+                break
+        _check_format_version("ndf", on_disk, _NDF_FORMAT_VERSION)
 
     def _has_model_path(self, path: str) -> bool:
         """Return `True` if a path exists in the NDF document model."""

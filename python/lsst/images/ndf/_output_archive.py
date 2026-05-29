@@ -51,6 +51,13 @@ from . import _hds
 from ._common import NdfPointerModel, archive_path_to_hdf5_path, archive_path_to_hdf5_path_components
 from ._model import HdsPrimitive, HdsStructure, Ndf, NdfArray, NdfContainer, NdfDocument, NdfQuality, NdfWcs
 
+_NDF_FORMAT_VERSION = 1
+"""Container layout version for files written by `NdfOutputArchive`.
+
+Bumps when the NDF layout (NdfDocument shape, .MORE.LSST contents)
+changes. Independent of any data-model ``SCHEMA_VERSION``.
+"""
+
 
 def write(
     obj: Any,
@@ -371,6 +378,10 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         # mirroring HDS convention.
         lsst = self._ensure_model_structure(self._lsst_path)
         lsst.children["JSON"] = HdsPrimitive.char_array([json_text], width=max(80, len(json_text)))
+        lsst.children["DATA_MODEL"] = HdsPrimitive.char_scalar(
+            tree.schema_url, width=max(80, len(tree.schema_url))
+        )
+        lsst.children["FORMAT_VERSION"] = HdsPrimitive.array(np.array(_NDF_FORMAT_VERSION, dtype=np.int32))
         primary = self._opaque_metadata.headers.get(ExtensionKey())
         if primary is not None and len(primary):
             cards = _fits_header_records(primary)
