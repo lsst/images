@@ -145,6 +145,46 @@ read 1.0.0 files (default the new field on input).
 component drives compatibility. Encoding minor/patch in it would be
 noise.
 
+### 3.4 External (non-`ArchiveTree`) embedded models
+
+Some `ArchiveTree` subclasses embed Pydantic models from outside this
+package — currently `astro_metadata_translator.ObservationInfo` (in
+`VisitImageSerializationModel.obs_info`) and `ObservationSummaryStats`
+(in `VisitImageSerializationModel.summary_stats`, with its own ad-hoc
+`version: int` field that predates this design).
+
+These models do not get their own `schema_version`/`min_read_version`
+stamp in the JSON. The version-stamp mechanism in this design lives on
+`ArchiveTree` and we don't control upstream models. Instead, the
+**effective version of an embedded external model is implicitly tied to
+the containing tree's `SCHEMA_VERSION`**:
+
+- If an upstream model (e.g. `ObservationInfo`) changes shape in a way
+  that breaks validation of older files, the containing tree
+  (`VisitImageSerializationModel`) must bump its `SCHEMA_VERSION` to
+  express that. The bump may also require `MIN_READ_VERSION` to move,
+  using the same criteria as for any other major change.
+- If an upstream model adds a backward-compatible optional field, no
+  action is required from us — Pydantic accepts both old and new shapes,
+  and the existing `SCHEMA_VERSION` continues to apply. (A diligent
+  release could bump our minor anyway, for traceability.)
+- The on-read failure mode for an unanticipated upstream change is a
+  Pydantic validation error inside the embedded model, not a clean
+  `ArchiveReadError` from our compatibility check. Callers who care to
+  distinguish the two should still treat both as "this file can't be
+  read by this release."
+
+This is honest about what version stamping can and can't do for embedded
+external models, and it requires no new mechanism. The cost is a
+discipline: every `ArchiveTree` that embeds an external model must be
+checked when the upstream releases. The set of such embeddings is small
+and listed above; expanding it should be a deliberate decision.
+
+A future follow-up could record upstream package versions
+(`astro_metadata_translator.__version__`) into the tree's `metadata`
+dict at write time for forensics — useful if upstream changes turn out
+to drift more often than we'd like, but not part of this ticket.
+
 ## 4. Per-model versioning mechanism
 
 ### 4.1 Base class additions on `ArchiveTree`
