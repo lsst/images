@@ -490,21 +490,37 @@ substitute.
 
 ### 7.3 Where substitution happens
 
-Inside `_populate_and_check_schema_version`:
+The v1 compatibility check runs in a `mode="after"` validator (§4.1) for
+performance: pydantic-core has already parsed the input dict into a
+concrete `cls` instance by the time we look at it, so we can't swap in
+a different model class from there. Substitution therefore needs a
+small `mode="before"` validator that runs *only when deferred-fail is
+enabled*:
 
 ```python
 @pydantic.model_validator(mode="before")
 @classmethod
-def _populate_and_check_schema_version(cls, data, info):
-    ...
+def _maybe_substitute_read_failed(cls, data, info):
+    if not isinstance(data, dict):
+        return data
+    if not _deferred_failures_enabled(info.context):
+        return data  # Fast path: the after-validator handles the check.
+    on_disk_version = data.get("schema_version", "1.0.0")
+    on_disk_min_read = data.get("min_read_version", 1)
     try:
-        _check_compat(...)
+        _check_compat(cls.SCHEMA_NAME, on_disk_version, on_disk_min_read, cls.SCHEMA_VERSION)
     except ArchiveReadError as exc:
-        if _deferred_failures_enabled(info.context):
-            return _ReadFailed.placeholder_dict(cls, on_disk_data=data, reason=str(exc))
-        raise
-    ...
+        return _ReadFailed.placeholder_dict(cls, on_disk_data=data, reason=str(exc))
+    return data
 ```
+
+The before-validator is a no-op when `defer_schema_failures` is false
+(the common case), so the fast-path performance of the after-validator
+is preserved. When deferred-fail is on, the before-validator runs the
+compat check itself and either substitutes a `_ReadFailed` or returns
+the dict unchanged — the after-validator then runs and re-checks
+trivially (or, on the substituted `_ReadFailed`, isn't called because
+the class changed).
 
 The `info.context` is Pydantic's per-validation context dict, set by the
 input-archive layer when the caller passes
