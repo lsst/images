@@ -227,3 +227,51 @@ class OpaqueArchiveMetadata(Protocol):
 
 def no_header_updates(header: astropy.io.fits.Header) -> None:
     """Do not make any modifications to the given FITS header."""
+
+
+def _parse_major(version: str) -> int:
+    """Return the integer major component of a major.minor.patch string.
+
+    Raises
+    ------
+    ArchiveReadError
+        If ``version`` is not a non-empty string of the form
+        ``major.minor.patch`` with integer components.
+    """
+    if not isinstance(version, str) or not version:
+        raise ArchiveReadError(f"Schema version {version!r} is not a non-empty string.")
+    head = version.split(".", 1)[0]
+    try:
+        return int(head)
+    except ValueError as exc:
+        raise ArchiveReadError(f"Schema version {version!r} has non-integer major.") from exc
+
+
+def _check_compat(
+    name: str,
+    on_disk_version: str,
+    on_disk_min_read: int,
+    in_code_version: str,
+) -> None:
+    """Raise `ArchiveReadError` if a tree written with the given
+    schema_version/min_read_version cannot be read by the current code.
+
+    See ``docs/superpowers/specs/2026-05-15-schema-versioning-design.md``
+    §4.2 for the rule.
+    """
+    in_code_major = _parse_major(in_code_version)
+    if on_disk_min_read > in_code_major:
+        raise ArchiveReadError(
+            f"{name}: tree requires reader major >= {on_disk_min_read}; this release is {in_code_version}."
+        )
+
+
+def _check_format_version(name: str, on_disk: int, in_code: int) -> None:
+    """Raise `ArchiveReadError` if a backend file's container layout
+    version is newer than this release knows how to read.
+    """
+    if on_disk > in_code:
+        raise ArchiveReadError(
+            f"{name}: on-disk container format version {on_disk} is "
+            f"newer than this release ({in_code}); cannot read."
+        )
