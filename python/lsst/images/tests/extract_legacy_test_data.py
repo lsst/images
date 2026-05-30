@@ -43,7 +43,7 @@ except ImportError as err:
 from ._data_ids import DP2_COADD_DATA_ID, DP2_COADD_MISSING_CELL, DP2_VISIT_DETECTOR_DATA_ID
 
 
-def extract_visit_image(
+def extract_exposure(
     butler: Butler,
     output_path: str,
     dataset_ref: DatasetRef,
@@ -52,14 +52,14 @@ def extract_visit_image(
     """Load a subimage of a processed visit image from a butler repository
     and save it to testdata_images.
     """
-    visit_image = butler.get(dataset_ref, parameters={"bbox": Box2I(Point2I(5, 4), Extent2I(256, 250))})
+    exposure = butler.get(dataset_ref, parameters={"bbox": Box2I(Point2I(5, 4), Extent2I(256, 250))})
     if shuffle:
-        indices = np.arange(visit_image.image.array.size, dtype=int)
+        indices = np.arange(exposure.image.array.size, dtype=int)
         rng = np.random.default_rng()
         rng.shuffle(indices)
-        visit_image.image.array[:, :] = visit_image.image.array.flat[indices].reshape(250, 256)
-        visit_image.mask.array[:, :] = visit_image.mask.array.flat[indices].reshape(250, 256)
-        visit_image.variance.array[:, :] = visit_image.variance.array.flat[indices].reshape(250, 256)
+        exposure.image.array[:, :] = exposure.image.array.flat[indices].reshape(250, 256)
+        exposure.mask.array[:, :] = exposure.mask.array.flat[indices].reshape(250, 256)
+        exposure.variance.array[:, :] = exposure.variance.array.flat[indices].reshape(250, 256)
     float_compression = CompressionOptions(
         algorithm=CompressionAlgorithm.RICE_1,
         tile_height=50,
@@ -78,7 +78,7 @@ def extract_visit_image(
         quantization=None,
     )
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    visit_image.writeFits(
+    exposure.writeFits(
         output_path,
         imageOptions=float_compression,
         maskOptions=mask_compression,
@@ -196,18 +196,18 @@ def extract_test_data() -> None:
 @click.option(
     "-c",
     "--collection",
-    default="LSSTCam/runs/DRP/DP2/v30_0_0/DM-53881/stage4",
+    default="LSSTCam/runs/DRP/DP2",
     help="Collection to use for most data products.",
-)
-@click.option(
-    "--wcs-collection",
-    default="LSSTCam/runs/DRP/v30_0_0/DM-53877",
-    help="Collection to search for visit_summary datasets used to update the WCS.",
 )
 @click.option(
     "--visit-images/--no-visit-images",
     default=True,
     help="Whether to extract [preliminary_]visit_image datasets.",
+)
+@click.option(
+    "--difference-images/--no-difference-images",
+    default=True,
+    help="Whether to extract difference_image datasets.",
 )
 @click.option(
     "--coadds/--no-coadds",
@@ -228,9 +228,9 @@ def extract_dp2(
     butler_repo: str | None,
     testdata_dir: str | None,
     collection: str,
-    wcs_collection: str,
     *,
     visit_images: bool,
+    difference_images: bool,
     coadds: bool,
     camera: bool,
     skymap: bool,
@@ -242,7 +242,7 @@ def extract_dp2(
         testdata_dir = getPackageDir("testdata_images")
     butler = Butler.from_config(butler_repo, collections=[collection])
     if visit_images:
-        extract_visit_image(
+        extract_exposure(
             butler,
             os.path.join(testdata_dir, "dp2", "legacy", "visit_image.fits"),
             find_dataset_or_raise(butler, "visit_image", **DP2_VISIT_DETECTOR_DATA_ID),
@@ -258,7 +258,7 @@ def extract_dp2(
             os.path.join(testdata_dir, "dp2", "legacy", "visit_summary.fits"),
             find_dataset_or_raise(butler, "visit_summary", **DP2_VISIT_DETECTOR_DATA_ID),
         )
-        extract_visit_image(
+        extract_exposure(
             butler,
             os.path.join(testdata_dir, "dp2", "legacy", "preliminary_visit_image.fits"),
             find_dataset_or_raise(butler, "preliminary_visit_image", **DP2_VISIT_DETECTOR_DATA_ID),
@@ -268,6 +268,13 @@ def extract_dp2(
             butler,
             os.path.join(testdata_dir, "dp2", "legacy", "preliminary_visit_image_background.fits"),
             find_dataset_or_raise(butler, "preliminary_visit_image_background", **DP2_VISIT_DETECTOR_DATA_ID),
+        )
+    if difference_images:
+        extract_exposure(
+            butler,
+            os.path.join(testdata_dir, "dp2", "legacy", "difference_image.fits"),
+            find_dataset_or_raise(butler, "difference_image", **DP2_VISIT_DETECTOR_DATA_ID),
+            shuffle=True,
         )
     if coadds:
         extract_cell_coadd(
