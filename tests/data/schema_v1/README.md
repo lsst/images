@@ -34,6 +34,30 @@ hard-fail.
 
 ## Legacy fixtures
 
-`legacy/` is reserved for fixtures derived from real on-disk files via
-`_minify_for_fixtures.py`. None ship with v1; populate them when there
-are real legacy files to point at.
+`legacy/` holds fixtures derived from real on-disk files (converted from
+legacy formats) via `_minify_for_fixtures.py`, which reads a real archive,
+takes a small representative subset, and writes it back out as JSON:
+
+- `cell_coadd.json` — a `CellCoadd` morphed onto a tiny cell grid: a small
+  block of cells (including a missing cell) decimated to a few pixels each,
+  with the grid topology, mask schema, band and provenance shape preserved.
+- `visit_image_dp1.json`, `visit_image_dp2.json` — `VisitImage`s cropped to
+  a ~16x16 corner.  They keep the real Piff PSF and detector frames, but to
+  stay small: the PSF's field interpolation is truncated to order 0 (the
+  field-averaged PSF), the projection's pixel->sky mapping is replaced by its
+  affine approximation over the box, and amplifiers and aperture corrections
+  are trimmed to a couple of representative entries.  All of these are
+  schema-identical to the full versions.
+
+These exercise the read path on data that the synthetic builders above
+cannot reproduce. Regenerate them by pointing `minify` at the real files:
+
+    python -c "
+    from lsst.images.tests._minify_for_fixtures import minify
+    minify('cell_example.fits', 'tests/data/schema_v1/legacy/cell_coadd.json')
+    minify('dp1.fits', 'tests/data/schema_v1/legacy/visit_image_dp1.json')
+    minify('dp2.fits', 'tests/data/schema_v1/legacy/visit_image_dp2.json')
+    "
+
+`CellCoadd` regeneration works with just this package installed;
+`VisitImage` needs a full Rubin environment so the real PSF can be read.
