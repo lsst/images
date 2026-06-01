@@ -181,6 +181,9 @@ class MaskSchema:
     def __len__(self) -> int:
         return len(self._planes)
 
+    def __contains__(self, plane: str | MaskPlane) -> bool:
+        return getattr(plane, "name", plane) in self.names
+
     def __getitem__(self, i: int) -> MaskPlane | None:
         return self._planes[i]
 
@@ -748,7 +751,8 @@ class Mask(GeneralizedImage):
         for old_name, new_plane in plane_map.items():
             old_bit = result.addMaskPlane(old_name)
             old_bitmask = 1 << old_bit
-            result.array[self.get(new_plane.name)] |= old_bitmask
+            if new_plane in self.schema:
+                result.array[self.get(new_plane.name)] |= old_bitmask
         return result
 
     @staticmethod
