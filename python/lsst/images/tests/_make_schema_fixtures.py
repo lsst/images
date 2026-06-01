@@ -13,7 +13,7 @@
 
 Run from the repo root via:
 
-    .pyenv/bin/python -m lsst.images.tests._make_schema_fixtures
+    python -m lsst.images.tests._make_schema_fixtures
 
 This is a developer tool, not invoked from CI. It overwrites every
 ``<schema_name>.json`` file under ``tests/data/schema_v1/`` (excluding
@@ -164,8 +164,55 @@ def build_gaussian_psf() -> dict[str, Any]:
 
 
 def build_piff_psf() -> dict[str, Any]:
-    """Piff PSF — requires real Piff data; not reproducible here."""
-    raise NotImplementedError("Piff fixtures require external test data.")
+    """Build a minimal Piff PSF fixture programmatically.
+
+    Constructs the smallest representative Piff ``SimplePSF`` -- a small
+    ``PixelGrid`` model with an order-0 (constant across the field)
+    ``BasisPolynomial`` interpolation -- and sets its solution to a normalised
+    Gaussian stamp.  This mirrors the structure of a real Rubin Piff PSF while
+    staying tiny, and being constructed in code (rather than read from a real
+    file) means it can be regenerated for a future schema version.
+
+    Requires the optional ``piff`` package; otherwise this is skipped like the
+    other data-dependent builders.
+    """
+    try:
+        import galsim
+        import piff
+    except ImportError:
+        raise NotImplementedError("Piff fixtures require the optional 'piff' package.") from None
+
+    import numpy as np
+
+    from .. import Box
+    from ..psfs import PiffWrapper
+
+    size = 7
+    scale = 0.2  # arcsec/pixel
+    model = piff.PixelGrid(scale=scale, size=size)
+    interp = piff.BasisPolynomial(order=0, keys=["u", "v"])
+    psf = piff.SimplePSF(model, interp)
+    # A fitted PSF would set these during fit(); set them directly for a
+    # deterministic, fit-free fixture.
+    psf.wcs = {0: galsim.PixelScale(scale)}
+    psf.pointing = None
+    psf.chisq = 0.0
+    psf.last_delta_chisq = 0.0
+    psf.dof = 0
+    psf.nremoved = 0
+    psf.niter = 0
+    # The order-0 solution is a single column of PixelGrid params: a normalised
+    # Gaussian stamp.
+    grid = np.mgrid[:size, :size] - (size - 1) / 2
+    stamp = np.exp(-(grid[0] ** 2 + grid[1] ** 2) / (2 * 1.2**2))
+    stamp /= stamp.sum()
+    interp.q = stamp.reshape(-1, 1).astype(float)
+    interp.set_num(None)
+
+    radius = size // 2
+    bounds = Box.factory[-radius : radius + 1, -radius : radius + 1]
+    wrapper = PiffWrapper(psf, bounds=bounds, stamp_size=size)
+    return _serialize_to_dict(wrapper)
 
 
 def build_psfex_psf() -> dict[str, Any]:

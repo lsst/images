@@ -8,7 +8,7 @@ at the v1 release.
 
 These fixtures are produced by:
 
-    .pyenv/bin/python -m lsst.images.tests._make_schema_fixtures
+    python -m lsst.images.tests._make_schema_fixtures
 
 The helper overwrites every `<schema_name>.json` file in this
 directory. Run it after any deliberate `SCHEMA_VERSION` /
@@ -17,11 +17,11 @@ directory. Run it after any deliberate `SCHEMA_VERSION` /
 ## Coverage
 
 Builders for every concrete `ArchiveTree` subclass live in
-`python/lsst/images/tests/_make_schema_fixtures.py`. Five subclasses
-require external test data and have builders that raise
-`NotImplementedError`:
+`python/lsst/images/tests/_make_schema_fixtures.py`. `piff_psf` is built
+programmatically but needs the optional `piff` package importable, so its
+builder raises `NotImplementedError` when `piff` is absent. Four further
+subclasses require external test data and always raise `NotImplementedError`:
 
-- `piff_psf` — needs Piff data.
 - `psfex_psf` — needs PSFEx data.
 - `cell_coadd` — needs `lsst.cell_coadds` and a real coadd file.
 - `camera_frame_set` — needs an AST representation from a legacy camera.
