@@ -14,6 +14,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
+import numpy as np
+
 __all__ = (
     "USING_STARLINK_PYAST",
     "Channel",
@@ -23,10 +25,12 @@ __all__ = (
     "Frame",
     "FrameSet",
     "Mapping",
+    "PolyMap",
     "ShiftMap",
     "SkyFrame",
     "StringStream",
     "UnitMap",
+    "ZoomMap",
 )
 
 if TYPE_CHECKING:
@@ -45,10 +49,12 @@ else:
             FrameSet,
             Mapping,
             Object,
+            PolyMap,
             ShiftMap,
             SkyFrame,
             StringStream,
             UnitMap,
+            ZoomMap,
         )
     except ImportError:
         import starlink.Ast
@@ -169,6 +175,46 @@ if USING_STARLINK_PYAST:
             copy.invert()
             return Mapping._wrap(copy)
 
+        def linearApprox(self, lbnd: Any, ubnd: Any, tol: float) -> np.ndarray:
+            """Best linear approximation to this mapping over a hyper-box.
+
+            Parameters
+            ----------
+            lbnd, ubnd
+                Per-axis lower / upper input-coordinate bounds of the
+                box over which the approximation is required.
+            tol
+                Maximum permitted deviation from linearity, expressed
+                as a positive Cartesian displacement in the output
+                coordinate system.
+
+            Returns
+            -------
+            fit : `numpy.ndarray`
+                A ``(1 + Nout, Nin)`` array whose first row holds the
+                per-output constant offsets and whose remaining rows hold
+                the Jacobian (``J[i][j] = ∂out_i/∂in_j``).
+
+            Raises
+            ------
+            RuntimeError
+                Raised if no linear approximation within ``tol`` exists
+                over the requested box.
+
+            Notes
+            -----
+            This matches ``astshim.Mapping.linearApprox``. starlink-pyast
+            instead returns ``(success_flag, flat_coeffs)`` with the
+            coefficients in the same row-major-by-output ordering as the
+            astshim flat buffer, so reshaping recovers astshim's layout.
+            """
+            success, coeffs = self._impl.linearapprox(lbnd, ubnd, tol)
+            if not success:
+                raise RuntimeError("Mapping not sufficiently linear")
+            nin = self._impl.Nin
+            nout = self._impl.Nout
+            return np.asarray(coeffs, dtype=float).reshape(1 + nout, nin)
+
     class UnitMap(Mapping):
         def __init__(self, n_coord: int):
             super().__init__(starlink.Ast.UnitMap(n_coord))
@@ -186,6 +232,28 @@ if USING_STARLINK_PYAST:
             super().__init__(starlink.Ast.CmpMap(map_a._impl, map_b._impl, series))
 
         _IMPL_TYPE: ClassVar[type[starlink.Ast.CmpMap]] = starlink.Ast.CmpMap
+
+    class ZoomMap(Mapping):
+        def __init__(self, n_coord: int, zoom: float):
+            super().__init__(starlink.Ast.ZoomMap(n_coord, zoom))
+
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.ZoomMap]] = starlink.Ast.ZoomMap
+
+    class PolyMap(Mapping):
+        def __init__(self, coeff_f: Any, coeff_i_or_nout: Any, options: str = ""):
+            # astshim's PolyMap takes ``nout`` as the second positional;
+            # starlink.Ast.PolyMap requires an explicit inverse-coefficient
+            # array. Adapt to both by synthesizing an empty inverse when
+            # an integer ``nout`` is supplied.
+            coeff_f_arr = np.asarray(coeff_f, dtype=float)
+            if isinstance(coeff_i_or_nout, int):
+                nin = coeff_f_arr.shape[1] - 2
+                coeff_i = np.zeros((0, 2 + nin), dtype=float)
+            else:
+                coeff_i = np.asarray(coeff_i_or_nout, dtype=float)
+            super().__init__(starlink.Ast.PolyMap(coeff_f_arr, coeff_i, options))
+
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.PolyMap]] = starlink.Ast.PolyMap
 
     class Frame(Mapping):
         def __init__(self, n_axes: int, options: str = ""):
