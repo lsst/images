@@ -1,0 +1,68 @@
+{
+  "schema_version": "1.0.0",
+  "min_read_version": 1,
+  "operands": [
+    {
+      "schema_version": "1.0.0",
+      "min_read_version": 1,
+      "bounds": {
+        "y": {
+          "start": 6,
+          "stop": 32
+        },
+        "x": {
+          "start": -7,
+          "stop": 26
+        }
+      },
+      "coefficients": {
+        "data": [
+          [
+            0.5,
+            -0.25
+          ],
+          [
+            0.4,
+            0.0
+          ]
+        ],
+        "datatype": "float64"
+      },
+      "unit": null,
+      "field_type": "CHEBYSHEV",
+      "schema_url": "https://images.lsst.io/schemas/chebyshev_field-1.0.0"
+    },
+    {
+      "schema_version": "1.0.0",
+      "min_read_version": 1,
+      "bounds": {
+        "y": {
+          "start": 6,
+          "stop": 32
+        },
+        "x": {
+          "start": -7,
+          "stop": 26
+        }
+      },
+      "coefficients": {
+        "data": [
+          [
+            0.1,
+            0.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ],
+        "datatype": "float64"
+      },
+      "unit": null,
+      "field_type": "CHEBYSHEV",
+      "schema_url": "https://images.lsst.io/schemas/chebyshev_field-1.0.0"
+    }
+  ],
+  "field_type": "SUM",
+  "schema_url": "https://images.lsst.io/schemas/sum_field-1.0.0"
+}

@@ -18,6 +18,7 @@ import pydantic
 
 from lsst.images.serialization import ArchiveReadError, ArchiveTree
 from lsst.images.serialization._common import _check_compat, _check_format_version
+from lsst.images.tests import check_archive_tree_class_invariants, iter_concrete_archive_tree_subclasses
 
 
 class _DummyArchiveTree(ArchiveTree):
@@ -120,50 +121,26 @@ class JsonSchemaInjectionTestCase(unittest.TestCase):
 
 
 class ArchiveTreeClassInvariantsTestCase(unittest.TestCase):
-    """Concrete ArchiveTree subclasses must declare the version ClassVars."""
+    """Concrete ArchiveTree subclasses must declare the version ClassVars.
 
-    @classmethod
-    def _all_concrete_subclasses(cls):
-        # Force-import every package module that defines a subclass.
-        import lsst.images
-        import lsst.images.cells
-        import lsst.images.fields
-        import lsst.images.psfs  # noqa: F401
-        from lsst.images.serialization import ArchiveTree
-
-        seen: set[type] = set()
-        stack: list[type] = [ArchiveTree]
-        while stack:
-            kls = stack.pop()
-            for sub in kls.__subclasses__():
-                if sub in seen:
-                    continue
-                seen.add(sub)
-                stack.append(sub)
-                if not getattr(sub, "__abstractmethods__", None):
-                    yield sub
+    The reusable discovery and per-class check live in ``lsst.images.tests``
+    (`iter_concrete_archive_tree_subclasses` and
+    `check_archive_tree_class_invariants`) so the latter can be invoked
+    manually on a single ``ArchiveTree`` independent of the metaprogramming.
+    """
 
     def test_constants_are_declared(self):
         """All three ClassVars are declared and well-formed everywhere."""
-        found = list(self._all_concrete_subclasses())
+        found = list(iter_concrete_archive_tree_subclasses())
         self.assertGreater(len(found), 0)
         for sub in found:
             with self.subTest(cls=sub.__name__):
-                self.assertTrue(hasattr(sub, "SCHEMA_NAME"), f"{sub.__name__} lacks SCHEMA_NAME")
-                self.assertTrue(hasattr(sub, "SCHEMA_VERSION"), f"{sub.__name__} lacks SCHEMA_VERSION")
-                self.assertTrue(hasattr(sub, "MIN_READ_VERSION"), f"{sub.__name__} lacks MIN_READ_VERSION")
-                self.assertIsInstance(sub.SCHEMA_NAME, str)
-                self.assertGreater(len(sub.SCHEMA_NAME), 0)
-                self.assertRegex(sub.SCHEMA_VERSION, r"^\d+\.\d+\.\d+$")
-                self.assertIsInstance(sub.MIN_READ_VERSION, int)
-                self.assertGreaterEqual(sub.MIN_READ_VERSION, 1)
-                major = int(sub.SCHEMA_VERSION.split(".")[0])
-                self.assertLessEqual(sub.MIN_READ_VERSION, major)
+                check_archive_tree_class_invariants(self, sub)
 
     def test_schema_names_unique(self):
         """All SCHEMA_NAME values across concrete subclasses are unique."""
         names: dict[str, type] = {}
-        for sub in self._all_concrete_subclasses():
+        for sub in iter_concrete_archive_tree_subclasses():
             # Skip our local _DummyArchiveTree (it lives in a test module).
             if sub.__module__.startswith("tests."):
                 continue
@@ -181,6 +158,57 @@ class ArchiveTreeClassInvariantsTestCase(unittest.TestCase):
                     f"{sub.__qualname__} vs {existing.__qualname__}"
                 )
             names[sub.SCHEMA_NAME] = sub
+
+
+class FixtureMutationTestCase(unittest.TestCase):
+    """Mutate a fixture in-memory and verify the read behavior."""
+
+    def setUp(self):
+        from lsst.images.tests._make_schema_fixtures import FIXTURE_DIR
+
+        self.fixture_path = FIXTURE_DIR / "image.json"
+        self.assertTrue(self.fixture_path.exists())
+
+    def test_min_read_too_high_raises(self):
+        """Setting min_read_version above reader major rejects the read."""
+        import json as json_module
+
+        from lsst.images._image import ImageSerializationModel
+
+        tree = json_module.loads(self.fixture_path.read_text())
+        tree["min_read_version"] = 99
+        with self.assertRaises((ArchiveReadError, pydantic.ValidationError)):
+            ImageSerializationModel.model_validate(tree)
+
+    def test_higher_major_with_low_min_read_succeeds(self):
+        """A higher schema_version with low min_read_version reads silently."""
+        import json as json_module
+
+        from lsst.images._image import ImageSerializationModel
+
+        tree = json_module.loads(self.fixture_path.read_text())
+        tree["schema_version"] = "99.0.0"
+        tree["min_read_version"] = 1
+        # Asymmetric escape: a 99.0.0 file that declares it's safe for
+        # major-1 readers reads silently.
+        instance = ImageSerializationModel.model_validate(tree)
+        # And gets normalised back to in-code values.
+        self.assertEqual(instance.schema_version, "1.0.0")
+        self.assertEqual(instance.min_read_version, 1)
+
+    def test_absent_fields_default_to_legacy(self):
+        """Stripping the version fields entirely reads with v1 defaults."""
+        import json as json_module
+
+        from lsst.images._image import ImageSerializationModel
+
+        tree = json_module.loads(self.fixture_path.read_text())
+        del tree["schema_version"]
+        del tree["min_read_version"]
+        del tree["schema_url"]
+        instance = ImageSerializationModel.model_validate(tree)
+        self.assertEqual(instance.schema_version, "1.0.0")
+        self.assertEqual(instance.min_read_version, 1)
 
 
 if __name__ == "__main__":

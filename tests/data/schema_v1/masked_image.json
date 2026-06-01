@@ -1,0 +1,128 @@
+{
+  "schema_version": "1.0.0",
+  "min_read_version": 1,
+  "image": {
+    "schema_version": "1.0.0",
+    "min_read_version": 1,
+    "data": {
+      "data": [
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "datatype": "float32"
+    },
+    "start": [
+      0,
+      0
+    ],
+    "schema_url": "https://images.lsst.io/schemas/image-1.0.0"
+  },
+  "mask": {
+    "schema_version": "1.0.0",
+    "min_read_version": 1,
+    "data": [
+      {
+        "data": [
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0
+          ]
+        ],
+        "datatype": "int32"
+      }
+    ],
+    "start": [
+      0,
+      0
+    ],
+    "planes": [
+      {
+        "name": "BAD",
+        "description": "Bad pixel."
+      }
+    ],
+    "dtype": "uint8",
+    "schema_url": "https://images.lsst.io/schemas/mask-1.0.0"
+  },
+  "variance": {
+    "schema_version": "1.0.0",
+    "min_read_version": 1,
+    "data": {
+      "data": [
+        [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      ],
+      "datatype": "float32"
+    },
+    "start": [
+      0,
+      0
+    ],
+    "schema_url": "https://images.lsst.io/schemas/image-1.0.0"
+  },
+  "schema_url": "https://images.lsst.io/schemas/masked_image-1.0.0"
+}

@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0.0",
+  "min_read_version": 1,
+  "fields": {
+    "flux1": {
+      "schema_version": "1.0.0",
+      "min_read_version": 1,
+      "bounds": {
+        "y": {
+          "start": 0,
+          "stop": 32
+        },
+        "x": {
+          "start": 0,
+          "stop": 32
+        }
+      },
+      "coefficients": {
+        "data": [
+          0.75
+        ],
+        "datatype": "float64"
+      },
+      "unit": null,
+      "field_type": "CHEBYSHEV",
+      "schema_url": "https://images.lsst.io/schemas/chebyshev_field-1.0.0"
+    },
+    "flux2": {
+      "schema_version": "1.0.0",
+      "min_read_version": 1,
+      "bounds": {
+        "y": {
+          "start": 0,
+          "stop": 32
+        },
+        "x": {
+          "start": 0,
+          "stop": 32
+        }
+      },
+      "coefficients": {
+        "data": [
+          0.625
+        ],
+        "datatype": "float64"
+      },
+      "unit": null,
+      "field_type": "CHEBYSHEV",
+      "schema_url": "https://images.lsst.io/schemas/chebyshev_field-1.0.0"
+    }
+  },
+  "schema_url": "https://images.lsst.io/schemas/aperture_correction_map-1.0.0"
+}

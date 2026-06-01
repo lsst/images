@@ -22,6 +22,7 @@ __all__ = (
     "assert_projections_equal",
     "assert_psfs_equal",
     "assert_visit_images_equal",
+    "check_archive_tree_class_invariants",
     "check_astropy_wcs_interface",
     "check_projection",
     "check_transform",
@@ -38,6 +39,7 @@ __all__ = (
     "compare_projection_to_legacy_wcs",
     "compare_psf_to_legacy",
     "compare_visit_image_to_legacy",
+    "iter_concrete_archive_tree_subclasses",
     "legacy_coords_to_astropy",
     "legacy_points_to_xy_array",
 )
@@ -45,7 +47,7 @@ __all__ = (
 import dataclasses
 import math
 import unittest
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import astropy.units as u
@@ -65,6 +67,7 @@ from ..cameras import Amplifier, Detector, DetectorType, ReadoutCorner
 from ..cells import CellCoadd, CellIJ, CoaddProvenance
 from ..fields import BaseField, ChebyshevField
 from ..psfs import PointSpreadFunction
+from ..serialization import ArchiveTree
 
 if TYPE_CHECKING:
     try:
@@ -1228,3 +1231,55 @@ def compare_detector_to_legacy(
         in_atol=1e-9 * u.pix,
         out_atol=1e-7 * u.arcsec,
     )
+
+
+def iter_concrete_archive_tree_subclasses() -> Iterator[type[ArchiveTree]]:
+    """Yield every importable concrete `.serialization.ArchiveTree` subclass.
+
+    Walks the ``ArchiveTree.__subclasses__()`` tree, skipping abstract
+    classes.  Importing this module already imports every ``lsst.images``
+    module that defines a subclass, so the tree is fully populated by the time
+    this is called.
+
+    This discovery is deliberately separate from
+    `check_archive_tree_class_invariants` so that the per-class check stays
+    usable on a single class even if this metaprogramming is removed later.
+    """
+    seen: set[type] = set()
+    stack: list[type] = [ArchiveTree]
+    while stack:
+        kls = stack.pop()
+        for sub in kls.__subclasses__():
+            if sub in seen:
+                continue
+            seen.add(sub)
+            stack.append(sub)
+            if not getattr(sub, "__abstractmethods__", None):
+                yield sub
+
+
+def check_archive_tree_class_invariants(tc: unittest.TestCase, cls: type[ArchiveTree]) -> None:
+    """Assert that one concrete `.serialization.ArchiveTree` subclass declares
+    well-formed schema-version constants.
+
+    Checks that ``SCHEMA_NAME``, ``SCHEMA_VERSION`` and ``MIN_READ_VERSION``
+    are present and well-typed, that the version is ``major.minor.patch``, and
+    that ``MIN_READ_VERSION`` does not exceed the schema major.
+
+    Parameters
+    ----------
+    tc
+        Test case object with assert methods to use.
+    cls
+        The concrete `.serialization.ArchiveTree` subclass to check.
+    """
+    tc.assertTrue(hasattr(cls, "SCHEMA_NAME"), f"{cls.__name__} lacks SCHEMA_NAME")
+    tc.assertTrue(hasattr(cls, "SCHEMA_VERSION"), f"{cls.__name__} lacks SCHEMA_VERSION")
+    tc.assertTrue(hasattr(cls, "MIN_READ_VERSION"), f"{cls.__name__} lacks MIN_READ_VERSION")
+    tc.assertIsInstance(cls.SCHEMA_NAME, str)
+    tc.assertGreater(len(cls.SCHEMA_NAME), 0)
+    tc.assertRegex(cls.SCHEMA_VERSION, r"^\d+\.\d+\.\d+$")
+    tc.assertIsInstance(cls.MIN_READ_VERSION, int)
+    tc.assertGreaterEqual(cls.MIN_READ_VERSION, 1)
+    major = int(cls.SCHEMA_VERSION.split(".")[0])
+    tc.assertLessEqual(cls.MIN_READ_VERSION, major)
