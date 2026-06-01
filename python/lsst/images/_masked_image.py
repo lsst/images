@@ -305,7 +305,9 @@ class MaskedImage(GeneralizedImage):
             Units of the image.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
-            description.
+            description.  If not provided, the right legacy mask plane will be
+            guessed, but this can depend on which mask planes the legacy
+            mask actually has set.
         """
         return MaskedImage(
             image=Image.from_legacy(legacy.getImage(), unit),
@@ -362,7 +364,9 @@ class MaskedImage(GeneralizedImage):
             pixel values are not transferred to the copy.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
-            description.
+            description.  If not provided, the right legacy mask plane will be
+            guessed, but this can depend on which mask planes the legacy
+            mask actually has set.
         component
             A component to read instead of the full image.
         fits_wcs_frame
