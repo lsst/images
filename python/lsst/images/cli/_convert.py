@@ -13,6 +13,7 @@ from __future__ import annotations
 __all__ = ("convert",)
 
 import os
+import tempfile
 
 import astropy.io.fits
 import click
@@ -145,10 +146,12 @@ def convert(
     if legacy_type is None:
         raise click.ClickException(f"Could not determine the legacy type of {input!r}; pass --type.")
 
-    if os.path.exists(output):
-        if not overwrite:
-            raise click.ClickException(f"{output!r} already exists; pass --overwrite to replace it.")
-        os.remove(output)
+    output_abs = os.path.realpath(output)
+    if os.path.realpath(input) == output_abs:
+        raise click.ClickException("INPUT and OUTPUT must be different paths.")
+
+    if os.path.exists(output_abs) and not overwrite:
+        raise click.ClickException(f"{output!r} already exists; pass --overwrite to replace it.")
 
     try:
         obj = _read_legacy(input, legacy_type, skymap, butler, collection)
@@ -158,5 +161,14 @@ def convert(
         raise click.ClickException(
             f"Reading a legacy {legacy_type} requires Rubin packages that are not installed: {err}"
         ) from None
-    backend.write(obj, output)
+
+    # Write to a temporary file in the output's directory and move it into
+    # place only after a successful write, so a read or write failure never
+    # destroys an existing OUTPUT (the backends refuse to overwrite, so the
+    # temporary path must not already exist).
+    output_dir = os.path.dirname(output_abs)
+    with tempfile.TemporaryDirectory(dir=output_dir) as staging:
+        staged = os.path.join(staging, os.path.basename(output_abs))
+        backend.write(obj, staged)
+        os.replace(staged, output_abs)
     click.echo(f"Wrote {output} ({backend.name}, {legacy_type}).")

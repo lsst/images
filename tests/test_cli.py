@@ -13,8 +13,10 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 import astropy.io.fits
+import click
 import numpy as np
 from click.testing import CliRunner
 
@@ -196,3 +198,40 @@ class CliRegistrationTestCase(unittest.TestCase):
     def test_extract_test_data_help(self) -> None:
         result = CliRunner().invoke(main, ["extract-test-data", "--help"])
         self.assertEqual(result.exit_code, 0, result.output)
+
+
+class ConvertSafetyTestCase(unittest.TestCase):
+    """convert must not destroy data on identical paths or on failure."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+
+    def _make_input(self) -> str:
+        path = os.path.join(self.tmp, "in.fits")
+        astropy.io.fits.PrimaryHDU().writeto(path)
+        return path
+
+    def test_rejects_identical_paths(self) -> None:
+        path = self._make_input()
+        result = CliRunner().invoke(main, ["convert", path, path, "--type", "visit_image", "--overwrite"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("different", result.output)
+        # The file is left untouched.
+        self.assertTrue(os.path.exists(path))
+
+    def test_preserves_existing_output_on_read_failure(self) -> None:
+        src = self._make_input()
+        out = os.path.join(self.tmp, "out.json")
+        with open(out, "w") as stream:
+            stream.write("ORIGINAL")
+        # A read failure after the overwrite gate must leave OUTPUT intact.
+        with mock.patch(
+            "lsst.images.cli._convert._read_legacy",
+            side_effect=click.ClickException("boom"),
+        ):
+            result = CliRunner().invoke(main, ["convert", src, out, "--type", "visit_image", "--overwrite"])
+        self.assertNotEqual(result.exit_code, 0)
+        with open(out) as stream:
+            self.assertEqual(stream.read(), "ORIGINAL")
