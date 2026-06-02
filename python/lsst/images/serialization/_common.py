@@ -78,6 +78,10 @@ class ArchiveTree(
     """An intermediate base class of `pydantic.BaseModel` that should be used
     for all objects that may be used as the top-level tree models written to
     archives.
+
+    See :ref:`lsst.images-schema-versioning` for how the ``SCHEMA_NAME`` /
+    ``SCHEMA_VERSION`` / ``MIN_READ_VERSION`` constants and the
+    ``schema_version`` / ``min_read_version`` / ``schema_url`` fields are used.
     """
 
     SCHEMA_NAME: ClassVar[str]
@@ -327,8 +331,7 @@ def _check_compat(
     """Raise `ArchiveReadError` if a tree written with the given
     schema_version/min_read_version cannot be read by the current code.
 
-    See ``docs/superpowers/specs/2026-05-15-schema-versioning-design.md``
-    §4.2 for the rule.
+    See :ref:`lsst.images-schema-versioning` for the compatibility rule.
     """
     in_code_major = _parse_major(in_code_version)
     if on_disk_min_read > in_code_major:

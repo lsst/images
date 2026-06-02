@@ -16,6 +16,14 @@ Changes
 
    CHANGES.rst
 
+Concepts
+========
+
+.. toctree::
+   :maxdepth: 1
+
+   schema-versioning.rst
+
 API Reference
 =============
 
