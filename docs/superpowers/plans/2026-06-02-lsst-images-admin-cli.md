@@ -13,7 +13,7 @@
 ## Conventions for every task
 
 - **Interpreter / path:** run everything with the repo interpreter and this checkout on `PYTHONPATH`:
-  `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest <args>`
+  `PYTHONPATH=./python ~/pyenv/bin/python -m pytest <args>`
 - **License header:** every new `.py` file starts with the standard 10-line header (copy verbatim from any existing file, e.g. `python/lsst/images/serialization/_input_archive.py` lines 1-10).
 - **Lint gate (before each commit that touches `.py`):**
   `~/pyenv/bin/python -m ruff check <changed paths>` → no errors;
@@ -93,7 +93,7 @@ class ArchiveInfoTestCase(unittest.TestCase):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py -v`
 Expected: FAIL with `ImportError: cannot import name 'ArchiveInfo'`.
 
 - [ ] **Step 3: Add the model and base method**
@@ -164,7 +164,7 @@ Add this classmethod inside `class InputArchive`, after the class docstring and 
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py -v`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Lint**
@@ -221,7 +221,7 @@ class JsonBasicInfoTestCase(unittest.TestCase):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py::JsonBasicInfoTestCase -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py::JsonBasicInfoTestCase -v`
 Expected: FAIL with `NotImplementedError: JsonInputArchive does not implement get_basic_info.`
 
 - [ ] **Step 3: Implement**
@@ -256,7 +256,7 @@ Add this classmethod inside `class JsonInputArchive` (after the class docstring)
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py::JsonBasicInfoTestCase -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py::JsonBasicInfoTestCase -v`
 Expected: PASS.
 
 - [ ] **Step 5: Lint**
@@ -309,7 +309,7 @@ class FitsBasicInfoTestCase(unittest.TestCase):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py::FitsBasicInfoTestCase -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py::FitsBasicInfoTestCase -v`
 Expected: FAIL with `NotImplementedError`.
 
 - [ ] **Step 3: Implement**
@@ -350,7 +350,7 @@ Add this classmethod inside `class FitsInputArchive` (after the class docstring,
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py::FitsBasicInfoTestCase -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py::FitsBasicInfoTestCase -v`
 Expected: PASS.
 
 - [ ] **Step 5: Lint**
@@ -410,7 +410,7 @@ class NdfBasicInfoTestCase(unittest.TestCase):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py::NdfBasicInfoTestCase -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py::NdfBasicInfoTestCase -v`
 Expected: FAIL with `NotImplementedError` (or skip if `h5py` absent — install it: `~/pyenv/bin/python -m pip install h5py`).
 
 - [ ] **Step 3: Implement**
@@ -462,7 +462,7 @@ In `python/lsst/images/ndf/_input_archive.py`, ensure `json`, `numpy as np`, `Re
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py::NdfBasicInfoTestCase -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py::NdfBasicInfoTestCase -v`
 Expected: PASS (or skip if `h5py` unavailable).
 
 - [ ] **Step 5: Lint**
@@ -533,7 +533,7 @@ class BackendForPathTestCase(unittest.TestCase):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_serialization_backends.py -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_serialization_backends.py -v`
 Expected: FAIL with `ImportError: cannot import name 'Backend'`.
 
 - [ ] **Step 3: Implement**
@@ -611,7 +611,7 @@ from ._backends import *
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_serialization_backends.py -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_serialization_backends.py -v`
 Expected: PASS (skips none; `.sdf`/`.ndf` resolution does not import `h5py` because `lsst.images.ndf` re-exports `NdfInputArchive`/`read`/`write` without importing `h5py` at module load — if that import fails for another reason, mark `test_ndf` to skip on `ImportError`).
 
 - [ ] **Step 5: Lint**
@@ -669,7 +669,7 @@ class MinifyDispatchTestCase(unittest.TestCase):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_serialization_backends.py::MinifyDispatchTestCase -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_serialization_backends.py::MinifyDispatchTestCase -v`
 Expected: FAIL — currently raises `ValueError`/other (old code path) or a different message; confirm it does not yet pass.
 
 - [ ] **Step 3: Implement**
@@ -729,7 +729,7 @@ If `astropy.io.fits` is no longer referenced anywhere else in the module, remove
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_serialization_backends.py::MinifyDispatchTestCase -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_serialization_backends.py::MinifyDispatchTestCase -v`
 Expected: PASS.
 
 - [ ] **Step 5: Lint**
@@ -780,7 +780,7 @@ class CliSkeletonTestCase(unittest.TestCase):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_cli.py -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_cli.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'lsst.images.cli'`.
 
 - [ ] **Step 3: Implement**
@@ -871,7 +871,7 @@ lsst-images-admin = "lsst.images.cli:main"
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_cli.py -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_cli.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Lint**
@@ -943,7 +943,7 @@ class InspectTestCase(unittest.TestCase):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_cli.py::InspectTestCase -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_cli.py::InspectTestCase -v`
 Expected: FAIL (`not yet implemented`).
 
 - [ ] **Step 3: Implement**
@@ -985,7 +985,7 @@ def inspect(file: str) -> None:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_cli.py::InspectTestCase -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_cli.py::InspectTestCase -v`
 Expected: PASS.
 
 - [ ] **Step 5: Lint**
@@ -1098,7 +1098,7 @@ Add the import `from lsst.images.serialization import backend_for_path` to the t
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_cli.py::ConvertDetectTestCase -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_cli.py::ConvertDetectTestCase -v`
 Expected: FAIL with `ImportError: cannot import name 'detect_legacy_type'`.
 
 - [ ] **Step 3: Implement**
@@ -1217,7 +1217,7 @@ def convert(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_cli.py::ConvertDetectTestCase tests/test_cli.py::ConvertVisitImageTestCase -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_cli.py::ConvertDetectTestCase tests/test_cli.py::ConvertVisitImageTestCase -v`
 Expected: PASS (detection tests pass; visit-image tests pass if afw + testdata present, else skip).
 
 - [ ] **Step 5: Lint**
@@ -1283,7 +1283,7 @@ class ConvertCellCoaddTestCase(unittest.TestCase):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_cli.py::ConvertCellCoaddTestCase -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_cli.py::ConvertCellCoaddTestCase -v`
 Expected: FAIL (`Conversion of 'cell_coadd' is not yet implemented.`) or skip if deps absent.
 
 - [ ] **Step 3: Implement**
@@ -1343,7 +1343,7 @@ The `--skymap` pickle path is the primary, dependency-light route (and what the 
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_cli.py::ConvertCellCoaddTestCase -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_cli.py::ConvertCellCoaddTestCase -v`
 Expected: PASS if `cell_coadds` + testdata present, else skip.
 
 - [ ] **Step 5: Lint**
@@ -1401,7 +1401,7 @@ class CliRegistrationTestCase(unittest.TestCase):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_cli.py::CliRegistrationTestCase -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_cli.py::CliRegistrationTestCase -v`
 Expected: FAIL — `minify`/`extract-test-data` not in help output.
 
 - [ ] **Step 3: Implement**
@@ -1466,7 +1466,7 @@ Add `from typing import TYPE_CHECKING` to the imports. Then, inside `extract_dp2
 ```
 
 Any module-scope helper functions (`extract_visit_image`, `extract_cell_coadd`, etc.) that reference `CompressionOptions`, `MultipleCellCoadd`, `Box2I`, etc. must import those names locally too (they are only invoked from `extract_dp2`). Move each helper's required heavy imports to the top of that helper's body. Verify by importing the module with afw absent:
-`PYTHONPATH=$PWD/python ~/pyenv/bin/python -c "import lsst.images.tests.extract_legacy_test_data"` → must succeed with core deps only.
+`PYTHONPATH=./python ~/pyenv/bin/python -c "import lsst.images.tests.extract_legacy_test_data"` → must succeed with core deps only.
 
 Create `python/lsst/images/cli/_minify.py`:
 
@@ -1525,7 +1525,7 @@ main.add_command(extract_test_data, name="extract-test-data")
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_cli.py -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_cli.py -v`
 Expected: PASS (all CLI tests).
 
 - [ ] **Step 5: Lint**
@@ -1559,13 +1559,13 @@ Added ``lsst.images.serialization.backend_for_path`` and ``InputArchive.get_basi
 
 - [ ] **Step 2: Run the full test suite**
 
-Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py tests/test_serialization_backends.py tests/test_cli.py -v`
+Run: `PYTHONPATH=./python ~/pyenv/bin/python -m pytest tests/test_serialization_basic_info.py tests/test_serialization_backends.py tests/test_cli.py -v`
 Expected: PASS (with environment-gated tests skipping as appropriate).
 
 - [ ] **Step 3: Verify the entry point installs**
 
 Run: `~/pyenv/bin/python -m pip install -e . >/dev/null && lsst-images-admin --help`
-Expected: the help text lists `convert`, `inspect`, `minify`, `extract-test-data`. (If editable install is undesirable in this environment, instead run `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m lsst.images.cli --help` after adding an `if __name__ == "__main__": main()` guard to `_main.py` — optional.)
+Expected: the help text lists `convert`, `inspect`, `minify`, `extract-test-data`. (If editable install is undesirable in this environment, instead run `PYTHONPATH=./python ~/pyenv/bin/python -m lsst.images.cli --help` after adding an `if __name__ == "__main__": main()` guard to `_main.py` — optional.)
 
 - [ ] **Step 4: Lint full changed set**
 
