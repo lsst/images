@@ -19,11 +19,13 @@ from typing import TYPE_CHECKING, Any
 
 import astropy.table
 import numpy as np
+from pydantic_core import from_json
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
 from .._transforms import FrameSet
 from ..serialization import (
+    ArchiveInfo,
     ArchiveReadError,
     ArchiveTree,
     ArrayReferenceModel,
@@ -86,6 +88,16 @@ class JsonInputArchive(InputArchive[JsonRef]):
         The `.serialization.ArchiveTree.indirect` attribute of the root
         serialization model.
     """
+
+    @classmethod
+    def get_basic_info(cls, path: ResourcePathExpression) -> ArchiveInfo:
+        """Read the top-level tree's ``schema_url``; JSON has no container
+        format version.
+        """
+        raw = from_json(ResourcePath(path).read())
+        if not isinstance(raw, dict) or not raw.get("schema_url"):
+            raise ArchiveReadError(f"{path!r} has no schema_url in its top-level JSON tree.")
+        return ArchiveInfo.from_schema_url(raw["schema_url"], format_version=None)
 
     def __init__(self, indirect: list[Any] | None = None):
         self._indirect = indirect if indirect is not None else []

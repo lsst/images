@@ -10,10 +10,16 @@
 # license that can be found in the LICENSE file.
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
 
+import numpy as np
 import pydantic
 
+from lsst.images import Box, Image
+from lsst.images import json as images_json
+from lsst.images.json import JsonInputArchive
 from lsst.images.serialization import ArchiveInfo, InputArchive
 
 
@@ -46,3 +52,20 @@ class ArchiveInfoTestCase(unittest.TestCase):
     def test_get_basic_info_base_raises(self) -> None:
         with self.assertRaises(NotImplementedError):
             InputArchive.get_basic_info("x.fits")
+
+
+class JsonBasicInfoTestCase(unittest.TestCase):
+    """get_basic_info for the JSON backend."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp()
+        self.image = Image(np.zeros((4, 4), dtype=np.float32), bbox=Box.factory[0:4, 0:4])
+
+    def test_json_basic_info(self) -> None:
+        path = os.path.join(self.tmp, "x.json")
+        images_json.write(self.image, path)
+        info = JsonInputArchive.get_basic_info(path)
+        self.assertEqual(info.schema_name, "image")
+        self.assertEqual(info.schema_version, "1.0.0")
+        self.assertEqual(info.schema_url, "https://images.lsst.io/schemas/image-1.0.0")
+        self.assertIsNone(info.format_version)
