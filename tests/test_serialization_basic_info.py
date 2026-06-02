@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import unittest
 
-from lsst.images.serialization import ArchiveInfo
+import pydantic
+
+from lsst.images.serialization import ArchiveInfo, InputArchive
 
 
 class ArchiveInfoTestCase(unittest.TestCase):
@@ -34,5 +36,13 @@ class ArchiveInfoTestCase(unittest.TestCase):
 
     def test_frozen(self) -> None:
         info = ArchiveInfo.from_schema_url("https://x/schemas/image-1.0.0", format_version=None)
-        with self.assertRaises(Exception):
+        with self.assertRaises(pydantic.ValidationError):
             info.schema_name = "other"  # type: ignore[misc]
+
+    def test_from_schema_url_invalid(self) -> None:
+        with self.assertRaises(ValueError):
+            ArchiveInfo.from_schema_url("https://images.lsst.io/schemas/noversion", format_version=None)
+
+    def test_get_basic_info_base_raises(self) -> None:
+        with self.assertRaises(NotImplementedError):
+            InputArchive.get_basic_info("x.fits")
