@@ -15,7 +15,7 @@ __all__ = ("Background", "BackgroundMap", "BackgroundMapSerializationModel")
 import dataclasses
 import sys
 from collections.abc import Iterable, Iterator, Mapping
-from typing import Any, cast, final
+from typing import Any, ClassVar, cast, final
 
 import pydantic
 
@@ -136,6 +136,10 @@ class BackgroundMap(Mapping[str, Background]):
 @final
 class BackgroundMapSerializationModel(ArchiveTree):
     """Serialization model for background maps."""
+
+    SCHEMA_NAME: ClassVar[str] = "background_map"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     fields: dict[str, FieldSerializationModel] = pydantic.Field(
         default_factory=dict,

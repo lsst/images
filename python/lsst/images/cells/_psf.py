@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("CellPointSpreadFunction", "CellPointSpreadFunctionSerializationModel")
 
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, overload
 
 import numpy as np
 import pydantic
@@ -208,6 +208,10 @@ class CellPointSpreadFunction(PointSpreadFunction):
 
 class CellPointSpreadFunctionSerializationModel(ArchiveTree):
     """Model used to serialize CellPointSpreadFunction objects."""
+
+    SCHEMA_NAME: ClassVar[str] = "cell_psf"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     array: ArrayReferenceModel | InlineArrayModel = pydantic.Field(
         description=(

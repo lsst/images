@@ -15,7 +15,7 @@ import dataclasses
 import functools
 import os
 import unittest
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pydantic
@@ -260,6 +260,10 @@ class FrameSetTestHolder:
 
 class FrameSetTestHolderModel[P: pydantic.BaseModel](ArchiveTree):
     """The serialization model for FrameSetTestHolder."""
+
+    SCHEMA_NAME: ClassVar[str] = "_test_frame_set_holder"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     frames: CameraFrameSetSerializationModel | P
     pixels_to_fp: TransformSerializationModel[P]

@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "min_read_version": 1,
+  "sigma": 2.0,
+  "stamp_size": 11,
+  "bounds": {
+    "y": {
+      "start": -5,
+      "stop": 6
+    },
+    "x": {
+      "start": -5,
+      "stop": 6
+    }
+  },
+  "schema_url": "https://images.lsst.io/schemas/gaussian_psf-1.0.0"
+}

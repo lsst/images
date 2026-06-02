@@ -1,0 +1,176 @@
+{
+  "schema_version": "1.0.0",
+  "min_read_version": 1,
+  "instrument": "LSSTCam",
+  "physical_filter": "r",
+  "inputs": {
+    "columns": [
+      {
+        "data": {
+          "data": [
+            1
+          ],
+          "datatype": "uint64"
+        },
+        "name": "visit",
+        "description": "ID of the visit."
+      },
+      {
+        "data": {
+          "data": [
+            1
+          ],
+          "datatype": "uint16"
+        },
+        "name": "detector",
+        "description": "ID of the detector."
+      },
+      {
+        "data": {
+          "data": [
+            20260101
+          ],
+          "datatype": "uint32"
+        },
+        "name": "day_obs",
+        "description": "Observation night as a YYYYMMDD integer."
+      },
+      {
+        "data": {
+          "data": [
+            4
+          ],
+          "datatype": "uint8"
+        },
+        "name": "n_vertices",
+        "description": "Number of polygon vertices."
+      },
+      {
+        "data": {
+          "data": [
+            [
+              0.0,
+              1.0,
+              1.0,
+              0.0
+            ]
+          ],
+          "datatype": "float64"
+        },
+        "name": "x_vertices",
+        "description": "X coordinates of polygon vertices, in tract coordinates."
+      },
+      {
+        "data": {
+          "data": [
+            [
+              0.0,
+              0.0,
+              1.0,
+              1.0
+            ]
+          ],
+          "datatype": "float64"
+        },
+        "name": "y_vertices",
+        "description": "Y coordinates of polygon vertices, in tract coordinates."
+      }
+    ]
+  },
+  "contributions": {
+    "columns": [
+      {
+        "data": {
+          "data": [],
+          "datatype": "uint16"
+        },
+        "name": "cell_i",
+        "description": "Y-axis index of the cell within the patch."
+      },
+      {
+        "data": {
+          "data": [],
+          "datatype": "uint16"
+        },
+        "name": "cell_j",
+        "description": "X-axis index of the cell within the patch."
+      },
+      {
+        "data": {
+          "data": [],
+          "datatype": "uint64"
+        },
+        "name": "visit",
+        "description": "ID of the visit."
+      },
+      {
+        "data": {
+          "data": [],
+          "datatype": "uint16"
+        },
+        "name": "detector",
+        "description": "ID of the detector."
+      },
+      {
+        "data": {
+          "data": [],
+          "datatype": "bool"
+        },
+        "name": "overlaps_center",
+        "description": "Whether a this observation overlaps the center of the cell."
+      },
+      {
+        "data": {
+          "data": [],
+          "datatype": "float64"
+        },
+        "name": "overlap_fraction",
+        "description": "Fraction of the cell that is covered by the overlap region."
+      },
+      {
+        "data": {
+          "data": [],
+          "datatype": "float64"
+        },
+        "name": "weight",
+        "description": "Weight to be used for this input in this cell."
+      },
+      {
+        "data": {
+          "data": [],
+          "datatype": "float64"
+        },
+        "name": "psf_shape_xx",
+        "description": "Second order moments of the PSF.",
+        "unit": "pixel**2"
+      },
+      {
+        "data": {
+          "data": [],
+          "datatype": "float64"
+        },
+        "name": "psf_shape_yy",
+        "description": "Second order moments of the PSF.",
+        "unit": "pixel**2"
+      },
+      {
+        "data": {
+          "data": [],
+          "datatype": "float64"
+        },
+        "name": "psf_shape_xy",
+        "description": "Second order moments of the PSF.",
+        "unit": "pixel**2"
+      },
+      {
+        "data": {
+          "data": [],
+          "datatype": "bool"
+        },
+        "name": "psf_shape_flag",
+        "description": "Flag indicating whether the PSF shape measurement was successful."
+      }
+    ]
+  },
+  "schema_url": "https://images.lsst.io/schemas/coadd_provenance-1.0.0"
+}

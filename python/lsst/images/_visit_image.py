@@ -17,7 +17,7 @@ import functools
 import warnings
 from collections.abc import Callable, Mapping, MutableMapping
 from types import EllipsisType
-from typing import TYPE_CHECKING, Any, Literal, cast, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast, overload
 
 import astropy.io.fits
 import astropy.units
@@ -980,6 +980,10 @@ class VisitImage(MaskedImage):
 
 class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializationModel[P]):
     """A Pydantic model used to represent a serialized `VisitImage`."""
+
+    SCHEMA_NAME: ClassVar[str] = "visit_image"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     # Inherited attributes are duplicated because that improves the docs
     # (some limitation in the sphinx/pydantic integration), and these are

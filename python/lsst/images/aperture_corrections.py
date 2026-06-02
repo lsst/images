@@ -17,7 +17,7 @@ __all__ = (
     "aperture_corrections_to_legacy",
 )
 
-from typing import TYPE_CHECKING, Any, cast, final
+from typing import TYPE_CHECKING, Any, ClassVar, cast, final
 
 import pydantic
 
@@ -65,6 +65,10 @@ class ApertureCorrectionMapSerializationModel(ArchiveTree):
     to `~.fields.BaseField`, so the `serialize` and `deserialize` methods are
     defined here.
     """
+
+    SCHEMA_NAME: ClassVar[str] = "aperture_correction_map"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     fields: dict[str, FieldSerializationModel] = pydantic.Field(
         default_factory=dict,

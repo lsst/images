@@ -17,7 +17,7 @@ __all__ = (
 )
 
 from functools import cached_property
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pydantic
@@ -117,6 +117,10 @@ class GaussianPointSpreadFunction(PointSpreadFunction):
 
 
 class GaussianPSFSerializationModel(serialization.ArchiveTree):
+    SCHEMA_NAME: ClassVar[str] = "gaussian_psf"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
+
     sigma: float = pydantic.Field(
         description="Gaussian sigma for the PSF.",
     )

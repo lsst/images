@@ -232,6 +232,10 @@ class CoaddProvenanceSerializationModel(ArchiveTree):
     the column and store that value directly in the model.
     """
 
+    SCHEMA_NAME: ClassVar[str] = "coadd_provenance"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
+
     instrument: str | dict[str, int] = pydantic.Field(
         description=(
             "Instrument name for all inputs to this coadd, or a mapping from "

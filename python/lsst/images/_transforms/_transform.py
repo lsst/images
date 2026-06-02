@@ -19,7 +19,7 @@ __all__ = (
 
 import textwrap
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any, TypeVar, final
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, final
 
 import astropy.io.fits.header
 import astropy.units as u
@@ -524,6 +524,10 @@ class MappingSerializationModel(pydantic.BaseModel):
 
 class TransformSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """Serialization model for coordinate transforms."""
+
+    SCHEMA_NAME: ClassVar[str] = "transform"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     frames: list[SerializableFrame] = pydantic.Field(
         default_factory=list,

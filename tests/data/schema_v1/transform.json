@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0.0",
+  "min_read_version": 1,
+  "frames": [
+    {
+      "instrument": "Inst",
+      "visit": 1234,
+      "detector": 1,
+      "bbox": {
+        "y": {
+          "start": 0,
+          "stop": 5
+        },
+        "x": {
+          "start": 0,
+          "stop": 4
+        }
+      },
+      "frame_type": "DETECTOR"
+    },
+    {
+      "instrument": "Inst",
+      "visit": 1234,
+      "detector": 1,
+      "bbox": {
+        "y": {
+          "start": 0,
+          "stop": 5
+        },
+        "x": {
+          "start": 0,
+          "stop": 4
+        }
+      },
+      "frame_type": "DETECTOR"
+    }
+  ],
+  "bounds": [
+    {
+      "y": {
+        "start": 0,
+        "stop": 5
+      },
+      "x": {
+        "start": 0,
+        "stop": 4
+      }
+    },
+    {
+      "y": {
+        "start": 0,
+        "stop": 5
+      },
+      "x": {
+        "start": 0,
+        "stop": 4
+      }
+    }
+  ],
+  "mappings": [
+    {
+      "ast": " Begin UnitMap \t# Unit (null) Mapping\n    Nin = 2 \t# Number of input coordinates\n IsA Mapping \t# Mapping between coordinate systems\n End UnitMap\n"
+    }
+  ],
+  "schema_url": "https://images.lsst.io/schemas/transform-1.0.0"
+}

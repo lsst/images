@@ -13,7 +13,7 @@ from __future__ import annotations
 
 __all__ = ("CameraFrameSet", "CameraFrameSetSerializationModel")
 
-from typing import Any
+from typing import Any, ClassVar
 
 import astropy.units as u
 import pydantic
@@ -225,6 +225,10 @@ class CameraFrameSet(FrameSet):
 
 class CameraFrameSetSerializationModel(ArchiveTree):
     """Serialization model for `CameraFrameSet`."""
+
+    SCHEMA_NAME: ClassVar[str] = "camera_frame_set"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     instrument: str = pydantic.Field(description="Name of the instrument.")
     ast: str = pydantic.Field(

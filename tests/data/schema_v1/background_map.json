@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0.0",
+  "min_read_version": 1,
+  "fields": {
+    "standard": {
+      "schema_version": "1.0.0",
+      "min_read_version": 1,
+      "bounds": {
+        "y": {
+          "start": 0,
+          "stop": 32
+        },
+        "x": {
+          "start": 0,
+          "stop": 32
+        }
+      },
+      "coefficients": {
+        "data": [
+          [
+            2.0
+          ]
+        ],
+        "datatype": "float64"
+      },
+      "unit": null,
+      "field_type": "CHEBYSHEV",
+      "schema_url": "https://images.lsst.io/schemas/chebyshev_field-1.0.0"
+    }
+  },
+  "descriptions": {
+    "standard": "Background subtracted from the image."
+  },
+  "subtracted": "standard",
+  "schema_url": "https://images.lsst.io/schemas/background_map-1.0.0"
+}

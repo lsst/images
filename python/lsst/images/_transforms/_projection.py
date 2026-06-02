@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("Projection", "ProjectionAstropyView", "ProjectionSerializationModel")
 
 import functools
-from typing import TYPE_CHECKING, Any, Self, TypeVar, final
+from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeVar, final
 
 import astropy.units as u
 import astropy.wcs
@@ -464,6 +464,10 @@ class ProjectionAstropyView(BaseLowLevelWCS, HighLevelWCSMixin):
 
 class ProjectionSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """Serialization model for projetions."""
+
+    SCHEMA_NAME: ClassVar[str] = "projection"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     pixel_to_sky: TransformSerializationModel[P] = pydantic.Field(
         description="The transform that maps pixel coordinates to the sky."

@@ -1,0 +1,165 @@
+{
+  "schema_version": "1.0.0",
+  "min_read_version": 1,
+  "red": {
+    "schema_version": "1.0.0",
+    "min_read_version": 1,
+    "data": {
+      "data": [
+        [
+          220,
+          126,
+          59,
+          24
+        ],
+        [
+          248,
+          203,
+          123,
+          148
+        ],
+        [
+          71,
+          208,
+          146,
+          81
+        ],
+        [
+          161,
+          70,
+          46,
+          33
+        ]
+      ],
+      "datatype": "uint8"
+    },
+    "start": [
+      0,
+      0
+    ],
+    "schema_url": "https://images.lsst.io/schemas/image-1.0.0"
+  },
+  "green": {
+    "schema_version": "1.0.0",
+    "min_read_version": 1,
+    "data": {
+      "data": [
+        [
+          5,
+          142,
+          209,
+          165
+        ],
+        [
+          188,
+          32,
+          29,
+          201
+        ],
+        [
+          219,
+          121,
+          76,
+          114
+        ],
+        [
+          229,
+          239,
+          183,
+          62
+        ]
+      ],
+      "datatype": "uint8"
+    },
+    "start": [
+      0,
+      0
+    ],
+    "schema_url": "https://images.lsst.io/schemas/image-1.0.0"
+  },
+  "blue": {
+    "schema_version": "1.0.0",
+    "min_read_version": 1,
+    "data": {
+      "data": [
+        [
+          241,
+          5,
+          93,
+          32
+        ],
+        [
+          11,
+          56,
+          198,
+          118
+        ],
+        [
+          2,
+          135,
+          132,
+          86
+        ],
+        [
+          69,
+          61,
+          30,
+          64
+        ]
+      ],
+      "datatype": "uint8"
+    },
+    "start": [
+      0,
+      0
+    ],
+    "schema_url": "https://images.lsst.io/schemas/image-1.0.0"
+  },
+  "projection": {
+    "schema_version": "1.0.0",
+    "min_read_version": 1,
+    "pixel_to_sky": {
+      "schema_version": "1.0.0",
+      "min_read_version": 1,
+      "frames": [
+        {
+          "skymap": "test_skymap",
+          "tract": 33,
+          "bbox": {
+            "y": {
+              "start": 0,
+              "stop": 8
+            },
+            "x": {
+              "start": 0,
+              "stop": 8
+            }
+          },
+          "frame_type": "TRACT"
+        },
+        "ICRS"
+      ],
+      "bounds": [
+        {
+          "y": {
+            "start": 0,
+            "stop": 8
+          },
+          "x": {
+            "start": 0,
+            "stop": 8
+          }
+        },
+        null
+      ],
+      "mappings": [
+        {
+          "ast": " Begin FrameSet \t# Set of inter-related coordinate systems\n#   Title = \"ICRS coordinates; gnomonic projection\" \t# Title of coordinate system\n#   Naxes = 2 \t# Number of coordinate axes\n#   Domain = \"SKY\" \t# Coordinate system domain\n#   Epoch = 2000 \t# Julian epoch of observation\n#   Lbl1 = \"Right ascension\" \t# Label for axis 1\n#   Lbl2 = \"Declination\" \t# Label for axis 2\n#   System = \"ICRS\" \t# Coordinate system type\n#   Uni1 = \"hh:mm:ss.s\" \t# Units for axis 1\n#   Uni2 = \"ddd:mm:ss\" \t# Units for axis 2\n#   Dir1 = 0 \t# Plot axis 1 in reverse direction\n#   Bot2 = -1.5707963267948966 \t# Lowest legal axis value\n#   Top2 = 1.5707963267948966 \t# Highest legal axis value\n IsA Frame \t# Coordinate system description\n    Nframe = 4 \t# Number of Frames in FrameSet\n    Base = 4 \t# Index of base Frame\n    Currnt = 2 \t# Index of current Frame\n    Lnk2 = 3 \t# Node 2 is derived from node 3\n    Inv2 = 1 \t# The inverse mapping is used\n    Lnk3 = 1 \t# Node 3 is derived from node 1\n    Lnk4 = 1 \t# Node 4 is derived from node 1\n    Frm1 = \t# Frame number 1\n       Begin Frame \t# Coordinate system description\n          Title = \"Pixel Coordinates\" \t# Title of coordinate system\n          Naxes = 2 \t# Number of coordinate axes\n          Domain = \"GRID\" \t# Coordinate system domain\n#         Lbl1 = \"Pixel axis 1\" \t# Label for axis 1\n#         Lbl2 = \"Pixel axis 2\" \t# Label for axis 2\n          Ax1 = \t# Axis number 1\n             Begin Axis \t# Coordinate axis\n                Label = \"Pixel axis 1\" \t# Axis Label\n             End Axis\n          Ax2 = \t# Axis number 2\n             Begin Axis \t# Coordinate axis\n                Label = \"Pixel axis 2\" \t# Axis Label\n             End Axis\n       End Frame\n    Frm2 = \t# Frame number 2\n       Begin SkyFrame \t# Description of celestial coordinate system\n          Ident = \" \" \t# Permanent Object identification string\n       IsA Object \t# AST Object\n#         Title = \"ICRS coordinates; gnomonic projection\" \t# Title of coordinate system\n          Naxes = 2 \t# Number of coordinate axes\n#         Domain = \"SKY\" \t# Coordinate system domain\n#         Epoch = 2000 \t# Julian epoch of observation\n#         Lbl1 = \"Right ascension\" \t# Label for axis 1\n#         Lbl2 = \"Declination\" \t# Label for axis 2\n          System = \"ICRS\" \t# Coordinate system type\n#         Uni1 = \"hh:mm:ss.s\" \t# Units for axis 1\n#         Uni2 = \"ddd:mm:ss\" \t# Units for axis 2\n#         Dir1 = 0 \t# Plot axis 1 in reverse direction\n#         Bot2 = -1.5707963267948966 \t# Lowest legal axis value\n#         Top2 = 1.5707963267948966 \t# Highest legal axis value\n          Ax1 = \t# Axis number 1\n             Begin SkyAxis \t# Celestial coordinate axis\n             End SkyAxis\n          Ax2 = \t# Axis number 2\n             Begin SkyAxis \t# Celestial coordinate axis\n             End SkyAxis\n       IsA Frame \t# Coordinate system description\n          Proj = \"gnomonic\" \t# Description of sky projection\n#         SkyTol = 0.001 \t# Smallest significant separation [arc-sec]\n          SRefIs = \"Ignored\" \t# Not rotated (ref. pos. is ignored)\n          SRef1 = 0.085063454470067426 \t# Ref. pos. RA 0:19:29.7\n          SRef2 = -0.030134403633961766 \t# Ref. pos. Dec -1:43:36\n       End SkyFrame\n    Frm3 = \t# Frame number 3\n       Begin Frame \t# Coordinate system description\n          Title = \"FITS Intermediate World Coordinates\" \t# Title of coordinate system\n          Naxes = 2 \t# Number of coordinate axes\n          Domain = \"IWC\" \t# Coordinate system domain\n#         Lbl1 = \"Axis 1\" \t# Label for axis 1\n#         Lbl2 = \"Axis 2\" \t# Label for axis 2\n#         Uni1 = \"deg\" \t# Units for axis 1 (degree)\n#         Uni2 = \"deg\" \t# Units for axis 2 (degree)\n          Ax1 = \t# Axis number 1\n             Begin Axis \t# Coordinate axis\n                Unit = \"deg\" \t# Axis units (degree)\n             End Axis\n          Ax2 = \t# Axis number 2\n             Begin Axis \t# Coordinate axis\n                Unit = \"deg\" \t# Axis units (degree)\n             End Axis\n       End Frame\n    Frm4 = \t# Frame number 4\n       Begin Frame \t# Coordinate system description\n#         Title = \"2-d coordinate system\" \t# Title of coordinate system\n          Naxes = 2 \t# Number of coordinate axes\n          Domain = \"PIXEL\" \t# Coordinate system domain\n#         Lbl1 = \"Axis 1\" \t# Label for axis 1\n#         Lbl2 = \"Axis 2\" \t# Label for axis 2\n          Ax1 = \t# Axis number 1\n             Begin Axis \t# Coordinate axis\n             End Axis\n          Ax2 = \t# Axis number 2\n             Begin Axis \t# Coordinate axis\n             End Axis\n       End Frame\n    Map2 = \t# Mapping between nodes 3 and 2\n       Begin CmpMap \t# Compound Mapping\n          Nin = 2 \t# Number of input coordinates\n          IsSimp = 1 \t# Mapping has been simplified\n       IsA Mapping \t# Mapping between coordinate systems\n          InvA = 1 \t# First Mapping used in inverse direction\n          MapA = \t# First component Mapping\n             Begin SphMap \t# Cartesian to Spherical mapping\n                Nin = 3 \t# Number of input coordinates\n                Nout = 2 \t# Number of output coordinates\n             IsA Mapping \t# Mapping between coordinate systems\n                UntRd = 1 \t# All input vectors have unit length\n                PlrLg = 0.085063454470067426 \t# Polar longitude (rad.s)\n             End SphMap\n          MapB = \t# Second component Mapping\n             Begin CmpMap \t# Compound Mapping\n                Nin = 3 \t# Number of input coordinates\n                Nout = 2 \t# Number of output coordinates\n             IsA Mapping \t# Mapping between coordinate systems\n                InvA = 1 \t# First Mapping used in inverse direction\n                MapA = \t# First component Mapping\n                   Begin MatrixMap \t# Matrix transformation\n                      Nin = 3 \t# Number of input coordinates\n                   IsA Mapping \t# Mapping between coordinate systems\n                      M0 = -0.030020902173240344 \t# Forward matrix value\n                      M1 = -0.084960908010230499 \t# Forward matrix value\n                      M2 = 0.99593192013449483 \t# Forward matrix value\n                      M3 = -0.0025598588269647215 \t# Forward matrix value\n                      M4 = 0.99638428535885537 \t# Forward matrix value\n                      M5 = 0.084922335181675621 \t# Forward matrix value\n                      M6 = -0.99954599321666571 \t# Forward matrix value\n                      M7 = 0 \t# Forward matrix value\n                      M8 = -0.030129843088029119 \t# Forward matrix value\n                      IM0 = -0.030020902173240344 \t# Inverse matrix value\n                      IM1 = -0.0025598588269647215 \t# Inverse matrix value\n                      IM2 = -0.99954599321666571 \t# Inverse matrix value\n                      IM3 = -0.084960908010230499 \t# Inverse matrix value\n                      IM4 = 0.99638428535885537 \t# Inverse matrix value\n                      IM5 = 0 \t# Inverse matrix value\n                      IM6 = 0.99593192013449483 \t# Inverse matrix value\n                      IM7 = 0.084922335181675621 \t# Inverse matrix value\n                      IM8 = -0.030129843088029119 \t# Inverse matrix value\n                      Form = \"Full\" \t# Matrix storage form\n                   End MatrixMap\n                MapB = \t# Second component Mapping\n                   Begin CmpMap \t# Compound Mapping\n                      Nin = 3 \t# Number of input coordinates\n                      Nout = 2 \t# Number of output coordinates\n                   IsA Mapping \t# Mapping between coordinate systems\n                      MapA = \t# First component Mapping\n                         Begin SphMap \t# Cartesian to Spherical mapping\n                            Nin = 3 \t# Number of input coordinates\n                            Nout = 2 \t# Number of output coordinates\n                            Invert = 1 \t# Mapping inverted\n                         IsA Mapping \t# Mapping between coordinate systems\n                            UntRd = 1 \t# All input vectors have unit length\n                            PlrLg = 0 \t# Polar longitude (rad.s)\n                         End SphMap\n                      MapB = \t# Second component Mapping\n                         Begin CmpMap \t# Compound Mapping\n                            Nin = 2 \t# Number of input coordinates\n                         IsA Mapping \t# Mapping between coordinate systems\n                            MapA = \t# First component Mapping\n                               Begin WcsMap \t# FITS-WCS sky projection\n                                  Nin = 2 \t# Number of input coordinates\n                                  Invert = 1 \t# Mapping inverted\n                               IsA Mapping \t# Mapping between coordinate systems\n                                  Type = \"TAN\" \t# Gnomonic projection\n                                  PV1_3 = 180 \t# Projection parameter 3 for axis 1\n                                  PV1_4 = -1.7265741463697 \t# Projection parameter 4 for axis 1\n                               End WcsMap\n                            MapB = \t# Second component Mapping\n                               Begin ZoomMap \t# Zoom about the origin\n                                  Nin = 2 \t# Number of input coordinates\n                               IsA Mapping \t# Mapping between coordinate systems\n                                  Zoom = 57.295779513082323 \t# Zoom factor\n                               End ZoomMap\n                         End CmpMap\n                   End CmpMap\n             End CmpMap\n       End CmpMap\n    Map3 = \t# Mapping between nodes 1 and 3\n       Begin CmpMap \t# Compound Mapping\n          Nin = 2 \t# Number of input coordinates\n       IsA Mapping \t# Mapping between coordinate systems\n          MapA = \t# First component Mapping\n             Begin CmpMap \t# Compound Mapping\n                Nin = 2 \t# Number of input coordinates\n             IsA Mapping \t# Mapping between coordinate systems\n                MapA = \t# First component Mapping\n                   Begin WinMap \t# Map one window on to another\n                      Nin = 2 \t# Number of input coordinates\n                   IsA Mapping \t# Mapping between coordinate systems\n                      Sft1 = -5.3756682662327 \t# Shift for axis 1\n                      Sft2 = -7.2804966067869996 \t# Shift for axis 2\n                   End WinMap\n                MapB = \t# Second component Mapping\n                   Begin MatrixMap \t# Matrix transformation\n                      Nin = 2 \t# Number of input coordinates\n                   IsA Mapping \t# Mapping between coordinate systems\n                      Form = \"Unit\" \t# Matrix storage form\n                   End MatrixMap\n             End CmpMap\n          MapB = \t# Second component Mapping\n             Begin MatrixMap \t# Matrix transformation\n                Nin = 2 \t# Number of input coordinates\n             IsA Mapping \t# Mapping between coordinate systems\n                M0 = 5.3335180943458001e-05 \t# Forward matrix value\n                M1 = 5.9706149393292002e-05 \t# Forward matrix value\n                IM0 = 18749.350472066941 \t# Inverse matrix value\n                IM1 = 16748.693562749671 \t# Inverse matrix value\n                Form = \"Diagonal\" \t# Matrix storage form\n             End MatrixMap\n       End CmpMap\n    Map4 = \t# Mapping between nodes 1 and 4\n       Begin ShiftMap \t# Shift each coordinate axis\n          Nin = 2 \t# Number of input coordinates\n       IsA Mapping \t# Mapping between coordinate systems\n          Sft1 = -1 \t# Shift for axis 1\n          Sft2 = -1 \t# Shift for axis 2\n       End ShiftMap\n End FrameSet\n"
+        }
+      ],
+      "schema_url": "https://images.lsst.io/schemas/transform-1.0.0"
+    },
+    "schema_url": "https://images.lsst.io/schemas/projection-1.0.0"
+  },
+  "schema_url": "https://images.lsst.io/schemas/color_image-1.0.0"
+}

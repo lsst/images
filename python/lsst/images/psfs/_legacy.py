@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("LegacyPointSpreadFunction", "PSFExSerializationModel", "PSFExWrapper")
 
 from functools import cached_property
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pydantic
@@ -139,6 +139,10 @@ class PSFExWrapper(LegacyPointSpreadFunction):
 
 class PSFExSerializationModel(serialization.ArchiveTree):
     """Serialization model for PSFEx PSFs."""
+
+    SCHEMA_NAME: ClassVar[str] = "psfex_psf"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
 
     average_x: float = pydantic.Field(
         description="Average X position of the stars used to build this PSF model."
