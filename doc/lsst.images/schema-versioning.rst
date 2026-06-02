@@ -126,3 +126,14 @@ Some subclasses embed Pydantic models from outside this package (e.g. ``astro_me
 These do not get their own stamp; their effective version is tied to the containing tree's ``SCHEMA_VERSION``.
 If an upstream model changes shape in a way that breaks older files, the containing tree must bump its ``SCHEMA_VERSION`` (and possibly ``MIN_READ_VERSION``) to express that.
 The on-read failure mode for an unanticipated upstream change is a Pydantic validation error rather than a clean compatibility error; callers should treat both as "this release cannot read this file."
+
+Future work
+===========
+
+Several extensions to this scheme have been designed but not implemented, including deferred-fail sub-model substitution (failing an incompatible sub-model at its point of use rather than rejecting the whole tree), a migration framework, and a schema-snapshot regression test.
+See :ref:`lsst.images-schema-versioning-future`.
+
+.. toctree::
+   :maxdepth: 1
+
+   schema-versioning-future.rst
