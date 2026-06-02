@@ -91,11 +91,9 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
 
         def visit(name: str, item: object) -> bool | None:
             nonlocal schema_url
-            if schema_url is not None:
-                return True
             if isinstance(item, h5py.Dataset) and name.rsplit("/", 1)[-1] == "JSON":
                 try:
-                    payload = bytes(np.asarray(item).tobytes())
+                    payload = np.asarray(item).tobytes()
                     obj = json.loads(payload.decode("utf-8").rstrip("\x00").strip())
                 except (UnicodeDecodeError, ValueError, TypeError):
                     return None

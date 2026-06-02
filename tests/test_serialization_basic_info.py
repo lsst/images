@@ -119,4 +119,5 @@ class NdfBasicInfoTestCase(unittest.TestCase):
         info = NdfInputArchive.get_basic_info(path)
         self.assertEqual(info.schema_name, "image")
         self.assertEqual(info.schema_version, "1.0.0")
+        self.assertEqual(info.schema_url, "https://images.lsst.io/schemas/image-1.0.0")
         self.assertEqual(info.format_version, 1)
