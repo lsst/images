@@ -129,12 +129,11 @@ lsst-images-admin convert INPUT OUTPUT
 ### Legacy type auto-detection
 
 `convert` reads *legacy* `afw` FITS files, which carry no `schema_url`/`FMTVER` stamp, so `get_basic_info` (R2) does not apply to convert input.
-Detection instead inspects the legacy file's FITS headers with `astropy` (a core dependency): a `MultipleCellCoadd` layout and an `afw` exposure are distinguished by a discriminating header.
-A difference image is an `afw` exposure and converts through the same `VisitImage.read_legacy` path as a visit image.
-When the discriminating header is absent, `convert` errors and requires the `--type` option.
+Detection instead inspects the legacy file's FITS headers with `astropy` (a core dependency), using the `HIERARCH LSST BUTLER DATASETTYPE` card: a dataset type ending in `visit_image` is a `VisitImage` (covering `visit_image`, `preliminary_visit_image`, and difference images, which are all `afw` exposures read through `VisitImage.read_legacy`), and one containing `coadd` is a `CellCoadd`.
+When the header is absent or matches neither, `convert` errors and requires the `--type` option.
 `--type` is always available as an explicit override.
 
-The exact discriminating header is the one open technical detail to settle during implementation planning.
+Note that some legacy files written without butler provenance (such as the current `deep_coadd_cell_predetection.fits` test fixture) lack this header; converting those requires `--type`.
 
 ### Skymap source for cell coadds
 
@@ -142,7 +141,7 @@ A legacy coadd file records its skymap name and tract but not the tract geometry
 `convert` accepts either:
 
 - `--skymap PATH` — a pickled skymap file (the same `skyMap.pickle` that `extract-test-data` already produces); no butler dependency, or
-- `--butler REPO` — a butler repository, from which the skymap is resolved by the name recorded in the coadd.
+- `--butler REPO` (together with `--collection`) — a butler repository, from which the skymap is resolved by the name recorded in the coadd within the given collection.
 
 These options are required only when converting a cell coadd and are ignored for visit images.
 
