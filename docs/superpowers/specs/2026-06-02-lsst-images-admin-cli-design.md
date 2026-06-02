@@ -20,8 +20,9 @@ Two pieces of logic currently buried in the `minify` helper are promoted to reus
 
 - Refactoring the butler `GenericFormatter` to consume the new suffix-to-backend helper (it keeps its own dispatch for now).
 - Renaming `extract-test-data` to `extract-legacy-test-data` (reserved for a future ticket).
-- A full structured/rich `inspect` output (dimensions, bands, component listing); the first cut prints only schema URL and format version.
+- A full structured/rich `inspect` output (dimensionality, per-extension detail such as PSF type); the first cut prints only schema URL and format version. See "Future work" for the intended direction.
 - Supporting any top-level type beyond `VisitImage` and `CellCoadd` in `convert`.
+- Reading legacy input in any format other than FITS; all legacy files are FITS.
 
 ## Command surface
 
@@ -88,18 +89,21 @@ This replaces `minify._read_function` and the inline extension branching in `min
 Placement is a `serialization`-level public function rather than an `InputArchive` classmethod, because it must span both read and write and must keep the NDF import lazy.
 An unrecognised extension raises a clear error listing the supported extensions.
 
-### R2 — per-backend schema peek
+### R2 — per-backend basic-info accessor
 
-An abstract classmethod on `InputArchive` (for example `peek_info(path) -> ArchiveInfo`) is implemented by `FitsInputArchive`, `NdfInputArchive`, and `JsonInputArchive`.
-Each backend already knows where it *wrote* the top-level JSON tree and the format stamp, so the peeking logic lives next to the writer rather than being duplicated in `minify`.
+An abstract classmethod on `InputArchive`, `get_basic_info(path) -> ArchiveInfo`, is implemented by `FitsInputArchive`, `NdfInputArchive`, and `JsonInputArchive`.
+Each backend already knows where it *wrote* the top-level JSON tree and the format stamp, so this lives next to the writer rather than being duplicated in `minify`.
 
-`ArchiveInfo` carries:
+`ArchiveInfo` is a small frozen `pydantic` model (consistent with the rest of the package) carrying:
 
 - `schema_url` — the canonical schema URL from the top-level tree.
 - `schema_name` and `schema_version` — derived from `schema_url` (`.../schemas/{name}-{version}`).
 - `format_version` — the container layout version (`FMTVER` for FITS, `FORMAT_VERSION` for NDF; `None` for JSON, which has no separate container version).
 
-This deletes `minify._detect_schema_name`, `minify._peek_fits_top_json`, and `minify._peek_ndf_top_json`; `minify` calls `InputArchive.peek_info` (via the R1 backend) instead.
+It reads only headers/metadata, not pixel data.
+This deletes `minify._detect_schema_name`, `minify._peek_fits_top_json`, and `minify._peek_ndf_top_json`; `minify` calls `InputArchive.get_basic_info` (via the R1 backend) instead.
+
+(`get_basic_info` is preferred over the narrower `get_schema_info` because `ArchiveInfo` already spans both schema and container-format fields and is the natural place to grow.)
 
 ## `convert`
 
@@ -112,9 +116,11 @@ lsst-images-admin convert INPUT OUTPUT
 
 ### Flow
 
+`INPUT` is always a legacy FITS file, so convert reads it with the FITS legacy readers directly; R1 is used only to resolve the *output* backend.
+
 1. Resolve the output backend from `OUTPUT`'s extension via R1 (`.fits` → FITS, `.sdf`/`.ndf` → NDF, `.json` → JSON).
 2. Determine the legacy input type: use `--type` if given, otherwise auto-detect (see below).
-3. Read the legacy file:
+3. Read the legacy FITS file:
    - `visit_image`: `VisitImage.read_legacy(INPUT)` with the default identity `plane_map`.
    - `cell_coadd`: `MultipleCellCoadd.read_fits(INPUT)`; obtain the skymap from `--skymap` (a pickled skymap) or `--butler` (looked up by the skymap name recorded in the coadd); then
      `CellCoadd.from_legacy(legacy, tract_info=skymap[tract], plane_map=get_legacy_deep_coadd_mask_planes())`.
@@ -122,7 +128,7 @@ lsst-images-admin convert INPUT OUTPUT
 
 ### Legacy type auto-detection
 
-`convert` reads *legacy* `afw` files, which carry no `schema_url`/`FMTVER` stamp, so R2's peek does not apply to convert input.
+`convert` reads *legacy* `afw` FITS files, which carry no `schema_url`/`FMTVER` stamp, so `get_basic_info` (R2) does not apply to convert input.
 Detection instead inspects the legacy file's FITS headers with `astropy` (a core dependency): a `MultipleCellCoadd` layout and an `afw` exposure are distinguished by a discriminating header.
 A difference image is an `afw` exposure and converts through the same `VisitImage.read_legacy` path as a visit image.
 When the discriminating header is absent, `convert` errors and requires the `--type` option.
@@ -146,9 +152,9 @@ These options are required only when converting a cell coadd and are ignored for
 lsst-images-admin inspect FILE
 ```
 
-The initial implementation prints `FILE`'s schema URL and format version, by resolving the backend with R1 and peeking with R2.
-This exercises the automatic read path without a full deserialize.
-The output is structured so it can be extended later (dimensions, bands, component listing, and similar).
+The initial implementation prints `FILE`'s schema URL and format version, by resolving the backend with R1 and calling `get_basic_info` (R2).
+This exercises the automatic read path without a full deserialize and without loading pixel data.
+The output is structured so it can be extended later; the intended fuller form is described under "Future work".
 
 ## Error handling
 
@@ -158,6 +164,15 @@ The output is structured so it can be extended later (dimensions, bands, compone
 - Cell coadd convert with neither `--skymap` nor `--butler`: error explaining one is required.
 - Missing heavy dependency (`afw`, `cell_coadds`, `butler`, `h5py`): the lazy import is caught and re-raised with the package/extra to install.
 - Auto-detection failure (discriminating header absent): error instructing the user to pass `--type`.
+
+## Future work
+
+A fuller `inspect` should report the dataset's dimensionality and simple per-extension detail, such as the type of PSF held by a `VisitImage` or `CellCoadd`.
+That information is not available from `get_basic_info` alone, so the straightforward path is to load the whole file and report from the in-memory object.
+
+The longer-term direction avoids loading pixel data: read only the `pydantic` model (the JSON tree and its component descriptors) without the bulk arrays, and give the top-level types (`VisitImage`, `CellCoadd`, and similar) a `summarize()` method that returns a plain-text description for `inspect` to print.
+This keeps inspection fast and low-memory.
+The first cut deliberately does neither; it is scoped only to schema URL and format version so that the metadata-only read and the `summarize()` API can be designed properly in their own ticket.
 
 ## Testing
 
@@ -172,4 +187,4 @@ The output is structured so it can be extended later (dimensions, bands, compone
 Unit coverage at the `serialization` level:
 
 - R1: suffix → backend resolution, including the lazy NDF path and the unrecognised-extension error.
-- R2: `peek_info` for each backend returns the expected `schema_url`, `schema_name`, `schema_version`, and `format_version`.
+- R2: `get_basic_info` for each backend returns the expected `schema_url`, `schema_name`, `schema_version`, and `format_version`.
