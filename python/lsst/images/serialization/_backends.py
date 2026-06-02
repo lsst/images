@@ -71,6 +71,5 @@ def backend_for_path(path: ResourcePathExpression) -> Backend:
 
         return Backend("json", json_read, json_write, JsonInputArchive)
     raise ValueError(
-        f"Unrecognised file extension: {path!r}; "
-        "expected one of .fits, .fits.gz, .sdf, .ndf, .json."
+        f"Unrecognised file extension: {path!r}; expected one of .fits, .fits.gz, .sdf, .ndf, .json."
     )
