@@ -144,3 +144,37 @@ class ConvertVisitImageTestCase(unittest.TestCase):
         result = CliRunner().invoke(main, ["convert", src, out])
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn("--overwrite", result.output)
+
+
+class ConvertCellCoaddTestCase(unittest.TestCase):
+    """convert of a legacy cell coadd (needs cell_coadds + testdata)."""
+
+    @unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not set.")
+    def test_convert_cell_coadd_to_json(self) -> None:
+        try:
+            import lsst.cell_coadds  # noqa: F401
+        except ImportError:
+            self.skipTest("cell_coadds not available.")
+        tmp = tempfile.mkdtemp()
+        legacy_dir = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy")
+        src = os.path.join(legacy_dir, "deep_coadd_cell_predetection.fits")
+        skymap = os.path.join(legacy_dir, "skyMap.pickle")
+        out = os.path.join(tmp, "coadd.json")
+        # This fixture has no LSST BUTLER DATASETTYPE header, so pass --type.
+        result = CliRunner().invoke(main, ["convert", src, out, "--type", "cell_coadd", "--skymap", skymap])
+        self.assertEqual(result.exit_code, 0, result.output)
+        info = backend_for_path(out).input_archive.get_basic_info(out)
+        self.assertEqual(info.schema_name, "cell_coadd")
+
+    @unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not set.")
+    def test_convert_cell_coadd_requires_skymap(self) -> None:
+        try:
+            import lsst.cell_coadds  # noqa: F401
+        except ImportError:
+            self.skipTest("cell_coadds not available.")
+        tmp = tempfile.mkdtemp()
+        src = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "deep_coadd_cell_predetection.fits")
+        out = os.path.join(tmp, "coadd.json")
+        result = CliRunner().invoke(main, ["convert", src, out, "--type", "cell_coadd"])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("--skymap", result.output)

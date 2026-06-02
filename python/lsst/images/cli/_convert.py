@@ -49,6 +49,23 @@ def detect_legacy_type(path: str) -> str | None:
     return None
 
 
+def _load_skymap(skymap: str | None, butler: str | None, collection: str | None, skymap_name: str):
+    """Load a skymap object from a pickle path or a butler repository."""
+    if skymap is not None:
+        import pickle
+
+        with open(skymap, "rb") as stream:
+            return pickle.load(stream)
+    if butler is not None:
+        if collection is None:
+            raise click.ClickException("--butler also requires --collection (the skymap's collection).")
+        from lsst.daf.butler import Butler
+
+        repo = Butler.from_config(butler)
+        return repo.get("skyMap", skymap=skymap_name, collections=collection)
+    raise click.ClickException("Converting a cell coadd requires --skymap (a pickled skymap) or --butler.")
+
+
 def _read_legacy(
     input: str,
     legacy_type: str,
@@ -61,7 +78,20 @@ def _read_legacy(
         from .. import VisitImage
 
         return VisitImage.read_legacy(input)
-    # cell_coadd handled in a later task.
+    if legacy_type == "cell_coadd":
+        from lsst.cell_coadds import MultipleCellCoadd
+
+        from .. import get_legacy_deep_coadd_mask_planes
+        from ..cells import CellCoadd
+
+        legacy = MultipleCellCoadd.read_fits(input)
+        sky = _load_skymap(skymap, butler, collection, legacy.identifiers.skymap)
+        tract_info = sky[legacy.identifiers.tract]
+        return CellCoadd.from_legacy(
+            legacy,
+            tract_info=tract_info,
+            plane_map=get_legacy_deep_coadd_mask_planes(),
+        )
     raise click.ClickException(f"Conversion of {legacy_type!r} is not yet implemented.")
 
 
