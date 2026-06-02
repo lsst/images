@@ -150,6 +150,13 @@ def convert(
             raise click.ClickException(f"{output!r} already exists; pass --overwrite to replace it.")
         os.remove(output)
 
-    obj = _read_legacy(input, legacy_type, skymap, butler, collection)
+    try:
+        obj = _read_legacy(input, legacy_type, skymap, butler, collection)
+    except click.ClickException:
+        raise
+    except ImportError as err:
+        raise click.ClickException(
+            f"Reading a legacy {legacy_type} requires Rubin packages that are not installed: {err}"
+        ) from None
     backend.write(obj, output)
     click.echo(f"Wrote {output} ({backend.name}, {legacy_type}).")

@@ -14,7 +14,7 @@ __all__ = ("inspect",)
 
 import click
 
-from ..serialization import backend_for_path
+from ..serialization import ArchiveReadError, backend_for_path
 
 
 @click.command(name="inspect")
@@ -29,7 +29,10 @@ def inspect(file: str) -> None:
         backend = backend_for_path(file)
     except ValueError as err:
         raise click.ClickException(str(err)) from None
-    info = backend.input_archive.get_basic_info(file)
+    try:
+        info = backend.input_archive.get_basic_info(file)
+    except (ArchiveReadError, ValueError) as err:
+        raise click.ClickException(f"Could not read {file}: {err}") from None
     fmt = "n/a" if info.format_version is None else str(info.format_version)
     click.echo(f"path:           {file}")
     click.echo(f"format:         {backend.name}")

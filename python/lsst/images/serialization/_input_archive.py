@@ -64,6 +64,8 @@ class ArchiveInfo(pydantic.BaseModel, frozen=True):
         ``.../schemas/{name}-{version}``.
         """
         tail = schema_url.rsplit("/", 1)[-1]
+        # Split on the last hyphen: schema names may contain hyphens; the
+        # version (after the final hyphen) is assumed not to.
         name, _, version = tail.rpartition("-")
         if not name or not version:
             raise ValueError(f"Cannot parse schema name/version from URL {schema_url!r}.")
