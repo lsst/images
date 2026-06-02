@@ -21,6 +21,7 @@ from lsst.images import Box, Image
 from lsst.images import fits as images_fits
 from lsst.images import json as images_json
 from lsst.images.cli import main
+from lsst.images.serialization import backend_for_path
 
 
 class CliSkeletonTestCase(unittest.TestCase):
@@ -48,7 +49,7 @@ class InspectTestCase(unittest.TestCase):
         result = CliRunner().invoke(main, ["inspect", path])
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("https://images.lsst.io/schemas/image-1.0.0", result.output)
-        self.assertIn("1", result.output)  # format version
+        self.assertIn("format version: 1", result.output)
 
     def test_inspect_json(self) -> None:
         path = os.path.join(self.tmp, "x.json")
@@ -65,3 +66,82 @@ class InspectTestCase(unittest.TestCase):
         result = CliRunner().invoke(main, ["inspect", path])
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn(".fits", result.output)
+
+
+EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
+
+
+class ConvertDetectTestCase(unittest.TestCase):
+    """Legacy type detection from the LSST BUTLER DATASETTYPE header.
+
+    These build small FITS files carrying only the discriminating header so
+    the test does not depend on a fixture happening to include it.
+    """
+
+    def _make(self, dataset_type: str | None) -> str:
+        import astropy.io.fits as af
+
+        tmp = tempfile.mkdtemp()
+        path = os.path.join(tmp, "x.fits")
+        hdu = af.PrimaryHDU()
+        if dataset_type is not None:
+            hdu.header["LSST BUTLER DATASETTYPE"] = dataset_type
+        hdu.writeto(path)
+        return path
+
+    def test_detect_visit_image(self) -> None:
+        from lsst.images.cli._convert import detect_legacy_type
+
+        self.assertEqual(detect_legacy_type(self._make("visit_image")), "visit_image")
+        self.assertEqual(detect_legacy_type(self._make("preliminary_visit_image")), "visit_image")
+
+    def test_detect_cell_coadd(self) -> None:
+        from lsst.images.cli._convert import detect_legacy_type
+
+        self.assertEqual(detect_legacy_type(self._make("deep_coadd_cell_predetection")), "cell_coadd")
+
+    def test_detect_indeterminate(self) -> None:
+        from lsst.images.cli._convert import detect_legacy_type
+
+        self.assertIsNone(detect_legacy_type(self._make(None)))
+        self.assertIsNone(detect_legacy_type(self._make("camera")))
+
+    @unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not set.")
+    def test_detect_visit_image_fixture(self) -> None:
+        from lsst.images.cli._convert import detect_legacy_type
+
+        path = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
+        self.assertEqual(detect_legacy_type(path), "visit_image")
+
+
+class ConvertVisitImageTestCase(unittest.TestCase):
+    """convert of a legacy visit image (needs afw + testdata)."""
+
+    @unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not set.")
+    def test_convert_visit_image_to_json(self) -> None:
+        try:
+            import lsst.afw.image  # noqa: F401
+        except ImportError:
+            self.skipTest("afw not available.")
+        tmp = tempfile.mkdtemp()
+        src = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
+        out = os.path.join(tmp, "converted.json")
+        result = CliRunner().invoke(main, ["convert", src, out])
+        self.assertEqual(result.exit_code, 0, result.output)
+        info = backend_for_path(out).input_archive.get_basic_info(out)
+        self.assertEqual(info.schema_name, "visit_image")
+
+    @unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not set.")
+    def test_convert_refuses_existing_output(self) -> None:
+        try:
+            import lsst.afw.image  # noqa: F401
+        except ImportError:
+            self.skipTest("afw not available.")
+        tmp = tempfile.mkdtemp()
+        src = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
+        out = os.path.join(tmp, "exists.json")
+        with open(out, "w") as stream:
+            stream.write("{}")
+        result = CliRunner().invoke(main, ["convert", src, out])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("--overwrite", result.output)
