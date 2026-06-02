@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("InputArchive",)
+__all__ = ("ArchiveInfo", "InputArchive")
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -24,6 +24,8 @@ import astropy.units
 import numpy as np
 import pydantic
 
+from lsst.resources import ResourcePathExpression
+
 from ._asdf_utils import ArrayReferenceModel, InlineArrayModel
 from ._common import ArchiveTree, OpaqueArchiveMetadata, no_header_updates
 from ._tables import TableModel
@@ -35,6 +37,42 @@ if TYPE_CHECKING:
 # This pre-python-3.12 declaration is needed by Sphinx (probably the
 # autodoc-typehints plugin.
 P = TypeVar("P", bound=pydantic.BaseModel)
+
+
+class ArchiveInfo(pydantic.BaseModel, frozen=True):
+    """Basic identifying information about an on-disk archive.
+
+    Read from a file's headers/metadata without deserializing pixel data.
+    """
+
+    schema_url: str
+    """Canonical schema URL of the top-level tree."""
+
+    schema_name: str
+    """Schema name parsed from ``schema_url``."""
+
+    schema_version: str
+    """Schema version parsed from ``schema_url``."""
+
+    format_version: int | None
+    """Container layout version (FITS ``FMTVER`` / NDF ``FORMAT_VERSION``);
+    `None` for formats with no separate container version (JSON)."""
+
+    @classmethod
+    def from_schema_url(cls, schema_url: str, *, format_version: int | None) -> ArchiveInfo:
+        """Build an `ArchiveInfo` by parsing a schema URL of the form
+        ``.../schemas/{name}-{version}``.
+        """
+        tail = schema_url.rsplit("/", 1)[-1]
+        name, _, version = tail.rpartition("-")
+        if not name or not version:
+            raise ValueError(f"Cannot parse schema name/version from URL {schema_url!r}.")
+        return cls(
+            schema_url=schema_url,
+            schema_name=name,
+            schema_version=version,
+            format_version=format_version,
+        )
 
 
 class InputArchive[P: pydantic.BaseModel](ABC):
@@ -51,6 +89,15 @@ class InputArchive[P: pydantic.BaseModel](ABC):
     archive implementations will provide a method to load the paired model from
     a file, but this is not part of the base class interface.
     """
+
+    @classmethod
+    def get_basic_info(cls, path: ResourcePathExpression) -> ArchiveInfo:
+        """Return basic identifying information for the archive at ``path``
+        without deserializing pixel data.
+
+        Each concrete backend reads only the headers/metadata it needs.
+        """
+        raise NotImplementedError(f"{cls.__name__} does not implement get_basic_info.")
 
     @abstractmethod
     def deserialize_pointer[U: ArchiveTree, V](
