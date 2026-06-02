@@ -13,6 +13,7 @@ from __future__ import annotations
 
 __all__ = ("NdfInputArchive", "read")
 
+import json
 import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -36,6 +37,7 @@ from .._transforms import _ast as astshim
 from .._transforms._frames import GeneralFrame
 from ..fits._common import FitsOpaqueMetadata
 from ..serialization import (
+    ArchiveInfo,
     ArchiveReadError,
     ArchiveTree,
     ArrayReferenceModel,
@@ -77,6 +79,41 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         self._frame_set_cache: dict[str, FrameSet] = {}
         self._read_opaque_fits_metadata()
         self._check_format_version()
+
+    @classmethod
+    def get_basic_info(cls, path: ResourcePathExpression) -> ArchiveInfo:
+        """Read the top-level ``JSON`` tree's ``schema_url`` and the
+        ``FORMAT_VERSION`` primitive without deserializing pixel data.
+        """
+        ospath = ResourcePath(path).ospath
+        schema_url: str | None = None
+        format_version = 1
+
+        def visit(name: str, item: object) -> bool | None:
+            nonlocal schema_url
+            if schema_url is not None:
+                return True
+            if isinstance(item, h5py.Dataset) and name.rsplit("/", 1)[-1] == "JSON":
+                try:
+                    payload = bytes(np.asarray(item).tobytes())
+                    obj = json.loads(payload.decode("utf-8").rstrip("\x00").strip())
+                except (UnicodeDecodeError, ValueError, TypeError):
+                    return None
+                if isinstance(obj, dict) and obj.get("schema_url"):
+                    schema_url = obj["schema_url"]
+                    return True
+            return None
+
+        with h5py.File(ospath, "r") as handle:
+            handle.visititems(visit)
+            for prefix in ("MORE/LSST", "LSST"):
+                node = handle.get(f"{prefix}/FORMAT_VERSION")
+                if node is not None:
+                    format_version = int(np.asarray(node).item())
+                    break
+        if schema_url is None:
+            raise ArchiveReadError(f"Could not locate the top-level JSON tree in {path!r}.")
+        return ArchiveInfo.from_schema_url(schema_url, format_version=format_version)
 
     @classmethod
     @contextmanager

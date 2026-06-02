@@ -90,3 +90,33 @@ class FitsBasicInfoTestCase(unittest.TestCase):
         self.assertEqual(info.schema_version, "1.0.0")
         self.assertEqual(info.schema_url, "https://images.lsst.io/schemas/image-1.0.0")
         self.assertEqual(info.format_version, 1)
+
+
+try:
+    import h5py  # noqa: F401
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
+
+
+@unittest.skipUnless(HAVE_H5PY, "h5py is not available.")
+class NdfBasicInfoTestCase(unittest.TestCase):
+    """get_basic_info for the NDF backend."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+        self.image = Image(np.zeros((4, 4), dtype=np.float32), bbox=Box.factory[0:4, 0:4])
+
+    def test_ndf_basic_info(self) -> None:
+        from lsst.images import ndf as images_ndf
+        from lsst.images.ndf import NdfInputArchive
+
+        path = os.path.join(self.tmp, "x.sdf")
+        images_ndf.write(self.image, path)
+        info = NdfInputArchive.get_basic_info(path)
+        self.assertEqual(info.schema_name, "image")
+        self.assertEqual(info.schema_version, "1.0.0")
+        self.assertEqual(info.format_version, 1)
