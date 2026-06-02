@@ -18,7 +18,9 @@ import numpy as np
 import pydantic
 
 from lsst.images import Box, Image
+from lsst.images import fits as images_fits
 from lsst.images import json as images_json
+from lsst.images.fits import FitsInputArchive
 from lsst.images.json import JsonInputArchive
 from lsst.images.serialization import ArchiveInfo, InputArchive
 
@@ -69,3 +71,22 @@ class JsonBasicInfoTestCase(unittest.TestCase):
         self.assertEqual(info.schema_version, "1.0.0")
         self.assertEqual(info.schema_url, "https://images.lsst.io/schemas/image-1.0.0")
         self.assertIsNone(info.format_version)
+
+
+class FitsBasicInfoTestCase(unittest.TestCase):
+    """get_basic_info for the FITS backend."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+        self.image = Image(np.zeros((4, 4), dtype=np.float32), bbox=Box.factory[0:4, 0:4])
+
+    def test_fits_basic_info(self) -> None:
+        path = os.path.join(self.tmp, "x.fits")
+        images_fits.write(self.image, path)
+        info = FitsInputArchive.get_basic_info(path)
+        self.assertEqual(info.schema_name, "image")
+        self.assertEqual(info.schema_version, "1.0.0")
+        self.assertEqual(info.schema_url, "https://images.lsst.io/schemas/image-1.0.0")
+        self.assertEqual(info.format_version, 1)
