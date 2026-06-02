@@ -178,3 +178,21 @@ class ConvertCellCoaddTestCase(unittest.TestCase):
         result = CliRunner().invoke(main, ["convert", src, out, "--type", "cell_coadd"])
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn("--skymap", result.output)
+
+
+class CliRegistrationTestCase(unittest.TestCase):
+    """minify and extract-test-data are registered and their help loads."""
+
+    def test_subcommands_present(self) -> None:
+        result = CliRunner().invoke(main, ["--help"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("minify", result.output)
+        self.assertIn("extract-test-data", result.output)
+
+    def test_minify_help(self) -> None:
+        result = CliRunner().invoke(main, ["minify", "--help"])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_extract_test_data_help(self) -> None:
+        result = CliRunner().invoke(main, ["extract-test-data", "--help"])
+        self.assertEqual(result.exit_code, 0, result.output)

@@ -14,30 +14,13 @@ from __future__ import annotations
 __all__ = ()
 
 import os
+from typing import TYPE_CHECKING
 
+import click
 import numpy as np
 
-try:
-    import click
-
-    from lsst.afw.fits import (
-        CompressionAlgorithm,
-        CompressionOptions,
-        DitherAlgorithm,
-        QuantizationOptions,
-        ScalingAlgorithm,
-    )
-    from lsst.cell_coadds import MultipleCellCoadd
+if TYPE_CHECKING:
     from lsst.daf.butler import Butler, DatasetRef
-    from lsst.geom import Box2I, Extent2I, Point2I
-    from lsst.utils import getPackageDir
-except ImportError as err:
-    err.add_note(
-        "Updating the test data requires a full Rubin development enviroment with at least "
-        "'click', 'afw', 'obs_base', 'meas_extensions_psfex', 'meas_extensions_piff' and 'cell_coadds' "
-        "importable. This is not necessary for just running the tests."
-    )
-    raise
 
 
 from ._data_ids import DP2_COADD_DATA_ID, DP2_COADD_MISSING_CELL, DP2_VISIT_DETECTOR_DATA_ID
@@ -52,6 +35,15 @@ def extract_exposure(
     """Load a subimage of a processed visit image from a butler repository
     and save it to testdata_images.
     """
+    from lsst.afw.fits import (
+        CompressionAlgorithm,
+        CompressionOptions,
+        DitherAlgorithm,
+        QuantizationOptions,
+        ScalingAlgorithm,
+    )
+    from lsst.geom import Box2I, Extent2I, Point2I
+
     exposure = butler.get(dataset_ref, parameters={"bbox": Box2I(Point2I(5, 4), Extent2I(256, 250))})
     if shuffle:
         indices = np.arange(exposure.image.array.size, dtype=int)
@@ -117,6 +109,8 @@ def extract_cell_coadd(
     """Load a subimage of a cell coadd from a butler repository and save it
     to testdata_images.
     """
+    from lsst.cell_coadds import MultipleCellCoadd
+
     full_cell_coadd = butler.get(dataset_ref)
     cell_coadd = MultipleCellCoadd(
         [
@@ -236,6 +230,16 @@ def extract_dp2(
     skymap: bool,
 ) -> None:
     """Extract test data from a butler repository."""
+    try:
+        from lsst.daf.butler import Butler
+        from lsst.utils import getPackageDir
+    except ImportError as err:
+        err.add_note(
+            "Updating the test data requires a full Rubin development enviroment with at least "
+            "'afw', 'obs_base', 'meas_extensions_psfex', 'meas_extensions_piff' and 'cell_coadds' "
+            "importable. This is not necessary for just running the tests."
+        )
+        raise
     if butler_repo is None:
         butler_repo = "dp2_prep"
     if testdata_dir is None:

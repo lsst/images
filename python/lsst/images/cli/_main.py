@@ -14,8 +14,10 @@ __all__ = ("main",)
 
 import click
 
+from ..tests.extract_legacy_test_data import extract_test_data
 from ._convert import convert
 from ._inspect import inspect
+from ._minify import minify
 
 
 @click.group(name="lsst-images-admin")
@@ -25,3 +27,5 @@ def main() -> None:
 
 main.add_command(convert)
 main.add_command(inspect)
+main.add_command(minify)
+main.add_command(extract_test_data, name="extract-test-data")
