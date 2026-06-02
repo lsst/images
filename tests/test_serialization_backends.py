@@ -11,8 +11,14 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
 
+import numpy as np
+
+from lsst.images import Box, Image
+from lsst.images import fits as images_fits
 from lsst.images.serialization import Backend, backend_for_path
 
 
@@ -46,6 +52,23 @@ class BackendForPathTestCase(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             backend_for_path("c.txt")
         self.assertIn(".fits", str(cm.exception))
+
+
+class MinifyDispatchTestCase(unittest.TestCase):
+    """minify resolves backend and schema via the shared APIs."""
+
+    def test_minify_unsupported_schema_uses_shared_dispatch(self) -> None:
+        from lsst.images.tests._minify_for_fixtures import minify
+
+        tmp = tempfile.mkdtemp()
+        src = os.path.join(tmp, "plain.fits")
+        out = os.path.join(tmp, "plain.json")
+        images_fits.write(Image(np.zeros((4, 4), dtype=np.float32), bbox=Box.factory[0:4, 0:4]), src)
+        # Reaching the "no subsetter" error proves backend_for_path and
+        # get_basic_info ran and detected schema_name "image".
+        with self.assertRaises(NotImplementedError) as cm:
+            minify(src, out)
+        self.assertIn("image", str(cm.exception))
 
 
 if __name__ == "__main__":
