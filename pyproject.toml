@@ -31,12 +31,16 @@ dependencies = [
     "astro-metadata-translator >=30.2026.900",
     "starlink-pyast >=4.0.0",
     "shapely >= 2.1",
+    "click >= 8",
 ]
 dynamic = ["version"]
 
 [project.urls]
 "Homepage" = "https://github.com/lsst/images"
 "Source" = "https://github.com/lsst/images"
+
+[project.scripts]
+lsst-images-admin = "lsst.images.cli:main"
 
 [project.optional-dependencies]
 test = [
