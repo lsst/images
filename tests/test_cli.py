@@ -14,6 +14,7 @@ import os
 import tempfile
 import unittest
 
+import astropy.io.fits
 import numpy as np
 from click.testing import CliRunner
 
@@ -79,11 +80,9 @@ class ConvertDetectTestCase(unittest.TestCase):
     """
 
     def _make(self, dataset_type: str | None) -> str:
-        import astropy.io.fits as af
-
         tmp = tempfile.mkdtemp()
         path = os.path.join(tmp, "x.fits")
-        hdu = af.PrimaryHDU()
+        hdu = astropy.io.fits.PrimaryHDU()
         if dataset_type is not None:
             hdu.header["LSST BUTLER DATASETTYPE"] = dataset_type
         hdu.writeto(path)
