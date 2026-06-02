@@ -27,14 +27,15 @@ importable.
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from lsst.images import VisitImage
 from lsst.images.cells import CellCoadd
 from lsst.images.json import read
 from lsst.images.serialization import ArchiveReadError
-from lsst.images.tests._make_schema_fixtures import FIXTURE_DIR
 
-LEGACY_DIR = FIXTURE_DIR / "legacy"
+SCHEMA_DIR = Path(__file__).parent / "data" / "schema_v1"
+LEGACY_DIR = SCHEMA_DIR / "legacy"
 
 try:
     import piff  # noqa: F401

@@ -13,55 +13,39 @@ from __future__ import annotations
 
 import json
 import unittest
+from pathlib import Path
 
-from lsst.images.tests._make_schema_fixtures import BUILDERS, FIXTURE_DIR
+SCHEMA_DIR = Path(__file__).parent / "data" / "schema_v1"
 
-
-def _supported_fixture_names() -> list[str]:
-    """Return fixture names whose builders don't raise NotImplementedError."""
-    names: list[str] = []
-    for name, builder in BUILDERS.items():
-        try:
-            builder()
-        except NotImplementedError:
-            continue
-        names.append(name)
-    return names
-
-
-_SUPPORTED = _supported_fixture_names()
+# Every committed top-level fixture; the ``legacy/`` subdirectory (derived
+# from real files) is exercised separately by test_schema_v1_legacy_fixtures.
+_FIXTURES = sorted(SCHEMA_DIR.glob("*.json"))
 
 
 class SchemaV1FixturesTestCase(unittest.TestCase):
     """Tests over the bundled v1 reference JSON fixtures."""
 
-    def test_every_supported_builder_has_a_fixture(self):
-        """Every supported builder produces a fixture file on disk."""
-        for name in _SUPPORTED:
-            with self.subTest(name=name):
-                path = FIXTURE_DIR / f"{name}.json"
-                self.assertTrue(
-                    path.exists(),
-                    f"{path} missing — run _make_schema_fixtures",
-                )
+    def test_fixtures_present(self):
+        """The fixture directory is populated."""
+        self.assertTrue(_FIXTURES, f"no fixtures found in {SCHEMA_DIR}")
 
     def test_fixture_has_top_level_stamps(self):
         """Every fixture has schema_url, schema_version, min_read_version."""
-        for name in _SUPPORTED:
-            with self.subTest(name=name):
-                path = FIXTURE_DIR / f"{name}.json"
+        for path in _FIXTURES:
+            with self.subTest(name=path.stem):
                 tree = json.loads(path.read_text())
                 self.assertIn("schema_url", tree)
                 self.assertIn("schema_version", tree)
                 self.assertIn("min_read_version", tree)
 
     def test_fixture_url_matches_name_and_version(self):
-        """schema_url matches the ``<name>-<version>`` pattern."""
-        for name in _SUPPORTED:
-            with self.subTest(name=name):
-                path = FIXTURE_DIR / f"{name}.json"
+        """schema_url matches the ``<name>-<version>`` pattern, where the name
+        is the fixture file's stem.
+        """
+        for path in _FIXTURES:
+            with self.subTest(name=path.stem):
                 tree = json.loads(path.read_text())
-                expected = f"https://images.lsst.io/schemas/{name}-{tree['schema_version']}"
+                expected = f"https://images.lsst.io/schemas/{path.stem}-{tree['schema_version']}"
                 self.assertEqual(tree["schema_url"], expected)
 
 

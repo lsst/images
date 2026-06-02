@@ -4,33 +4,23 @@ Reference JSON fixtures for every concrete `ArchiveTree` subclass that
 exercises `schema_version` / `min_read_version` / `schema_url` stamping
 at the v1 release.
 
-## Regenerating
-
-These fixtures are produced by:
-
-    python -m lsst.images.tests._make_schema_fixtures
-
-The helper overwrites every `<schema_name>.json` file in this
-directory. Run it after any deliberate `SCHEMA_VERSION` /
-`MIN_READ_VERSION` bump.
+These are committed, hand-maintained reference files: one
+`<schema_name>.json` per concrete `ArchiveTree` subclass that can be
+represented as a standalone JSON tree. `tests/test_schema_v1_fixtures.py`
+scans this directory and checks the stamps on whatever fixtures are
+present, so adding or updating one needs no generator.
 
 ## Coverage
 
-Builders for every concrete `ArchiveTree` subclass live in
-`python/lsst/images/tests/_make_schema_fixtures.py`. `piff_psf` is built
-programmatically but needs the optional `piff` package importable, so its
-builder raises `NotImplementedError` when `piff` is absent. Four further
-subclasses require external test data and always raise `NotImplementedError`:
+A few subclasses have no top-level fixture here:
 
 - `psfex_psf` — needs PSFEx data.
-- `cell_coadd` — needs `lsst.cell_coadds` and a real coadd file.
+- `cell_coadd` — needs `lsst.cell_coadds` and a real coadd file (a
+  legacy-derived fixture lives under `legacy/` instead).
 - `camera_frame_set` — needs an AST representation from a legacy camera.
 - `spline_field` — `SplineField.serialize` writes its data as an array
   reference, which the JSON archive doesn't currently store inline.
   Fixtures for this would need to come from a FITS archive instead.
-
-Tests over these fixtures should skip the missing names rather than
-hard-fail.
 
 ## Legacy fixtures
 
@@ -49,7 +39,7 @@ takes a small representative subset, and writes it back out as JSON:
   are trimmed to a couple of representative entries.  All of these are
   schema-identical to the full versions.
 
-These exercise the read path on data that the synthetic builders above
+These exercise the read path on data that the top-level fixtures above
 cannot reproduce. Regenerate them by pointing `minify` at the real files:
 
     python -c "

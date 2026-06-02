@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from typing import ClassVar
 
 import pydantic
@@ -19,6 +20,8 @@ import pydantic
 from lsst.images.serialization import ArchiveReadError, ArchiveTree
 from lsst.images.serialization._common import _check_compat, _check_format_version
 from lsst.images.tests import check_archive_tree_class_invariants, iter_concrete_archive_tree_subclasses
+
+SCHEMA_DIR = Path(__file__).parent / "data" / "schema_v1"
 
 
 class _DummyArchiveTree(ArchiveTree):
@@ -164,9 +167,7 @@ class FixtureMutationTestCase(unittest.TestCase):
     """Mutate a fixture in-memory and verify the read behavior."""
 
     def setUp(self):
-        from lsst.images.tests._make_schema_fixtures import FIXTURE_DIR
-
-        self.fixture_path = FIXTURE_DIR / "image.json"
+        self.fixture_path = SCHEMA_DIR / "image.json"
         self.assertTrue(self.fixture_path.exists())
 
     def test_min_read_too_high_raises(self):
