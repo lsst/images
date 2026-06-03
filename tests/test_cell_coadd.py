@@ -29,6 +29,7 @@ from lsst.images.tests import (
     assert_masked_images_equal,
     assert_psfs_equal,
     compare_cell_coadd_to_legacy,
+    compare_psf_to_legacy,
 )
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
@@ -160,6 +161,17 @@ class CellCoaddTestCase(unittest.TestCase):
             assert_cell_coadds_equal(self, self.cell_coadd, fits_rt.result, expect_view=False)
             assert_cell_coadds_equal(self, self.cell_coadd, json_rt.result, expect_view=False)
             assert_cell_coadds_equal(self, fits_rt.result, json_rt.result, expect_view=False)
+
+    def test_psf_to_legacy(self) -> None:
+        """Test converting a cell-based PSF back to its legacy form."""
+        legacy_psf = self.cell_coadd.psf.to_legacy()
+        compare_psf_to_legacy(
+            self,
+            self.cell_coadd.psf,
+            legacy_psf,
+            expect_legacy_raise_on_out_of_bounds=True,
+            points=self.psf_points,
+        )
 
 
 if __name__ == "__main__":

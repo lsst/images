@@ -35,9 +35,9 @@ from ..utils import round_half_up
 
 if TYPE_CHECKING:
     try:
-        from lsst.cell_coadds import StitchedPsf
+        from lsst.cell_coadds import StitchedPsf as LegacyStitchedPsf
     except ImportError:
-        type StitchedPsf = Any  # type: ignore[no-redef]
+        type LegacyStitchedPsf = Any  # type: ignore[no-redef]
 
 
 class CellPointSpreadFunction(PointSpreadFunction):
@@ -161,7 +161,9 @@ class CellPointSpreadFunction(PointSpreadFunction):
         return CellPointSpreadFunctionSerializationModel(array=array_model, bounds=self.bounds)
 
     @classmethod
-    def from_legacy(cls, legacy_psf: Any, bounds: Bounds | None = None) -> CellPointSpreadFunction:
+    def from_legacy(
+        cls, legacy_psf: LegacyStitchedPsf, bounds: Bounds | None = None
+    ) -> CellPointSpreadFunction:
         # 'bounds' is accepted as an argument only for base-class
         # compatibility; we always generate our own bounds.
         from lsst.geom import Box2I
@@ -192,6 +194,18 @@ class CellPointSpreadFunction(PointSpreadFunction):
         # Modify the bounds one last time to account for missing cells.
         bounds = CellGridBounds(grid=grid, bbox=bounds.bbox, missing=frozenset(missing))
         return cls(array, bounds=bounds)
+
+    def to_legacy(self) -> LegacyStitchedPsf:
+        """Convert to a legacy `lsst.cell_coadds.StitchedPsf` object."""
+        from lsst.afw.image import ImageD as LegacyImageD
+        from lsst.cell_coadds import GridContainer as LegacyGridContainer
+        from lsst.cell_coadds import StitchedPsf as LegacyStitchedPsf
+
+        grid = self.grid.to_legacy()
+        gc = LegacyGridContainer[LegacyImageD](grid.shape)
+        for cell_index in self.bounds.cell_indices():
+            gc[cell_index.to_legacy()] = self[cell_index].to_legacy()
+        return LegacyStitchedPsf(gc, grid)
 
     @staticmethod
     def _subset_impl(bounds: CellGridBounds, bbox: Box) -> tuple[CellGridBounds, YX[slice]]:
