@@ -62,6 +62,36 @@ class InspectTestCase(unittest.TestCase):
         self.assertIn("image-1.0.0", result.output)
         self.assertIn("n/a", result.output)  # no container format version for JSON
 
+    def test_inspect_fits_python_class(self) -> None:
+        path = os.path.join(self.tmp, "y.fits")
+        images_fits.write(self.image, path)
+        result = CliRunner().invoke(main, ["inspect", path])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("python class:", result.output)
+        self.assertIn("lsst.images.Image", result.output)
+
+    def test_inspect_json_python_class(self) -> None:
+        path = os.path.join(self.tmp, "y.json")
+        images_json.write(self.image, path)
+        result = CliRunner().invoke(main, ["inspect", path])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("python class:", result.output)
+        self.assertIn("lsst.images.Image", result.output)
+
+    def test_inspect_unregistered_schema(self) -> None:
+        path = os.path.join(self.tmp, "fake.json")
+        with open(path, "w") as f:
+            f.write(
+                '{"schema_url": "https://images.lsst.io/schemas/no-such-schema-99.0.0",'
+                ' "schema_version": "99.0.0", "min_read_version": 1, "indirect": []}'
+            )
+        result = CliRunner().invoke(main, ["inspect", path])
+        # inspect should still succeed: it reports basic info regardless
+        # of registry membership.
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("python class:", result.output)
+        self.assertIn("<unregistered: no-such-schema-99.0.0>", result.output)
+
     def test_inspect_unknown_extension(self) -> None:
         path = os.path.join(self.tmp, "x.txt")
         with open(path, "w") as stream:

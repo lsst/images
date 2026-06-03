@@ -14,7 +14,10 @@ __all__ = ("inspect",)
 
 import click
 
-from ..serialization import ArchiveReadError, backend_for_path
+from lsst.utils.introspection import get_full_type_name
+
+from ..serialization import ArchiveReadError, backend_for_path, class_for_schema
+from ..serialization._io import _public_type
 
 
 @click.command(name="inspect")
@@ -22,7 +25,8 @@ from ..serialization import ArchiveReadError, backend_for_path
 def inspect(file: str) -> None:
     """Print basic information about an lsst.images file.
 
-    Reports the schema URL and container format version without
+    Reports the schema URL, container format version, and the public
+    Python class registered for the file's schema (when known) without
     deserializing pixel data.
     """
     try:
@@ -34,9 +38,16 @@ def inspect(file: str) -> None:
     except (ArchiveReadError, ValueError) as err:
         raise click.ClickException(f"Could not read {file}: {err}") from None
     fmt = "n/a" if info.format_version is None else str(info.format_version)
+    tree_cls = class_for_schema(info.schema_name, info.schema_version)
+    public_cls = _public_type(tree_cls) if tree_cls is not None else None
+    if public_cls is not None:
+        python_class = get_full_type_name(public_cls)
+    else:
+        python_class = f"<unregistered: {info.schema_name}-{info.schema_version}>"
     click.echo(f"path:           {file}")
     click.echo(f"format:         {backend.name}")
     click.echo(f"schema name:    {info.schema_name}")
     click.echo(f"schema version: {info.schema_version}")
     click.echo(f"schema URL:     {info.schema_url}")
     click.echo(f"format version: {fmt}")
+    click.echo(f"python class:   {python_class}")
