@@ -51,19 +51,26 @@ symbols:
 
 * `read(path, **kwargs) -> ReadResult[Any]` -- generic reader.
 * `write(obj, path, **kwargs) -> Any` -- generic writer.
-* `class_for_schema(name, version) -> type[ArchiveTree] | None` -- registry
+* `class_for_schema(name) -> type[ArchiveTree] | None` -- registry
   lookup.
 
 These are exported by `lsst.images.serialization` via `from ._io import *`,
 matching the existing module convention.
 
 The schema-name registry is a module-level
-`dict[tuple[str, str], type[ArchiveTree]]` populated in
+`dict[str, type[ArchiveTree]]` populated in
 `ArchiveTree.__pydantic_init_subclass__`, the same hook that already
 injects `$id` / `title` into each subclass's JSON Schema.  Every concrete
 `ArchiveTree` subclass is registered, including nested ones such as
 `ImageSerializationModel` and `ProjectionSerializationModel`; nested types
 are sometimes legitimate top-level reads.
+
+The registry is keyed by ``SCHEMA_NAME`` only.  A serialisation model
+typically handles multiple on-disk schema versions (this is the basis of
+the schema-migration design: a single `VisitImageSerializationModel`
+reads ``visit_image-1.0.0``, ``visit_image-2.0.0``, ...).  Compatibility
+is enforced when the selected tree's ``model_validate*`` runs, via
+``min_read_version`` checks that already exist in `ArchiveTree`.
 
 The "public in-memory class" associated with a registered tree is derived
 lazily from `typing.get_type_hints(tree_cls.deserialize)["return"]`, with
@@ -78,13 +85,12 @@ helper returns `None`.
 
 1. `backend = backend_for_path(path)`.
 2. `info = backend.input_archive.get_basic_info(path)`.
-3. `tree_cls = class_for_schema(info.schema_name, info.schema_version)`.
-   Raises `ArchiveReadError` with a clear message if `None`.
-4. `public_cls = _public_type(tree_cls)`.  Raises `ArchiveReadError` if
-   `None` (the annotation was `Any` / unresolvable).
-5. `return backend.read(public_cls, path, **kwargs)`, which calls
-   `public_cls._get_archive_tree_type(P)` exactly as the per-backend
-   `read` does today.
+3. `tree_cls = class_for_schema(info.schema_name)`.  Raises
+   `ArchiveReadError` with a clear message if `None`.
+4. `return backend.read_tree(tree_cls, path, **kwargs)`.  Each backend
+   parameterises ``tree_cls`` over its pointer model and dispatches to
+   ``tree.deserialize(archive)``; the model's ``model_validate*`` checks
+   ``min_read_version`` against the on-disk ``schema_version``.
 
 ### `write()` flow
 
@@ -100,15 +106,15 @@ the existing JSON-Schema injection block:
 
 * Subclasses without `SCHEMA_NAME` (intermediate abstract bases) are
   skipped, mirroring the existing guard.
-* Re-registering the same class for the same key (re-import in tests) is
-  a no-op.
-* Registering a *different* class for an existing key raises
+* Re-registering the same class for the same name (re-import in tests)
+  is a no-op.
+* Registering a *different* class for an existing name raises
   `RuntimeError` at import time.  This matches the spirit of the
   existing schema-versioning invariants.
 
-`class_for_schema(name, version) -> type[ArchiveTree] | None` is the
-public lookup; missing keys return `None` so callers (especially
-`inspect`) can render their own messaging.
+`class_for_schema(name) -> type[ArchiveTree] | None` is the public
+lookup; missing keys return `None` so callers (especially `inspect`)
+can render their own messaging.
 
 ## Public API signatures
 
@@ -138,10 +144,9 @@ def write(
 
 def class_for_schema(
     schema_name: str,
-    schema_version: str,
 ) -> type[ArchiveTree] | None:
     """Return the registered ``ArchiveTree`` subclass for a schema, or
-    ``None`` if no class is registered for that ``(name, version)``.
+    ``None`` if no class is registered for that name.
     """
 ```
 
@@ -158,14 +163,14 @@ not exported.
 
 * `ValueError` from `backend_for_path` when the extension is not
   recognised (unchanged behavior).
-* `ArchiveReadError` when the file's schema is not registered:
-  `"No registered schema {name!r} version {version!r}; cannot determine
-  in-memory type for {path!r}."`
-* `ArchiveReadError` when the registered tree class declares no concrete
-  deserialised type: `"Schema {name!r} version {version!r} does not
-  declare a concrete deserialized type."`
-* Whatever the per-backend `read` raises (`ArchiveReadError`, I/O
-  errors, etc.) for downstream failures.
+* `ArchiveReadError` when the file's schema name is not registered:
+  `"No registered schema {name!r}; cannot determine in-memory type for
+  {path!r}."`
+* `ArchiveReadError` from `model_validate*` when the file's
+  ``min_read_version`` exceeds the registered class's
+  ``SCHEMA_VERSION`` major.
+* Whatever the per-backend `read_tree` raises (`ArchiveReadError`,
+  I/O errors, etc.) for downstream failures.
 
 `write()` raises only what the per-backend `write` raises; mismatched
 extensions and I/O errors flow through unchanged.
@@ -187,9 +192,9 @@ python class:   lsst.images.VisitImage
 Logic in `_inspect.py`:
 
 1. After `info = backend.input_archive.get_basic_info(file)`, look up
-   `tree_cls = class_for_schema(info.schema_name, info.schema_version)`.
+   `tree_cls = class_for_schema(info.schema_name)`.
 2. If `tree_cls` is `None`, render:
-   `python class:   <unregistered: {schema_name}-{schema_version}>`.
+   `python class:   <unregistered: {schema_name}>`.
 3. Otherwise compute `public_cls = _public_type(tree_cls)`.  If that is
    also `None`, render the same `<unregistered: ...>` form; from the
    user's point of view "we could not tell you what Python class this
@@ -207,16 +212,16 @@ Three test files, each with one focus.
 
 ### `tests/test_serialization_registry.py` (new)
 
-* `class_for_schema("visit_image", "1.0.0")` returns
+* `class_for_schema("visit_image")` returns
   `VisitImageSerializationModel`.
-* Lookup of an unknown `(name, version)` returns `None`.
+* Lookup of an unknown name returns `None`.
 * Class-invariants assertion: every concrete `ArchiveTree` subclass
   currently in the codebase appears in the registry.
 * Class-invariants assertion: every registered class has a concrete,
   resolvable `deserialize` return annotation (or is in a known-`Any`
   allow-list, likely empty given the current code).
 * Duplicate registration of a different class with the same
-  `(name, version)` raises `RuntimeError`.
+  ``SCHEMA_NAME`` raises `RuntimeError`.
 
 ### `tests/test_serialization_io.py` (new)
 
@@ -242,12 +247,12 @@ Three test files, each with one focus.
   output contains
   `python class:   lsst.images.<ExpectedType>`.
 * An unregistered schema renders
-  `python class:   <unregistered: {name}-{version}>`.
+  `python class:   <unregistered: {name}>`.
 
 The class-invariants test in `test_serialization_registry.py` is what
 catches future regressions: any new `ArchiveTree` subclass that forgets
-a concrete return annotation or collides on `(SCHEMA_NAME,
-SCHEMA_VERSION)` fails CI immediately.
+a concrete return annotation or collides on ``SCHEMA_NAME`` fails CI
+immediately.
 
 ## Open questions
 
@@ -255,8 +260,11 @@ None.  Decisions captured above:
 
 * Generic API lives in `lsst.images.serialization` only; top-level
   re-export deferred.
-* Registry is keyed by `(SCHEMA_NAME, SCHEMA_VERSION)` and contains every
-  `ArchiveTree` subclass.
+* Registry is keyed by ``SCHEMA_NAME`` (one class per schema name) and
+  contains every `ArchiveTree` subclass.  Schema-version compatibility
+  is enforced by the model's existing ``min_read_version`` check on
+  ``model_validate*``, which lets a single ``VisitImageSerializationModel``
+  read multiple on-disk versions.
 * In-memory class is derived from `deserialize`'s return annotation; no
   new ClassVars are added to serialization models.
 * `read` returns `ReadResult` (matching the per-backend signature).

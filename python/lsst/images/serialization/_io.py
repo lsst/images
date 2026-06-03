@@ -22,43 +22,46 @@ from lsst.resources import ResourcePathExpression
 from ._backends import backend_for_path
 from ._common import ArchiveReadError, ArchiveTree, ReadResult
 
-_REGISTRY: dict[tuple[str, str], type[ArchiveTree]] = {}
-"""Map of ``(SCHEMA_NAME, SCHEMA_VERSION)`` to the registered
-``ArchiveTree`` subclass."""
+_REGISTRY: dict[str, type[ArchiveTree]] = {}
+"""Map of ``SCHEMA_NAME`` to the registered ``ArchiveTree`` subclass.
+
+The registry is keyed by name only.  Schema-version compatibility is
+enforced when the selected tree's ``model_validate*`` runs, via
+``min_read_version``.
+"""
 
 
-def class_for_schema(schema_name: str, schema_version: str) -> type[ArchiveTree] | None:
-    """Return the registered ``ArchiveTree`` subclass, or ``None``.
+def class_for_schema(schema_name: str) -> type[ArchiveTree] | None:
+    """Return the registered ``ArchiveTree`` subclass for ``schema_name``,
+    or ``None`` if nothing is registered for that name.
 
     Parameters
     ----------
     schema_name
         Schema name (e.g. ``"visit_image"``).
-    schema_version
-        Schema version (e.g. ``"1.0.0"``).
     """
-    return _REGISTRY.get((schema_name, schema_version))
+    return _REGISTRY.get(schema_name)
 
 
 def register_schema_class(cls: type[ArchiveTree]) -> None:
-    """Register ``cls`` under ``(cls.SCHEMA_NAME, cls.SCHEMA_VERSION)``.
+    """Register ``cls`` under ``cls.SCHEMA_NAME``.
 
-    No-op when the same class is registered for the same key (re-import
-    during tests).  Raises `RuntimeError` when a *different* class is
-    registered under an existing key.
+    No-op when the same class is registered again (re-import during
+    tests).  Raises `RuntimeError` when a *different* class is
+    registered under an existing name.
 
     Intended to be called from ``ArchiveTree.__pydantic_init_subclass__``;
     not part of the public API.
     """
-    key = (cls.SCHEMA_NAME, cls.SCHEMA_VERSION)
+    key = cls.SCHEMA_NAME
     existing = _REGISTRY.get(key)
     if existing is cls:
         return
     if existing is not None:
         raise RuntimeError(
-            f"Schema {cls.SCHEMA_NAME!r} version {cls.SCHEMA_VERSION!r} "
-            f"is already registered to {existing.__qualname__}; refusing to "
-            f"replace it with {cls.__qualname__}."
+            f"Schema {cls.SCHEMA_NAME!r} is already registered to "
+            f"{existing.__qualname__}; refusing to replace it with "
+            f"{cls.__qualname__}."
         )
     _REGISTRY[key] = cls
 
@@ -130,9 +133,11 @@ def read(
     """Read an archive whose in-memory type is inferred from its schema.
 
     Dispatches to the FITS / NDF / JSON backend based on ``path``'s
-    extension, looks up the in-memory class registered for the file's
-    ``(schema_name, schema_version)``, and forwards the call to the
-    per-backend ``read`` along with ``**kwargs``.
+    extension, looks up the registered ``ArchiveTree`` subclass for the
+    file's ``schema_name``, and forwards the call to the per-backend
+    ``read_tree`` along with ``**kwargs``.  Schema-version compatibility
+    is enforced when the model validates the on-disk tree, via
+    ``min_read_version``.
 
     Parameters
     ----------
@@ -155,17 +160,16 @@ def read(
         Raised by `backend_for_path` if the file extension is not
         recognised.
     ArchiveReadError
-        Raised when the file's schema is not registered, or when the
-        registered class does not declare a concrete deserialised type.
+        Raised when the file's ``schema_name`` is not registered, or
+        propagated from the model's ``min_read_version`` check on
+        ``model_validate*``.
     """
     backend = backend_for_path(path)
     info = backend.input_archive.get_basic_info(path)
-    tree_cls = class_for_schema(info.schema_name, info.schema_version)
+    tree_cls = class_for_schema(info.schema_name)
     if tree_cls is None:
         raise ArchiveReadError(
-            f"No registered schema {info.schema_name!r} version "
-            f"{info.schema_version!r}; cannot determine in-memory type "
-            f"for {path!r}."
+            f"No registered schema {info.schema_name!r}; cannot determine in-memory type for {path!r}."
         )
     return cast(ReadResult[Any], backend.read_tree(tree_cls, path, **kwargs))
 

@@ -78,8 +78,8 @@ class GenericReadErrorsTestCase(unittest.TestCase):
             read(path)
 
     def test_unregistered_schema(self) -> None:
-        # Write a JSON file with a fabricated schema_url so its
-        # (name, version) is not in the registry.
+        # Write a JSON file with a fabricated schema name not in the
+        # registry.
         path = os.path.join(self.tmp, "fake.json")
         with open(path, "w") as f:
             f.write(
@@ -89,7 +89,6 @@ class GenericReadErrorsTestCase(unittest.TestCase):
         with self.assertRaises(ArchiveReadError) as ctx:
             read(path)
         self.assertIn("no-such-schema", str(ctx.exception))
-        self.assertIn("99.0.0", str(ctx.exception))
 
 
 class FixtureSweepTestCase(unittest.TestCase):
@@ -114,7 +113,7 @@ class FixtureSweepTestCase(unittest.TestCase):
                 with self.subTest(path=path):
                     result = read(path)
                     info = backend_for_path(path).input_archive.get_basic_info(path)
-                    cls = class_for_schema(info.schema_name, info.schema_version)
+                    cls = class_for_schema(info.schema_name)
                     self.assertIsNotNone(cls)
                     expected_type = _public_type(cls)  # type: ignore[arg-type]
                     self.assertIsNotNone(expected_type)

@@ -38,12 +38,12 @@ def inspect(file: str) -> None:
     except (ArchiveReadError, ValueError) as err:
         raise click.ClickException(f"Could not read {file}: {err}") from None
     fmt = "n/a" if info.format_version is None else str(info.format_version)
-    tree_cls = class_for_schema(info.schema_name, info.schema_version)
+    tree_cls = class_for_schema(info.schema_name)
     public_cls = _public_type(tree_cls) if tree_cls is not None else None
     if public_cls is not None:
         python_class = get_full_type_name(public_cls)
     else:
-        python_class = f"<unregistered: {info.schema_name}-{info.schema_version}>"
+        python_class = f"<unregistered: {info.schema_name}>"
     click.echo(f"path:           {file}")
     click.echo(f"format:         {backend.name}")
     click.echo(f"schema name:    {info.schema_name}")

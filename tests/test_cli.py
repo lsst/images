@@ -90,7 +90,7 @@ class InspectTestCase(unittest.TestCase):
         # of registry membership.
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("python class:", result.output)
-        self.assertIn("<unregistered: no-such-schema-99.0.0>", result.output)
+        self.assertIn("<unregistered: no-such-schema>", result.output)
 
     def test_inspect_unknown_extension(self) -> None:
         path = os.path.join(self.tmp, "x.txt")

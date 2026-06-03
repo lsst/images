@@ -23,33 +23,33 @@ from lsst.images.serialization._io import _REGISTRY, _public_type, register_sche
 
 
 class ClassForSchemaTestCase(unittest.TestCase):
-    """class_for_schema returns None for unknown (name, version)."""
+    """class_for_schema returns None for unknown schema names."""
 
     def test_unknown_returns_none(self) -> None:
-        self.assertIsNone(class_for_schema("does-not-exist", "1.0.0"))
+        self.assertIsNone(class_for_schema("does-not-exist"))
 
 
 class RegistrationTestCase(unittest.TestCase):
-    """ArchiveTree subclasses register themselves under (name, version)."""
+    """ArchiveTree subclasses register themselves under SCHEMA_NAME."""
 
     def test_visit_image_registered(self) -> None:
-        cls = class_for_schema("visit_image", "1.0.0")
+        cls = class_for_schema("visit_image")
         self.assertIs(cls, VisitImageSerializationModel)
 
     def test_nested_image_registered(self) -> None:
         # Nested types are registered too -- "register all" was the spec
         # decision so callers can read sub-models directly.
-        cls = class_for_schema("image", "1.0.0")
+        cls = class_for_schema("image")
         self.assertIs(cls, ImageSerializationModel)
 
     def test_duplicate_registration_raises(self) -> None:
         # Re-registering the same class is a no-op.
         register_schema_class(VisitImageSerializationModel)
 
-        # Defining a subclass that redeclares SCHEMA_NAME / SCHEMA_VERSION
-        # to the same values triggers __pydantic_init_subclass__, which
-        # calls register_schema_class with a different class object under
-        # an existing key.  That call raises RuntimeError.
+        # Defining a subclass that redeclares SCHEMA_NAME triggers
+        # __pydantic_init_subclass__, which calls register_schema_class
+        # with a different class object under an existing name.  That
+        # call raises RuntimeError.
         with self.assertRaises(RuntimeError):
 
             class _Imposter(VisitImageSerializationModel):  # type: ignore[misc]
@@ -61,14 +61,14 @@ class PublicTypeTestCase(unittest.TestCase):
     """The internal _public_type helper resolves deserialize's return."""
 
     def test_concrete_return_annotation(self) -> None:
-        cls = class_for_schema("visit_image", "1.0.0")
+        cls = class_for_schema("visit_image")
         assert cls is not None  # for type checkers
         self.assertIs(_public_type(cls), VisitImage)
 
     def test_parameterised_generic_unwrapped(self) -> None:
         # ProjectionSerializationModel.deserialize returns Projection[Any];
         # _public_type should unwrap to Projection.
-        cls = class_for_schema("projection", "1.0.0")
+        cls = class_for_schema("projection")
         assert cls is not None
         self.assertIs(_public_type(cls), Projection)
 
@@ -88,7 +88,7 @@ class PublicTypeTestCase(unittest.TestCase):
         finally:
             # Tidy up: pop the stand-alone class out of the registry so
             # it doesn't leak into other tests.
-            _REGISTRY.pop(("_any_tree_test", "1.0.0"), None)
+            _REGISTRY.pop("_any_tree_test", None)
 
 
 def _all_concrete_archive_tree_subclasses() -> list[type]:
@@ -118,10 +118,9 @@ class ClassInvariantsTestCase(unittest.TestCase):
         for cls in _all_concrete_archive_tree_subclasses():
             if not cls.__module__.startswith("lsst.images"):
                 continue
-            key = (cls.SCHEMA_NAME, cls.SCHEMA_VERSION)
-            registered = _REGISTRY.get(key)
+            registered = _REGISTRY.get(cls.SCHEMA_NAME)
             if registered is None or registered is not cls:
-                missing.append(f"{cls.__qualname__} -> {key}")
+                missing.append(f"{cls.__qualname__} -> {cls.SCHEMA_NAME}")
         self.assertEqual(missing, [], f"Unregistered subclasses: {missing}")
 
     def test_every_registered_class_resolves_public_type(self) -> None:
