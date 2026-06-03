@@ -91,6 +91,11 @@ def _public_type(tree_cls: type[ArchiveTree]) -> type | None:
     if annotation is Any:
         setattr(tree_cls, _PUBLIC_TYPE_ATTR, _UNRESOLVED)
         return None
+    # PEP 695 ``type X = ...`` aliases reach us as TypeAliasType; unwrap to
+    # the underlying type so e.g. ``type ApertureCorrectionMap = dict[str,
+    # Field]`` resolves to ``dict``.
+    if isinstance(annotation, typing.TypeAliasType):
+        annotation = annotation.__value__
     resolved = typing.get_origin(annotation) or annotation
     if not isinstance(resolved, type):
         setattr(tree_cls, _PUBLIC_TYPE_ATTR, _UNRESOLVED)

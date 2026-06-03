@@ -104,5 +104,55 @@ class PublicTypeTestCase(unittest.TestCase):
             _REGISTRY.pop(("_any_tree_test", "1.0.0"), None)
 
 
+def _all_concrete_archive_tree_subclasses() -> list[type]:
+    """Walk ArchiveTree's subclass tree and return all concrete subclasses
+    that declare SCHEMA_NAME (i.e. are real schema-bearing leaves).
+    """
+    from lsst.images.serialization import ArchiveTree
+
+    seen: list[type] = []
+    stack: list[type] = list(ArchiveTree.__subclasses__())
+    while stack:
+        cls = stack.pop()
+        stack.extend(cls.__subclasses__())
+        if "SCHEMA_NAME" in cls.__dict__:
+            seen.append(cls)
+    return seen
+
+
+class ClassInvariantsTestCase(unittest.TestCase):
+    """Every ArchiveTree subclass with SCHEMA_NAME is registered and has a
+    resolvable, concrete deserialize return annotation.
+    """
+
+    def test_every_subclass_registered(self) -> None:
+        from lsst.images.serialization._io import _REGISTRY
+
+        # Test-local classes from other test methods may linger in
+        # __subclasses__ after their cleanup runs; restrict the check to
+        # classes whose modules belong to the package itself.
+        missing: list[str] = []
+        for cls in _all_concrete_archive_tree_subclasses():
+            if not cls.__module__.startswith("lsst.images"):
+                continue
+            key = (cls.SCHEMA_NAME, cls.SCHEMA_VERSION)
+            registered = _REGISTRY.get(key)
+            if registered is None or registered is not cls:
+                missing.append(f"{cls.__qualname__} -> {key}")
+        self.assertEqual(missing, [], f"Unregistered subclasses: {missing}")
+
+    def test_every_registered_class_resolves_public_type(self) -> None:
+        from lsst.images.serialization._io import _REGISTRY, _public_type
+
+        unresolved: list[str] = []
+        # Iterate the registry directly: this is what the public read()
+        # dispatcher relies on, and test-local classes that have already
+        # been popped from the registry are correctly excluded.
+        for cls in _REGISTRY.values():
+            if _public_type(cls) is None:
+                unresolved.append(cls.__qualname__)
+        self.assertEqual(unresolved, [], f"No concrete return annotation: {unresolved}")
+
+
 if __name__ == "__main__":
     unittest.main()
