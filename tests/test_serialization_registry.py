@@ -12,6 +12,10 @@ from __future__ import annotations
 
 import unittest
 
+import lsst.images  # import for side-effect class registration
+import lsst.images.cells  # noqa: F401  -- side-effect import: registers cell schemas
+from lsst.images._image import ImageSerializationModel
+from lsst.images._visit_image import VisitImageSerializationModel
 from lsst.images.serialization import class_for_schema
 
 
@@ -20,6 +24,38 @@ class ClassForSchemaTestCase(unittest.TestCase):
 
     def test_unknown_returns_none(self) -> None:
         self.assertIsNone(class_for_schema("does-not-exist", "1.0.0"))
+
+
+class RegistrationTestCase(unittest.TestCase):
+    """ArchiveTree subclasses register themselves under (name, version)."""
+
+    def test_visit_image_registered(self) -> None:
+        cls = class_for_schema("visit_image", "1.0.0")
+        self.assertIs(cls, VisitImageSerializationModel)
+
+    def test_nested_image_registered(self) -> None:
+        # Nested types are registered too -- "register all" was the spec
+        # decision so callers can read sub-models directly.
+        cls = class_for_schema("image", "1.0.0")
+        self.assertIs(cls, ImageSerializationModel)
+
+    def test_duplicate_registration_raises(self) -> None:
+        from typing import ClassVar
+
+        from lsst.images.serialization._io import register_schema_class
+
+        # Re-registering the same class is a no-op.
+        register_schema_class(VisitImageSerializationModel)
+
+        # Defining a subclass that redeclares SCHEMA_NAME / SCHEMA_VERSION
+        # to the same values triggers __pydantic_init_subclass__, which
+        # calls register_schema_class with a different class object under
+        # an existing key.  That call raises RuntimeError.
+        with self.assertRaises(RuntimeError):
+
+            class _Imposter(VisitImageSerializationModel):  # type: ignore[misc]
+                SCHEMA_NAME: ClassVar[str] = "visit_image"
+                SCHEMA_VERSION: ClassVar[str] = "1.0.0"
 
 
 if __name__ == "__main__":

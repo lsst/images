@@ -150,11 +150,14 @@ class ArchiveTree(
 
     @classmethod
     def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
-        """Inject ``$id`` and ``title`` into the subclass's JSON Schema.
+        """Inject ``$id`` and ``title`` into the subclass's JSON Schema, and
+        register the subclass in the schema-name registry.
 
         Populates ``model_config['json_schema_extra']`` with values derived
-        from the subclass's ``SCHEMA_NAME`` / ``SCHEMA_VERSION`` ClassVars.
-        Subclasses that haven't declared the ClassVars are skipped.
+        from the subclass's ``SCHEMA_NAME`` / ``SCHEMA_VERSION`` ClassVars,
+        then registers the subclass so it can be looked up by schema name
+        and version.  Subclasses that haven't declared the ClassVars are
+        skipped.
         """
         super().__pydantic_init_subclass__(**kwargs)
         name = cls.__dict__.get("SCHEMA_NAME")
@@ -162,12 +165,16 @@ class ArchiveTree(
         if name is None or version is None:
             return
         json_schema_extra = cls.model_config.get("json_schema_extra") or {}
-        if not isinstance(json_schema_extra, dict):
-            return
-        existing = dict(json_schema_extra)
-        existing.setdefault("$id", f"https://images.lsst.io/schemas/{name}-{version}")
-        existing.setdefault("title", name)
-        cls.model_config = {**cls.model_config, "json_schema_extra": existing}
+        if isinstance(json_schema_extra, dict):
+            existing = dict(json_schema_extra)
+            existing.setdefault("$id", f"https://images.lsst.io/schemas/{name}-{version}")
+            existing.setdefault("title", name)
+            cls.model_config = {**cls.model_config, "json_schema_extra": existing}
+        # Local import to avoid the _io -> _common circular dependency at
+        # module load time.
+        from ._io import register_schema_class
+
+        register_schema_class(cls)
 
     @abstractmethod
     def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> Any:
