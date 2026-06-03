@@ -14,6 +14,9 @@ from __future__ import annotations
 
 __all__ = ("class_for_schema", "register_schema_class")
 
+import typing
+from typing import Any
+
 from ._common import ArchiveTree
 
 _REGISTRY: dict[tuple[str, str], type[ArchiveTree]] = {}
@@ -55,3 +58,42 @@ def register_schema_class(cls: type[ArchiveTree]) -> None:
             f"replace it with {cls.__qualname__}."
         )
     _REGISTRY[key] = cls
+
+
+_PUBLIC_TYPE_ATTR = "_lsst_images_public_type"
+"""Attribute name used to cache the resolved public type on each
+``ArchiveTree`` subclass."""
+
+_UNRESOLVED = object()
+"""Sentinel cached when the return annotation is ``Any`` or could not be
+resolved.  Distinguishes "we tried and failed" from "we have not tried"."""
+
+
+def _public_type(tree_cls: type[ArchiveTree]) -> type | None:
+    """Return the in-memory class produced by ``tree_cls.deserialize``.
+
+    Derived from the return annotation of ``deserialize`` and cached on
+    the class.  Returns `None` when the annotation is `Any` or cannot be
+    resolved (e.g. it references a name that is not importable from the
+    class's module globals).
+    """
+    cached = tree_cls.__dict__.get(_PUBLIC_TYPE_ATTR, None)
+    if cached is _UNRESOLVED:
+        return None
+    if cached is not None:
+        return cached  # type: ignore[no-any-return]
+    try:
+        hints = typing.get_type_hints(tree_cls.deserialize)
+    except Exception:
+        setattr(tree_cls, _PUBLIC_TYPE_ATTR, _UNRESOLVED)
+        return None
+    annotation = hints.get("return", Any)
+    if annotation is Any:
+        setattr(tree_cls, _PUBLIC_TYPE_ATTR, _UNRESOLVED)
+        return None
+    resolved = typing.get_origin(annotation) or annotation
+    if not isinstance(resolved, type):
+        setattr(tree_cls, _PUBLIC_TYPE_ATTR, _UNRESOLVED)
+        return None
+    setattr(tree_cls, _PUBLIC_TYPE_ATTR, resolved)
+    return resolved
