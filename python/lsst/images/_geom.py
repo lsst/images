@@ -45,6 +45,13 @@ from pydantic.json_schema import GetJsonSchemaHandler, JsonSchemaValue
 if TYPE_CHECKING:
     from ._concrete_bounds import SerializableBounds
 
+    try:
+        from lsst.geom import Extent2I as LegacyExtent2I
+        from lsst.geom import Point2I as LegacyPoint2I
+    except ImportError:
+        type LegacyExtent2I = Any  # type: ignore[no-redef]
+        type LegacyPoint2I = Any  # type: ignore[no-redef]
+
 # This pre-python-3.12 declaration is needed by Sphinx (probably the
 # autodoc-typehints plugin.
 T = TypeVar("T")
@@ -90,6 +97,18 @@ class YX[T](NamedTuple):
         """Apply a function to both objects."""
         return YX(y=func(self.y), x=func(self.x))
 
+    def to_legacy_extent(self) -> LegacyExtent2I:
+        """Convert to a legacy `lsst.geom.Extent2I` object."""
+        from lsst.geom import Extent2I as LegacyExtent2I
+
+        return LegacyExtent2I(self.x, self.y)
+
+    def to_legacy_point(self) -> LegacyPoint2I:
+        """Convert to a legacy `lsst.geom.Point2I` object."""
+        from lsst.geom import Point2I as LegacyPoint2I
+
+        return LegacyPoint2I(self.x, self.y)
+
 
 class XY[T](NamedTuple):
     """A pair of per-dimension objects, ordered ``(x, y)``.
@@ -120,6 +139,18 @@ class XY[T](NamedTuple):
     def map[U](self, func: Callable[[T], U]) -> XY[U]:
         """Apply a function to both objects."""
         return XY(x=func(self.x), y=func(self.y))
+
+    def to_legacy_extent(self) -> LegacyExtent2I:
+        """Convert to a legacy `lsst.geom.Extent2I` object."""
+        from lsst.geom import Extent2I as LegacyExtent2I
+
+        return LegacyExtent2I(self.x, self.y)
+
+    def to_legacy_point(self) -> LegacyPoint2I:
+        """Convert to a legacy `lsst.geom.Point2I` object."""
+        from lsst.geom import Point2I as LegacyPoint2I
+
+        return LegacyPoint2I(self.x, self.y)
 
 
 class _SerializedInterval(TypedDict):
@@ -585,6 +616,16 @@ class Box:
     def y(self) -> Interval:
         """The y-dimension interval (`int`)."""
         return self._intervals[-2]
+
+    @property
+    def min_yx(self) -> YX[int]:
+        """The minimum bounds of the box as a `YX` tuple."""
+        return YX(y=self._intervals.y.min, x=self._intervals.x.min)
+
+    @property
+    def max_yx(self) -> YX[int]:
+        """The maximum bounds of the box as a `YX` tuple."""
+        return YX(y=self._intervals.y.max, x=self._intervals.x.max)
 
     @property
     def absolute(self) -> BoxSliceFactory:
