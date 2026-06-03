@@ -15,6 +15,7 @@ __all__ = (
     "FitsInputArchive",
     "FitsOpaqueMetadata",
     "read",
+    "read_tree",
 )
 
 import io
@@ -44,6 +45,7 @@ from ..serialization import (
     ReadResult,
     TableModel,
     no_header_updates,
+    parameterize_tree,
 )
 from ..serialization._common import _check_format_version
 from ._common import (
@@ -98,12 +100,62 @@ def read[T: Any](
     Supported types must implement ``deserialize`` and
     ``_get_archive_tree_type`` (see `.Image` for an example).
     """
+    return read_tree(
+        cls._get_archive_tree_type(PointerModel),
+        path,
+        page_size=page_size,
+        partial=partial,
+        **kwargs,
+    )
+
+
+def read_tree(
+    tree_cls: type[ArchiveTree],
+    path: ResourcePathExpression,
+    *,
+    page_size: int = 2880 * 50,
+    partial: bool | None = None,
+    **kwargs: Any,
+) -> ReadResult[Any]:
+    """Read an object using a known `.serialization.ArchiveTree` subclass
+    instead of an in-memory type.
+
+    Parameters
+    ----------
+    tree_cls
+        The `.serialization.ArchiveTree` subclass that describes the
+        file's top-level tree.  This function parameterises it with the
+        FITS pointer model.
+    path
+        File to read; convertible to `lsst.resources.ResourcePath`.
+    page_size
+        Minimum number of bytes to read at a time.
+    partial
+        Whether only some of the archive may be read.  Defaults to
+        `True` when ``**kwargs`` is non-empty, matching `read`.
+    **kwargs
+        Extra keyword arguments passed to ``tree.deserialize``.
+
+    Returns
+    -------
+    ReadResult
+        Named tuple of the deserialised object, its metadata, and any
+        butler info.
+
+    Notes
+    -----
+    Unlike `read`, this entry point does not require the deserialised
+    type to expose ``_get_archive_tree_type``; any registered
+    `.serialization.ArchiveTree` subclass can be used.
+    """
     if partial is None:
         partial = any(v is not None for v in kwargs.values())
+    parameterized = parameterize_tree(tree_cls, PointerModel)
     with FitsInputArchive.open(path, page_size=page_size, partial=partial) as archive:
-        tree = archive.get_tree(cls._get_archive_tree_type(PointerModel))
+        tree = archive.get_tree(parameterized)
         obj = tree.deserialize(archive, **kwargs)
-        obj._opaque_metadata = archive.get_opaque_metadata()
+        if hasattr(obj, "_opaque_metadata"):
+            obj._opaque_metadata = archive.get_opaque_metadata()
         return ReadResult(obj, tree.metadata, tree.butler_info)
 
 

@@ -27,14 +27,16 @@ if TYPE_CHECKING:
 class Backend:
     """A file-format backend resolved from a path suffix.
 
-    Bundles the backend's free ``read``/``write`` functions and its
-    `InputArchive` subclass (whose `~InputArchive.get_basic_info` reads
-    file metadata).
+    Bundles the backend's free ``read``/``write`` functions, the
+    ``read_tree`` variant that reads using a known `ArchiveTree`
+    subclass instead of an in-memory type, and its `InputArchive`
+    subclass (whose `~InputArchive.get_basic_info` reads file metadata).
     """
 
     name: str
     read: Callable[..., object]
     write: Callable[..., object]
+    read_tree: Callable[..., object]
     input_archive: type[InputArchive]
 
 
@@ -55,21 +57,24 @@ def backend_for_path(path: ResourcePathExpression) -> Backend:
     if s.endswith(".fits") or s.endswith(".fits.gz"):
         from ..fits import FitsInputArchive
         from ..fits import read as fits_read
+        from ..fits import read_tree as fits_read_tree
         from ..fits import write as fits_write
 
-        return Backend("fits", fits_read, fits_write, FitsInputArchive)
+        return Backend("fits", fits_read, fits_write, fits_read_tree, FitsInputArchive)
     if s.endswith(".sdf") or s.endswith(".ndf"):
         from ..ndf import NdfInputArchive
         from ..ndf import read as ndf_read
+        from ..ndf import read_tree as ndf_read_tree
         from ..ndf import write as ndf_write
 
-        return Backend("ndf", ndf_read, ndf_write, NdfInputArchive)
+        return Backend("ndf", ndf_read, ndf_write, ndf_read_tree, NdfInputArchive)
     if s.endswith(".json"):
         from ..json import JsonInputArchive
         from ..json import read as json_read
+        from ..json import read_tree as json_read_tree
         from ..json import write as json_write
 
-        return Backend("json", json_read, json_write, JsonInputArchive)
+        return Backend("json", json_read, json_write, json_read_tree, JsonInputArchive)
     raise ValueError(
         f"Unrecognised file extension: {path!r}; expected one of .fits, .fits.gz, .sdf, .ndf, .json."
     )

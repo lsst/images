@@ -12,12 +12,15 @@
 
 from __future__ import annotations
 
-__all__ = ("class_for_schema", "parameterize_tree", "register_schema_class")
+__all__ = ("class_for_schema", "parameterize_tree", "read", "register_schema_class")
 
 import typing
-from typing import Any
+from typing import Any, cast
 
-from ._common import ArchiveTree
+from lsst.resources import ResourcePathExpression
+
+from ._backends import backend_for_path
+from ._common import ArchiveReadError, ArchiveTree, ReadResult
 
 _REGISTRY: dict[tuple[str, str], type[ArchiveTree]] = {}
 """Map of ``(SCHEMA_NAME, SCHEMA_VERSION)`` to the registered
@@ -118,3 +121,50 @@ def _public_type(tree_cls: type[ArchiveTree]) -> type | None:
         return None
     setattr(tree_cls, _PUBLIC_TYPE_ATTR, resolved)
     return resolved
+
+
+def read(
+    path: ResourcePathExpression,
+    **kwargs: Any,
+) -> ReadResult[Any]:
+    """Read an archive whose in-memory type is inferred from its schema.
+
+    Dispatches to the FITS / NDF / JSON backend based on ``path``'s
+    extension, looks up the in-memory class registered for the file's
+    ``(schema_name, schema_version)``, and forwards the call to the
+    per-backend ``read`` along with ``**kwargs``.
+
+    Parameters
+    ----------
+    path
+        File to read; convertible to `lsst.resources.ResourcePath`.
+    **kwargs
+        Backend- and type-specific keyword arguments.  Forwarded
+        verbatim; mis-targeted arguments surface as ``TypeError`` from
+        the underlying ``deserialize``.
+
+    Returns
+    -------
+    ReadResult
+        Named tuple of the deserialized object, its metadata, and any
+        butler info, matching the per-backend ``read`` signature.
+
+    Raises
+    ------
+    ValueError
+        Raised by `backend_for_path` if the file extension is not
+        recognised.
+    ArchiveReadError
+        Raised when the file's schema is not registered, or when the
+        registered class does not declare a concrete deserialised type.
+    """
+    backend = backend_for_path(path)
+    info = backend.input_archive.get_basic_info(path)
+    tree_cls = class_for_schema(info.schema_name, info.schema_version)
+    if tree_cls is None:
+        raise ArchiveReadError(
+            f"No registered schema {info.schema_name!r} version "
+            f"{info.schema_version!r}; cannot determine in-memory type "
+            f"for {path!r}."
+        )
+    return cast(ReadResult[Any], backend.read_tree(tree_cls, path, **kwargs))

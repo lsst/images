@@ -144,11 +144,14 @@ class ClassInvariantsTestCase(unittest.TestCase):
     def test_every_registered_class_resolves_public_type(self) -> None:
         from lsst.images.serialization._io import _REGISTRY, _public_type
 
+        # Restrict to package-local classes; test-only ArchiveTree
+        # subclasses (e.g. tests/test_schema_versioning.py's
+        # _DummyArchiveTree) may register but intentionally have no
+        # concrete return annotation.
         unresolved: list[str] = []
-        # Iterate the registry directly: this is what the public read()
-        # dispatcher relies on, and test-local classes that have already
-        # been popped from the registry are correctly excluded.
         for cls in _REGISTRY.values():
+            if not cls.__module__.startswith("lsst.images"):
+                continue
             if _public_type(cls) is None:
                 unresolved.append(cls.__qualname__)
         self.assertEqual(unresolved, [], f"No concrete return annotation: {unresolved}")

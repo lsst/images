@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("JsonInputArchive", "read")
+__all__ = ("JsonInputArchive", "read", "read_tree")
 
 from collections.abc import Callable
 from types import EllipsisType
@@ -35,6 +35,7 @@ from ..serialization import (
     ReadResult,
     TableModel,
     no_header_updates,
+    parameterize_tree,
 )
 
 if TYPE_CHECKING:
@@ -69,11 +70,41 @@ def read[T: Any](
     Supported types must implement ``deserialize`` and
     ``_get_archive_tree_type`` (see `.Image` for an example).
     """
-    tree_type: type[ArchiveTree] = cls._get_archive_tree_type(JsonRef)
+    return read_tree(cls._get_archive_tree_type(JsonRef), target, **kwargs)
+
+
+def read_tree(
+    tree_cls: type[ArchiveTree],
+    target: ResourcePathExpression | ArchiveTree,
+    **kwargs: Any,
+) -> ReadResult[Any]:
+    """Read an object using a known `.serialization.ArchiveTree` subclass
+    instead of an in-memory type.
+
+    Parameters
+    ----------
+    tree_cls
+        The `.serialization.ArchiveTree` subclass that describes the
+        file's top-level tree.  This function parameterises it with the
+        JSON pointer model.
+    target
+        File to read (convertible to `lsst.resources.ResourcePath`) or
+        an already-validated `.serialization.ArchiveTree` whose
+        ``indirect`` list will be interpreted and then cleared.
+    **kwargs
+        Extra keyword arguments passed to ``tree.deserialize``.
+
+    Returns
+    -------
+    ReadResult
+        Named tuple of the deserialised object, its metadata, and any
+        butler info.
+    """
+    parameterized = parameterize_tree(tree_cls, JsonRef)
     if not isinstance(target, ArchiveTree):
-        target = tree_type.model_validate_json(ResourcePath(target).read())
+        target = parameterized.model_validate_json(ResourcePath(target).read())
     archive = JsonInputArchive(target.indirect)
-    obj: T = target.deserialize(archive, **kwargs)
+    obj = target.deserialize(archive, **kwargs)
     target.indirect = []
     return ReadResult(obj, target.metadata, target.butler_info)
 

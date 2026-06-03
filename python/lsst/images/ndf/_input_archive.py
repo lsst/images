@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("NdfInputArchive", "read")
+__all__ = ("NdfInputArchive", "read", "read_tree")
 
 import json
 import logging
@@ -46,6 +46,7 @@ from ..serialization import (
     ReadResult,
     TableModel,
     no_header_updates,
+    parameterize_tree,
 )
 from ..serialization._common import _check_format_version
 from . import _hds
@@ -300,14 +301,60 @@ def read[T: Any](cls: type[T], path: ResourcePathExpression, **kwargs: Any) -> R
     `~lsst.images.serialization.ReadResult` [T]
         Named tuple of (deserialized object, metadata, butler_info).
     """
+    # Peek at the file to choose the symmetric vs auto-detect path.  We
+    # can't open it once and switch because read_tree opens its own
+    # archive; the alternative would be to push the auto-detect logic
+    # into read_tree, which would couple it to NDF specifics that
+    # symmetric reads don't need.
     with NdfInputArchive.open(path) as archive:
-        if archive._get_main_json_path() is not None:
-            tree_type = cls._get_archive_tree_type(NdfPointerModel)
-            tree = archive.get_tree(tree_type)
-            obj = tree.deserialize(archive, **kwargs)
+        if archive._get_main_json_path() is None:
+            return _read_auto_detect(cls, archive)
+    return read_tree(cls._get_archive_tree_type(NdfPointerModel), path, **kwargs)
+
+
+def read_tree(
+    tree_cls: type[ArchiveTree],
+    path: ResourcePathExpression,
+    **kwargs: Any,
+) -> ReadResult[Any]:
+    """Read an object using a known `.serialization.ArchiveTree` subclass
+    instead of an in-memory type.
+
+    Parameters
+    ----------
+    tree_cls
+        The `.serialization.ArchiveTree` subclass that describes the
+        file's top-level tree.  This function parameterises it with the
+        NDF pointer model.
+    path
+        File to read; convertible to `lsst.resources.ResourcePath`.
+    **kwargs
+        Extra keyword arguments passed to ``tree.deserialize``.
+
+    Returns
+    -------
+    ReadResult
+        Named tuple of the deserialised object, its metadata, and any
+        butler info.
+
+    Notes
+    -----
+    Only the symmetric (LSST JSON tree) read path is supported.  Files
+    without ``/MORE/LSST/JSON`` must be read via `read`, which falls
+    back to the auto-detect path for `~lsst.images.Image` /
+    `~lsst.images.MaskedImage`.
+    """
+    parameterized = parameterize_tree(tree_cls, NdfPointerModel)
+    with NdfInputArchive.open(path) as archive:
+        if archive._get_main_json_path() is None:
+            raise ArchiveReadError(
+                f"{path!r} has no LSST JSON tree; read_tree requires the symmetric read path."
+            )
+        tree = archive.get_tree(parameterized)
+        obj = tree.deserialize(archive, **kwargs)
+        if hasattr(obj, "_opaque_metadata"):
             obj._opaque_metadata = archive.get_opaque_metadata()
-            return ReadResult(obj, tree.metadata, tree.butler_info)
-        return _read_auto_detect(cls, archive)
+        return ReadResult(obj, tree.metadata, tree.butler_info)
 
 
 def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadResult[T]:
