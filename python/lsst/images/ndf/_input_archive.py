@@ -84,33 +84,32 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
     def get_basic_info(cls, path: ResourcePathExpression) -> ArchiveInfo:
         """Read the top-level ``JSON`` tree's ``schema_url`` and the
         ``FORMAT_VERSION`` primitive without deserializing pixel data.
+
+        The top-level tree lives at the fixed location ``/MORE/LSST/JSON``
+        (or ``/LSST/JSON``); we read only those and never search at arbitrary
+        depth, so nested pointer trees cannot be mistaken for the top level.
         """
         ospath = ResourcePath(path).ospath
         schema_url: str | None = None
         format_version = 1
 
-        def visit(name: str, item: object) -> bool | None:
-            nonlocal schema_url
-            if isinstance(item, h5py.Dataset) and name.rsplit("/", 1)[-1] == "JSON":
-                try:
-                    payload = np.asarray(item).tobytes()
-                    obj = json.loads(payload.decode("utf-8").rstrip("\x00").strip())
-                except (UnicodeDecodeError, ValueError, TypeError):
-                    return None
-                if isinstance(obj, dict) and obj.get("schema_url"):
-                    schema_url = obj["schema_url"]
-                    return True
-            return None
-
         with h5py.File(ospath, "r") as handle:
-            handle.visititems(visit)
             for prefix in ("MORE/LSST", "LSST"):
-                node = handle.get(f"{prefix}/FORMAT_VERSION")
-                if node is not None:
-                    format_version = int(np.asarray(node).item())
-                    break
-        if schema_url is None:
-            raise ArchiveReadError(f"Could not locate the top-level JSON tree in {path!r}.")
+                json_node = handle.get(f"{prefix}/JSON")
+                if not isinstance(json_node, h5py.Dataset):
+                    continue
+                payload = np.asarray(json_node).tobytes()
+                obj = json.loads(payload.decode("utf-8").rstrip("\x00").strip())
+                if isinstance(obj, dict):
+                    schema_url = obj.get("schema_url")
+                fmt_node = handle.get(f"{prefix}/FORMAT_VERSION")
+                if fmt_node is not None:
+                    format_version = int(np.asarray(fmt_node).item())
+                break
+        if not schema_url:
+            raise ArchiveReadError(
+                f"Could not read the top-level JSON tree of {path!r} at /MORE/LSST/JSON or /LSST/JSON."
+            )
         return ArchiveInfo.from_schema_url(schema_url, format_version=format_version)
 
     @classmethod

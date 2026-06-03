@@ -10,6 +10,7 @@
 # license that can be found in the LICENSE file.
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -93,7 +94,10 @@ class FitsBasicInfoTestCase(unittest.TestCase):
 
 
 try:
-    import h5py  # noqa: F401
+    import h5py
+
+    from lsst.images import ndf as images_ndf
+    from lsst.images.ndf import NdfInputArchive
 
     HAVE_H5PY = True
 except ImportError:
@@ -111,9 +115,6 @@ class NdfBasicInfoTestCase(unittest.TestCase):
         self.image = Image(np.zeros((4, 4), dtype=np.float32), bbox=Box.factory[0:4, 0:4])
 
     def test_ndf_basic_info(self) -> None:
-        from lsst.images import ndf as images_ndf
-        from lsst.images.ndf import NdfInputArchive
-
         path = os.path.join(self.tmp, "x.sdf")
         images_ndf.write(self.image, path)
         info = NdfInputArchive.get_basic_info(path)
@@ -121,3 +122,16 @@ class NdfBasicInfoTestCase(unittest.TestCase):
         self.assertEqual(info.schema_version, "1.0.0")
         self.assertEqual(info.schema_url, "https://images.lsst.io/schemas/image-1.0.0")
         self.assertEqual(info.format_version, 1)
+
+    def test_ndf_basic_info_ignores_nested_json(self) -> None:
+        path = os.path.join(self.tmp, "nested.sdf")
+        images_ndf.write(self.image, path)
+        # Inject a nested pointer-tree JSON alongside the top-level one; it
+        # sorts before "JSON" so a depth-first scan would hit it first.
+        payload = json.dumps({"schema_url": "https://images.lsst.io/schemas/aaa_child-9.9.9"})
+        with h5py.File(path, "a") as handle:
+            child = handle.require_group("MORE/LSST/AAA")
+            child.create_dataset("JSON", data=np.frombuffer(payload.encode("utf-8"), dtype=np.uint8))
+        info = NdfInputArchive.get_basic_info(path)
+        self.assertEqual(info.schema_name, "image")
+        self.assertEqual(info.schema_url, "https://images.lsst.io/schemas/image-1.0.0")
