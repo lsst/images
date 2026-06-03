@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-__all__ = ("class_for_schema", "parameterize_tree", "read", "register_schema_class")
+__all__ = ("class_for_schema", "parameterize_tree", "read", "register_schema_class", "write")
 
 import typing
 from typing import Any, cast
@@ -168,3 +168,30 @@ def read(
             f"for {path!r}."
         )
     return cast(ReadResult[Any], backend.read_tree(tree_cls, path, **kwargs))
+
+
+def write(obj: Any, path: str, **kwargs: Any) -> Any:
+    """Write ``obj`` to ``path``, dispatching by file extension.
+
+    Forwards ``**kwargs`` to the per-backend ``write`` (e.g.
+    ``compression_options`` for FITS).  No registry lookup is performed:
+    the per-backend ``write`` already accepts any object with a
+    ``serialize`` method.
+
+    Parameters
+    ----------
+    obj
+        Object to write; must implement ``serialize`` like the per-backend
+        write functions expect.
+    path
+        Destination path.  The extension selects the backend.
+    **kwargs
+        Forwarded verbatim to the backend's ``write``.
+
+    Returns
+    -------
+    Any
+        Whatever the per-backend ``write`` returns (the serialised
+        archive tree).
+    """
+    return backend_for_path(path).write(obj, path, **kwargs)

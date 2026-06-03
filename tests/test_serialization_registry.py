@@ -11,12 +11,15 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any, ClassVar
 
-import lsst.images  # import for side-effect class registration
+import lsst.images  # registers schema classes
 import lsst.images.cells  # noqa: F401  -- side-effect import: registers cell schemas
+from lsst.images import Projection, VisitImage
 from lsst.images._image import ImageSerializationModel
 from lsst.images._visit_image import VisitImageSerializationModel
-from lsst.images.serialization import class_for_schema
+from lsst.images.serialization import ArchiveTree, class_for_schema
+from lsst.images.serialization._io import _REGISTRY, _public_type, register_schema_class
 
 
 class ClassForSchemaTestCase(unittest.TestCase):
@@ -40,10 +43,6 @@ class RegistrationTestCase(unittest.TestCase):
         self.assertIs(cls, ImageSerializationModel)
 
     def test_duplicate_registration_raises(self) -> None:
-        from typing import ClassVar
-
-        from lsst.images.serialization._io import register_schema_class
-
         # Re-registering the same class is a no-op.
         register_schema_class(VisitImageSerializationModel)
 
@@ -62,9 +61,6 @@ class PublicTypeTestCase(unittest.TestCase):
     """The internal _public_type helper resolves deserialize's return."""
 
     def test_concrete_return_annotation(self) -> None:
-        from lsst.images import VisitImage
-        from lsst.images.serialization._io import _public_type
-
         cls = class_for_schema("visit_image", "1.0.0")
         assert cls is not None  # for type checkers
         self.assertIs(_public_type(cls), VisitImage)
@@ -72,9 +68,6 @@ class PublicTypeTestCase(unittest.TestCase):
     def test_parameterised_generic_unwrapped(self) -> None:
         # ProjectionSerializationModel.deserialize returns Projection[Any];
         # _public_type should unwrap to Projection.
-        from lsst.images import Projection
-        from lsst.images.serialization._io import _public_type
-
         cls = class_for_schema("projection", "1.0.0")
         assert cls is not None
         self.assertIs(_public_type(cls), Projection)
@@ -82,12 +75,6 @@ class PublicTypeTestCase(unittest.TestCase):
     def test_any_return_annotation(self) -> None:
         # The abstract base ArchiveTree returns Any; if a concrete subclass
         # ever does the same, _public_type must return None.
-        from typing import Any, ClassVar
-
-        from lsst.images.serialization import ArchiveTree
-        from lsst.images.serialization._io import _REGISTRY, _public_type
-
-        # Construct a stand-alone ArchiveTree subclass with an Any return.
         class _AnyTree(ArchiveTree):
             SCHEMA_NAME: ClassVar[str] = "_any_tree_test"
             SCHEMA_VERSION: ClassVar[str] = "1.0.0"
@@ -108,8 +95,6 @@ def _all_concrete_archive_tree_subclasses() -> list[type]:
     """Walk ArchiveTree's subclass tree and return all concrete subclasses
     that declare SCHEMA_NAME (i.e. are real schema-bearing leaves).
     """
-    from lsst.images.serialization import ArchiveTree
-
     seen: list[type] = []
     stack: list[type] = list(ArchiveTree.__subclasses__())
     while stack:
@@ -126,8 +111,6 @@ class ClassInvariantsTestCase(unittest.TestCase):
     """
 
     def test_every_subclass_registered(self) -> None:
-        from lsst.images.serialization._io import _REGISTRY
-
         # Test-local classes from other test methods may linger in
         # __subclasses__ after their cleanup runs; restrict the check to
         # classes whose modules belong to the package itself.
@@ -142,8 +125,6 @@ class ClassInvariantsTestCase(unittest.TestCase):
         self.assertEqual(missing, [], f"Unregistered subclasses: {missing}")
 
     def test_every_registered_class_resolves_public_type(self) -> None:
-        from lsst.images.serialization._io import _REGISTRY, _public_type
-
         # Restrict to package-local classes; test-only ArchiveTree
         # subclasses (e.g. tests/test_schema_versioning.py's
         # _DummyArchiveTree) may register but intentionally have no
