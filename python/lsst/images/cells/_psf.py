@@ -109,7 +109,7 @@ class CellPointSpreadFunction(PointSpreadFunction):
             case CellIJ():
                 if key in self._bounds.missing:
                     raise BoundsError(f"Cell {key} is missing for this PSF.")
-                index = key - self._bounds.grid_start
+                index = key - self._bounds.subgrid_start
                 try:
                     return Image(self._array[index.i, index.j], bbox=self.kernel_bbox)
                 except IndexError:
@@ -177,18 +177,13 @@ class CellPointSpreadFunction(PointSpreadFunction):
         # Allocate and populate the array.
         psf_image_size_y, psf_image_size_x = legacy_psf.images.arbitrary.array.shape
         array = np.zeros(
-            (
-                bounds.bbox.y.size // grid.cell_shape.y,
-                bounds.bbox.x.size // grid.cell_shape.x,
-                psf_image_size_y,
-                psf_image_size_x,
-            ),
+            (bounds.subgrid_size.i, bounds.subgrid_size.j, psf_image_size_y, psf_image_size_x),
             dtype=np.float64,
         )
         missing: set[CellIJ] = set()
         for cell_index in bounds.cell_indices():
             legacy_index = cell_index.to_legacy()
-            array_index = cell_index - bounds.grid_start
+            array_index = cell_index - bounds.subgrid_start
             if legacy_index in legacy_psf.images:
                 array[array_index.i, array_index.j] = legacy_psf.images[legacy_index].array
             else:
@@ -201,8 +196,8 @@ class CellPointSpreadFunction(PointSpreadFunction):
     @staticmethod
     def _subset_impl(bounds: CellGridBounds, bbox: Box) -> tuple[CellGridBounds, YX[slice]]:
         subset_bounds = bounds[bbox]
-        start = subset_bounds.grid_start - bounds.grid_start
-        stop = subset_bounds.grid_stop - bounds.grid_start
+        start = subset_bounds.subgrid_start - bounds.subgrid_start
+        stop = subset_bounds.subgrid_stop - bounds.subgrid_start
         return subset_bounds, YX(y=slice(start.i, stop.i), x=slice(start.j, stop.j))
 
 

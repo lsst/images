@@ -371,14 +371,14 @@ def _subset_cell_coadd(
 
     grid = block.grid
     cs = grid.cell_shape
-    start = block.bounds.grid_start
-    stop = block.bounds.grid_stop
+    start = block.bounds.subgrid_start
+    stop = block.bounds.subgrid_stop
     n_i = stop.i - start.i
     n_j = stop.j - start.j
 
     # 2. Build a tiny full-patch grid with the same cell *count* as the
     #    original patch but ``cell_size`` pixels per cell, anchored at (0, 0).
-    full_shape = grid.grid_shape
+    full_shape = grid.grid_size
     new_grid = CellGrid(
         bbox=Box.factory[0 : full_shape.i * cell_size, 0 : full_shape.j * cell_size],
         cell_shape=YX(y=cell_size, x=cell_size),
@@ -488,8 +488,8 @@ def _choose_block_bbox(cell_coadd: CellCoadd) -> Box:
     """
     bounds = cell_coadd.bounds
     grid = bounds.grid
-    start = bounds.grid_start
-    stop = bounds.grid_stop
+    start = bounds.subgrid_start
+    stop = bounds.subgrid_stop
     span_i = min(2, stop.i - start.i)
     span_j = min(2, stop.j - start.j)
 

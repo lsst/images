@@ -36,11 +36,11 @@ from ._geom import YX, Bounds, Box
 
 if TYPE_CHECKING:
     try:
-        from lsst.cell_coadds import UniformGrid
-        from lsst.skymap import Index2D
+        from lsst.cell_coadds import UniformGrid as LegacyUniformGrid
+        from lsst.skymap import Index2D as LegacyIndex2D
     except ImportError:
-        type UniformGrid = Any  # type: ignore[no-redef]
-        type Index2D = Any  # type: ignore[no-redef]
+        type LegacyUniformGrid = Any  # type: ignore[no-redef]
+        type LegacyIndex2D = Any  # type: ignore[no-redef]
 
 
 @dataclasses.dataclass(frozen=True, order=True)
@@ -68,7 +68,7 @@ class CellIJ:
         return CellIJ(i=self.i - other.i, j=self.j - other.j)
 
     @staticmethod
-    def from_legacy(legacy_index: Index2D) -> CellIJ:
+    def from_legacy(legacy_index: LegacyIndex2D) -> CellIJ:
         """Convert from a legacy `lsst.skymap.Index2D` instance.
 
         Notes
@@ -77,16 +77,20 @@ class CellIJ:
         """
         return CellIJ(i=legacy_index.y, j=legacy_index.x)
 
-    def to_legacy(self) -> Index2D:
+    def to_legacy(self) -> LegacyIndex2D:
         """Convert to a legacy `lsst.skymap.Index2D` instance.
 
         Notes
         -----
         `lsst.skymap.Index2D` is ordered ``(x, y)``, i.e. ``(j, i)``.
         """
-        from lsst.skymap import Index2D
+        from lsst.skymap import Index2D as LegacyIndex2D
 
-        return Index2D(x=self.j, y=self.i)
+        return LegacyIndex2D(x=self.j, y=self.i)
+
+    def as_tuple(self) -> tuple[int, int]:
+        """Convert to an (i, j) `tuple`."""
+        return (self.i, self.j)
 
 
 class CellGrid(pydantic.BaseModel, frozen=True):
@@ -111,7 +115,7 @@ class CellGrid(pydantic.BaseModel, frozen=True):
     cell_shape: YX[int] = pydantic.Field(description="Shape of each cell in pixels.")
 
     @property
-    def grid_shape(self) -> CellIJ:
+    def grid_size(self) -> CellIJ:
         """The number of cells in each dimension (`CellIJ`)."""
         return CellIJ(i=self.bbox.y.size // self.cell_shape.y, j=self.bbox.x.size // self.cell_shape.x)
 
@@ -141,8 +145,8 @@ class CellGrid(pydantic.BaseModel, frozen=True):
         )
 
     @staticmethod
-    def from_legacy(legacy: UniformGrid) -> CellGrid:
-        """Construct from a legacy grid object.
+    def from_legacy(legacy: LegacyUniformGrid) -> CellGrid:
+        """Construct from a legacy `lsst.cell_coadds.UniformGrid` object.
 
         Parameters
         ----------
@@ -154,6 +158,16 @@ class CellGrid(pydantic.BaseModel, frozen=True):
         bbox = Box.from_legacy(legacy.bbox)
         cell_shape = YX(y=legacy.cell_size.y, x=legacy.cell_size.x)
         return CellGrid(bbox=bbox, cell_shape=cell_shape)
+
+    def to_legacy(self) -> LegacyUniformGrid:
+        """Convert to a legacy `lsst.cell_coadds.UniformGrid` object."""
+        from lsst.cell_coadds import UniformGrid as LegacyUniformGrid
+
+        return LegacyUniformGrid(
+            self.cell_shape.to_legacy_extent(),
+            self.grid_size.to_legacy(),
+            min=self.bbox.min_yx.to_legacy_point(),
+        )
 
 
 class CellGridBounds(pydantic.BaseModel, frozen=True):
@@ -181,18 +195,25 @@ class CellGridBounds(pydantic.BaseModel, frozen=True):
     )
 
     @cached_property
-    def grid_start(self) -> CellIJ:
+    def subgrid_start(self) -> CellIJ:
         """The index of the first cell in this bounds' bounding box within
         its grid.
         """
         return self.grid.index_of(y=self.bbox.y.start, x=self.bbox.x.start)
 
     @cached_property
-    def grid_stop(self) -> CellIJ:
+    def subgrid_stop(self) -> CellIJ:
         """One-past-the-last indices for the cells in these bounds, within
         its grid.
         """
         return self.grid.index_of(y=self.bbox.y.stop, x=self.bbox.x.stop)
+
+    @cached_property
+    def subgrid_size(self) -> CellIJ:
+        """Number of cells within these bounds in both dimensions, not
+        accounting for `missing`.
+        """
+        return self.subgrid_stop - self.subgrid_start
 
     @overload
     def contains(self, *, x: int, y: int) -> bool: ...
@@ -241,8 +262,8 @@ class CellGridBounds(pydantic.BaseModel, frozen=True):
     def contains_cell(self, index: CellIJ) -> bool:
         """Test whether the given cell is in the bounds."""
         return (
-            (index.i >= self.grid_start.i and index.i < self.grid_stop.i)
-            and (index.j >= self.grid_start.j and index.j < self.grid_stop.j)
+            (index.i >= self.subgrid_start.i and index.i < self.subgrid_stop.i)
+            and (index.j >= self.subgrid_start.j and index.j < self.subgrid_stop.j)
             and index not in self.missing
         )
 
@@ -253,8 +274,8 @@ class CellGridBounds(pydantic.BaseModel, frozen=True):
 
     def cell_indices(self) -> Iterator[CellIJ]:
         """Iterate over the indices of the cells in these bounds."""
-        for i in range(self.grid_start.i, self.grid_stop.i):
-            for j in range(self.grid_start.j, self.grid_stop.j):
+        for i in range(self.subgrid_start.i, self.subgrid_stop.i):
+            for j in range(self.subgrid_start.j, self.subgrid_stop.j):
                 index = CellIJ(i=i, j=j)
                 if index not in self.missing:
                     yield index
