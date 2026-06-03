@@ -153,5 +153,24 @@ class GenericWriteRoundTripTestCase(unittest.TestCase):
         np.testing.assert_array_equal(result.deserialized.array, self.image.array)
 
 
+class GenericReadKwargsTestCase(unittest.TestCase):
+    """**kwargs forwarded by read() reach the backend deserialize."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+
+    def test_bbox_subset_fits(self) -> None:
+        img = Image(np.arange(64, dtype=np.float32).reshape(8, 8), bbox=Box.factory[0:8, 0:8])
+        path = os.path.join(self.tmp, "x.fits")
+        write(img, path)
+        # Read a 4x4 subset.  bbox is the FITS-specific kwarg understood
+        # by Image.deserialize; the generic read must forward it.
+        sub = read(path, bbox=Box.factory[2:6, 2:6])
+        self.assertEqual(sub.deserialized.array.shape, (4, 4))
+        np.testing.assert_array_equal(sub.deserialized.array, img.array[2:6, 2:6])
+
+
 if __name__ == "__main__":
     unittest.main()
