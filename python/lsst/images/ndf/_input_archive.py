@@ -112,6 +112,30 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
 
     @classmethod
     @contextmanager
+    def open_tree(
+        cls,
+        path: ResourcePathExpression,
+        tree_cls: type[ArchiveTree],
+        *,
+        partial: bool = True,
+        **backend_kwargs: Any,
+    ) -> Iterator[tuple[Self, ArchiveTree]]:
+        """Open the NDF file and yield ``(archive, tree)``.
+
+        Requires the symmetric LSST JSON tree; ``partial`` is accepted but
+        not meaningful, since h5py reads lazily regardless.
+        """
+        parameterized = parameterize_tree(tree_cls, NdfPointerModel)
+        with cls.open(path) as archive:
+            if archive._get_main_json_path() is None:
+                raise ArchiveReadError(
+                    f"{path!r} has no LSST JSON tree; open_tree requires the symmetric read path."
+                )
+            tree = archive.get_tree(parameterized)
+            yield archive, tree
+
+    @classmethod
+    @contextmanager
     def open(cls, path: ResourcePathExpression) -> Iterator[Self]:
         """Open an NDF file for reading and yield an `NdfInputArchive`.
 
@@ -341,13 +365,7 @@ def read_tree(
     back to the auto-detect path for `~lsst.images.Image` /
     `~lsst.images.MaskedImage`.
     """
-    parameterized = parameterize_tree(tree_cls, NdfPointerModel)
-    with NdfInputArchive.open(path) as archive:
-        if archive._get_main_json_path() is None:
-            raise ArchiveReadError(
-                f"{path!r} has no LSST JSON tree; read_tree requires the symmetric read path."
-            )
-        tree = archive.get_tree(parameterized)
+    with NdfInputArchive.open_tree(path, tree_cls) as (archive, tree):
         obj = tree.deserialize(archive, **kwargs)
         if hasattr(obj, "_opaque_metadata"):
             obj._opaque_metadata = archive.get_opaque_metadata()
