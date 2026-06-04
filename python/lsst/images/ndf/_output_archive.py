@@ -415,7 +415,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             )
             self._document.ensure_ndf("/MORE/LSST/MASK").set_wcs(NdfWcs(_hds.encode_ndf_ast_data(mask_text)))
 
-    def serialize_direct[T: pydantic.BaseModel](
+    def serialize_direct[T: pydantic.BaseModel | None](
         self, name: str, serializer: Callable[[OutputArchive[NdfPointerModel]], T]
     ) -> T:
         nested = NestedOutputArchive[NdfPointerModel](name, self)

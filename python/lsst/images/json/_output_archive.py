@@ -92,7 +92,7 @@ class JsonOutputArchive(OutputArchive[JsonRef]):
         self._indirect: list[Any] = []
         self._frame_sets: list[tuple[FrameSet, JsonRef]] = []
 
-    def serialize_direct[T: pydantic.BaseModel](
+    def serialize_direct[T: pydantic.BaseModel | None](
         self, name: str, serializer: Callable[[OutputArchive[JsonRef]], T]
     ) -> T:
         nested = NestedOutputArchive[JsonRef](name, self)

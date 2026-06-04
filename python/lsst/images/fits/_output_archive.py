@@ -215,7 +215,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         with open(filename, "r+b") as stream:
             stream.write(archive._primary_hdu.header.tostring().encode())
 
-    def serialize_direct[T: pydantic.BaseModel](
+    def serialize_direct[T: pydantic.BaseModel | None](
         self, name: str, serializer: Callable[[OutputArchive[PointerModel]], T]
     ) -> T:
         nested = NestedOutputArchive[PointerModel](name, self)

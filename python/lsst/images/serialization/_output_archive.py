@@ -56,7 +56,7 @@ class OutputArchive[P](ABC):
     """
 
     @abstractmethod
-    def serialize_direct[T: pydantic.BaseModel](
+    def serialize_direct[T: pydantic.BaseModel | None](
         self, name: str, serializer: Callable[[OutputArchive], T]
     ) -> T:
         """Use a serializer function to save a nested object.
@@ -304,7 +304,7 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         self._root = root
         self._parent = parent
 
-    def serialize_direct[T: pydantic.BaseModel](
+    def serialize_direct[T: pydantic.BaseModel | None](
         self, name: str, serializer: Callable[[OutputArchive[P]], T]
     ) -> T:
         return self._parent.serialize_direct(self._join_path(name), serializer)
