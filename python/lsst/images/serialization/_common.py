@@ -51,6 +51,12 @@ type MetadataValue = (
     pydantic.StrictInt | pydantic.StrictFloat | pydantic.StrictStr | pydantic.StrictBool | None
 )
 
+SCHEMA_URL_HOST = "images.lsst.io"
+"""Canonical hostname for lsst.images schema URLs."""
+
+SCHEMA_URL_BASE = f"https://{SCHEMA_URL_HOST}/schemas"
+"""Base for schema URLs, used as ``{SCHEMA_URL_BASE}/{name}-{version}``."""
+
 
 class ButlerInfo(pydantic.BaseModel):
     """Information about a butler dataset."""
@@ -118,7 +124,7 @@ class ArchiveTree(
         Computed from ``SCHEMA_NAME`` and ``SCHEMA_VERSION`` ClassVars.
         """
         cls = type(self)
-        return f"https://images.lsst.io/schemas/{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION}"
+        return f"{SCHEMA_URL_BASE}/{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION}"
 
     @pydantic.model_validator(mode="after")
     def _check_and_normalize_schema_version(self) -> Self:
@@ -166,7 +172,7 @@ class ArchiveTree(
         json_schema_extra = cls.model_config.get("json_schema_extra") or {}
         if isinstance(json_schema_extra, dict):
             existing = dict(json_schema_extra)
-            existing.setdefault("$id", f"https://images.lsst.io/schemas/{name}-{version}")
+            existing.setdefault("$id", f"{SCHEMA_URL_BASE}/{name}-{version}")
             existing.setdefault("title", name)
             cls.model_config = {**cls.model_config, "json_schema_extra": existing}
         # Local import to avoid the _io -> _common circular dependency at

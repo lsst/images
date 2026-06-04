@@ -27,7 +27,7 @@ import pydantic
 from lsst.resources import ResourcePath, ResourcePathExpression
 
 from ._asdf_utils import ArrayReferenceModel, InlineArrayModel
-from ._common import ArchiveTree, OpaqueArchiveMetadata, no_header_updates
+from ._common import SCHEMA_URL_HOST, ArchiveTree, OpaqueArchiveMetadata, no_header_updates
 from ._tables import TableModel
 
 if TYPE_CHECKING:
@@ -37,10 +37,6 @@ if TYPE_CHECKING:
 # This pre-python-3.12 declaration is needed by Sphinx (probably the
 # autodoc-typehints plugin.
 P = TypeVar("P", bound=pydantic.BaseModel)
-
-
-_SCHEMA_URL_HOST = "images.lsst.io"
-"""Canonical hostname for lsst.images schema URLs."""
 
 
 class ArchiveInfo(pydantic.BaseModel, frozen=True):
@@ -72,9 +68,9 @@ class ArchiveInfo(pydantic.BaseModel, frozen=True):
         by an unrelated tool cannot steer reads toward an arbitrary schema.
         """
         parsed = ResourcePath(schema_url)
-        if parsed.netloc != _SCHEMA_URL_HOST:
+        if parsed.netloc != SCHEMA_URL_HOST:
             raise ValueError(
-                f"Schema URL {schema_url!r} is not hosted at {_SCHEMA_URL_HOST!r}; "
+                f"Schema URL {schema_url!r} is not hosted at {SCHEMA_URL_HOST!r}; "
                 "this file was not written by lsst.images."
             )
         tail = parsed.basename()
