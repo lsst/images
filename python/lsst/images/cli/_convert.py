@@ -14,11 +14,16 @@ __all__ = ("convert",)
 
 import os
 import tempfile
+from typing import TYPE_CHECKING, Any
 
 import astropy.io.fits
 import click
 
-from ..serialization import backend_for_path
+from ..serialization import backend_for_path, write
+
+if TYPE_CHECKING:
+    from .. import VisitImage
+    from ..cells import CellCoadd
 
 _LEGACY_TYPES = ("visit_image", "cell_coadd")
 
@@ -50,7 +55,7 @@ def detect_legacy_type(path: str) -> str | None:
     return None
 
 
-def _load_skymap(skymap: str | None, butler: str | None, collection: str | None, skymap_name: str):
+def _load_skymap(skymap: str | None, butler: str | None, collection: str | None, skymap_name: str) -> Any:
     """Load a skymap object from a pickle path or a butler repository."""
     if skymap is not None:
         import pickle
@@ -62,8 +67,8 @@ def _load_skymap(skymap: str | None, butler: str | None, collection: str | None,
             raise click.ClickException("--butler also requires --collection (the skymap's collection).")
         from lsst.daf.butler import Butler
 
-        repo = Butler.from_config(butler)
-        return repo.get("skyMap", skymap=skymap_name, collections=collection)
+        with Butler.from_config(butler) as repo:
+            return repo.get("skyMap", skymap=skymap_name, collections=collection)
     raise click.ClickException("Converting a cell coadd requires --skymap (a pickled skymap) or --butler.")
 
 
@@ -73,7 +78,7 @@ def _read_legacy(
     skymap: str | None,
     butler: str | None,
     collection: str | None,
-):
+) -> VisitImage | CellCoadd:
     """Read a legacy FITS file into the corresponding lsst.images object."""
     if legacy_type == "visit_image":
         from .. import VisitImage
@@ -169,6 +174,6 @@ def convert(
     output_dir = os.path.dirname(output_abs)
     with tempfile.TemporaryDirectory(dir=output_dir) as staging:
         staged = os.path.join(staging, os.path.basename(output_abs))
-        backend.write(obj, staged)
+        write(obj, staged)
         os.replace(staged, output_abs)
     click.echo(f"Wrote {output} ({backend.name}, {legacy_type}).")
