@@ -24,7 +24,7 @@ import astropy.units
 import numpy as np
 import pydantic
 
-from lsst.resources import ResourcePathExpression
+from lsst.resources import ResourcePath, ResourcePathExpression
 
 from ._asdf_utils import ArrayReferenceModel, InlineArrayModel
 from ._common import ArchiveTree, OpaqueArchiveMetadata, no_header_updates
@@ -37,6 +37,10 @@ if TYPE_CHECKING:
 # This pre-python-3.12 declaration is needed by Sphinx (probably the
 # autodoc-typehints plugin.
 P = TypeVar("P", bound=pydantic.BaseModel)
+
+
+_SCHEMA_URL_HOST = "images.lsst.io"
+"""Canonical hostname for lsst.images schema URLs."""
 
 
 class ArchiveInfo(pydantic.BaseModel, frozen=True):
@@ -61,9 +65,19 @@ class ArchiveInfo(pydantic.BaseModel, frozen=True):
     @classmethod
     def from_schema_url(cls, schema_url: str, *, format_version: int | None) -> ArchiveInfo:
         """Build an `ArchiveInfo` by parsing a schema URL of the form
-        ``.../schemas/{name}-{version}``.
+        ``https://images.lsst.io/schemas/{name}-{version}``.
+
+        The URL is parsed with `~lsst.resources.ResourcePath` and its
+        hostname must be ``images.lsst.io``, so a ``DATAMODL`` header written
+        by an unrelated tool cannot steer reads toward an arbitrary schema.
         """
-        tail = schema_url.rsplit("/", 1)[-1]
+        parsed = ResourcePath(schema_url)
+        if parsed.netloc != _SCHEMA_URL_HOST:
+            raise ValueError(
+                f"Schema URL {schema_url!r} is not hosted at {_SCHEMA_URL_HOST!r}; "
+                "this file was not written by lsst.images."
+            )
+        tail = parsed.basename()
         # Split on the last hyphen: schema names may contain hyphens; the
         # version (after the final hyphen) is assumed not to.
         name, _, version = tail.rpartition("-")

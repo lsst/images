@@ -44,13 +44,19 @@ class ArchiveInfoTestCase(unittest.TestCase):
         self.assertIsNone(info.format_version)
 
     def test_frozen(self) -> None:
-        info = ArchiveInfo.from_schema_url("https://x/schemas/image-1.0.0", format_version=None)
+        info = ArchiveInfo.from_schema_url("https://images.lsst.io/schemas/image-1.0.0", format_version=None)
         with self.assertRaises(pydantic.ValidationError):
             info.schema_name = "other"  # type: ignore[misc]
 
     def test_from_schema_url_invalid(self) -> None:
         with self.assertRaises(ValueError):
             ArchiveInfo.from_schema_url("https://images.lsst.io/schemas/noversion", format_version=None)
+
+    def test_from_schema_url_foreign_host(self) -> None:
+        # A DATAMODL header pointing at another host must be rejected so a
+        # file not written by lsst.images cannot select an arbitrary schema.
+        with self.assertRaises(ValueError):
+            ArchiveInfo.from_schema_url("https://evil.example.com/schemas/image-1.0.0", format_version=None)
 
     def test_get_basic_info_base_raises(self) -> None:
         with self.assertRaises(NotImplementedError):
