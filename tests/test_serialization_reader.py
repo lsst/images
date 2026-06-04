@@ -117,16 +117,28 @@ class ReaderApiTestCase(unittest.TestCase):
         self.fits = os.path.join(self.tmp, "v.fits")
         images_fits.write(self.vi, self.fits)
 
-    def test_components_and_read(self) -> None:
+    def _check_components_and_read(self, path: str) -> None:
         import lsst.images.serialization as ser
 
-        with ser.open(self.fits) as reader:
-            proj = reader.get_component("projection")
-            obs = reader.get_component("obs_info")
-            self.assertIsNotNone(proj)
-            self.assertIsNotNone(obs)
+        with ser.open(path) as reader:
+            self.assertIsNotNone(reader.get_component("projection"))
+            self.assertIsNotNone(reader.get_component("obs_info"))
             full = reader.read()
             self.assertEqual(type(full).__name__, "VisitImage")
+
+    def test_components_and_read_fits(self) -> None:
+        self._check_components_and_read(self.fits)
+
+    def test_components_and_read_json(self) -> None:
+        path = os.path.join(self.tmp, "v.json")
+        images_json.write(self.vi, path)
+        self._check_components_and_read(path)
+
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not available.")
+    def test_components_and_read_ndf(self) -> None:
+        path = os.path.join(self.tmp, "v.sdf")
+        images_ndf.write(self.vi, path)
+        self._check_components_and_read(path)
 
     def test_info(self) -> None:
         import lsst.images.serialization as ser
@@ -134,6 +146,7 @@ class ReaderApiTestCase(unittest.TestCase):
         with ser.open(self.fits) as reader:
             self.assertEqual(reader.info.schema_name, "visit_image")
             self.assertEqual(reader.info.schema_version, "1.0.0")
+            self.assertIsInstance(reader.metadata, dict)
 
     def test_cls_match(self) -> None:
         import lsst.images.serialization as ser

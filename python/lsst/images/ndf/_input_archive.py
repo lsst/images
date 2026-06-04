@@ -129,7 +129,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         with cls.open(path) as archive:
             if archive._get_main_json_path() is None:
                 raise ArchiveReadError(
-                    f"{path!r} has no LSST JSON tree; open_tree requires the symmetric read path."
+                    f"{path!r} has no LSST JSON tree; only the symmetric read path is supported."
                 )
             tree = archive.get_tree(parameterized)
             yield archive, tree
