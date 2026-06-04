@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-__all__ = ("class_for_schema", "register_schema_class")
+__all__ = ("class_for_schema", "parameterize_tree", "register_schema_class")
 
 import typing
 from typing import Any
@@ -58,6 +58,22 @@ def register_schema_class(cls: type[ArchiveTree]) -> None:
             f"replace it with {cls.__qualname__}."
         )
     _REGISTRY[key] = cls
+
+
+def parameterize_tree(
+    tree_cls: type[ArchiveTree],
+    pointer_type: type[Any],
+) -> type[ArchiveTree]:
+    """Parameterise ``tree_cls`` over ``pointer_type`` if it is generic.
+
+    Some `ArchiveTree` subclasses (e.g. ``SumFieldSerializationModel``)
+    take no type parameters; their ``_get_archive_tree_type`` returns
+    the class itself.  Match that behaviour here so per-backend
+    ``read_tree`` implementations can call this uniformly.
+    """
+    if not getattr(tree_cls, "__parameters__", ()):
+        return tree_cls
+    return tree_cls[pointer_type]  # type: ignore[index]
 
 
 _PUBLIC_TYPE_ATTR = "_lsst_images_public_type"
