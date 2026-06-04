@@ -16,8 +16,6 @@ import unittest
 
 import numpy as np
 
-import lsst.images  # registers schema classes
-import lsst.images.cells  # noqa: F401  -- side-effect import for cell schemas
 from lsst.images import Box, Image, VisitImage
 from lsst.images.serialization import ArchiveReadError, ReadResult, read, write
 from lsst.utils.introspection import get_full_type_name

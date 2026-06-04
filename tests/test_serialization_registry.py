@@ -12,13 +12,12 @@ from __future__ import annotations
 
 import unittest
 from typing import Any, ClassVar
+from unittest import mock
 
-import lsst.images  # registers schema classes
-import lsst.images.cells  # noqa: F401  -- side-effect import: registers cell schemas
 from lsst.images import Projection, VisitImage
 from lsst.images._image import ImageSerializationModel
 from lsst.images._visit_image import VisitImageSerializationModel
-from lsst.images.serialization import ArchiveTree, class_for_schema
+from lsst.images.serialization import ArchiveTree, _io, class_for_schema
 from lsst.images.serialization._io import _REGISTRY, _public_type, register_schema_class
 
 
@@ -55,6 +54,51 @@ class RegistrationTestCase(unittest.TestCase):
             class _Imposter(VisitImageSerializationModel):  # type: ignore[misc]
                 SCHEMA_NAME: ClassVar[str] = "visit_image"
                 SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+
+    def test_builtin_provider_loaded_on_miss(self) -> None:
+        schema_names = ("cell_coadd", "cell_psf", "coadd_provenance")
+        saved = {schema_name: _REGISTRY.pop(schema_name, None) for schema_name in schema_names}
+        try:
+            for schema_name in schema_names:
+                with self.subTest(schema_name=schema_name):
+                    cls = class_for_schema(schema_name)
+                    self.assertIsNotNone(cls)
+                    self.assertEqual(cls.SCHEMA_NAME, schema_name)
+        finally:
+            # Preserve any registrations that existed before this test, even
+            # if an assertion above fails.
+            _REGISTRY.update({schema_name: cls for schema_name, cls in saved.items() if cls is not None})
+
+    def test_entry_point_provider_loaded_on_miss(self) -> None:
+        class _EntryPointTree(ArchiveTree):
+            SCHEMA_NAME: ClassVar[str] = "_entry_point_schema_test"
+            SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+            MIN_READ_VERSION: ClassVar[int] = 1
+
+            def deserialize(self, archive: Any, **kwargs: Any) -> VisitImage:
+                raise AssertionError("not used")
+
+        class _FakeEntryPoint:
+            value = "tests.test_serialization_registry:_EntryPointTree"
+
+            def load(self) -> type[ArchiveTree]:
+                return _EntryPointTree
+
+        _REGISTRY.pop("_entry_point_schema_test", None)
+        try:
+            with mock.patch.object(
+                _io.importlib.metadata,
+                "entry_points",
+                return_value=[_FakeEntryPoint()],
+            ) as entry_points:
+                cls = class_for_schema("_entry_point_schema_test")
+            entry_points.assert_called_once_with(
+                group="lsst.images.schemas",
+                name="_entry_point_schema_test",
+            )
+            self.assertIs(cls, _EntryPointTree)
+        finally:
+            _REGISTRY.pop("_entry_point_schema_test", None)
 
 
 class PublicTypeTestCase(unittest.TestCase):

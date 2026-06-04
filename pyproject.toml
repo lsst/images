@@ -42,6 +42,11 @@ dynamic = ["version"]
 [project.scripts]
 lsst-images-admin = "lsst.images.cli:main"
 
+[project.entry-points."lsst.images.schemas"]
+cell_coadd = "lsst.images.cells._coadd:CellCoaddSerializationModel"
+cell_psf = "lsst.images.cells._psf:CellPointSpreadFunctionSerializationModel"
+coadd_provenance = "lsst.images.cells._provenance:CoaddProvenanceSerializationModel"
+
 [project.optional-dependencies]
 test = [
     "pytest >= 3.2",

@@ -119,6 +119,31 @@ A patch bump (``1.0.0`` → ``1.0.1``) is for changes that do not affect file-fo
 A unit test enforces that every concrete subclass declares all three constants, that every ``SCHEMA_NAME`` is unique, and that ``MIN_READ_VERSION`` does not exceed the schema major.
 It does *not* enforce that a shape change was accompanied by a version bump — that remains a review-time discipline.
 
+Schema discovery and entry points
+=================================
+
+Concrete `~lsst.images.serialization.ArchiveTree` subclasses register themselves when their defining module is imported.
+Schemas whose model classes are imported unconditionally by ``lsst.images`` need no additional discovery metadata: for example, ``VisitImageSerializationModel`` is already imported by the core package and is registered before generic reads need it.
+
+Models in subpackages or external packages may not be imported before `lsst.images.serialization.read` inspects a file's ``schema_url``.
+Those packages should expose a schema-specific entry point in the ``lsst.images.schemas`` group, with the entry point name matching ``SCHEMA_NAME`` and the value pointing at the serialization model class:
+
+.. code-block:: toml
+
+   [project.entry-points."lsst.images.schemas"]
+   extended_psf_image = "lsst.pipe.tasks.extended_psf.extended_psf_image:ExtendedPsfImageSerializationModel"
+   extended_psf_candidates = "lsst.pipe.tasks.extended_psf.extended_psf_candidates:ExtendedPsfCandidatesSerializationModel"
+
+When `~lsst.images.serialization.class_for_schema` cannot find a schema in the in-memory registry, it loads only entry points with the requested schema name.
+Loading the entry point imports the model's module, which triggers the normal subclass registration hook.
+The entry point does not need to call `~lsst.images.serialization.register_schema_class` directly.
+
+The entry point is keyed by schema name only, not by ``SCHEMA_VERSION``.
+Version compatibility remains the responsibility of the selected model's ``schema_version`` / ``min_read_version`` validation.
+
+``lsst.images`` also maintains a small built-in lazy-provider table for schemas it owns but does not import unconditionally, such as the ``lsst.images.cells`` models.
+This mirrors the package's own ``lsst.images.schemas`` entry points while keeping source-tree development via ``PYTHONPATH=python`` working before the package is installed.
+
 Embedded external models
 ========================
 

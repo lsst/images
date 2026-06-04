@@ -21,6 +21,8 @@ __all__ = (
     "write",
 )
 
+import importlib
+import importlib.metadata
 import typing
 from typing import Any, cast
 
@@ -37,16 +39,44 @@ enforced when the selected tree's ``model_validate*`` runs, via
 ``min_read_version``.
 """
 
+_SCHEMA_ENTRY_POINT_GROUP = "lsst.images.schemas"
+"""Entry point group for third-party serialization-model providers."""
+
+_BUILTIN_SCHEMA_PROVIDERS: dict[str, str] = {
+    "cell_coadd": "lsst.images.cells._coadd:CellCoaddSerializationModel",
+    "cell_psf": "lsst.images.cells._psf:CellPointSpreadFunctionSerializationModel",
+    "coadd_provenance": "lsst.images.cells._provenance:CoaddProvenanceSerializationModel",
+}
+"""Schema providers owned by this package but not imported by ``lsst.images``.
+
+These duplicate the package's own ``lsst.images.schemas`` entry points so
+source-tree use via ``PYTHONPATH=python`` has the same lazy-import behavior as
+an installed distribution with entry point metadata.
+
+Schemas whose model classes are imported unconditionally by ``lsst.images`` do
+not need built-in providers or entry points: their ``ArchiveTree`` subclass
+hooks register them before this lazy path is needed.
+"""
+
 
 def class_for_schema(schema_name: str) -> type[ArchiveTree] | None:
-    """Return the registered ``ArchiveTree`` subclass for ``schema_name``,
-    or ``None`` if nothing is registered for that name.
+    """Return the registered ``ArchiveTree`` subclass for ``schema_name``.
+
+    If no class is already registered, this attempts schema-specific lazy
+    imports from built-in providers and then from entry points in the
+    ``lsst.images.schemas`` group before returning `None`.
 
     Parameters
     ----------
     schema_name
         Schema name (e.g. ``"visit_image"``).
     """
+    if (cls := _REGISTRY.get(schema_name)) is not None:
+        return cls
+    _load_builtin_schema_provider(schema_name)
+    if (cls := _REGISTRY.get(schema_name)) is not None:
+        return cls
+    _load_schema_entry_points(schema_name)
     return _REGISTRY.get(schema_name)
 
 
@@ -71,6 +101,62 @@ def register_schema_class(cls: type[ArchiveTree]) -> None:
             f"{cls.__qualname__}."
         )
     _REGISTRY[key] = cls
+
+
+def _load_builtin_schema_provider(schema_name: str) -> None:
+    """Import a package-local provider for ``schema_name``, if one exists."""
+    provider = _BUILTIN_SCHEMA_PROVIDERS.get(schema_name)
+    if provider is None:
+        return
+    try:
+        obj = _load_provider_object(provider)
+    except Exception as err:
+        raise ArchiveReadError(
+            f"Could not load built-in schema provider {provider!r} for schema {schema_name!r}: {err}"
+        ) from err
+    _register_provider_object(obj)
+    if schema_name not in _REGISTRY:
+        raise ArchiveReadError(
+            f"Built-in schema provider {provider!r} did not register schema {schema_name!r}."
+        )
+
+
+def _load_schema_entry_points(schema_name: str) -> None:
+    """Load entry points named ``schema_name`` from ``lsst.images.schemas``."""
+    loaded: list[str] = []
+    for entry_point in importlib.metadata.entry_points(
+        group=_SCHEMA_ENTRY_POINT_GROUP,
+        name=schema_name,
+    ):
+        loaded.append(entry_point.value)
+        try:
+            obj = entry_point.load()
+        except Exception as err:
+            raise ArchiveReadError(
+                f"Could not load schema provider entry point {entry_point.value!r} "
+                f"for schema {schema_name!r}: {err}"
+            ) from err
+        _register_provider_object(obj)
+    if loaded and schema_name not in _REGISTRY:
+        raise ArchiveReadError(
+            f"Schema provider entry point(s) for {schema_name!r} did not register that schema: {loaded}."
+        )
+
+
+def _load_provider_object(provider: str) -> object:
+    """Load ``module[:attribute[.nested]]`` provider specifications."""
+    module_name, _, attr_path = provider.partition(":")
+    obj: object = importlib.import_module(module_name)
+    if attr_path:
+        for attr in attr_path.split("."):
+            obj = getattr(obj, attr)
+    return obj
+
+
+def _register_provider_object(obj: object) -> None:
+    """Register ``obj`` if a provider returned an ``ArchiveTree`` subclass."""
+    if isinstance(obj, type) and issubclass(obj, ArchiveTree):
+        register_schema_class(obj)
 
 
 def parameterize_tree(
