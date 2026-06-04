@@ -19,7 +19,6 @@ __all__ = (
 )
 
 import io
-import json
 import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -170,29 +169,19 @@ class FitsInputArchive(InputArchive[PointerModel]):
     @classmethod
     def get_basic_info(cls, path: ResourcePathExpression) -> ArchiveInfo:
         """Read ``DATAMODL`` (schema URL) and ``FMTVER`` (container version)
-        from the primary header, falling back to the JSON HDU if ``DATAMODL``
-        is absent.
+        from the primary header.
+
+        Every FITS file written by this package records the schema URL in
+        the ``DATAMODL`` card, so the schema can be identified without
+        reading the (potentially large) JSON tree HDU.
         """
         with ResourcePath(path).open("rb") as stream:
             primary = astropy.io.fits.PrimaryHDU.readfrom(stream)
             header = primary.header
             format_version = int(header.get("FMTVER", 1))
             schema_url = header.get("DATAMODL")
-            if not schema_url:
-                try:
-                    json_address = header["JSONADDR"]
-                    json_size = header["JSONSIZE"]
-                except KeyError:
-                    raise ArchiveReadError(
-                        f"{path!r} is not an lsst.images FITS archive "
-                        "(no DATAMODL or JSONADDR/JSONSIZE cards)."
-                    ) from None
-                stream.seek(json_address)
-                json_hdu = astropy.io.fits.BinTableHDU.fromstring(stream.read(json_size))
-                payload = bytes(json_hdu.data[0][0])
-                schema_url = json.loads(payload.decode("utf-8")).get("schema_url")
         if not schema_url:
-            raise ArchiveReadError(f"Could not determine the schema of {path!r}.")
+            raise ArchiveReadError(f"{path!r} is not an lsst.images FITS archive (no DATAMODL card).")
         return ArchiveInfo.from_schema_url(schema_url, format_version=format_version)
 
     def __init__(self, stream: IO[bytes]):

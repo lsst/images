@@ -13,7 +13,6 @@ from __future__ import annotations
 
 __all__ = ("NdfInputArchive", "read", "read_tree")
 
-import json
 import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -83,12 +82,13 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
 
     @classmethod
     def get_basic_info(cls, path: ResourcePathExpression) -> ArchiveInfo:
-        """Read the top-level ``JSON`` tree's ``schema_url`` and the
+        """Read the schema URL from the ``DATA_MODEL`` scalar and the
         ``FORMAT_VERSION`` primitive without deserializing pixel data.
 
-        The top-level tree lives at the fixed location ``/MORE/LSST/JSON``
-        (or ``/LSST/JSON``); we read only those and never search at arbitrary
-        depth, so nested pointer trees cannot be mistaken for the top level.
+        Both live at the fixed location ``/MORE/LSST`` (or ``/LSST``); we read
+        only those and never search at arbitrary depth, so nested pointer
+        trees cannot be mistaken for the top level.  Reading ``DATA_MODEL``
+        directly avoids parsing the (potentially large) JSON tree.
         """
         ospath = ResourcePath(path).ospath
         schema_url: str | None = None
@@ -96,20 +96,17 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
 
         with h5py.File(ospath, "r") as handle:
             for prefix in ("MORE/LSST", "LSST"):
-                json_node = handle.get(f"{prefix}/JSON")
-                if not isinstance(json_node, h5py.Dataset):
+                data_model = handle.get(f"{prefix}/DATA_MODEL")
+                if not isinstance(data_model, h5py.Dataset):
                     continue
-                payload = np.asarray(json_node).tobytes()
-                obj = json.loads(payload.decode("utf-8").rstrip("\x00").strip())
-                if isinstance(obj, dict):
-                    schema_url = obj.get("schema_url")
+                schema_url = np.asarray(data_model).tobytes().decode("ascii").rstrip("\x00").strip()
                 fmt_node = handle.get(f"{prefix}/FORMAT_VERSION")
                 if fmt_node is not None:
                     format_version = int(np.asarray(fmt_node).item())
                 break
         if not schema_url:
             raise ArchiveReadError(
-                f"Could not read the top-level JSON tree of {path!r} at /MORE/LSST/JSON or /LSST/JSON."
+                f"Could not read the schema of {path!r} from /MORE/LSST/DATA_MODEL or /LSST/DATA_MODEL."
             )
         return ArchiveInfo.from_schema_url(schema_url, format_version=format_version)
 
