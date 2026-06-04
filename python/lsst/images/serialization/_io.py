@@ -12,7 +12,14 @@
 
 from __future__ import annotations
 
-__all__ = ("class_for_schema", "parameterize_tree", "read", "register_schema_class", "write")
+__all__ = (
+    "class_for_schema",
+    "parameterize_tree",
+    "public_type_for_schema",
+    "read",
+    "register_schema_class",
+    "write",
+)
 
 import typing
 from typing import Any, cast
@@ -126,13 +133,33 @@ def _public_type(tree_cls: type[ArchiveTree]) -> type | None:
     return resolved
 
 
+def public_type_for_schema(schema_name: str) -> type | None:
+    """Return the in-memory Python class produced when reading an archive
+    whose top-level tree has schema name ``schema_name``.
+
+    Combines the schema-name registry lookup with resolution of the
+    registered tree's ``deserialize`` return annotation.  Returns `None`
+    when nothing is registered for ``schema_name`` or when the public type
+    cannot be resolved from the annotation (e.g. it is ``Any``).
+
+    Parameters
+    ----------
+    schema_name
+        Schema name (e.g. ``"visit_image"``).
+    """
+    tree_cls = class_for_schema(schema_name)
+    if tree_cls is None:
+        return None
+    return _public_type(tree_cls)
+
+
 def read(
     path: ResourcePathExpression,
     **kwargs: Any,
 ) -> ReadResult[Any]:
     """Read an archive whose in-memory type is inferred from its schema.
 
-    Dispatches to the FITS / NDF / JSON backend based on ``path``'s
+    Dispatches to the appropriate backend based on ``path``'s
     extension, looks up the registered ``ArchiveTree`` subclass for the
     file's ``schema_name``, and forwards the call to the per-backend
     ``read_tree`` along with ``**kwargs``.  Schema-version compatibility

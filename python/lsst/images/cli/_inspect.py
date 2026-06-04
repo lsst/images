@@ -16,8 +16,7 @@ import click
 
 from lsst.utils.introspection import get_full_type_name
 
-from ..serialization import ArchiveReadError, backend_for_path, class_for_schema
-from ..serialization._io import _public_type
+from ..serialization import ArchiveReadError, backend_for_path, public_type_for_schema
 
 
 @click.command(name="inspect")
@@ -38,8 +37,7 @@ def inspect(file: str) -> None:
     except (ArchiveReadError, ValueError) as err:
         raise click.ClickException(f"Could not read {file}: {err}") from None
     fmt = "n/a" if info.format_version is None else str(info.format_version)
-    tree_cls = class_for_schema(info.schema_name)
-    public_cls = _public_type(tree_cls) if tree_cls is not None else None
+    public_cls = public_type_for_schema(info.schema_name)
     if public_cls is not None:
         python_class = get_full_type_name(public_cls)
     else:
