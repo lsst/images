@@ -124,6 +124,13 @@ class JsonInputArchive(InputArchive[JsonRef]):
     def get_basic_info(cls, path: ResourcePathExpression) -> ArchiveInfo:
         """Read the top-level tree's ``schema_url``; JSON has no container
         format version.
+
+        This parses the whole document.  Unlike the FITS and NDF backends
+        there is no cheap header to read: ``schema_url`` is a computed field
+        serialized after the (potentially large) ``indirect`` payload, and
+        nested trees carry their own ``schema_url``, so a bounded prefix
+        cannot identify the top-level tree reliably.  JSON is not intended
+        for large pixel archives, where FITS or NDF should be used instead.
         """
         raw = from_json(ResourcePath(path).read())
         if not isinstance(raw, dict) or not raw.get("schema_url"):
