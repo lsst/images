@@ -24,8 +24,6 @@ __all__ = ("GenericFormatter",)
 
 import hashlib
 import json as _stdlib_json  # disambiguates from .json subpackage
-from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import Any, ClassVar
 
 import astropy.io.fits
@@ -34,8 +32,8 @@ from lsst.daf.butler import DatasetProvenance, FormatterV2
 from lsst.resources import ResourcePath
 
 from . import fits as _fits
-from . import json as _json
-from .serialization import ArchiveTree, ButlerInfo, InputArchive, JsonRef, write
+from . import serialization as ser
+from .serialization import ButlerInfo, write
 
 
 class GenericFormatter(FormatterV2):
@@ -156,38 +154,6 @@ class GenericFormatter(FormatterV2):
 
     # --- Read path ---------------------------------------------------------
 
-    def _extension_from_uri(self, uri: ResourcePath) -> str:
-        ext = uri.getExtension()
-        if ext not in self.supported_extensions:
-            raise RuntimeError(f"Cannot read {uri}: unsupported extension {ext!r}.")
-        return ext
-
-    @contextmanager
-    def _open_archive_and_tree(
-        self, uri: ResourcePath, partial: bool
-    ) -> Iterator[tuple[InputArchive[Any], ArchiveTree]]:
-        pytype: type[Any] = self.dataset_ref.datasetType.storageClass.pytype
-        ext = self._extension_from_uri(uri)
-        archive: InputArchive[Any]
-        match ext:
-            case ".fits":
-                tree_type = pytype._get_archive_tree_type(_fits.PointerModel)
-                with _fits.FitsInputArchive.open(uri, partial=partial) as archive:
-                    tree = archive.get_tree(tree_type)
-                    yield archive, tree
-            case ".json":
-                tree_type = pytype._get_archive_tree_type(JsonRef)
-                tree = tree_type.model_validate_json(ResourcePath(uri).read())
-                archive = _json.JsonInputArchive(tree.indirect)
-                yield archive, tree
-            case ".sdf":
-                from . import ndf as _ndf
-
-                tree_type = pytype._get_archive_tree_type(_ndf.NdfPointerModel)
-                with _ndf.NdfInputArchive.open(uri) as archive:
-                    tree = archive.get_tree(tree_type)
-                    yield archive, tree
-
     def read_from_uri(
         self,
         uri: ResourcePath,
@@ -195,10 +161,8 @@ class GenericFormatter(FormatterV2):
         expected_size: int = -1,
     ) -> Any:
         kwargs = self.file_descriptor.parameters or {}
-        with self._open_archive_and_tree(uri, partial=bool(kwargs or component)) as (archive, tree):
+        pytype: type[Any] = self.dataset_ref.datasetType.storageClass.pytype
+        with ser.open(uri, cls=pytype, partial=bool(kwargs or component)) as reader:
             if component is None:
-                result = tree.deserialize(archive, **kwargs)
-                result._opaque_metadata = archive.get_opaque_metadata()
-                return result
-            else:
-                return tree.deserialize_component(component, archive, **kwargs)
+                return reader.read(**kwargs)
+            return reader.get_component(component, **kwargs)
