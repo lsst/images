@@ -15,7 +15,7 @@ from __future__ import annotations
 __all__ = ("Reader", "open")
 
 from contextlib import AbstractContextManager, contextmanager
-from typing import Any, overload
+from typing import Any, TypeVar, overload
 
 from lsst.resources import ResourcePathExpression
 
@@ -23,6 +23,12 @@ from ._backends import backend_for_path
 from ._common import ArchiveReadError, ArchiveTree, ButlerInfo, MetadataValue
 from ._input_archive import ArchiveInfo, InputArchive
 from ._io import class_for_schema, public_type_for_schema
+
+# This pre-python-3.12 declaration is needed so Sphinx (the
+# autodoc-typehints plugin) can resolve the ``T`` forward reference in the
+# stringized annotations; the PEP 695 ``[T]`` parameters below are scoped to
+# their class/function and are not visible in the module globals.
+T = TypeVar("T")
 
 
 class Reader[T]:
