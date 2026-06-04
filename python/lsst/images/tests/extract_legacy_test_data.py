@@ -181,7 +181,7 @@ def find_dataset_or_raise(
 
 @click.group("extract_test_data")
 def extract_test_data() -> None:
-    pass
+    """Extract test fixtures from a Rubin data repository."""
 
 
 @extract_test_data.command("dp2")
@@ -231,6 +231,10 @@ def extract_dp2(
 ) -> None:
     """Extract test data from a butler repository."""
     try:
+        # lsst.afw.image is imported only to confirm a full Rubin pipelines
+        # environment is present: daf.butler and lsst.utils are available
+        # from the pip-installed package and so cannot gate on their own.
+        import lsst.afw.image  # noqa: F401
         from lsst.daf.butler import Butler
         from lsst.utils import getPackageDir
     except ImportError as err:
