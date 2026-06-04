@@ -24,7 +24,7 @@ __all__ = ("GenericFormatter",)
 
 import hashlib
 import json as _stdlib_json  # disambiguates from .json subpackage
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any, ClassVar
 
@@ -35,7 +35,7 @@ from lsst.resources import ResourcePath
 
 from . import fits as _fits
 from . import json as _json
-from .serialization import ArchiveTree, ButlerInfo, InputArchive, JsonRef
+from .serialization import ArchiveTree, ButlerInfo, InputArchive, JsonRef, write
 
 
 class GenericFormatter(FormatterV2):
@@ -87,20 +87,13 @@ class GenericFormatter(FormatterV2):
             provenance=self.butler_provenance if self.butler_provenance is not None else DatasetProvenance(),
         )
         kwargs: dict[str, Any] = {"butler_info": butler_info}
-        write_func: Callable[..., ArchiveTree]
-        match ext:
-            case ".fits":
-                kwargs["update_header"] = self._update_header
-                kwargs["compression_options"] = self._get_compression_options()
-                kwargs["compression_seed"] = self._get_compression_seed()
-                write_func = _fits.write
-            case ".json":
-                write_func = _json.write
-            case ".sdf":
-                from . import ndf as _ndf
-
-                write_func = _ndf.write
-        write_func(in_memory_dataset, uri.ospath, **kwargs)
+        if ext == ".fits":
+            kwargs["update_header"] = self._update_header
+            kwargs["compression_options"] = self._get_compression_options()
+            kwargs["compression_seed"] = self._get_compression_seed()
+        # The generic write() dispatches to the FITS / JSON / NDF backend by
+        # the file extension, which get_write_extension has already set on uri.
+        write(in_memory_dataset, uri.ospath, **kwargs)
 
     def add_provenance(
         self,
