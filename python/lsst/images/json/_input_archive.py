@@ -13,9 +13,10 @@ from __future__ import annotations
 
 __all__ = ("JsonInputArchive", "read", "read_tree")
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from types import EllipsisType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 import astropy.table
 import numpy as np
@@ -100,13 +101,14 @@ def read_tree(
         Named tuple of the deserialised object, its metadata, and any
         butler info.
     """
-    parameterized = parameterize_tree(tree_cls, JsonRef)
-    if not isinstance(target, ArchiveTree):
-        target = parameterized.model_validate_json(ResourcePath(target).read())
-    archive = JsonInputArchive(target.indirect)
-    obj = target.deserialize(archive, **kwargs)
-    target.indirect = []
-    return ReadResult(obj, target.metadata, target.butler_info)
+    if isinstance(target, ArchiveTree):
+        archive = JsonInputArchive(target.indirect)
+        obj = target.deserialize(archive, **kwargs)
+        target.indirect = []
+        return ReadResult(obj, target.metadata, target.butler_info)
+    with JsonInputArchive.open_tree(target, tree_cls) as (archive, tree):
+        obj = tree.deserialize(archive, **kwargs)
+        return ReadResult(obj, tree.metadata, tree.butler_info)
 
 
 class JsonInputArchive(InputArchive[JsonRef]):
@@ -136,6 +138,30 @@ class JsonInputArchive(InputArchive[JsonRef]):
         if not isinstance(raw, dict) or not raw.get("schema_url"):
             raise ArchiveReadError(f"{path!r} has no schema_url in its top-level JSON tree.")
         return ArchiveInfo.from_schema_url(raw["schema_url"], format_version=None)
+
+    @classmethod
+    @contextmanager
+    def open_tree(
+        cls,
+        path: ResourcePathExpression,
+        tree_cls: type[ArchiveTree],
+        *,
+        partial: bool = True,
+        **backend_kwargs: Any,
+    ) -> Iterator[tuple[Self, ArchiveTree]]:
+        """Parse the JSON tree and yield ``(archive, tree)``.
+
+        A no-resource context manager: JSON is fully in memory, so
+        ``partial`` is a no-op.
+        ``tree.indirect`` is released when the context exits.
+        """
+        parameterized = parameterize_tree(tree_cls, JsonRef)
+        tree = parameterized.model_validate_json(ResourcePath(path).read())
+        archive = cls(tree.indirect)
+        try:
+            yield archive, tree
+        finally:
+            tree.indirect = []
 
     def __init__(self, indirect: list[Any] | None = None):
         self._indirect = indirect if indirect is not None else []
