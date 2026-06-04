@@ -15,8 +15,9 @@ __all__ = ("ArchiveInfo", "InputArchive")
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from types import EllipsisType
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import astropy.io.fits
 import astropy.table
@@ -110,6 +111,27 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         Each concrete backend reads only the headers/metadata it needs.
         """
         raise NotImplementedError(f"{cls.__name__} does not implement get_basic_info.")
+
+    @classmethod
+    def open_tree(
+        cls,
+        path: ResourcePathExpression,
+        tree_cls: type[ArchiveTree],
+        *,
+        partial: bool = True,
+        **backend_kwargs: Any,
+    ) -> AbstractContextManager[tuple[InputArchive[P], ArchiveTree]]:
+        """Open ``path``, load and validate its top-level tree, and yield
+        ``(archive, tree)`` as a context manager.
+
+        ``tree_cls`` is the un-parameterized `ArchiveTree` subclass; each
+        backend parameterizes it with its own pointer model.  Backend-specific
+        open options (e.g. ``page_size`` for FITS) are accepted via
+        ``**backend_kwargs``; ``partial`` is honoured where meaningful.
+
+        Each concrete backend implements this.
+        """
+        raise NotImplementedError(f"{cls.__name__} does not implement open_tree.")
 
     @abstractmethod
     def deserialize_pointer[U: ArchiveTree, V](

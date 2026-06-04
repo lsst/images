@@ -149,9 +149,10 @@ def read_tree(
     """
     if partial is None:
         partial = any(v is not None for v in kwargs.values())
-    parameterized = parameterize_tree(tree_cls, PointerModel)
-    with FitsInputArchive.open(path, page_size=page_size, partial=partial) as archive:
-        tree = archive.get_tree(parameterized)
+    with FitsInputArchive.open_tree(path, tree_cls, page_size=page_size, partial=partial) as (
+        archive,
+        tree,
+    ):
         obj = tree.deserialize(archive, **kwargs)
         if hasattr(obj, "_opaque_metadata"):
             obj._opaque_metadata = archive.get_opaque_metadata()
@@ -183,6 +184,26 @@ class FitsInputArchive(InputArchive[PointerModel]):
         if not schema_url:
             raise ArchiveReadError(f"{path!r} is not an lsst.images FITS archive (no DATAMODL card).")
         return ArchiveInfo.from_schema_url(schema_url, format_version=format_version)
+
+    @classmethod
+    @contextmanager
+    def open_tree(
+        cls,
+        path: ResourcePathExpression,
+        tree_cls: type[ArchiveTree],
+        *,
+        partial: bool = True,
+        **backend_kwargs: Any,
+    ) -> Iterator[tuple[Self, ArchiveTree]]:
+        """Open the FITS file and yield ``(archive, tree)``.
+
+        Honors the ``page_size`` and ``partial`` open options.
+        """
+        page_size = backend_kwargs.pop("page_size", 2880 * 50)
+        parameterized = parameterize_tree(tree_cls, PointerModel)
+        with cls.open(path, page_size=page_size, partial=partial) as archive:
+            tree = archive.get_tree(parameterized)
+            yield archive, tree
 
     def __init__(self, stream: IO[bytes]):
         self._primary_hdu = astropy.io.fits.PrimaryHDU.readfrom(stream)
