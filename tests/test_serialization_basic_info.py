@@ -25,6 +25,16 @@ from lsst.images.fits import FitsInputArchive
 from lsst.images.json import JsonInputArchive
 from lsst.images.serialization import ArchiveInfo, InputArchive
 
+try:
+    import h5py
+
+    from lsst.images import ndf as images_ndf
+    from lsst.images.ndf import NdfInputArchive
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
+
 
 class ArchiveInfoTestCase(unittest.TestCase):
     """Tests for the ArchiveInfo model and its schema_url parsing."""
@@ -97,17 +107,6 @@ class FitsBasicInfoTestCase(unittest.TestCase):
         self.assertEqual(info.schema_version, "1.0.0")
         self.assertEqual(info.schema_url, "https://images.lsst.io/schemas/image-1.0.0")
         self.assertEqual(info.format_version, 1)
-
-
-try:
-    import h5py
-
-    from lsst.images import ndf as images_ndf
-    from lsst.images.ndf import NdfInputArchive
-
-    HAVE_H5PY = True
-except ImportError:
-    HAVE_H5PY = False
 
 
 @unittest.skipUnless(HAVE_H5PY, "h5py is not available.")

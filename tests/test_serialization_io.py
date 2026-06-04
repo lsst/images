@@ -19,15 +19,8 @@ import numpy as np
 import lsst.images  # registers schema classes
 import lsst.images.cells  # noqa: F401  -- side-effect import for cell schemas
 from lsst.images import Box, Image, VisitImage
-from lsst.images.serialization import (
-    ArchiveReadError,
-    ReadResult,
-    backend_for_path,
-    class_for_schema,
-    read,
-    write,
-)
-from lsst.images.serialization._io import _public_type
+from lsst.images.serialization import ArchiveReadError, ReadResult, read, write
+from lsst.utils.introspection import get_full_type_name
 
 try:
     import h5py  # noqa: F401  -- detect availability for NDF round-trip skip
@@ -44,6 +37,34 @@ else:
     PIFF_AVAILABLE = True
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
+
+# Full Python type produced when each fixture is read through the generic
+# read() API, keyed by the fixture's file name.  These are pinned here rather
+# than derived from the schema registry so the test asserts the
+# externally-observable type instead of re-running read()'s own lookup against
+# itself.
+EXPECTED_TYPES = {
+    "aperture_correction_map.json": "dict",
+    "background_map.json": "lsst.images.BackgroundMap",
+    "cell_psf.json": "lsst.images.cells.CellPointSpreadFunction",
+    "chebyshev_field.json": "lsst.images.fields.ChebyshevField",
+    "coadd_provenance.json": "lsst.images.cells.CoaddProvenance",
+    "color_image.json": "lsst.images.ColorImage",
+    "detector.json": "lsst.images.cameras.Detector",
+    "gaussian_psf.json": "lsst.images.psfs.GaussianPointSpreadFunction",
+    "image.json": "lsst.images.Image",
+    "mask.json": "lsst.images.Mask",
+    "masked_image.json": "lsst.images.MaskedImage",
+    "piff_psf.json": "lsst.images.psfs.PiffWrapper",
+    "product_field.json": "lsst.images.fields.ProductField",
+    "projection.json": "lsst.images.Projection",
+    "sum_field.json": "lsst.images.fields.SumField",
+    "transform.json": "lsst.images.Transform",
+    "visit_image.json": "lsst.images.VisitImage",
+    "cell_coadd.json": "lsst.images.cells.CellCoadd",
+    "visit_image_dp1.json": "lsst.images.VisitImage",
+    "visit_image_dp2.json": "lsst.images.VisitImage",
+}
 
 
 class GenericReadTestCase(unittest.TestCase):
@@ -93,31 +114,28 @@ class GenericReadErrorsTestCase(unittest.TestCase):
 
 class FixtureSweepTestCase(unittest.TestCase):
     """Every schema_v1 JSON fixture reads through the generic API and
-    produces the in-memory type registered for its schema.
+    produces the Python type pinned in ``EXPECTED_TYPES``.
     """
 
     def test_sweep(self) -> None:
         # piff is an optional dependency that PiffSerializationModel
         # imports lazily on deserialise; skip its fixture when missing.
         skip = set() if PIFF_AVAILABLE else {"piff_psf.json"}
+        seen = set()
         roots = [DATA_DIR, os.path.join(DATA_DIR, "legacy")]
         for root in roots:
             if not os.path.isdir(root):
                 continue
             for entry in sorted(os.listdir(root)):
-                if not entry.endswith(".json"):
+                if not entry.endswith(".json") or entry in skip:
                     continue
-                if entry in skip:
-                    continue
-                path = os.path.join(root, entry)
-                with self.subTest(path=path):
-                    result = read(path)
-                    info = backend_for_path(path).input_archive.get_basic_info(path)
-                    cls = class_for_schema(info.schema_name)
-                    self.assertIsNotNone(cls)
-                    expected_type = _public_type(cls)  # type: ignore[arg-type]
-                    self.assertIsNotNone(expected_type)
-                    self.assertIsInstance(result.deserialized, expected_type)  # type: ignore[arg-type]
+                with self.subTest(entry=entry):
+                    self.assertIn(entry, EXPECTED_TYPES, f"no expected type recorded for {entry!r}")
+                    result = read(os.path.join(root, entry))
+                    self.assertEqual(get_full_type_name(type(result.deserialized)), EXPECTED_TYPES[entry])
+                seen.add(entry)
+        # Fail if EXPECTED_TYPES drifts from the fixtures actually on disk.
+        self.assertEqual(seen, set(EXPECTED_TYPES) - skip)
 
 
 class GenericWriteRoundTripTestCase(unittest.TestCase):
