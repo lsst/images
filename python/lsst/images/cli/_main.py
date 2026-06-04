@@ -20,7 +20,7 @@ from ._inspect import inspect
 from ._minify import minify
 
 
-@click.group(name="lsst-images-admin")
+@click.group(name="lsst-images-admin", context_settings={"help_option_names": ["-h", "--help"]})
 def main() -> None:
     """Administrative tools for lsst.images files."""
 

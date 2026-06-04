@@ -229,6 +229,22 @@ class CliRegistrationTestCase(unittest.TestCase):
         result = CliRunner().invoke(main, ["extract-test-data", "--help"])
         self.assertEqual(result.exit_code, 0, result.output)
 
+    def test_short_help_alias(self) -> None:
+        # -h is an alias for --help on the group and every subcommand,
+        # including the nested extract-test-data sub-group.
+        for args in (
+            ["-h"],
+            ["convert", "-h"],
+            ["inspect", "-h"],
+            ["minify", "-h"],
+            ["extract-test-data", "-h"],
+            ["extract-test-data", "dp2", "-h"],
+        ):
+            with self.subTest(args=args):
+                result = CliRunner().invoke(main, args)
+                self.assertEqual(result.exit_code, 0, result.output)
+                self.assertIn("Usage:", result.output)
+
 
 class ConvertSafetyTestCase(unittest.TestCase):
     """convert must not destroy data on identical paths or on failure."""
