@@ -155,9 +155,8 @@ class ArchiveTree(
 
         Populates ``model_config['json_schema_extra']`` with values derived
         from the subclass's ``SCHEMA_NAME`` / ``SCHEMA_VERSION`` ClassVars,
-        then registers the subclass so it can be looked up by schema name
-        and version.  Subclasses that haven't declared the ClassVars are
-        skipped.
+        then registers the subclass so it can be looked up by schema name.
+        Subclasses that haven't declared the ClassVars are skipped.
         """
         super().__pydantic_init_subclass__(**kwargs)
         name = cls.__dict__.get("SCHEMA_NAME")
