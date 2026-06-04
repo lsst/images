@@ -24,7 +24,7 @@ __all__ = (
 import importlib
 import importlib.metadata
 import typing
-from typing import Any, cast
+from typing import Any, cast, overload
 
 from lsst.resources import ResourcePathExpression
 
@@ -239,43 +239,51 @@ def public_type_for_schema(schema_name: str) -> type | None:
     return _public_type(tree_cls)
 
 
-def read(
-    path: ResourcePathExpression,
-    **kwargs: Any,
-) -> ReadResult[Any]:
+@overload
+def read[T](path: ResourcePathExpression, cls: type[T], **kwargs: Any) -> ReadResult[T]: ...
+@overload
+def read(path: ResourcePathExpression, cls: None = ..., **kwargs: Any) -> ReadResult[Any]: ...
+def read(path, cls=None, **kwargs):
     """Read an archive whose in-memory type is inferred from its schema.
 
-    Dispatches to the appropriate backend based on ``path``'s
-    extension, looks up the registered ``ArchiveTree`` subclass for the
-    file's ``schema_name``, and forwards the call to the per-backend
-    ``read_tree`` along with ``**kwargs``.  Schema-version compatibility
-    is enforced when the model validates the on-disk tree, via
-    ``min_read_version``.
+    Dispatches to the appropriate backend based on ``path``'s extension,
+    looks up the registered ``ArchiveTree`` subclass for the file's
+    ``schema_name``, and forwards the call to the per-backend ``read_tree``
+    along with ``**kwargs``.
+    Schema-version compatibility is enforced when the model validates the
+    on-disk tree, via ``min_read_version``.
 
     Parameters
     ----------
     path
         File to read; convertible to `lsst.resources.ResourcePath`.
+    cls
+        Optional expected in-memory type.
+        When given, the deserialized object is validated with ``isinstance``
+        (raising `TypeError` otherwise) and the static return type is
+        ``ReadResult[T]``.
     **kwargs
-        Backend- and type-specific keyword arguments.  Forwarded
-        verbatim; mis-targeted arguments surface as ``TypeError`` from
-        the underlying ``deserialize``.
+        Backend- and type-specific keyword arguments.
+        Forwarded verbatim; mis-targeted arguments surface as ``TypeError``
+        from the underlying ``deserialize``.
 
     Returns
     -------
     ReadResult
-        Named tuple of the deserialized object, its metadata, and any
-        butler info, matching the per-backend ``read`` signature.
+        Named tuple of the deserialized object, its metadata, and any butler
+        info, matching the per-backend ``read`` signature.
 
     Raises
     ------
     ValueError
-        Raised by `backend_for_path` if the file extension is not
-        recognised.
+        Raised by `backend_for_path` if the file extension is not recognized.
     ArchiveReadError
         Raised when the file's ``schema_name`` is not registered, or
         propagated from the model's ``min_read_version`` check on
         ``model_validate*``.
+    TypeError
+        Raised when ``cls`` is given and the deserialized object is not an
+        instance of it.
     """
     backend = backend_for_path(path)
     info = backend.input_archive.get_basic_info(path)
@@ -284,7 +292,13 @@ def read(
         raise ArchiveReadError(
             f"No registered schema {info.schema_name!r}; cannot determine in-memory type for {path!r}."
         )
-    return cast(ReadResult[Any], backend.read_tree(tree_cls, path, **kwargs))
+    result = cast(ReadResult[Any], backend.read_tree(tree_cls, path, **kwargs))
+    if cls is not None and not isinstance(result.deserialized, cls):
+        raise TypeError(
+            f"{path!r} (schema {info.schema_name!r}) deserialized to "
+            f"{type(result.deserialized).__name__}, not the requested {cls.__name__}."
+        )
+    return result
 
 
 def write(obj: Any, path: str, **kwargs: Any) -> Any:

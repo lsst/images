@@ -187,5 +187,25 @@ class GenericReadKwargsTestCase(unittest.TestCase):
         np.testing.assert_array_equal(sub.deserialized.array, img.array[2:6, 2:6])
 
 
+class ReadClsTestCase(unittest.TestCase):
+    """read(path, cls=...) validates the deserialized type."""
+
+    def test_read_cls_match(self) -> None:
+        path = os.path.join(DATA_DIR, "image.json")
+        result = read(path, cls=Image)
+        self.assertIsInstance(result.deserialized, Image)
+
+    def test_read_cls_mismatch_raises(self) -> None:
+        from lsst.images import Mask
+
+        path = os.path.join(DATA_DIR, "image.json")
+        with self.assertRaises(TypeError) as ctx:
+            read(path, cls=Mask)
+        msg = str(ctx.exception)
+        self.assertIn("image", msg)  # path / schema name
+        self.assertIn("Image", msg)  # actual deserialized type
+        self.assertIn("Mask", msg)  # requested cls
+
+
 if __name__ == "__main__":
     unittest.main()
