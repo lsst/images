@@ -21,7 +21,6 @@ import numpy as np
 
 from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema, get_legacy_visit_image_mask_planes
 from lsst.images.fits import FitsCompressionOptions
-from lsst.images.serialization import read, write
 from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
@@ -193,8 +192,7 @@ class MaskedImageTestCase(unittest.TestCase):
         )
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
             tmp.close()
-            write(
-                self.masked_image,
+            self.masked_image.write(
                 tmp.name,
                 compression_options={
                     "image": FitsCompressionOptions.LOSSY,
@@ -202,8 +200,8 @@ class MaskedImageTestCase(unittest.TestCase):
                 },
                 compression_seed=50,
             )
-            roundtripped = read(tmp.name, MaskedImage)
-            subimage = read(tmp.name, MaskedImage, bbox=subbox)
+            roundtripped = MaskedImage.read(tmp.name)
+            subimage = MaskedImage.read(tmp.name, bbox=subbox)
             with astropy.io.fits.open(tmp.name, disable_image_compression=True) as fits:
                 self.assertEqual(fits[1].header["ZCMPTYPE"], "RICE_1")
                 self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")

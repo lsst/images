@@ -20,7 +20,6 @@ import numpy as np
 
 import lsst.utils.tests
 from lsst.images import Box, DetectorFrame, Image
-from lsst.images.serialization import read, write
 from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
@@ -179,8 +178,8 @@ class ImageTestCase(unittest.TestCase):
     def test_read_write(self):
         """Round trip through file.
 
-        This uses the read_fits and write_fits methods (which RoundtripFits
-        does not use).
+        This uses the `GeneralizedImage.write` / `GeneralizedImage.read`
+        convenience methods (which RoundtripFits does not use).
         """
         data = np.array([[1.0, 2.0, np.nan, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]])
         md = {"int": 1, "float": 42.0, "bool": False, "long string header": "This is a string"}
@@ -197,9 +196,9 @@ class ImageTestCase(unittest.TestCase):
         )
 
         with lsst.utils.tests.getTempFilePath(".fits") as tmpFile:
-            write(image, tmpFile)
+            image.write(tmpFile)
 
-            new = read(tmpFile, Image)
+            new = Image.read(tmpFile)
             self.assertEqual(new, image)
 
             # __eq__ does not test all components.
@@ -208,7 +207,7 @@ class ImageTestCase(unittest.TestCase):
             assert_projections_equal(self, new.projection, image.projection, expect_identity=False)
 
             # Read subset.
-            subset = read(tmpFile, Image, bbox=Box.factory[-2:0, 5:7])
+            subset = Image.read(tmpFile, bbox=Box.factory[-2:0, 5:7])
             self.assertEqual(subset, image.absolute[-2:0, 5:7])
             self.assertEqual(subset, image.local[0:2, 2:4])
             self.assertEqual(str(subset), "Image([y=-2:0, x=5:7], float64)")

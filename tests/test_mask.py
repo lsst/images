@@ -18,7 +18,6 @@ import numpy as np
 
 import lsst.utils.tests
 from lsst.images import Box, Mask, MaskPlane, MaskSchema, get_legacy_visit_image_mask_planes
-from lsst.images.serialization import read, write
 from lsst.images.tests import RoundtripFits, assert_masks_equal, compare_mask_to_legacy
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
@@ -136,9 +135,9 @@ class MaskTestCase(unittest.TestCase):
             metadata={"four_and_a_half": 4.5},
         )
         with lsst.utils.tests.getTempFilePath(".fits") as tmpFile:
-            write(mask, tmpFile)
+            mask.write(tmpFile)
 
-            new = read(tmpFile, Mask)
+            new = Mask.read(tmpFile)
             self.assertEqual(new, mask)
             # __eq__ ignores metadata.
             self.assertEqual(new.metadata["four_and_a_half"], 4.5)

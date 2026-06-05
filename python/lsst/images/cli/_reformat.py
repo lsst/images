@@ -28,8 +28,8 @@ def reformat(input: str, output: str, overwrite: bool) -> None:
     """Rewrite an lsst.images file in a different container format.
 
     Reads INPUT and writes it back out to OUTPUT, choosing the format from
-    OUTPUT's extension (.fits, .sdf/.ndf, .json).  This is the easy way to,
-    for example, turn a FITS file into an NDF for testing.
+    OUTPUT's extension.  This is the easy way to, for example, turn a FITS
+    file into an NDF for testing.
     """
     try:
         backend = backend_for_path(output)
