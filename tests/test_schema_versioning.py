@@ -30,6 +30,7 @@ class _DummyArchiveTree(ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "dummy"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = object
 
     def deserialize(self, archive, **kwargs):  # pragma: no cover - never invoked
         raise NotImplementedError()

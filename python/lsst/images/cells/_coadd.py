@@ -409,6 +409,7 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
     SCHEMA_NAME: ClassVar[str] = "cell_coadd"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = CellCoadd
 
     # Inherited attributes are duplicated because that improves the docs
     # (some limitation in the sphinx/pydantic integration), and these are

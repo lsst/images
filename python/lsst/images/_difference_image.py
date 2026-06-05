@@ -363,6 +363,7 @@ class DifferenceImageSerializationModel[P: pydantic.BaseModel](VisitImageSeriali
     SCHEMA_NAME: ClassVar[str] = "difference_image"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = DifferenceImage
 
     def deserialize(
         self, archive: InputArchive[Any], *, bbox: Box | None = None, **kwargs: Any

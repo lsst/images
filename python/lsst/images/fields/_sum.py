@@ -168,6 +168,7 @@ class SumFieldSerializationModel(ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "sum_field"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = SumField
 
     operands: list[FieldSerializationModel] = pydantic.Field(default_factory=list)
 

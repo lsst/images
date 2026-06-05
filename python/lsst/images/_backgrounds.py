@@ -140,6 +140,7 @@ class BackgroundMapSerializationModel(ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "background_map"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = BackgroundMap
 
     fields: dict[str, FieldSerializationModel] = pydantic.Field(
         default_factory=dict,

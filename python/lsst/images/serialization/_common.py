@@ -92,6 +92,11 @@ class ArchiveTree(
     SCHEMA_NAME: ClassVar[str]
     SCHEMA_VERSION: ClassVar[str]
     MIN_READ_VERSION: ClassVar[int]
+    PUBLIC_TYPE: ClassVar[type]
+    """In-memory Python type produced by this tree's ``deserialize`` (e.g.
+    `dict` for a mapping return).  Declared explicitly by each concrete
+    subclass and surfaced by
+    `~lsst.images.serialization.public_type_for_schema`."""
 
     schema_version: str = pydantic.Field(
         default="1.0.0",

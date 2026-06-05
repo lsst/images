@@ -1260,11 +1260,12 @@ def iter_concrete_archive_tree_subclasses() -> Iterator[type[ArchiveTree]]:
 
 def check_archive_tree_class_invariants(tc: unittest.TestCase, cls: type[ArchiveTree]) -> None:
     """Assert that one concrete `.serialization.ArchiveTree` subclass declares
-    well-formed schema-version constants.
+    well-formed schema-version constants and an in-memory type.
 
-    Checks that ``SCHEMA_NAME``, ``SCHEMA_VERSION`` and ``MIN_READ_VERSION``
-    are present and well-typed, that the version is ``major.minor.patch``, and
-    that ``MIN_READ_VERSION`` does not exceed the schema major.
+    Checks that ``SCHEMA_NAME``, ``SCHEMA_VERSION``, ``MIN_READ_VERSION`` and
+    ``PUBLIC_TYPE`` are present and well-typed, that the version is
+    ``major.minor.patch``, and that ``MIN_READ_VERSION`` does not exceed the
+    schema major.
 
     Parameters
     ----------
@@ -1276,10 +1277,12 @@ def check_archive_tree_class_invariants(tc: unittest.TestCase, cls: type[Archive
     tc.assertTrue(hasattr(cls, "SCHEMA_NAME"), f"{cls.__name__} lacks SCHEMA_NAME")
     tc.assertTrue(hasattr(cls, "SCHEMA_VERSION"), f"{cls.__name__} lacks SCHEMA_VERSION")
     tc.assertTrue(hasattr(cls, "MIN_READ_VERSION"), f"{cls.__name__} lacks MIN_READ_VERSION")
+    tc.assertTrue(hasattr(cls, "PUBLIC_TYPE"), f"{cls.__name__} lacks PUBLIC_TYPE")
     tc.assertIsInstance(cls.SCHEMA_NAME, str)
     tc.assertGreater(len(cls.SCHEMA_NAME), 0)
     tc.assertRegex(cls.SCHEMA_VERSION, r"^\d+\.\d+\.\d+$")
     tc.assertIsInstance(cls.MIN_READ_VERSION, int)
     tc.assertGreaterEqual(cls.MIN_READ_VERSION, 1)
+    tc.assertIsInstance(cls.PUBLIC_TYPE, type)
     major = int(cls.SCHEMA_VERSION.split(".")[0])
     tc.assertLessEqual(cls.MIN_READ_VERSION, major)

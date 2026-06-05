@@ -300,6 +300,7 @@ class SplineFieldSerializationModel(ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "spline_field"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = SplineField
 
     bounds: SerializableBounds = pydantic.Field(description=("The region where this field can be evaluated."))
 

@@ -17,8 +17,8 @@ from unittest import mock
 from lsst.images import Projection, VisitImage
 from lsst.images._image import ImageSerializationModel
 from lsst.images._visit_image import VisitImageSerializationModel
-from lsst.images.serialization import ArchiveTree, _io, class_for_schema
-from lsst.images.serialization._io import _REGISTRY, _public_type, register_schema_class
+from lsst.images.serialization import ArchiveTree, _io, class_for_schema, public_type_for_schema
+from lsst.images.serialization._io import _REGISTRY, register_schema_class
 
 
 class ClassForSchemaTestCase(unittest.TestCase):
@@ -102,37 +102,18 @@ class RegistrationTestCase(unittest.TestCase):
 
 
 class PublicTypeTestCase(unittest.TestCase):
-    """The internal _public_type helper resolves deserialize's return."""
+    """public_type_for_schema returns each tree's PUBLIC_TYPE ClassVar."""
 
-    def test_concrete_return_annotation(self) -> None:
-        cls = class_for_schema("visit_image")
-        assert cls is not None  # for type checkers
-        self.assertIs(_public_type(cls), VisitImage)
+    def test_concrete_type(self) -> None:
+        self.assertIs(public_type_for_schema("visit_image"), VisitImage)
 
-    def test_parameterised_generic_unwrapped(self) -> None:
-        # ProjectionSerializationModel.deserialize returns Projection[Any];
-        # _public_type should unwrap to Projection.
-        cls = class_for_schema("projection")
-        assert cls is not None
-        self.assertIs(_public_type(cls), Projection)
+    def test_generic_in_memory_type(self) -> None:
+        # ProjectionSerializationModel produces a Projection (its PUBLIC_TYPE
+        # is the unparameterised class, not Projection[Any]).
+        self.assertIs(public_type_for_schema("projection"), Projection)
 
-    def test_any_return_annotation(self) -> None:
-        # The abstract base ArchiveTree returns Any; if a concrete subclass
-        # ever does the same, _public_type must return None.
-        class _AnyTree(ArchiveTree):
-            SCHEMA_NAME: ClassVar[str] = "_any_tree_test"
-            SCHEMA_VERSION: ClassVar[str] = "1.0.0"
-            MIN_READ_VERSION: ClassVar[int] = 1
-
-            def deserialize(self, archive: Any, **kwargs: Any) -> Any:
-                return None
-
-        try:
-            self.assertIsNone(_public_type(_AnyTree))
-        finally:
-            # Tidy up: pop the stand-alone class out of the registry so
-            # it doesn't leak into other tests.
-            _REGISTRY.pop("_any_tree_test", None)
+    def test_unregistered_schema_returns_none(self) -> None:
+        self.assertIsNone(public_type_for_schema("no-such-schema"))
 
 
 def _all_concrete_archive_tree_subclasses() -> list[type]:
@@ -167,18 +148,17 @@ class ClassInvariantsTestCase(unittest.TestCase):
                 missing.append(f"{cls.__qualname__} -> {cls.SCHEMA_NAME}")
         self.assertEqual(missing, [], f"Unregistered subclasses: {missing}")
 
-    def test_every_registered_class_resolves_public_type(self) -> None:
+    def test_every_registered_class_declares_public_type(self) -> None:
         # Restrict to package-local classes; test-only ArchiveTree
         # subclasses (e.g. tests/test_schema_versioning.py's
-        # _DummyArchiveTree) may register but intentionally have no
-        # concrete return annotation.
+        # _DummyArchiveTree) may register but are not part of the package.
         unresolved: list[str] = []
         for cls in _REGISTRY.values():
             if not cls.__module__.startswith("lsst.images"):
                 continue
-            if _public_type(cls) is None:
+            if not isinstance(getattr(cls, "PUBLIC_TYPE", None), type):
                 unresolved.append(cls.__qualname__)
-        self.assertEqual(unresolved, [], f"No concrete return annotation: {unresolved}")
+        self.assertEqual(unresolved, [], f"No PUBLIC_TYPE declared: {unresolved}")
 
 
 if __name__ == "__main__":

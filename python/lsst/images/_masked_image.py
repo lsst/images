@@ -459,6 +459,7 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "masked_image"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = MaskedImage
 
     image: ImageSerializationModel[P] = pydantic.Field(description="The main data image.")
     mask: MaskSerializationModel[P] = pydantic.Field(

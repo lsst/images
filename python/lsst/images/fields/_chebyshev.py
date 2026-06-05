@@ -396,6 +396,7 @@ class ChebyshevFieldSerializationModel(ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "chebyshev_field"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = ChebyshevField
 
     bounds: SerializableBounds = pydantic.Field(
         description=(

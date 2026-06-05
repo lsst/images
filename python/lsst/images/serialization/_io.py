@@ -23,7 +23,6 @@ __all__ = (
 
 import importlib
 import importlib.metadata
-import typing
 from typing import Any, overload
 
 from lsst.resources import ResourcePathExpression
@@ -175,58 +174,13 @@ def parameterize_tree(
     return tree_cls[pointer_type]  # type: ignore[index]
 
 
-_PUBLIC_TYPE_ATTR = "_lsst_images_public_type"
-"""Attribute name used to cache the resolved public type on each
-``ArchiveTree`` subclass."""
-
-_UNRESOLVED = object()
-"""Sentinel cached when the return annotation is ``Any`` or could not be
-resolved.  Distinguishes "we tried and failed" from "we have not tried"."""
-
-
-def _public_type(tree_cls: type[ArchiveTree]) -> type | None:
-    """Return the in-memory class produced by ``tree_cls.deserialize``.
-
-    Derived from the return annotation of ``deserialize`` and cached on
-    the class.  Returns `None` when the annotation is `Any` or cannot be
-    resolved (e.g. it references a name that is not importable from the
-    class's module globals).
-    """
-    cached = tree_cls.__dict__.get(_PUBLIC_TYPE_ATTR, None)
-    if cached is _UNRESOLVED:
-        return None
-    if cached is not None:
-        return cached  # type: ignore[no-any-return]
-    try:
-        hints = typing.get_type_hints(tree_cls.deserialize)
-    except Exception:
-        setattr(tree_cls, _PUBLIC_TYPE_ATTR, _UNRESOLVED)
-        return None
-    annotation = hints.get("return", Any)
-    if annotation is Any:
-        setattr(tree_cls, _PUBLIC_TYPE_ATTR, _UNRESOLVED)
-        return None
-    # PEP 695 ``type X = ...`` aliases reach us as TypeAliasType; unwrap to
-    # the underlying type so e.g. ``type ApertureCorrectionMap = dict[str,
-    # Field]`` resolves to ``dict``.
-    if isinstance(annotation, typing.TypeAliasType):
-        annotation = annotation.__value__
-    resolved = typing.get_origin(annotation) or annotation
-    if not isinstance(resolved, type):
-        setattr(tree_cls, _PUBLIC_TYPE_ATTR, _UNRESOLVED)
-        return None
-    setattr(tree_cls, _PUBLIC_TYPE_ATTR, resolved)
-    return resolved
-
-
 def public_type_for_schema(schema_name: str) -> type | None:
     """Return the in-memory Python class produced when reading an archive
     whose top-level tree has schema name ``schema_name``.
 
-    Combines the schema-name registry lookup with resolution of the
-    registered tree's ``deserialize`` return annotation.  Returns `None`
-    when nothing is registered for ``schema_name`` or when the public type
-    cannot be resolved from the annotation (e.g. it is ``Any``).
+    Looks the schema name up in the registry and returns the registered
+    tree's ``PUBLIC_TYPE`` ClassVar (the type its ``deserialize`` produces).
+    Returns `None` when nothing is registered for ``schema_name``.
 
     Parameters
     ----------
@@ -236,7 +190,7 @@ def public_type_for_schema(schema_name: str) -> type | None:
     tree_cls = class_for_schema(schema_name)
     if tree_cls is None:
         return None
-    return _public_type(tree_cls)
+    return getattr(tree_cls, "PUBLIC_TYPE", None)
 
 
 @overload

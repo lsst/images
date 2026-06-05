@@ -251,6 +251,7 @@ class PiffSerializationModel(serialization.ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "piff_psf"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = PiffWrapper
 
     piff: PiffObjectModel = pydantic.Field(description="The Piff PSF object itself.")
 
