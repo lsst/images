@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 import astropy.io.fits
 import click
+from click.core import ParameterSource
 
 from ..serialization import backend_for_path, write
 
@@ -78,12 +79,13 @@ def _read_legacy(
     skymap: str | None,
     butler: str | None,
     collection: str | None,
+    preserve_quantization: bool = False,
 ) -> VisitImage | CellCoadd:
     """Read a legacy FITS file into the corresponding lsst.images object."""
     if legacy_type == "visit_image":
         from .. import VisitImage
 
-        return VisitImage.read_legacy(input)
+        return VisitImage.read_legacy(input, preserve_quantization=preserve_quantization)
     if legacy_type == "cell_coadd":
         from lsst.cell_coadds import MultipleCellCoadd
 
@@ -128,6 +130,14 @@ def _read_legacy(
     help="Butler collection holding the skymap (required with --butler).",
 )
 @click.option("--overwrite", is_flag=True, default=False, help="Overwrite OUTPUT if it exists.")
+@click.option(
+    "--preserve-quantization/--no-preserve-quantization",
+    default=True,
+    help=(
+        "Preserve quantization-compressed pixel values so they can be written "
+        "back out losslessly (visit images only).  On by default."
+    ),
+)
 def convert(
     input: str,
     output: str,
@@ -136,6 +146,7 @@ def convert(
     butler: str | None,
     collection: str | None,
     overwrite: bool,
+    preserve_quantization: bool,
 ) -> None:
     """Convert a legacy FITS file to a new lsst.images format.
 
@@ -151,6 +162,16 @@ def convert(
     if legacy_type is None:
         raise click.ClickException(f"Could not determine the legacy type of {input!r}; pass --type.")
 
+    # The flag is on by default, so only object when the user explicitly set
+    # it for a type that does not support it (only visit images do).
+    if legacy_type != "visit_image":
+        source = click.get_current_context().get_parameter_source("preserve_quantization")
+        if source == ParameterSource.COMMANDLINE:
+            raise click.ClickException(
+                f"--preserve-quantization is only valid for visit images, not {legacy_type!r}."
+            )
+        preserve_quantization = False
+
     output_abs = os.path.realpath(output)
     if os.path.realpath(input) == output_abs:
         raise click.ClickException("INPUT and OUTPUT must be different paths.")
@@ -159,7 +180,7 @@ def convert(
         raise click.ClickException(f"{output!r} already exists; pass --overwrite to replace it.")
 
     try:
-        obj = _read_legacy(input, legacy_type, skymap, butler, collection)
+        obj = _read_legacy(input, legacy_type, skymap, butler, collection, preserve_quantization)
     except click.ClickException:
         raise
     except ImportError as err:

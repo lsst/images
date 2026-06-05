@@ -225,6 +225,53 @@ class ConvertCellCoaddTestCase(unittest.TestCase):
         self.assertIn("--skymap", result.output)
 
 
+class ConvertPreserveQuantizationTestCase(unittest.TestCase):
+    """--preserve-quantization defaults on, forwards for visit images, and
+    is rejected only when set explicitly for other types.
+    """
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+
+    def _make_input(self) -> str:
+        path = os.path.join(self.tmp, "in.fits")
+        astropy.io.fits.PrimaryHDU().writeto(path)
+        return path
+
+    def test_default_is_true(self) -> None:
+        from lsst.images.cli._convert import convert
+
+        option = next(p for p in convert.params if p.name == "preserve_quantization")
+        self.assertIs(option.default, True)
+
+    def test_explicit_flag_rejected_for_cell_coadd(self) -> None:
+        src = self._make_input()
+        out = os.path.join(self.tmp, "out.json")
+        result = CliRunner().invoke(
+            main, ["convert", src, out, "--type", "cell_coadd", "--preserve-quantization"]
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("preserve-quantization", result.output)
+
+    def test_default_does_not_reject_cell_coadd(self) -> None:
+        # The on-by-default flag must not block cell-coadd conversion; any
+        # failure here is about later steps (skymap / missing deps), never the
+        # preserve-quantization gate.
+        src = self._make_input()
+        out = os.path.join(self.tmp, "out.json")
+        result = CliRunner().invoke(main, ["convert", src, out, "--type", "cell_coadd"])
+        self.assertNotIn("preserve-quantization", result.output)
+
+    def test_forwarded_to_read_legacy(self) -> None:
+        from lsst.images.cli._convert import _read_legacy
+
+        with mock.patch("lsst.images.VisitImage.read_legacy") as read_legacy:
+            _read_legacy("in.fits", "visit_image", None, None, None, True)
+        read_legacy.assert_called_once_with("in.fits", preserve_quantization=True)
+
+
 class CliRegistrationTestCase(unittest.TestCase):
     """minify and extract-test-data are registered and their help loads."""
 
