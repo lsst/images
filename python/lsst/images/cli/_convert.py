@@ -51,6 +51,8 @@ def detect_legacy_type(path: str) -> str | None:
         return None
     if dataset_type.endswith("visit_image"):
         return "visit_image"
+    if dataset_type == "difference_image":
+        return "difference_image"
     if "coadd" in dataset_type:
         return "cell_coadd"
     return None
@@ -86,6 +88,10 @@ def _read_legacy(
         from .. import VisitImage
 
         return VisitImage.read_legacy(input, preserve_quantization=preserve_quantization)
+    if legacy_type == "difference_image":
+        from .. import DifferenceImage
+
+        return DifferenceImage.read_legacy(input, preserve_quantization=preserve_quantization)
     if legacy_type == "cell_coadd":
         from lsst.cell_coadds import MultipleCellCoadd
 
