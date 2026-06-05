@@ -138,6 +138,9 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
             with RoundtripNdf(self, psf) as roundtrip3:
                 pass
             compare_psf_to_legacy(self, roundtrip3.result, legacy_psf)
+        legacy_psf_2 = roundtrip1.result.to_legacy()
+        compare_psf_to_legacy(self, psf, legacy_psf_2)
+        self.assertEqual(legacy_psf.getAveragePosition(), legacy_psf_2.getAveragePosition())
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_psfex(self) -> None:

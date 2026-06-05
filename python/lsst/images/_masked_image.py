@@ -17,7 +17,7 @@ import functools
 from collections.abc import Mapping
 from contextlib import ExitStack
 from types import EllipsisType
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import astropy.io.fits
 import astropy.units
@@ -194,6 +194,11 @@ class MaskedImage(GeneralizedImage):
         archive
             Archive to write to.
         """
+        return self._serialize_impl(MaskedImageSerializationModel, archive)
+
+    def _serialize_impl[M: MaskedImageSerializationModel](
+        self, model_type: type[M], archive: OutputArchive[Any]
+    ) -> M:
         serialized_image = archive.serialize_direct(
             "image", functools.partial(self.image.serialize, save_projection=False)
         )
@@ -208,7 +213,15 @@ class MaskedImage(GeneralizedImage):
             if self.projection is not None
             else None
         )
-        return MaskedImageSerializationModel(
+        # When M is a subclass of MaskedImageSerializationModel, it probably
+        # has fields that aren't being set here. We're intentionally making use
+        # of the fact that model_construct doesn't guard against that so we can
+        # instead set them in a subclass implementation later, after calling
+        # super() to construct an instance of the right type. MyPy is actually
+        # fine with this, but only because it incorrectly thinks model_type is
+        # only ever MaskedImageSerializationModel, not a subclass, and that
+        # makes it incorrectly unhappy about the return type.
+        return model_type.model_construct(  # type: ignore[return-value]
             image=serialized_image,
             mask=serialized_mask,
             variance=serialized_variance,
@@ -292,7 +305,9 @@ class MaskedImage(GeneralizedImage):
             Units of the image.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
-            description.
+            description.  If not provided, the right legacy mask plane will be
+            guessed, but this can depend on which mask planes the legacy
+            mask actually has set.
         """
         return MaskedImage(
             image=Image.from_legacy(legacy.getImage(), unit),
@@ -325,47 +340,6 @@ class MaskedImage(GeneralizedImage):
             dtype=self.image.array.dtype,
         )
 
-    @overload
-    @staticmethod
-    def read_legacy(
-        uri: ResourcePathExpression,
-        *,
-        preserve_quantization: bool = False,
-        component: Literal["image"],
-        fits_wcs_frame: Frame | None = None,
-    ) -> Image: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        uri: ResourcePathExpression,
-        *,
-        plane_map: Mapping[str, MaskPlane] | None = None,
-        component: Literal["mask"],
-        fits_wcs_frame: Frame | None = None,
-    ) -> Mask: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        uri: ResourcePathExpression,
-        *,
-        preserve_quantization: bool = False,
-        component: Literal["variance"],
-        fits_wcs_frame: Frame | None = None,
-    ) -> Image: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        uri: ResourcePathExpression,
-        *,
-        preserve_quantization: bool = False,
-        plane_map: Mapping[str, MaskPlane] | None = None,
-        component: None = None,
-        fits_wcs_frame: Frame | None = None,
-    ) -> MaskedImage: ...
-
     @staticmethod
     def read_legacy(
         uri: ResourcePathExpression,
@@ -390,7 +364,9 @@ class MaskedImage(GeneralizedImage):
             pixel values are not transferred to the copy.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
-            description.
+            description.  If not provided, the right legacy mask plane will be
+            guessed, but this can depend on which mask planes the legacy
+            mask actually has set.
         component
             A component to read instead of the full image.
         fits_wcs_frame

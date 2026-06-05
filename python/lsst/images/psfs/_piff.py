@@ -11,8 +11,6 @@
 
 from __future__ import annotations
 
-from lsst.images.serialization import ArchiveReadError
-
 __all__ = ("PiffSerializationModel", "PiffWrapper")
 
 import operator
@@ -28,7 +26,7 @@ import pydantic
 
 from .. import serialization
 from .._concrete_bounds import SerializableBounds
-from .._geom import Bounds, Box
+from .._geom import XY, Bounds, Box
 from .._image import Image
 from ..utils import round_half_up
 from ._base import PointSpreadFunction
@@ -131,6 +129,7 @@ class PiffWrapper(PointSpreadFunction):
             piff=piff_model,
             stamp_size=self._stamp_size,
             bounds=self._bounds.serialize(),
+            stars=[MinimalStar.from_star(s) for s in self._impl.stars],
         )
 
     @staticmethod
@@ -157,7 +156,8 @@ class PiffWrapper(PointSpreadFunction):
         just deletes the postage stamp image attributes from inside the Piff
         ``stars`` list, which is not a state the Piff serialization code
         handles gracefully.  So for now we have to drop the full stars list
-        during serialization if it is present.
+        during serialization if it is present.  We then save the star
+        positions separately.
         """
         if hasattr(self._impl, "stars"):
             stars = self._impl.stars
@@ -168,6 +168,27 @@ class PiffWrapper(PointSpreadFunction):
                 self._impl.stars = stars
         else:
             yield
+
+
+class MinimalStar(pydantic.BaseModel):
+    """A partial duck-alike for `piff.star.Star`, holding just the image
+    position and some booleans (enough to compute an 'average position' on the
+    legacy PSF).
+    """
+
+    image_pos: XY
+    is_flagged: bool
+    is_reserve: bool
+
+    @classmethod
+    def from_star(cls, star: MinimalStar | piff.star.Star) -> MinimalStar:
+        if type(star) is cls:
+            return star
+        return cls(
+            image_pos=XY(x=star.image_pos.x, y=star.image_pos.y),
+            is_flagged=star.is_flagged,
+            is_reserve=star.is_reserve,
+        )
 
 
 # Conventions on public visibility of the serialization types:
@@ -233,6 +254,10 @@ class PiffSerializationModel(serialization.ArchiveTree):
 
     piff: PiffObjectModel = pydantic.Field(description="The Piff PSF object itself.")
 
+    stars: list[MinimalStar] = pydantic.Field(
+        description="Minimal information about the stars that went into the PSF model."
+    )
+
     stamp_size: int = pydantic.Field(
         description="Width of the (square) images returned by this PSF's methods."
     )
@@ -255,10 +280,11 @@ class PiffSerializationModel(serialization.ArchiveTree):
             from piff import PSF
             from piff.config import PiffLogger
         except ImportError:
-            raise ArchiveReadError("Failed to import piff.") from None
+            raise serialization.ArchiveReadError("Failed to import piff.") from None
 
         reader = _ArchivePiffReader(self.piff, archive)
         impl = PSF._read(reader, "piff", PiffLogger(_LOG))
+        impl.stars = self.stars
         return PiffWrapper(impl, bounds=self.bounds.deserialize(), stamp_size=self.stamp_size)
 
 

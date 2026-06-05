@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import unittest
 import warnings
-from typing import Any
+from typing import Any, ClassVar
 
 import astropy.io.fits
 import astropy.units as u
@@ -26,6 +26,7 @@ from lsst.images import (
     BackgroundMap,
     Box,
     DetectorFrame,
+    DifferenceImage,
     Image,
     MaskPlane,
     MaskSchema,
@@ -34,6 +35,7 @@ from lsst.images import (
     ProjectionAstropyView,
     TractFrame,
     VisitImage,
+    get_legacy_difference_image_mask_planes,
     get_legacy_visit_image_mask_planes,
 )
 from lsst.images.aperture_corrections import ApertureCorrectionMap, aperture_corrections_to_legacy
@@ -389,6 +391,7 @@ class VisitImageLegacyTestMixin:
     plane_map: dict[str, MaskPlane]
     visit_image: VisitImage
     unit: u.UnitBase
+    storage_class: ClassVar[str] = "VisitImage"
 
     def test_legacy_errors(self) -> None:
         """Legacy read failure modes."""
@@ -515,7 +518,7 @@ class VisitImageLegacyTestMixin:
         """
         import lsst.afw.image
 
-        with RoundtripFits(self, self.visit_image, "VisitImage") as roundtrip:
+        with RoundtripFits(self, self.visit_image, self.storage_class) as roundtrip:
             # Check that we're still using the right compression, and that we
             # wrote WCSs.
             fits = roundtrip.inspect()
@@ -621,7 +624,7 @@ class VisitImageLegacyTestMixin:
             from lsst.daf.butler import FileDataset
 
             helper.butler.ingest(FileDataset(path=self.filename, refs=[helper.legacy]), transfer="symlink")
-            visit_image_ref = helper.legacy.overrideStorageClass("VisitImage")
+            visit_image_ref = helper.legacy.overrideStorageClass(self.storage_class)
             with warnings.catch_warnings():
                 # Silence warnings about data ID and filter label disagreeing.
                 warnings.simplefilter("ignore", category=UserWarning)
@@ -842,6 +845,37 @@ class PreliminaryVisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTes
             cls.filename, preserve_quantization=True, plane_map=cls.plane_map
         )
         cls.unit = u.electron
+
+
+@unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
+class DifferenceImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
+    """Tests for the DifferenceImage class using a DRP difference_image
+    dataset.
+
+    Because DifferenceImage is a trivial subclass of VisitImage (it may be
+    extended in the future), we run the VisitImage tests to make sure nothing
+    has gone wrong in anything that wasn't trivially inherited.
+
+    Requires legacy code.
+    """
+
+    storage_class: ClassVar[str] = "DifferenceImage"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        assert EXTERNAL_DATA_DIR is not None, "Guaranteed by decorator."
+        cls.filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "difference_image.fits")
+        try:
+            from lsst.afw.image import ExposureFitsReader
+
+            cls.legacy_exposure = ExposureFitsReader(cls.filename).read()
+        except ImportError:
+            raise unittest.SkipTest("afw not available; cannot read legacy visit images") from None
+        cls.plane_map = get_legacy_difference_image_mask_planes()
+        cls.visit_image = DifferenceImage.read_legacy(
+            cls.filename, preserve_quantization=True, plane_map=cls.plane_map
+        )
+        cls.unit = u.nJy
 
 
 if __name__ == "__main__":

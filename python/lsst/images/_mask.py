@@ -18,6 +18,7 @@ __all__ = (
     "MaskSchema",
     "MaskSerializationModel",
     "get_legacy_deep_coadd_mask_planes",
+    "get_legacy_difference_image_mask_planes",
     "get_legacy_visit_image_mask_planes",
 )
 
@@ -179,6 +180,9 @@ class MaskSchema:
 
     def __len__(self) -> int:
         return len(self._planes)
+
+    def __contains__(self, plane: str | MaskPlane) -> bool:
+        return getattr(plane, "name", plane) in self.names
 
     def __getitem__(self, i: int) -> MaskPlane | None:
         return self._planes[i]
@@ -718,7 +722,9 @@ class Mask(GeneralizedImage):
             data with the new object.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
-            description.
+            description.  If not provided, the right legacy mask plane will be
+            guessed, but this can depend on which mask planes the legacy
+            mask actually has set.
         """
         return Mask._from_legacy_array(
             legacy.array,
@@ -747,7 +753,8 @@ class Mask(GeneralizedImage):
         for old_name, new_plane in plane_map.items():
             old_bit = result.addMaskPlane(old_name)
             old_bitmask = 1 << old_bit
-            result.array[self.get(new_plane.name)] |= old_bitmask
+            if new_plane in self.schema:
+                result.array[self.get(new_plane.name)] |= old_bitmask
         return result
 
     @staticmethod
@@ -759,16 +766,18 @@ class Mask(GeneralizedImage):
         plane_map: Mapping[str, MaskPlane] | None = None,
         projection: Projection | None = None,
     ) -> Mask:
-        planes: list[MaskPlane] = []
+        if plane_map is None:
+            plane_map = _guess_legacy_plane_map(old_planes)
+        planes: list[MaskPlane] = list(plane_map.values()) if plane_map is not None else []
         new_name_to_old_bitmask: dict[str, int] = {}
         for old_name, old_bit in old_planes.items():
             old_bitmask = 1 << old_bit
             if plane_map is not None:
                 if new_plane := plane_map.get(old_name):
-                    planes.append(new_plane)
+                    # Already added to 'planes' at initialization.
                     new_name_to_old_bitmask[new_plane.name] = old_bitmask
                 else:
-                    if n_orphaned := np.count_nonzero(array2d & old_bitmask):
+                    if n_orphaned := np.count_nonzero(array2d.astype(np.uint64) & old_bitmask):
                         raise RuntimeError(
                             f"Legacy mask plane {old_name!r} is not remapped, "
                             f"but {n_orphaned} pixels have this bit set."
@@ -798,7 +807,9 @@ class Mask(GeneralizedImage):
             URI or file name.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
-            description.
+            description.  If not provided, the right legacy mask plane will be
+            guessed, but this can depend on which mask planes the legacy
+            mask actually has set.
         ext
             Name or index of the FITS HDU to read.
         fits_wcs_frame
@@ -1000,7 +1011,24 @@ def get_legacy_visit_image_mask_planes() -> dict[str, MaskPlane]:
         "SPIKE": MaskPlane(
             "SPIKE", "Pixel is in the neighborhood of a diffraction spike from a bright star."
         ),
+        "UNMASKEDNAN": MaskPlane("UNMASKED_NAN", "Pixel was found to be NaN unexpectedly."),
     }
+
+
+def get_legacy_difference_image_mask_planes() -> dict[str, MaskPlane]:
+    """Return a mapping from legacy mask plane name to `MaskPlane` instance
+    for LSST difference images, c. DP2.
+    """
+    result = get_legacy_visit_image_mask_planes()
+    result["DETECTED_NEGATIVE"] = MaskPlane(
+        "DETECTED_NEGATIVE", "Pixel was part of a detected source with negative flux."
+    )
+    result["SAT_TEMPLATE"] = MaskPlane("SAT_TEMPLATE", "Template pixel was saturated.")
+    result["HIGH_VARIANCE"] = MaskPlane("HIGH_VARIANCE", "TODO[DM-55036]")
+    result["STREAK"] = MaskPlane(
+        "STREAK", "An extended streak (probably an artificial satellite) affected this pixel."
+    )
+    return result
 
 
 def get_legacy_deep_coadd_mask_planes() -> dict[str, MaskPlane]:
@@ -1032,3 +1060,14 @@ def get_legacy_deep_coadd_mask_planes() -> dict[str, MaskPlane]:
             "Pixel is on or near a cell boundary and hence its PSF may be (usually slightly) discontinuous.",
         ),
     }
+
+
+def _guess_legacy_plane_map(old_planes: Mapping[str, int]) -> dict[str, MaskPlane]:
+    """Guess which of the ``get_legacy_*_plane_map`` created the given mask
+    plane dictionary and call it.
+    """
+    if "SAT_TEMPLATE" in old_planes:
+        return get_legacy_difference_image_mask_planes()
+    if "INEXACT_PSF" in old_planes:
+        return get_legacy_deep_coadd_mask_planes()
+    return get_legacy_visit_image_mask_planes()

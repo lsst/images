@@ -183,6 +183,7 @@ class MaskTestCase(unittest.TestCase):
         filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
         plane_map = get_legacy_visit_image_mask_planes()
         mask = Mask.read_legacy(filename, ext=2, plane_map=plane_map)
+        self.assertEqual(mask.schema.names, {p.name for p in plane_map.values()})
         try:
             from lsst.afw.image import MaskedImageFitsReader
         except ImportError:

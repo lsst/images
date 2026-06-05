@@ -247,10 +247,20 @@ class SplineField(BaseField):
         bg_control = legacy_background.getBackgroundControl()
         approx_control = bg_control.getApproximateControl()
         stats_image = legacy_background.getStatsImage()
+        # In the afw background system, "approximate" is the opposite of
+        # "interpolate", but it also implied Chebyshev since that's the only
+        # approximation algorithm we every implemented. All of the
+        # interpolation options are similarly splines, and non-Akima splines
+        # are *mostly* only used when there aren't enough control points for
+        # Akima splines. Since SciPy automatically falls back to non-Akima
+        # splines in those cases (or maybe they're formally a limit of Akima
+        # splines, I don't know), we just always assume what we get can be
+        # Akima-spline interpolated by SciPy to good enough approximation with
+        # what afw would do.
         if approx_control.getStyle() != ApproximateControl.UNKNOWN:
             raise TypeError("Legacy background uses Chebyshev approximation, not splines.")
-        if bg_control.getInterpStyle() != Interpolate.AKIMA_SPLINE:
-            raise TypeError("Legacy background does not use Akima spline interpolation.")
+        if bg_control.getInterpStyle() == Interpolate.UNKNOWN:
+            raise TypeError("Legacy background does not use spline interpolation.")
         x = legacy_background.getBinCentersX()
         y = legacy_background.getBinCentersY()
         return SplineField(

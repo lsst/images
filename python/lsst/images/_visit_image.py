@@ -14,10 +14,11 @@ from __future__ import annotations
 __all__ = ("VisitImage", "VisitImageSerializationModel")
 
 import functools
+import logging
 import warnings
 from collections.abc import Callable, Mapping, MutableMapping
 from types import EllipsisType
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 import astropy.io.fits
 import astropy.units
@@ -68,6 +69,8 @@ if TYPE_CHECKING:
         type LegacyExposure = Any  # type: ignore[no-redef]
         type LegacyFilterLabel = Any  # type: ignore[no-redef]
         type LegacyVisitInfo = Any  # type: ignore[no-redef]
+
+_LOG = logging.getLogger("lsst.images")
 
 
 class VisitImage(MaskedImage):
@@ -452,49 +455,50 @@ class VisitImage(MaskedImage):
         )
 
     def serialize(self, archive: OutputArchive[Any]) -> VisitImageSerializationModel:
-        masked_image_model = super().serialize(archive)
-        serialized_psf: PiffSerializationModel | PSFExSerializationModel | GaussianPSFSerializationModel
+        return self._serialize_impl(VisitImageSerializationModel, archive)
+
+    # This is slightly bad Liskov substitution - we're demanding M be a
+    # VisitImageSerializationModel, not just a MaskedImageSerializationModel,
+    # but that's because we know only `serialize` will call it.
+    def _serialize_impl[M: VisitImageSerializationModel](  # type: ignore[override]
+        self, model_type: type[M], archive: OutputArchive[Any]
+    ) -> M:
+        result = super()._serialize_impl(model_type, archive)
         match self._psf:
             # MyPy is able to figure things out here with this match statement,
-            # but not a single isinstance check on both types.
+            # but not a single isinstance check on the three types.
             case PiffWrapper():
-                serialized_psf = archive.serialize_direct("psf", self._psf.serialize)
+                result.psf = archive.serialize_direct("psf", self._psf.serialize)
             case PSFExWrapper():
-                serialized_psf = archive.serialize_direct("psf", self._psf.serialize)
+                result.psf = archive.serialize_direct("psf", self._psf.serialize)
             case GaussianPointSpreadFunction():
-                serialized_psf = archive.serialize_direct("psf", self._psf.serialize)
+                result.psf = archive.serialize_direct("psf", self._psf.serialize)
             case _:
                 raise TypeError(
                     f"Cannot serialize VisitImage with unrecognized PSF type {type(self._psf).__name__}."
                 )
-        assert masked_image_model.projection is not None, "VisitImage always has a projection."
-        serialized_detector = archive.serialize_direct("detector", self._detector.serialize)
-        serialized_photometric_scaling = (
-            archive.serialize_direct("photometric_scaling", self._photometric_scaling.serialize)
+        assert result.projection is not None, "VisitImage always has a projection."
+        result.obs_info = self.obs_info
+        result.summary_stats = self.summary_stats
+        result.bounds = self._bounds.serialize() if self._bounds != self.bbox else None
+        result.detector = archive.serialize_direct("detector", self._detector.serialize)
+        result.band = self.band
+        result.photometric_scaling = (
+            # MyPy can't quite follow the type union through the serialize
+            # method return types.
+            archive.serialize_direct(
+                "photometric_scaling",
+                self._photometric_scaling.serialize,
+            )  # type: ignore[assignment]
             if self._photometric_scaling is not None
             else None
         )
-        serialized_aperture_corrections = archive.serialize_direct(
+        result.aperture_corrections = archive.serialize_direct(
             "aperture_corrections",
             functools.partial(ApertureCorrectionMapSerializationModel.serialize, self.aperture_corrections),
         )
-        serialized_backgrounds = archive.serialize_direct("backgrounds", self._backgrounds.serialize)
-        return VisitImageSerializationModel(
-            image=masked_image_model.image,
-            mask=masked_image_model.mask,
-            variance=masked_image_model.variance,
-            projection=masked_image_model.projection,
-            obs_info=self.obs_info,
-            photometric_scaling=serialized_photometric_scaling,
-            psf=serialized_psf,
-            summary_stats=self.summary_stats,
-            detector=serialized_detector,
-            aperture_corrections=serialized_aperture_corrections,
-            bounds=self._bounds.serialize() if self._bounds != self.bbox else None,
-            backgrounds=serialized_backgrounds,
-            band=self.band,
-            metadata=self.metadata,
-        )
+        result.backgrounds = archive.serialize_direct("backgrounds", self._backgrounds.serialize)
+        return result
 
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
@@ -592,6 +596,10 @@ class VisitImage(MaskedImage):
         legacy_ap_corr_map = legacy.info.getApCorrMap()
         legacy_polygon = legacy.info.getValidPolygon()
         legacy_photo_calib = legacy.info.getPhotoCalib()
+        detector = Detector.from_legacy(
+            legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
+        )
+        _reconcile_detector_serial(obs_info, detector)
         result = VisitImage(
             image=masked_image.image.view(unit=unit),
             mask=masked_image.mask,
@@ -604,9 +612,7 @@ class VisitImage(MaskedImage):
                 if legacy_summary_stats is not None
                 else None
             ),
-            detector=Detector.from_legacy(
-                legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
-            ),
+            detector=detector,
             aperture_corrections=(
                 aperture_corrections_from_legacy(legacy_ap_corr_map)
                 if legacy_ap_corr_map is not None
@@ -689,117 +695,6 @@ class VisitImage(MaskedImage):
         result_info.setVisitInfo(MakeRawVisitInfoViaObsInfo.observationInfo2visitInfo(self.obs_info))
         result_info.setSummaryStats(self.summary_stats.to_legacy())
         return result
-
-    @overload  # type: ignore[override]
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["bbox"],
-    ) -> Box: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        preserve_quantization: bool = False,
-        instrument: str | None = None,
-        visit: int | None = None,
-        component: Literal["image"],
-    ) -> Image: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        plane_map: Mapping[str, MaskPlane] | None = None,
-        instrument: str | None = None,
-        visit: int | None = None,
-        component: Literal["mask"],
-    ) -> Mask: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        preserve_quantization: bool = False,
-        instrument: str | None = None,
-        visit: int | None = None,
-        component: Literal["variance"],
-    ) -> Image: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        instrument: str | None = None,
-        visit: int | None = None,
-        component: Literal["projection"],
-    ) -> Projection[DetectorFrame]: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["psf"],
-    ) -> PointSpreadFunction: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["detector"],
-    ) -> Detector: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["obs_info"],
-    ) -> ObservationInfo: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["photometric_scaling"],
-    ) -> Field | None: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["summary_stats"],
-    ) -> ObservationSummaryStats: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        component: Literal["aperture_corrections"],
-    ) -> ApertureCorrectionMap: ...
-
-    @overload
-    @staticmethod
-    def read_legacy(
-        filename: str,
-        *,
-        preserve_quantization: bool = False,
-        plane_map: Mapping[str, MaskPlane] | None = None,
-        instrument: str | None = None,
-        visit: int | None = None,
-        component: None = None,
-    ) -> VisitImage: ...
 
     @staticmethod
     def read_legacy(  # type: ignore[override]
@@ -925,10 +820,14 @@ class VisitImage(MaskedImage):
                     )
             if component == "photometric_scaling":
                 return photometric_scaling
-            if component == "detector":
-                return Detector.from_legacy(
+            if component in ("detector", None):
+                detector = Detector.from_legacy(
                     legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
                 )
+                _reconcile_detector_serial(obs_info, detector)
+                if component == "detector":
+                    return detector
+            assert component != "detector", "MyPy can't work this out from the above."
             projection = Projection.from_legacy(
                 legacy_wcs,
                 DetectorFrame(
@@ -962,9 +861,7 @@ class VisitImage(MaskedImage):
             variance=from_masked_image.variance,
             projection=projection,
             psf=psf,
-            detector=Detector.from_legacy(
-                legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
-            ),
+            detector=detector,
             obs_info=obs_info,
             summary_stats=summary_stats,
             aperture_corrections=aperture_corrections,
@@ -1114,7 +1011,6 @@ def _update_obs_info_from_legacy(
     if detector is not None:
         detector_md = {
             "detector_num": detector.getId(),
-            "detector_serial": detector.getSerial(),
             "detector_unique_name": detector.getName(),
         }
         extra_md.update(detector_md)
@@ -1134,6 +1030,21 @@ def _update_obs_info_from_legacy(
     if obs_info_updates:
         obs_info = obs_info.model_copy(update=obs_info_updates)
     return obs_info
+
+
+def _reconcile_detector_serial(obs_info: ObservationInfo, detector: Detector) -> None:
+    # Some LSSTCam detector serial numbers are/were incorrect in the camera
+    # geometry (DM-55080), so if they conflict it's the ObservationInfo (from
+    # the headers) that's correct.
+    if obs_info.detector_serial is not None and detector.serial != obs_info.detector_serial:
+        _LOG.warning(
+            "Detector serial from ObservationInfo (%s) for detector %d does not agree "
+            "with camera geometry %s; assuming the former is correct.",
+            obs_info.detector_serial,
+            detector.id,
+            detector.serial,
+        )
+        detector._attributes.serial = obs_info.detector_serial
 
 
 def _extract_or_check_value[T](
