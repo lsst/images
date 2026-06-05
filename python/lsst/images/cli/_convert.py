@@ -156,8 +156,7 @@ def convert(
 ) -> None:
     """Convert a legacy FITS file to a new lsst.images format.
 
-    The output format is chosen from OUTPUT's extension
-    (.fits, .sdf/.ndf, .json).
+    The output format is chosen from OUTPUT's extension.
     """
     try:
         backend = backend_for_path(output)
