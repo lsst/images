@@ -26,7 +26,7 @@ from lsst.images import Box, Image
 from lsst.images import fits as images_fits
 from lsst.images import json as images_json
 from lsst.images.cli import main
-from lsst.images.serialization import backend_for_path
+from lsst.images.serialization import backend_for_path, read
 
 
 class CliSkeletonTestCase(unittest.TestCase):
@@ -110,6 +110,49 @@ class InspectTestCase(unittest.TestCase):
         with open(path, "w") as stream:
             stream.write("nope")
         result = CliRunner().invoke(main, ["inspect", path])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn(".fits", result.output)
+
+
+class ReformatTestCase(unittest.TestCase):
+    """reformat reads a file and writes it back in another container format."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+        self.image = Image(np.arange(16, dtype=np.float32).reshape(4, 4), bbox=Box.factory[0:4, 0:4])
+
+    def test_reformat_round_trip_json_fits_json(self) -> None:
+        # JSON -> FITS -> JSON must preserve the object (NDF is optional, so
+        # the round trip stays within the always-available backends).
+        src = os.path.join(self.tmp, "in.json")
+        mid = os.path.join(self.tmp, "mid.fits")
+        out = os.path.join(self.tmp, "out.json")
+        images_json.write(self.image, src)
+
+        result = CliRunner().invoke(main, ["reformat", src, mid])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(backend_for_path(mid).input_archive.get_basic_info(mid).schema_name, "image")
+
+        result = CliRunner().invoke(main, ["reformat", mid, out])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+        np.testing.assert_array_equal(read(out, Image).array, self.image.array)
+
+    def test_reformat_refuses_existing_output(self) -> None:
+        src = os.path.join(self.tmp, "in.json")
+        out = os.path.join(self.tmp, "out.fits")
+        images_json.write(self.image, src)
+        images_fits.write(self.image, out)
+        result = CliRunner().invoke(main, ["reformat", src, out])
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("--overwrite", result.output)
+
+    def test_reformat_unknown_output_extension(self) -> None:
+        src = os.path.join(self.tmp, "in.json")
+        images_json.write(self.image, src)
+        result = CliRunner().invoke(main, ["reformat", src, os.path.join(self.tmp, "out.txt")])
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn(".fits", result.output)
 
@@ -279,6 +322,7 @@ class CliRegistrationTestCase(unittest.TestCase):
         result = CliRunner().invoke(main, ["--help"])
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("minify", result.output)
+        self.assertIn("reformat", result.output)
         self.assertIn("extract-test-data", result.output)
         self.assertIn("verify-rewrite", result.output)
 
@@ -307,6 +351,7 @@ class CliRegistrationTestCase(unittest.TestCase):
             ["convert", "-h"],
             ["inspect", "-h"],
             ["minify", "-h"],
+            ["reformat", "-h"],
             ["extract-test-data", "-h"],
             ["extract-test-data", "dp2", "-h"],
             ["verify-rewrite", "-h"],

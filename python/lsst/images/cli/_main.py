@@ -19,6 +19,7 @@ from ..tests.verify_rewrite import verify_rewrite
 from ._convert import convert
 from ._inspect import inspect
 from ._minify import minify
+from ._reformat import reformat
 
 
 @click.group(name="lsst-images-admin", context_settings={"help_option_names": ["-h", "--help"]})
@@ -29,5 +30,6 @@ def main() -> None:
 main.add_command(convert)
 main.add_command(inspect)
 main.add_command(minify)
+main.add_command(reformat)
 main.add_command(extract_test_data, name="extract-test-data")
 main.add_command(verify_rewrite, name="verify-rewrite")
