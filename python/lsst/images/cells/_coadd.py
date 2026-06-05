@@ -27,7 +27,7 @@ from .._backgrounds import BackgroundMap, BackgroundMapSerializationModel
 from .._cell_grid import CellGrid, CellGridBounds, PatchDefinition
 from .._geom import YX, Box
 from .._image import Image, ImageSerializationModel
-from .._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
+from .._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_legacy_deep_coadd_mask_planes
 from .._masked_image import MaskedImage, MaskedImageSerializationModel
 from .._transforms import Projection, ProjectionSerializationModel, TractFrame
 from ..serialization import InputArchive, InvalidParameterError, OutputArchive
@@ -37,10 +37,10 @@ from ._psf import CellPointSpreadFunction, CellPointSpreadFunctionSerializationM
 
 if TYPE_CHECKING:
     try:
-        from lsst.cell_coadds import MultipleCellCoadd
+        from lsst.cell_coadds import MultipleCellCoadd as LegacyMultipleCellCoadd
         from lsst.skymap import TractInfo
     except ImportError:
-        type MultipleCellCoadd = Any  # type: ignore[no-redef]
+        type LegacyMultipleCellCoadd = Any  # type: ignore[no-redef]
         type TractInfo = Any  # type: ignore[no-redef]
 
 
@@ -354,12 +354,12 @@ class CellCoadd(MaskedImage):
 
     @staticmethod
     def from_legacy(  # type: ignore[override]
-        legacy: MultipleCellCoadd,
+        legacy: LegacyMultipleCellCoadd,
         *,
         plane_map: Mapping[str, MaskPlane] | None = None,
         tract_info: TractInfo,
     ) -> CellCoadd:
-        """Convert from an `lsst.cell_coadds.MultipleCellCoadd` instance.
+        """Convert from a `lsst.cell_coadds.MultipleCellCoadd` instance.
 
         Parameters
         ----------
@@ -373,6 +373,8 @@ class CellCoadd(MaskedImage):
         """
         from lsst.geom import Box2I
 
+        if plane_map is None:
+            plane_map = get_legacy_deep_coadd_mask_planes()
         legacy_bbox = Box2I()
         for single_cell in legacy.cells.values():
             legacy_bbox.include(single_cell.inner.bbox)
@@ -425,6 +427,97 @@ class CellCoadd(MaskedImage):
             aperture_corrections=aperture_corrections,
             patch=patch,
             provenance=provenance,
+        )
+
+    def to_legacy(
+        self, copy: bool | None = None, plane_map: Mapping[str, MaskPlane] | None = None
+    ) -> LegacyMultipleCellCoadd:
+        """Convert to a `lsst.cell_coadds.MultipleCellCoadd` instance.
+
+        Parameters
+        ----------
+        copy
+            If `True`, always copy the image and variance pixel data.
+            If `False`, return a view, and raise `TypeError` if the pixel data
+            is read-only (this is not supported by afw).  If `None`, only copy
+            if the pixel data is read-only.  Mask pixel data is always copied.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
+        """
+        from frozendict import frozendict  # type: ignore[import-not-found]
+
+        from lsst.cell_coadds import CellIdentifiers as LegacyCellIdentifiers
+        from lsst.cell_coadds import CoaddUnits as LegacyCoaddUnits
+        from lsst.cell_coadds import CommonComponents as LegacyCommonComponents
+        from lsst.cell_coadds import MultipleCellCoadd as LegacyMultipleCellCoadd
+        from lsst.cell_coadds import OwnedImagePlanes as LegacyOwnedImagePlanes
+        from lsst.cell_coadds import PatchIdentifiers as LegacyPatchIdentifiers
+        from lsst.cell_coadds import SingleCellCoadd as LegacySingleCellCoadd
+        from lsst.skymap import Index2D as LegacyIndex2D
+
+        if plane_map is None:
+            plane_map = get_legacy_deep_coadd_mask_planes()
+        if self.unit != astropy.units.nJy:
+            raise ValueError("CellCoadd.to_legacy requires nJy pixel units.")
+        legacy_grid = self.grid.to_legacy()
+        visit_polygons = self.provenance.to_legacy_polygon_map()
+        legacy_common = LegacyCommonComponents(
+            units=LegacyCoaddUnits.nJy,
+            wcs=self.projection.to_legacy(),
+            band=self.band,
+            identifiers=LegacyPatchIdentifiers(
+                self.skymap,
+                self.tract,
+                LegacyIndex2D(x=self.patch.index.x, y=self.patch.index.y),
+                band=self.band,
+            ),
+            visit_polygons=visit_polygons,
+        )
+        legacy_inputs = self.provenance.to_legacy_cell_coadd_inputs(visit_polygons.keys())
+        cells: list[LegacySingleCellCoadd] = []
+        for cell_index in self.bounds.cell_indices():
+            cell_bbox = self.grid.bbox_of(cell_index)
+            # Legacy type only has room for one mask_fractions plane.
+            legacy_mask_fractions = (
+                next(iter(self.mask_fractions.values()))[cell_bbox].to_legacy(copy=copy)
+                if self.mask_fractions
+                else None
+            )
+            legacy_planes = LegacyOwnedImagePlanes(
+                image=self.image[cell_bbox].to_legacy(copy=copy),
+                mask=self.mask[cell_bbox].to_legacy(plane_map),
+                variance=self.variance[cell_bbox].to_legacy(copy=copy),
+                mask_fractions=legacy_mask_fractions,
+                noise_realizations=[n[cell_bbox].to_legacy(copy=copy) for n in self.noise_realizations],
+            )
+            legacy_aperture_correction_map = frozendict(
+                {name: field.value_in_cell(cell_index) for name, field in self.aperture_corrections.items()}
+            )
+            cells.append(
+                LegacySingleCellCoadd(
+                    legacy_planes,
+                    psf=self.psf[cell_index].to_legacy(copy=copy),
+                    inner_bbox=cell_bbox.to_legacy(),
+                    common=legacy_common,
+                    inputs=legacy_inputs[cell_index.to_legacy()],
+                    identifiers=LegacyCellIdentifiers(
+                        self.skymap,
+                        self.tract,
+                        legacy_common.identifiers.patch,
+                        band=self.band,
+                        cell=cell_index.to_legacy(),
+                    ),
+                    aperture_correction_map=legacy_aperture_correction_map,
+                )
+            )
+        return LegacyMultipleCellCoadd(
+            cells,
+            legacy_grid,
+            outer_cell_size=self.grid.cell_shape.to_legacy_extent(),
+            psf_image_size=self.psf.kernel_bbox.shape.to_legacy_extent(),
+            common=legacy_common,
+            inner_bbox=self.bbox.to_legacy(),
         )
 
 

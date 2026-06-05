@@ -28,9 +28,7 @@ from lsst.images.tests import (
     assert_cell_coadds_equal,
     assert_masked_images_equal,
     assert_psfs_equal,
-    compare_aperture_corrections_to_legacy,
     compare_cell_coadd_to_legacy,
-    compare_psf_to_legacy,
 )
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
@@ -171,29 +169,16 @@ class CellCoaddTestCase(unittest.TestCase):
             assert_cell_coadds_equal(self, self.cell_coadd, json_rt.result, expect_view=False)
             assert_cell_coadds_equal(self, fits_rt.result, json_rt.result, expect_view=False)
 
-    def test_psf_to_legacy(self) -> None:
-        """Test converting a cell-based PSF back to its legacy form."""
-        legacy_psf = self.cell_coadd.psf.to_legacy()
-        compare_psf_to_legacy(
+    def test_to_legacy(self) -> None:
+        """Test converting a CellCoadd back into a legacy MultipleCellCoadd."""
+        legacy_cell_coadd = self.cell_coadd.to_legacy()
+        compare_cell_coadd_to_legacy(
             self,
-            self.cell_coadd.psf,
-            legacy_psf,
-            expect_legacy_raise_on_out_of_bounds=True,
-            points=self.psf_points,
-        )
-
-    def test_aperture_corrections_to_legacy(self) -> None:
-        """Test converting a cell-based aperture correction map back to its
-        legacy form.
-        """
-        legacy_ap_corr_map = {
-            k: v.to_legacy_aperture_correction() for k, v in self.cell_coadd.aperture_corrections.items()
-        }
-        compare_aperture_corrections_to_legacy(
-            self,
-            self.cell_coadd.aperture_corrections,
-            legacy_ap_corr_map,
-            self.cell_coadd.bbox,
+            self.cell_coadd,
+            legacy_cell_coadd,
+            tract_bbox=Box.from_legacy(self.skymap[DP2_COADD_DATA_ID["tract"]].getBBox()),
+            plane_map=self.plane_map,
+            psf_points=self.psf_points,
         )
 
 
