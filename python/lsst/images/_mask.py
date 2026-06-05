@@ -53,7 +53,6 @@ from .serialization import (
     OutputArchive,
     is_integer,
     no_header_updates,
-    read,
 )
 from .utils import is_none
 
@@ -674,40 +673,6 @@ class Mask(GeneralizedImage):
     """The name this object should be serialized with when written as the
     top-level object.
     """
-
-    def write_fits(
-        self,
-        filename: str,
-        *,
-        compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
-    ) -> None:
-        """Write the mask to a FITS file.
-
-        Parameters
-        ----------
-        filename
-            Name of the file to write to.  Must be a local file.
-        compression
-            Compression options.
-        """
-        compression_options = {}
-        if compression is not fits.FitsCompressionOptions.DEFAULT:
-            compression_options[self._archive_default_name] = compression
-        fits.write(self, filename, compression_options)
-
-    @staticmethod
-    def read_fits(url: ResourcePathExpression, *, bbox: Box | None = None) -> Mask:
-        """Read an image from a FITS file.
-
-        Parameters
-        ----------
-        url
-            URL of the file to read; may be any type supported by
-            `lsst.resources.ResourcePath`.
-        bbox
-            Bounding box of a subimage to read instead.
-        """
-        return read(url, Mask, bbox=bbox)
 
     @staticmethod
     def from_legacy(

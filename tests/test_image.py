@@ -20,6 +20,7 @@ import numpy as np
 
 import lsst.utils.tests
 from lsst.images import Box, DetectorFrame, Image
+from lsst.images.serialization import read, write
 from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
@@ -196,9 +197,9 @@ class ImageTestCase(unittest.TestCase):
         )
 
         with lsst.utils.tests.getTempFilePath(".fits") as tmpFile:
-            image.write_fits(tmpFile)
+            write(image, tmpFile)
 
-            new = Image.read_fits(tmpFile)
+            new = read(tmpFile, Image)
             self.assertEqual(new, image)
 
             # __eq__ does not test all components.
@@ -207,7 +208,7 @@ class ImageTestCase(unittest.TestCase):
             assert_projections_equal(self, new.projection, image.projection, expect_identity=False)
 
             # Read subset.
-            subset = Image.read_fits(tmpFile, bbox=Box.factory[-2:0, 5:7])
+            subset = read(tmpFile, Image, bbox=Box.factory[-2:0, 5:7])
             self.assertEqual(subset, image.absolute[-2:0, 5:7])
             self.assertEqual(subset, image.local[0:2, 2:4])
             self.assertEqual(str(subset), "Image([y=-2:0, x=5:7], float64)")

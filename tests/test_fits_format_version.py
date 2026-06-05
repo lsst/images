@@ -19,13 +19,13 @@ import astropy.io.fits
 
 from lsst.images import Image
 from lsst.images.fits import FitsInputArchive
-from lsst.images.serialization import ArchiveReadError
+from lsst.images.serialization import ArchiveReadError, write
 
 
 def _write_simple_image_fits(path: str) -> None:
     """Write a tiny Image to ``path`` via the high-level API."""
     image = Image(0.0, shape=(4, 4), dtype="float32")
-    image.write_fits(path)
+    write(image, path)
 
 
 class FitsFormatVersionTestCase(unittest.TestCase):
