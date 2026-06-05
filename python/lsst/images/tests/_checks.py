@@ -62,7 +62,6 @@ from .._masked_image import MaskedImage
 from .._observation_summary_stats import ObservationSummaryStats
 from .._transforms import DetectorFrame, Frame, Projection, SkyFrame, TractFrame, Transform
 from .._visit_image import VisitImage
-from ..aperture_corrections import ApertureCorrectionMap
 from ..cameras import Amplifier, Detector, DetectorType, ReadoutCorner
 from ..cells import CellCoadd, CellIJ, CoaddProvenance
 from ..fields import BaseField, ChebyshevField
@@ -549,6 +548,9 @@ def compare_cell_coadd_to_legacy(
     compare_psf_to_legacy(
         tc, cell_coadd.psf, legacy_stitched.psf, expect_legacy_raise_on_out_of_bounds=True, points=psf_points
     )
+    compare_aperture_corrections_to_legacy(
+        tc, cell_coadd.aperture_corrections, legacy_stitched.ap_corr_map, cell_coadd.bbox
+    )
     compare_cell_coadd_provenance_to_legacy(tc, cell_coadd.provenance, legacy_cell_coadd)
     if alternates:
         if projection := alternates.get("projection"):
@@ -566,6 +568,10 @@ def compare_cell_coadd_to_legacy(
             )
         if psf := alternates.get("psf"):
             compare_psf_to_legacy(tc, psf, legacy_stitched.psf, points=psf_points)
+        if aperture_corrections := alternates.get("aperture_corrections"):
+            compare_aperture_corrections_to_legacy(
+                tc, aperture_corrections, legacy_stitched.ap_corr_map, cell_coadd.bbox
+            )
         if provenance := alternates.get("provenance"):
             compare_cell_coadd_provenance_to_legacy(tc, provenance, legacy_cell_coadd)
 
@@ -740,10 +746,28 @@ def compare_field_to_legacy(
     subimage_bbox
         Bounding box for full-image tests.
     """
+    from lsst.afw.math import BoundedField as LegacyBoundedField
+
     tc.assertEqual(field.bounds.bbox, Box.from_legacy(legacy_field.getBBox()))
     # Pixel coordinates to test the numpy array interface with.
     pixel_xy = field.bounds.bbox.meshgrid(n=5).map(np.ravel)
-    assert_close(tc, field(x=pixel_xy.x, y=pixel_xy.y), legacy_field.evaluate(pixel_xy.x, pixel_xy.y))
+    if not isinstance(field.bounds, Box):
+        mask = field.bounds.contains(x=pixel_xy.x, y=pixel_xy.y)
+        pixel_xy = pixel_xy.map(lambda v: v[mask])
+    try:
+        assert_close(
+            tc,
+            field(x=pixel_xy.x, y=pixel_xy.y),
+            legacy_field.evaluate(pixel_xy.x, pixel_xy.y),
+            equal_nan=True,
+        )
+    except AssertionError as err:
+        err.add_note(f"evaluated at {pixel_xy}")
+        raise
+    if not isinstance(legacy_field, LegacyBoundedField):
+        # Legacy StitchedApertureCorrection objects are not true BoundedFields
+        # and don't have addToImage.
+        return
     legacy_image_1 = Image(0, bbox=subimage_bbox, dtype=np.float64).to_legacy()
     legacy_field.addToImage(legacy_image_1, overlapOnly=True)
     assert_images_equal(
@@ -753,7 +777,7 @@ def compare_field_to_legacy(
 
 def compare_aperture_corrections_to_legacy(
     tc: unittest.TestCase,
-    aperture_corrections: ApertureCorrectionMap,
+    aperture_corrections: Mapping[str, BaseField],
     legacy_ap_corr_map: Any,
     subimage_bbox: Box,
 ) -> None:

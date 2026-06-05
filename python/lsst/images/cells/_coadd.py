@@ -31,6 +31,7 @@ from .._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from .._masked_image import MaskedImage, MaskedImageSerializationModel
 from .._transforms import Projection, ProjectionSerializationModel, TractFrame
 from ..serialization import InputArchive, InvalidParameterError, OutputArchive
+from ._aperture_corrections import CellApertureCorrectionMapSerializationModel, CellField
 from ._provenance import CoaddProvenance, CoaddProvenanceSerializationModel
 from ._psf import CellPointSpreadFunction, CellPointSpreadFunctionSerializationModel
 
@@ -80,6 +81,8 @@ class CellCoadd(MaskedImage):
         reported by ``psf.bounds`` are assumed to apply to all image data for
         that cell as well (i.e. there is a PSF for a cell if and only if
         there is image data for that cell).
+    aperture_corrections
+        Aperture corrections for different photometry algorithms.
     patch
         Identifiers and geometry of the full patch, if the image is confined
         to a single patch.  When present, the cell grid of the PSF and
@@ -103,6 +106,7 @@ class CellCoadd(MaskedImage):
         projection: Projection[TractFrame] | None = None,
         band: str | None = None,
         psf: CellPointSpreadFunction,
+        aperture_corrections: Mapping[str, CellField] | None = None,
         patch: PatchDefinition | None = None,
         provenance: CoaddProvenance | None = None,
         backgrounds: BackgroundMap | None = None,
@@ -126,6 +130,12 @@ class CellCoadd(MaskedImage):
         if psf.bounds.bbox != self.bbox:
             psf = psf[self.bbox]
         self._psf = psf
+        self._aperture_corrections = dict(aperture_corrections) if aperture_corrections is not None else {}
+        for ap_corr_name, ap_corr_field in self._aperture_corrections.items():
+            if ap_corr_field.bounds.grid != self.grid:
+                raise ValueError(
+                    f"Grids for cell PSF and {ap_corr_name} aperture corrections are not consistent."
+                )
         self._patch = patch
         self._provenance = provenance
         if self._provenance and not self._patch:
@@ -191,6 +201,13 @@ class CellCoadd(MaskedImage):
         return self._psf
 
     @property
+    def aperture_corrections(self) -> Mapping[str, CellField]:
+        """Aperture corrections for different photometry algorithms
+        (`dict` [`str`, `CellField`]).
+        """
+        return self._aperture_corrections
+
+    @property
     def bounds(self) -> CellGridBounds:
         """The grid of cells that overlap this coadd and a set of missing
         cells (`CellGridBounds`).
@@ -240,6 +257,7 @@ class CellCoadd(MaskedImage):
                     else None
                 ),
                 backgrounds=self._backgrounds,
+                aperture_corrections=self._aperture_corrections.copy(),
             ),
             bbox=bbox,
         )
@@ -265,6 +283,7 @@ class CellCoadd(MaskedImage):
                 patch=self.patch,
                 provenance=self.provenance,
                 backgrounds=self._backgrounds.copy(),
+                aperture_corrections=self._aperture_corrections.copy(),
             ),
             copy=True,
         )
@@ -296,6 +315,12 @@ class CellCoadd(MaskedImage):
             for n, v in enumerate(self.noise_realizations)
         ]
         serialized_psf = archive.serialize_direct("psf", self.psf.serialize)
+        serialized_aperture_corrections = archive.serialize_direct(
+            "aperture_corrections",
+            functools.partial(
+                CellApertureCorrectionMapSerializationModel.serialize, self.aperture_corrections
+            ),
+        )
         serialized_provenance = (
             archive.serialize_direct("provenance", self._provenance.serialize)
             if self._provenance is not None
@@ -311,6 +336,7 @@ class CellCoadd(MaskedImage):
             noise_realizations=serialized_noise_realizations,
             band=self._band,
             psf=serialized_psf,
+            aperture_corrections=serialized_aperture_corrections,
             patch=self._patch,
             provenance=serialized_provenance,
             backgrounds=serialized_backgrounds,
@@ -375,6 +401,10 @@ class CellCoadd(MaskedImage):
             else {}
         )
         psf = CellPointSpreadFunction.from_legacy(legacy_stitched.psf, image.bbox)
+        aperture_corrections = {
+            ap_corr_name: CellField.from_legacy_aperture_correction(legacy_ap_corr, psf.bounds)
+            for ap_corr_name, legacy_ap_corr in legacy_stitched.ap_corr_map.items()
+        }
         patch_info = tract_info[legacy.identifiers.patch]
         patch = PatchDefinition(
             id=patch_info.getSequentialIndex(),
@@ -392,6 +422,7 @@ class CellCoadd(MaskedImage):
             projection=projection,
             band=band,
             psf=psf,
+            aperture_corrections=aperture_corrections,
             patch=patch,
             provenance=provenance,
         )
@@ -433,6 +464,9 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
     psf: CellPointSpreadFunctionSerializationModel = pydantic.Field(
         description="Effective point-spread function model for the coadd."
     )
+    aperture_corrections: CellApertureCorrectionMapSerializationModel | None = pydantic.Field(
+        None, description="Coadded aperture corrections for different photometry algorithms."
+    )
     patch: PatchDefinition | None = pydantic.Field(description="Identifiers and geometry for the patch.")
     provenance: CoaddProvenanceSerializationModel | None = pydantic.Field(
         description="Information about the images that went into the coadd."
@@ -473,6 +507,9 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
         noise_realizations = [v.deserialize(archive) for v in self.noise_realizations]
         projection = self.projection.deserialize(archive)
         psf = self.psf.deserialize(archive, bbox=bbox)
+        aperture_corrections = (
+            self.aperture_corrections.deserialize(archive) if self.aperture_corrections is not None else {}
+        )
         coadd_provenance: CoaddProvenance | None = None
         if self.provenance is not None and provenance:
             coadd_provenance = self.provenance.deserialize(archive)
@@ -488,6 +525,7 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
             projection=projection,
             band=self.band,
             psf=psf,
+            aperture_corrections=aperture_corrections,
             patch=self.patch,
             provenance=coadd_provenance,
             backgrounds=backgrounds,
@@ -502,4 +540,7 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
                 }
             case "noise_realizations":
                 return [image_model.deserialize(archive, **kwargs) for image_model in self.noise_realizations]
+            case "aperture_corrections" if self.aperture_corrections is None:
+                # super() delegation handles the not-None case.
+                return {}
         return super().deserialize_component(component, archive, **kwargs)
