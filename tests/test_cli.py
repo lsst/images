@@ -11,6 +11,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -35,6 +37,17 @@ class CliSkeletonTestCase(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("convert", result.output)
         self.assertIn("inspect", result.output)
+
+    def test_python_m_entry_point(self) -> None:
+        # ``python -m lsst.images`` must run the same CLI group.
+        result = subprocess.run(
+            [sys.executable, "-m", "lsst.images", "--help"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("convert", result.stdout)
+        self.assertIn("inspect", result.stdout)
 
 
 class InspectTestCase(unittest.TestCase):
