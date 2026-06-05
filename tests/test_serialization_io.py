@@ -62,6 +62,7 @@ EXPECTED_TYPES = {
     "cell_coadd.json": "lsst.images.cells.CellCoadd",
     "visit_image_dp1.json": "lsst.images.VisitImage",
     "visit_image_dp2.json": "lsst.images.VisitImage",
+    "difference_image_dp2.json": "lsst.images.DifferenceImage",
 }
 
 

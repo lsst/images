@@ -78,7 +78,7 @@ from typing import Any
 
 import numpy as np
 
-from .. import VisitImage
+from .. import DifferenceImage, VisitImage
 from .. import json as images_json
 from .._cell_grid import CellGrid, CellGridBounds, CellIJ, PatchDefinition
 from .._geom import YX, Box
@@ -162,6 +162,7 @@ def _dispatch(schema_name: str) -> tuple[type, Callable[[Any], Any]]:
     """Return the ``(class, subsetter)`` pair for a top-level schema name."""
     registry: dict[str, tuple[type, Callable[[Any], Any]]] = {
         "visit_image": (VisitImage, _subset_visit_image),
+        "difference_image": (DifferenceImage, _subset_visit_image),
         "cell_coadd": (CellCoadd, _subset_cell_coadd),
     }
     try:
@@ -176,7 +177,7 @@ def _dispatch(schema_name: str) -> tuple[type, Callable[[Any], Any]]:
 
 
 def _subset_visit_image(
-    visit_image: VisitImage,
+    visit_like_image: VisitImage | DifferenceImage,
     *,
     size: int = 16,
     max_amplifiers: int = _MAX_AMPLIFIERS,
@@ -184,7 +185,7 @@ def _subset_visit_image(
     linearize_projection: bool = True,
     projection_tol: float = _PROJECTION_LINEAR_APPROX_TOL,
     psf_interp_order: int | None = _PSF_INTERP_ORDER,
-) -> VisitImage:
+) -> VisitImage | DifferenceImage:
     """Crop a VisitImage's pixel planes to a small corner and trim its
     homogeneous collections.
 
@@ -197,12 +198,12 @@ def _subset_visit_image(
     is truncated to ``psf_interp_order`` (see ``_simplify_piff_psf``) unless
     that is `None`.
     """
-    bbox = visit_image.bbox
+    bbox = visit_like_image.bbox
     y0 = bbox.y.start
     x0 = bbox.x.start
     y1 = min(y0 + size, bbox.y.stop)
     x1 = min(x0 + size, bbox.x.stop)
-    subset = visit_image[Box.factory[y0:y1, x0:x1]]
+    subset = visit_like_image[Box.factory[y0:y1, x0:x1]]
 
     # ``subset`` is a fresh throwaway object whose detector amplifier list,
     # aperture-correction map and PSF are live, mutable components.  Trim them
@@ -224,7 +225,7 @@ def _subset_visit_image(
     # image plane's projection is actually serialized, but keeping all three
     # consistent avoids surprises.
     linear = _linear_approx_projection(subset.projection, subset.image.bbox, tol=projection_tol)
-    return VisitImage(
+    return type(visit_like_image)(
         subset.image.view(projection=linear),
         mask=subset.mask.view(projection=linear),
         variance=subset.variance.view(projection=linear),
