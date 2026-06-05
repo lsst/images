@@ -25,7 +25,7 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
 
 def _visit_image():
     """Load a VisitImage from the committed JSON fixture."""
-    return read(os.path.join(DATA_DIR, "visit_image.json")).deserialized
+    return read(os.path.join(DATA_DIR, "visit_image.json"))
 
 
 class FitsOpenTreeTestCase(unittest.TestCase):
@@ -47,9 +47,9 @@ class FitsOpenTreeTestCase(unittest.TestCase):
             self.assertIsNotNone(proj)
 
     def test_read_still_works(self) -> None:
-        # read() routes through read_tree, which now sits on open_tree.
+        # read() returns the deserialized object directly, via open().
         result = read(self.path)
-        self.assertEqual(type(result.deserialized).__name__, "VisitImage")
+        self.assertEqual(type(result).__name__, "VisitImage")
 
 
 try:
@@ -82,7 +82,7 @@ class NdfOpenTreeTestCase(unittest.TestCase):
             self.assertIsNotNone(tree.deserialize_component("obs_info", archive))
 
     def test_read_still_works(self) -> None:
-        self.assertEqual(type(read(self.path).deserialized).__name__, "VisitImage")
+        self.assertEqual(type(read(self.path)).__name__, "VisitImage")
 
 
 class JsonOpenTreeTestCase(unittest.TestCase):
@@ -103,7 +103,7 @@ class JsonOpenTreeTestCase(unittest.TestCase):
             self.assertIsNotNone(tree.deserialize_component("projection", archive))
 
     def test_read_still_works(self) -> None:
-        self.assertEqual(type(read(self.path).deserialized).__name__, "VisitImage")
+        self.assertEqual(type(read(self.path)).__name__, "VisitImage")
 
 
 class ReaderApiTestCase(unittest.TestCase):

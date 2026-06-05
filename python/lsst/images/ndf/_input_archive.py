@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("NdfInputArchive", "read", "read_tree")
+__all__ = ("NdfInputArchive", "read_starlink")
 
 import logging
 from collections.abc import Callable, Iterator
@@ -42,7 +42,6 @@ from ..serialization import (
     ArrayReferenceModel,
     InlineArrayModel,
     InputArchive,
-    ReadResult,
     TableModel,
     no_header_updates,
     parameterize_tree,
@@ -153,7 +152,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         if json_path is None:
             raise ArchiveReadError(
                 "File has no /MORE/LSST/JSON tree; this is either a "
-                "Starlink-only NDF (use ndf.read() with auto-detect) or "
+                "Starlink-only NDF (use ndf.read_starlink() for auto-detect) or "
                 "the file was written by an unrelated tool."
             )
         json_text = _read_json_record(self._get_primitive(json_path), json_path)
@@ -296,83 +295,48 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         return node
 
 
-def read[T: Any](cls: type[T], path: ResourcePathExpression, **kwargs: Any) -> ReadResult[T]:
-    """Read an object from an NDF (HDS-on-HDF5) file.
+def read_starlink[T: Any](cls: type[T], path: ResourcePathExpression) -> T:
+    """Reconstruct an `~lsst.images.Image` or `~lsst.images.MaskedImage`
+    from a schema-less Starlink NDF.
 
-    If the file has a ``/MORE/LSST/JSON`` tree it is used as the source
-    of truth and ``cls.deserialize`` is invoked with the parsed model.
-    Otherwise the reader falls back to auto-detection of a minimal
-    recognised-component set (``DATA_ARRAY``, ``VARIANCE``, ``QUALITY``,
-    ``MORE.FITS``); ``WCS`` is logged-and-dropped in v1.
+    Files written by this package carry a ``/MORE/LSST/JSON`` tree and are
+    read through the generic `lsst.images.serialization.read` /
+    `lsst.images.serialization.open`.  A Starlink-produced NDF has no such
+    tree and therefore no schema, so it cannot go through that path; this
+    function auto-detects a minimal recognised-component set
+    (``DATA_ARRAY``, ``VARIANCE``, ``QUALITY``, ``MORE.FITS``) instead.
+    ``WCS`` is reconstructed when possible; other components are
+    logged-and-dropped.
 
     Parameters
     ----------
     cls
-        Expected return type. `~lsst.images.Image` and
-        `~lsst.images.MaskedImage` are the only types the auto-detect
-        path can produce. The symmetric path accepts whatever the file's
-        discriminator says.
+        Expected return type; `~lsst.images.Image` and
+        `~lsst.images.MaskedImage` are the only types the auto-detect path
+        can produce.
     path
-        File path or ``lsst.resources.ResourcePathExpression``.
-    **kwargs
-        Forwarded to ``cls.deserialize`` on the symmetric read path.
+        File path or `lsst.resources.ResourcePathExpression`.
 
     Returns
     -------
-    `~lsst.images.serialization.ReadResult` [T]
-        Named tuple of (deserialized object, metadata, butler_info).
+    object
+        The deserialized ``cls`` instance.
+
+    Raises
+    ------
+    ArchiveReadError
+        If the file has an LSST JSON tree (use the generic ``read`` instead)
+        or no recognised ``DATA_ARRAY`` component.
     """
-    # Peek at the file to choose the symmetric vs auto-detect path.  We
-    # can't open it once and switch because read_tree opens its own
-    # archive; the alternative would be to push the auto-detect logic
-    # into read_tree, which would couple it to NDF specifics that
-    # symmetric reads don't need.
     with NdfInputArchive.open(path) as archive:
-        if archive._get_main_json_path() is None:
-            return _read_auto_detect(cls, archive)
-    return read_tree(cls._get_archive_tree_type(NdfPointerModel), path, **kwargs)
+        if archive._get_main_json_path() is not None:
+            raise ArchiveReadError(
+                f"{path!r} has an LSST JSON tree; read it with serialization.read()/open()."
+            )
+        return _read_auto_detect(cls, archive)
 
 
-def read_tree(
-    tree_cls: type[ArchiveTree],
-    path: ResourcePathExpression,
-    **kwargs: Any,
-) -> ReadResult[Any]:
-    """Read an object using a known `.serialization.ArchiveTree` subclass
-    instead of an in-memory type.
-
-    Parameters
-    ----------
-    tree_cls
-        The `.serialization.ArchiveTree` subclass that describes the
-        file's top-level tree.  This function parameterises it with the
-        NDF pointer model.
-    path
-        File to read; convertible to `lsst.resources.ResourcePath`.
-    **kwargs
-        Extra keyword arguments passed to ``tree.deserialize``.
-
-    Returns
-    -------
-    ReadResult
-        Named tuple of the deserialised object, its metadata, and any
-        butler info.
-
-    Notes
-    -----
-    Only the symmetric (LSST JSON tree) read path is supported.  Files
-    without ``/MORE/LSST/JSON`` must be read via `read`, which falls
-    back to the auto-detect path for `~lsst.images.Image` /
-    `~lsst.images.MaskedImage`.
-    """
-    with NdfInputArchive.open_tree(path, tree_cls) as (archive, tree):
-        obj = tree.deserialize(archive, **kwargs)
-        if hasattr(obj, "_opaque_metadata"):
-            obj._opaque_metadata = archive.get_opaque_metadata()
-        return ReadResult(obj, tree.metadata, tree.butler_info)
-
-
-def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadResult[T]:
+def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> T:
     """Reconstruct an `Image` (or `MaskedImage`) from a Starlink NDF.
 
     Recognised components: ``DATA_ARRAY`` (in either simple or complex
@@ -477,8 +441,7 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> ReadRes
             f"Auto-detect can produce Image or MaskedImage, but caller asked for {cls.__name__}."
         )
     obj._opaque_metadata = archive.get_opaque_metadata()
-    # Auto-detect path produces no archive-tree metadata or butler_info.
-    return ReadResult(obj, {}, None)
+    return obj
 
 
 def _read_ndf_units(ndf_group: h5py.Group) -> u.UnitBase | None:

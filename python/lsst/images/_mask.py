@@ -53,6 +53,7 @@ from .serialization import (
     OutputArchive,
     is_integer,
     no_header_updates,
+    read,
 )
 from .utils import is_none
 
@@ -706,7 +707,7 @@ class Mask(GeneralizedImage):
         bbox
             Bounding box of a subimage to read instead.
         """
-        return fits.read(Mask, url, bbox=bbox).deserialized
+        return read(url, Mask, bbox=bbox)
 
     @staticmethod
     def from_legacy(

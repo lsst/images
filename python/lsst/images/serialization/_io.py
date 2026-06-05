@@ -24,12 +24,12 @@ __all__ = (
 import importlib
 import importlib.metadata
 import typing
-from typing import Any, cast, overload
+from typing import Any, overload
 
 from lsst.resources import ResourcePathExpression
 
 from ._backends import backend_for_path
-from ._common import ArchiveReadError, ArchiveTree, ReadResult
+from ._common import ArchiveReadError, ArchiveTree
 
 _REGISTRY: dict[str, type[ArchiveTree]] = {}
 """Map of ``SCHEMA_NAME`` to the registered ``ArchiveTree`` subclass.
@@ -168,7 +168,7 @@ def parameterize_tree(
     Some `ArchiveTree` subclasses (e.g. ``SumFieldSerializationModel``)
     take no type parameters; their ``_get_archive_tree_type`` returns
     the class itself.  Match that behaviour here so per-backend
-    ``read_tree`` implementations can call this uniformly.
+    ``open_tree`` implementations can call this uniformly.
     """
     if not getattr(tree_cls, "__parameters__", ()):
         return tree_cls
@@ -240,18 +240,21 @@ def public_type_for_schema(schema_name: str) -> type | None:
 
 
 @overload
-def read[T](path: ResourcePathExpression, cls: type[T], **kwargs: Any) -> ReadResult[T]: ...
+def read[T](path: ResourcePathExpression, cls: type[T], **kwargs: Any) -> T: ...
 @overload
-def read(path: ResourcePathExpression, cls: None = ..., **kwargs: Any) -> ReadResult[Any]: ...
+def read(path: ResourcePathExpression, cls: None = ..., **kwargs: Any) -> Any: ...
 def read(path, cls=None, **kwargs):
     """Read an archive whose in-memory type is inferred from its schema.
 
     Dispatches to the appropriate backend based on ``path``'s extension,
-    looks up the registered ``ArchiveTree`` subclass for the file's
-    ``schema_name``, and forwards the call to the per-backend ``read_tree``
-    along with ``**kwargs``.
+    resolves the registered in-memory type from the file's schema, and
+    returns the fully deserialized object.
     Schema-version compatibility is enforced when the model validates the
     on-disk tree, via ``min_read_version``.
+
+    This is the convenient way to read a whole object.  To read individual
+    components, or to reach the metadata and butler info stored alongside the
+    object, use `open` instead.
 
     Parameters
     ----------
@@ -259,19 +262,20 @@ def read(path, cls=None, **kwargs):
         File to read; convertible to `lsst.resources.ResourcePath`.
     cls
         Optional expected in-memory type.
-        When given, the deserialized object is validated with ``isinstance``
-        (raising `TypeError` otherwise) and the static return type is
-        ``ReadResult[T]``.
+        When given, the file's schema is checked against ``cls`` and the
+        deserialized object is validated with ``isinstance`` (raising
+        `TypeError` otherwise), and the static return type is ``T``.
     **kwargs
-        Backend- and type-specific keyword arguments.
-        Forwarded verbatim; mis-targeted arguments surface as ``TypeError``
-        from the underlying ``deserialize``.
+        Type-specific keyword arguments forwarded to the object's
+        ``deserialize`` (e.g. ``bbox`` for an image subset read).
+        Mis-targeted arguments surface as ``TypeError``.
+        Backend-specific open options (e.g. ``page_size``) are not accepted
+        here; use `open` for those.
 
     Returns
     -------
-    ReadResult
-        Named tuple of the deserialized object, its metadata, and any butler
-        info, matching the per-backend ``read`` signature.
+    object
+        The deserialized object.
 
     Raises
     ------
@@ -282,23 +286,19 @@ def read(path, cls=None, **kwargs):
         propagated from the model's ``min_read_version`` check on
         ``model_validate*``.
     TypeError
-        Raised when ``cls`` is given and the deserialized object is not an
-        instance of it.
+        Raised when ``cls`` is given and the file's schema or the
+        deserialized object is not compatible with it.
     """
-    backend = backend_for_path(path)
-    info = backend.input_archive.get_basic_info(path)
-    tree_cls = class_for_schema(info.schema_name)
-    if tree_cls is None:
-        raise ArchiveReadError(
-            f"No registered schema {info.schema_name!r}; cannot determine in-memory type for {path!r}."
-        )
-    result = cast(ReadResult[Any], backend.read_tree(tree_cls, path, **kwargs))
-    if cls is not None and not isinstance(result.deserialized, cls):
-        raise TypeError(
-            f"{path!r} (schema {info.schema_name!r}) deserialized to "
-            f"{type(result.deserialized).__name__}, not the requested {cls.__name__}."
-        )
-    return result
+    # Imported here to break the _io <-> _reader import cycle: _reader imports
+    # class_for_schema / public_type_for_schema from this module at load time.
+    from ._reader import open as open_archive
+
+    # A subset read (any deserialize kwarg with a value) reads incrementally;
+    # a plain whole-object read may slurp the file up front.  This mirrors the
+    # ``partial`` default the per-backend readers used.
+    partial = any(value is not None for value in kwargs.values())
+    with open_archive(path, cls, partial=partial) as reader:
+        return reader.read(**kwargs)
 
 
 def write(obj: Any, path: str, **kwargs: Any) -> Any:

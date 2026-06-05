@@ -42,6 +42,7 @@ from .serialization import (
     MetadataValue,
     OutputArchive,
     no_header_updates,
+    read,
 )
 from .utils import is_none
 
@@ -353,7 +354,7 @@ class Image(GeneralizedImage):
         bbox
             Bounding box of a subimage to read instead.
         """
-        return fits.read(Image, url, bbox=bbox).deserialized
+        return read(url, Image, bbox=bbox)
 
     @staticmethod
     def from_legacy(legacy: LegacyImage, unit: astropy.units.UnitBase | None = None) -> Image:

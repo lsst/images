@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("JsonInputArchive", "read", "read_tree")
+__all__ = ("JsonInputArchive",)
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -33,7 +33,6 @@ from ..serialization import (
     InlineArrayModel,
     InputArchive,
     JsonRef,
-    ReadResult,
     TableModel,
     no_header_updates,
     parameterize_tree,
@@ -41,74 +40,6 @@ from ..serialization import (
 
 if TYPE_CHECKING:
     import astropy.io.fits
-
-
-def read[T: Any](
-    cls: type[T],
-    target: ResourcePathExpression | ArchiveTree,
-    **kwargs: Any,
-) -> ReadResult[T]:
-    """Read an object from a JSON file.
-
-    Parameters
-    ----------
-    target
-        File to read (convertible to `lsst.resources.ResourcePath`) or an
-        `.serialization.ArchiveTree` to finish deserializing.  If the latter,
-        its ``indirect`` `list` will be interpreted and then cleared.
-    **kwargs
-        Extra keyword arguments passed to ``cls.deserialize`` (e.g. ``bbox``
-        for image subset reads), matching the FITS and NDF backends.
-
-    Returns
-    -------
-    ReadResult
-        A named tuple containing the deserialized object and any additional
-        metadata or butler information saved alongside it.
-
-    Notes
-    -----
-    Supported types must implement ``deserialize`` and
-    ``_get_archive_tree_type`` (see `.Image` for an example).
-    """
-    return read_tree(cls._get_archive_tree_type(JsonRef), target, **kwargs)
-
-
-def read_tree(
-    tree_cls: type[ArchiveTree],
-    target: ResourcePathExpression | ArchiveTree,
-    **kwargs: Any,
-) -> ReadResult[Any]:
-    """Read an object using a known `.serialization.ArchiveTree` subclass
-    instead of an in-memory type.
-
-    Parameters
-    ----------
-    tree_cls
-        The `.serialization.ArchiveTree` subclass that describes the
-        file's top-level tree.  This function parameterises it with the
-        JSON pointer model.
-    target
-        File to read (convertible to `lsst.resources.ResourcePath`) or
-        an already-validated `.serialization.ArchiveTree` whose
-        ``indirect`` list will be interpreted and then cleared.
-    **kwargs
-        Extra keyword arguments passed to ``tree.deserialize``.
-
-    Returns
-    -------
-    ReadResult
-        Named tuple of the deserialised object, its metadata, and any
-        butler info.
-    """
-    if isinstance(target, ArchiveTree):
-        archive = JsonInputArchive(target.indirect)
-        obj = target.deserialize(archive, **kwargs)
-        target.indirect = []
-        return ReadResult(obj, target.metadata, target.butler_info)
-    with JsonInputArchive.open_tree(target, tree_cls) as (archive, tree):
-        obj = tree.deserialize(archive, **kwargs)
-        return ReadResult(obj, tree.metadata, tree.butler_info)
 
 
 class JsonInputArchive(InputArchive[JsonRef]):

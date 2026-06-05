@@ -14,8 +14,6 @@ from __future__ import annotations
 __all__ = (
     "FitsInputArchive",
     "FitsOpaqueMetadata",
-    "read",
-    "read_tree",
 )
 
 import io
@@ -41,7 +39,6 @@ from ..serialization import (
     ArrayReferenceModel,
     InlineArrayModel,
     InputArchive,
-    ReadResult,
     TableModel,
     no_header_updates,
     parameterize_tree,
@@ -59,104 +56,6 @@ from ._common import (
 
 _FITS_FORMAT_VERSION = 1
 """Container layout version this release of `FitsInputArchive` understands."""
-
-
-def read[T: Any](
-    cls: type[T],
-    path: ResourcePathExpression,
-    *,
-    page_size: int = 2880 * 50,
-    partial: bool | None = None,
-    **kwargs: Any,
-) -> ReadResult[T]:
-    """Read an object from a FITS file.
-
-    Parameters
-    ----------
-    path
-        File to read; convertible to `lsst.resources.ResourcePath`.
-    page_size
-        Minimum number of bytes to read at at once.  Making this a multiple
-        of the FITS block size (2880) is recommended.
-    partial
-        Whether we will be reading only some of the archive, or if memory
-        pressure forces us to read it only a little at a time.  If `False`,
-        the entire raw file may be read into memory up front. Defaults to
-        `True` if any extra ``**kwargs`` are passed with values other than
-        `None`, since those usually indicate that only some of the original
-        object will be loaded.
-    **kwargs
-        Extra keyword arguments passed to ``cls.deserialize``.
-
-    Returns
-    -------
-    ReadResult
-        A named tuple containing the deserialized object and any additional
-        metadata or butler information saved alongside it.
-
-    Notes
-    -----
-    Supported types must implement ``deserialize`` and
-    ``_get_archive_tree_type`` (see `.Image` for an example).
-    """
-    return read_tree(
-        cls._get_archive_tree_type(PointerModel),
-        path,
-        page_size=page_size,
-        partial=partial,
-        **kwargs,
-    )
-
-
-def read_tree(
-    tree_cls: type[ArchiveTree],
-    path: ResourcePathExpression,
-    *,
-    page_size: int = 2880 * 50,
-    partial: bool | None = None,
-    **kwargs: Any,
-) -> ReadResult[Any]:
-    """Read an object using a known `.serialization.ArchiveTree` subclass
-    instead of an in-memory type.
-
-    Parameters
-    ----------
-    tree_cls
-        The `.serialization.ArchiveTree` subclass that describes the
-        file's top-level tree.  This function parameterises it with the
-        FITS pointer model.
-    path
-        File to read; convertible to `lsst.resources.ResourcePath`.
-    page_size
-        Minimum number of bytes to read at a time.
-    partial
-        Whether only some of the archive may be read.  Defaults to
-        `True` when ``**kwargs`` is non-empty, matching `read`.
-    **kwargs
-        Extra keyword arguments passed to ``tree.deserialize``.
-
-    Returns
-    -------
-    ReadResult
-        Named tuple of the deserialised object, its metadata, and any
-        butler info.
-
-    Notes
-    -----
-    Unlike `read`, this entry point does not require the deserialised
-    type to expose ``_get_archive_tree_type``; any registered
-    `.serialization.ArchiveTree` subclass can be used.
-    """
-    if partial is None:
-        partial = any(v is not None for v in kwargs.values())
-    with FitsInputArchive.open_tree(path, tree_cls, page_size=page_size, partial=partial) as (
-        archive,
-        tree,
-    ):
-        obj = tree.deserialize(archive, **kwargs)
-        if hasattr(obj, "_opaque_metadata"):
-            obj._opaque_metadata = archive.get_opaque_metadata()
-        return ReadResult(obj, tree.metadata, tree.butler_info)
 
 
 class FitsInputArchive(InputArchive[PointerModel]):

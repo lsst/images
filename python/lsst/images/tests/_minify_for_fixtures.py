@@ -74,7 +74,7 @@ __all__ = ("minify",)
 import json
 import os
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 
@@ -90,7 +90,7 @@ from ..cells import CellCoadd
 from ..cells._provenance import CoaddProvenance
 from ..cells._psf import CellPointSpreadFunction
 from ..psfs import PiffWrapper
-from ..serialization import backend_for_path
+from ..serialization import backend_for_path, read
 from ._creation import make_random_projection
 
 # Default morph parameters for CellCoadd.  ``CELL_SIZE`` should divide the
@@ -148,7 +148,7 @@ def minify(in_path: str, out_path: str, *, schema_name: str | None = None) -> No
 
     cls, subsetter = _dispatch(schema_name)
 
-    obj, _, _ = cast(tuple[Any, Any, Any], backend.read(cls, in_path))
+    obj: Any = read(in_path, cls)
     subset = subsetter(obj)
 
     tree = images_json.write(subset)

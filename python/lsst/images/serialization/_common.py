@@ -20,13 +20,12 @@ __all__ = (
     "JsonRef",
     "MetadataValue",
     "OpaqueArchiveMetadata",
-    "ReadResult",
     "no_header_updates",
 )
 
 import operator
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, Protocol, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, Self
 
 import astropy.table
 import astropy.units
@@ -257,22 +256,6 @@ class ArchiveTree(
         if isinstance(component_model, ArchiveTree):
             return component_model.deserialize(archive, **kwargs)
         return component_model
-
-
-class ReadResult[T: Any](NamedTuple):
-    """A struct that can be used to return both a deserialized object and
-    metadata associated with it, even when the in-memory type cannot hold
-    metadata.
-    """
-
-    deserialized: T
-    """The deserialized object itself."""
-
-    metadata: dict[str, MetadataValue]
-    """Additional flexible metadata stored with the object."""
-
-    butler_info: ButlerInfo | None
-    """Butler provenance information for the dataset this file backs."""
 
 
 class ArchiveReadError(RuntimeError):

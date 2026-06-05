@@ -32,7 +32,7 @@ class BackendForPathTestCase(unittest.TestCase):
         self.assertIsInstance(b, Backend)
         self.assertEqual(b.name, "fits")
         self.assertIs(b.input_archive, FitsInputArchive)
-        self.assertTrue(callable(b.read) and callable(b.write))
+        self.assertTrue(callable(b.write))
 
     def test_fits_gz(self) -> None:
         self.assertEqual(backend_for_path("c.fits.gz").name, "fits")

@@ -42,8 +42,8 @@ from lsst.images.aperture_corrections import ApertureCorrectionMap, aperture_cor
 from lsst.images.cameras import Detector
 from lsst.images.fields import ChebyshevField, field_from_legacy_photo_calib
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
-from lsst.images.json import read as read_json
 from lsst.images.psfs import GaussianPointSpreadFunction, PointSpreadFunction
+from lsst.images.serialization import read
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
@@ -87,7 +87,7 @@ class VisitImageTestCase(unittest.TestCase):
             "flux1": ChebyshevField(det_frame.bbox, np.array([0.75])),
             "flux2": ChebyshevField(det_frame.bbox, np.array([0.625])),
         }
-        cls.detector, _, _ = read_json(Detector, os.path.join(LOCAL_DATA_DIR, "detector.json"))
+        cls.detector = read(os.path.join(LOCAL_DATA_DIR, "detector.json"), Detector)
 
         opaque = FitsOpaqueMetadata()
         hdr = astropy.io.fits.Header()

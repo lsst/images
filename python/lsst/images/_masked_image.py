@@ -33,7 +33,14 @@ from ._geom import Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._transforms import Frame, Projection, ProjectionSerializationModel
-from .serialization import ArchiveTree, InputArchive, InvalidParameterError, MetadataValue, OutputArchive
+from .serialization import (
+    ArchiveTree,
+    InputArchive,
+    InvalidParameterError,
+    MetadataValue,
+    OutputArchive,
+    read,
+)
 from .utils import is_none
 
 if TYPE_CHECKING:
@@ -285,7 +292,7 @@ class MaskedImage(GeneralizedImage):
         bbox
             Bounding box of a subimage to read instead.
         """
-        return fits.read(cls, url, bbox=bbox).deserialized
+        return read(url, cls, bbox=bbox)
 
     @staticmethod
     def from_legacy(

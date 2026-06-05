@@ -17,7 +17,7 @@ import unittest
 import numpy as np
 
 from lsst.images import Box, Image, VisitImage
-from lsst.images.serialization import ArchiveReadError, ReadResult, read, write
+from lsst.images.serialization import ArchiveReadError, read, write
 from lsst.utils.introspection import get_full_type_name
 
 try:
@@ -71,13 +71,12 @@ class GenericReadTestCase(unittest.TestCase):
     def test_visit_image_json(self) -> None:
         path = os.path.join(DATA_DIR, "visit_image.json")
         result = read(path)
-        self.assertIsInstance(result, ReadResult)
-        self.assertIsInstance(result.deserialized, VisitImage)
+        self.assertIsInstance(result, VisitImage)
 
     def test_image_json(self) -> None:
         path = os.path.join(DATA_DIR, "image.json")
         result = read(path)
-        self.assertIsInstance(result.deserialized, Image)
+        self.assertIsInstance(result, Image)
 
 
 class GenericReadErrorsTestCase(unittest.TestCase):
@@ -130,7 +129,7 @@ class FixtureSweepTestCase(unittest.TestCase):
                 with self.subTest(entry=entry):
                     self.assertIn(entry, EXPECTED_TYPES, f"no expected type recorded for {entry!r}")
                     result = read(os.path.join(root, entry))
-                    self.assertEqual(get_full_type_name(type(result.deserialized)), EXPECTED_TYPES[entry])
+                    self.assertEqual(get_full_type_name(type(result)), EXPECTED_TYPES[entry])
                 seen.add(entry)
         # Fail if EXPECTED_TYPES drifts from the fixtures actually on disk.
         self.assertEqual(seen, set(EXPECTED_TYPES) - skip)
@@ -149,23 +148,23 @@ class GenericWriteRoundTripTestCase(unittest.TestCase):
         path = os.path.join(self.tmp, "x.fits")
         write(self.image, path)
         result = read(path)
-        self.assertIsInstance(result.deserialized, Image)
-        np.testing.assert_array_equal(result.deserialized.array, self.image.array)
+        self.assertIsInstance(result, Image)
+        np.testing.assert_array_equal(result.array, self.image.array)
 
     def test_round_trip_json(self) -> None:
         path = os.path.join(self.tmp, "x.json")
         write(self.image, path)
         result = read(path)
-        self.assertIsInstance(result.deserialized, Image)
-        np.testing.assert_array_equal(result.deserialized.array, self.image.array)
+        self.assertIsInstance(result, Image)
+        np.testing.assert_array_equal(result.array, self.image.array)
 
     @unittest.skipUnless(H5PY_AVAILABLE, "h5py not available.")
     def test_round_trip_ndf(self) -> None:
         path = os.path.join(self.tmp, "x.sdf")
         write(self.image, path)
         result = read(path)
-        self.assertIsInstance(result.deserialized, Image)
-        np.testing.assert_array_equal(result.deserialized.array, self.image.array)
+        self.assertIsInstance(result, Image)
+        np.testing.assert_array_equal(result.array, self.image.array)
 
 
 class GenericReadKwargsTestCase(unittest.TestCase):
@@ -183,8 +182,8 @@ class GenericReadKwargsTestCase(unittest.TestCase):
         # Read a 4x4 subset.  bbox is the FITS-specific kwarg understood
         # by Image.deserialize; the generic read must forward it.
         sub = read(path, bbox=Box.factory[2:6, 2:6])
-        self.assertEqual(sub.deserialized.array.shape, (4, 4))
-        np.testing.assert_array_equal(sub.deserialized.array, img.array[2:6, 2:6])
+        self.assertEqual(sub.array.shape, (4, 4))
+        np.testing.assert_array_equal(sub.array, img.array[2:6, 2:6])
 
 
 class ReadClsTestCase(unittest.TestCase):
@@ -193,7 +192,7 @@ class ReadClsTestCase(unittest.TestCase):
     def test_read_cls_match(self) -> None:
         path = os.path.join(DATA_DIR, "image.json")
         result = read(path, cls=Image)
-        self.assertIsInstance(result.deserialized, Image)
+        self.assertIsInstance(result, Image)
 
     def test_read_cls_mismatch_raises(self) -> None:
         from lsst.images import Mask

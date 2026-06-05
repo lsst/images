@@ -73,6 +73,15 @@ class Reader[T]:
         """Butler dataset info stored with the object, or `None`."""
         return self._tree.butler_info
 
+    def get_tree(self) -> ArchiveTree:
+        """Return the validated on-disk tree for advanced, low-level access.
+
+        Most callers want `read` or `get_component` instead; the tree is the
+        raw deserialization model that those methods build on.
+        """
+        self._check_open()
+        return self._tree
+
     def get_component(self, name: str, **kwargs: Any) -> Any:
         """Deserialize and return a single named component.
 
@@ -96,36 +105,6 @@ class Reader[T]:
         return obj  # type: ignore[return-value]
 
 
-@contextmanager
-def _open_reader(
-    path: ResourcePathExpression,
-    cls: type | None,
-    partial: bool,
-    backend_kwargs: dict[str, Any],
-):
-    backend = backend_for_path(path)
-    info = backend.input_archive.get_basic_info(path)
-    tree_cls = class_for_schema(info.schema_name)
-    if tree_cls is None:
-        raise ArchiveReadError(f"No registered schema {info.schema_name!r}; cannot open {path!r}.")
-    if cls is not None:
-        resolved = public_type_for_schema(info.schema_name)
-        if resolved is not None and not issubclass(resolved, cls):
-            raise TypeError(
-                f"{path!r} has schema {info.schema_name!r} (type {resolved.__name__}), "
-                f"which is not a {cls.__name__}."
-            )
-    with backend.input_archive.open_tree(path, tree_cls, partial=partial, **backend_kwargs) as (
-        archive,
-        tree,
-    ):
-        reader: Reader[Any] = Reader(archive, tree, info, cls)
-        try:
-            yield reader
-        finally:
-            reader._closed = True
-
-
 @overload
 def open[T](
     path: ResourcePathExpression, cls: type[T], *, partial: bool = ..., **backend_kwargs: Any
@@ -134,12 +113,13 @@ def open[T](
 def open(
     path: ResourcePathExpression, cls: None = ..., *, partial: bool = ..., **backend_kwargs: Any
 ) -> AbstractContextManager[Reader[Any]]: ...
+@contextmanager
 def open(path, cls=None, *, partial=True, **backend_kwargs):
     """Open an ``lsst.images`` file for incremental, component-wise reads.
 
-    Dispatches to the FITS / NDF / JSON backend by file extension, resolves
-    the registered in-memory type from the file's schema, and returns a
-    `Reader` context manager.
+    Dispatches to the appropriate backend by file extension, resolves the
+    registered in-memory type from the file's schema, and returns a `Reader`
+    context manager.
 
     Parameters
     ----------
@@ -167,4 +147,24 @@ def open(path, cls=None, *, partial=True, **backend_kwargs):
         If ``cls`` is given and the file's schema resolves to an
         incompatible type.
     """
-    return _open_reader(path, cls, partial, backend_kwargs)
+    backend = backend_for_path(path)
+    info = backend.input_archive.get_basic_info(path)
+    tree_cls = class_for_schema(info.schema_name)
+    if tree_cls is None:
+        raise ArchiveReadError(f"No registered schema {info.schema_name!r}; cannot open {path!r}.")
+    if cls is not None:
+        resolved = public_type_for_schema(info.schema_name)
+        if resolved is not None and not issubclass(resolved, cls):
+            raise TypeError(
+                f"{path!r} has schema {info.schema_name!r} (type {resolved.__name__}), "
+                f"which is not a {cls.__name__}."
+            )
+    with backend.input_archive.open_tree(path, tree_cls, partial=partial, **backend_kwargs) as (
+        archive,
+        tree,
+    ):
+        reader: Reader[Any] = Reader(archive, tree, info, cls)
+        try:
+            yield reader
+        finally:
+            reader._closed = True

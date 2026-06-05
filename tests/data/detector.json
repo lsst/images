@@ -1,4 +1,7 @@
 {
+  "schema_version": "1.0.0",
+  "min_read_version": 1,
+  "schema_url": "https://images.lsst.io/schemas/detector-1.0.0",
   "attributes": {
     "name": "R21_S11",
     "id": 85,
