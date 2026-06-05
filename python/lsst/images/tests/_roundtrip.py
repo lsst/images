@@ -238,8 +238,9 @@ class RoundtripBase[T](ABC):
             Override storage class name to affect the type returned by
             the get. Only used if a butler is active.
         **kwargs
-            Keyword arguments either passed directly to `.fits.read` or used
-            as ``parameters`` for a `~lsst.daf.butler.Butler.get`.
+            Keyword arguments either passed directly to
+            `~lsst.images.serialization.read` or used as ``parameters`` for a
+            `~lsst.daf.butler.Butler.get`.
 
         Return
         ------

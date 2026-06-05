@@ -326,12 +326,6 @@ class CellCoadd(MaskedImage):
         """
         return CellCoaddSerializationModel[pointer_type]  # type: ignore
 
-    # TODO: write_fits and read_fits inherited from MaskedImage, but that
-    # write_fits doesn't have compression-option kwargs for all of the new
-    # planes that CellCoadd adds.  This makes me lean towards dropping the
-    # custom read_fits and write_fits in favor of the generic free functions
-    # in the fits subpackage, even though those aren't ideal either.
-
     @staticmethod
     def from_legacy(  # type: ignore[override]
         legacy: MultipleCellCoadd,

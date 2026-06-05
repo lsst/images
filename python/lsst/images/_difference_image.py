@@ -235,8 +235,6 @@ class DifferenceImage(VisitImage):
         """
         return DifferenceImageSerializationModel[pointer_type]  # type: ignore
 
-    # write_fits and read_fits inherited from MaskedImage.
-
     @staticmethod
     def from_legacy(
         legacy: LegacyExposure,
