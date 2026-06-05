@@ -122,7 +122,7 @@ class IntervalTestCase(unittest.TestCase):
         self.assertTrue(i3.contains(2.5))
 
         containment = i3.contains(np.array([-2, -1, 0, 1, 2, 3, 4, 5, 6]))
-        self.assertEqual(list(containment), [False, True, True, True, True, True, True, True, False])
+        self.assertEqual(list(containment), [False, True, True, True, True, True, True, False, False])
 
         inter = i2.intersection(i)
         self.assertEqual(inter, Interval(start=2, stop=4), msg=f"Intersection of {i2} with {i}")
@@ -302,7 +302,7 @@ class BoxTestCase(unittest.TestCase):
             x=np.array([-1, 10, 20, 30, 40, 41]),
             y=np.array([-1, 5, 19, 20, 20, 20]),
         )
-        self.assertEqual(list(contains), [False, True, True, True, True, False])
+        self.assertEqual(list(contains), [False, True, True, False, False, False])
 
         with self.assertRaises(TypeError):
             box.contains(box, x=3, y=2)

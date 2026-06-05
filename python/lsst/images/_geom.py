@@ -376,7 +376,7 @@ class Interval:
         if isinstance(other, Interval):
             return self.start <= other.start and self.stop >= other.stop
         else:
-            result = np.logical_and(self.start - 0.5 <= other, other < self.stop + 0.5)
+            result = np.logical_and(self.min - 0.5 <= other, other < self.max + 0.5)
             if not result.shape:
                 return bool(result)
             return result
