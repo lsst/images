@@ -273,13 +273,14 @@ class ConvertPreserveQuantizationTestCase(unittest.TestCase):
 
 
 class CliRegistrationTestCase(unittest.TestCase):
-    """minify and extract-test-data are registered and their help loads."""
+    """minify, extract-test-data, and verify-rewrite register and load."""
 
     def test_subcommands_present(self) -> None:
         result = CliRunner().invoke(main, ["--help"])
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("minify", result.output)
         self.assertIn("extract-test-data", result.output)
+        self.assertIn("verify-rewrite", result.output)
 
     def test_minify_help(self) -> None:
         result = CliRunner().invoke(main, ["minify", "--help"])
@@ -287,6 +288,15 @@ class CliRegistrationTestCase(unittest.TestCase):
 
     def test_extract_test_data_help(self) -> None:
         result = CliRunner().invoke(main, ["extract-test-data", "--help"])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_verify_rewrite_help(self) -> None:
+        # The group and its stage4 command load with core deps only; the
+        # full Rubin environment is only required when stage4 actually runs.
+        result = CliRunner().invoke(main, ["verify-rewrite", "--help"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("stage4", result.output)
+        result = CliRunner().invoke(main, ["verify-rewrite", "stage4", "--help"])
         self.assertEqual(result.exit_code, 0, result.output)
 
     def test_short_help_alias(self) -> None:
@@ -299,6 +309,8 @@ class CliRegistrationTestCase(unittest.TestCase):
             ["minify", "-h"],
             ["extract-test-data", "-h"],
             ["extract-test-data", "dp2", "-h"],
+            ["verify-rewrite", "-h"],
+            ["verify-rewrite", "stage4", "-h"],
         ):
             with self.subTest(args=args):
                 result = CliRunner().invoke(main, args)

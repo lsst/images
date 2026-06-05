@@ -16,26 +16,22 @@ __all__ = ()
 import difflib
 import random
 from collections.abc import Iterable, Set
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import astropy.io.fits
+import click
 import fsspec
 import numpy as np
-import tqdm
 
-try:
-    import click
+if TYPE_CHECKING:
+    import tqdm
 
-    from lsst.afw.image import Exposure  # noqa
     from lsst.daf.butler import Butler, DataCoordinate
-except ImportError as err:
-    err.add_note("This script requires a full Rubin development enviroment.")
-    raise
 
 
 @click.group("verify-rewrite")
 def verify_rewrite() -> None:
-    pass
+    """Compare rewritten datasets against their originals in a butler repo."""
 
 
 @verify_rewrite.command("stage4")
@@ -48,6 +44,15 @@ def verify_rewrite() -> None:
 def verify_stage4_rewrite(
     *, repo: str, old_collection: str, new_collection: str, where: str, old_prefix: str, new_prefix: str
 ) -> None:
+    """Compare rewritten visit/difference images and downstream tables in
+    NEW_COLLECTION against the originals in OLD_COLLECTION of REPO.
+    """
+    try:
+        from lsst.afw.image import Exposure  # noqa: F401
+        from lsst.daf.butler import Butler
+    except ImportError as err:
+        err.add_note("verify-rewrite requires a full Rubin development environment.")
+        raise
     with Butler.from_config(repo) as butler:
         verifier = RewriteVerifier(
             butler,
@@ -97,6 +102,8 @@ class RewriteVerifier:
     def process(
         self, base_name: str, where: str, *dimensions: str, renamed: bool = False
     ) -> Iterable[DataCoordinate]:
+        import tqdm
+
         base_dataset_type = self.butler.get_dataset_type(
             f"{self.new_prefix}{base_name}" if renamed else base_name
         )

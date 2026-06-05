@@ -15,6 +15,7 @@ __all__ = ("main",)
 import click
 
 from ..tests.extract_legacy_test_data import extract_test_data
+from ..tests.verify_rewrite import verify_rewrite
 from ._convert import convert
 from ._inspect import inspect
 from ._minify import minify
@@ -29,3 +30,4 @@ main.add_command(convert)
 main.add_command(inspect)
 main.add_command(minify)
 main.add_command(extract_test_data, name="extract-test-data")
+main.add_command(verify_rewrite, name="verify-rewrite")
