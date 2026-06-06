@@ -58,4 +58,5 @@ API Reference
    fits.rst
    json.rst
    ndf.rst
+   zarr.rst
    tests.rst
