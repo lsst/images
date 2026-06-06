@@ -468,6 +468,7 @@ class ProjectionSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "projection"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = Projection
 
     pixel_to_sky: TransformSerializationModel[P] = pydantic.Field(
         description="The transform that maps pixel coordinates to the sky."

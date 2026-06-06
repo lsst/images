@@ -190,6 +190,7 @@ class ColorImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "color_image"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = ColorImage
 
     red: ImageSerializationModel[P] = pydantic.Field(description="The red channel.")
     green: ImageSerializationModel[P] = pydantic.Field(description="The green channel.")

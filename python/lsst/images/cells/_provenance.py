@@ -235,6 +235,7 @@ class CoaddProvenanceSerializationModel(ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "coadd_provenance"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = CoaddProvenance
 
     instrument: str | dict[str, int] = pydantic.Field(
         description=(

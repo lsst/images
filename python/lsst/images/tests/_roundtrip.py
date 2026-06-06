@@ -35,7 +35,9 @@ except ImportError:
 
 from .. import fits, json
 from .._generalized_image import GeneralizedImage
-from ..serialization import ArchiveTree, MetadataValue, ReadResult
+from ..serialization import ArchiveTree, MetadataValue
+from ..serialization import open as open_archive
+from ..serialization import read as read_archive
 
 # We need an old-style TypeVar for Sphinx.
 T = TypeVar("T")
@@ -236,8 +238,9 @@ class RoundtripBase[T](ABC):
             Override storage class name to affect the type returned by
             the get. Only used if a butler is active.
         **kwargs
-            Keyword arguments either passed directly to `.fits.read` or used
-            as ``parameters`` for a `~lsst.daf.butler.Butler.get`.
+            Keyword arguments either passed directly to
+            `~lsst.images.serialization.read` or used as ``parameters`` for a
+            `~lsst.daf.butler.Butler.get`.
 
         Return
         ------
@@ -249,7 +252,7 @@ class RoundtripBase[T](ABC):
                 raise unittest.SkipTest("Cannot test component reads without a butler.")
             if storageClass is not None:
                 raise unittest.SkipTest("Cannot test storage class override without a butler")
-            result = fits.read(type(self._original), self.filename, **kwargs).deserialized
+            result = read_archive(self.filename, type(self._original), **kwargs)
         else:
             assert self.ref is not None, "butler and ref should be None or not together"
             ref = self.ref
@@ -291,14 +294,14 @@ class RoundtripBase[T](ABC):
 
     def _run_without_butler(self) -> None:
         tmp = self._exit_stack.enter_context(
-            tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True)
+            tempfile.NamedTemporaryFile(suffix=self._get_extension(), delete_on_close=False, delete=True)
         )
         tmp.close()
         self._filename = tmp.name
         self._serialized = self._write(self._original, tmp.name)
-        read_result = self._read(type(self._original), tmp.name)
-        self._tc.assertIsNone(read_result.butler_info)
-        self.result = read_result.deserialized
+        with open_archive(tmp.name, type(self._original)) as reader:
+            self._tc.assertIsNone(reader.butler_info)
+            self.result = reader.read()
 
     @abstractmethod
     def _get_extension(self) -> str:
@@ -306,10 +309,6 @@ class RoundtripBase[T](ABC):
 
     @abstractmethod
     def _write(self, obj: Any, filename: str) -> ArchiveTree:
-        raise NotImplementedError()
-
-    @abstractmethod
-    def _read(self, obj_type: Any, filename: str) -> ReadResult:
         raise NotImplementedError()
 
 
@@ -326,9 +325,6 @@ class RoundtripFits[T](RoundtripBase[T]):
     def _write(self, obj: Any, filename: str) -> ArchiveTree:
         return fits.write(obj, filename)
 
-    def _read(self, obj_type: Any, filename: str) -> ReadResult:
-        return fits.read(obj_type, filename)
-
 
 class RoundtripJson[T](RoundtripBase[T]):
     def inspect(self) -> dict[str, Any]:
@@ -341,9 +337,6 @@ class RoundtripJson[T](RoundtripBase[T]):
 
     def _write(self, obj: Any, filename: str) -> ArchiveTree:
         return json.write(obj, filename)
-
-    def _read(self, obj_type: Any, filename: str) -> ReadResult:
-        return json.read(obj_type, filename)
 
 
 class RoundtripNdf[T](RoundtripBase[T]):
@@ -360,8 +353,3 @@ class RoundtripNdf[T](RoundtripBase[T]):
         from .. import ndf
 
         return ndf.write(obj, filename)
-
-    def _read(self, obj_type: Any, filename: str) -> ReadResult:
-        from .. import ndf
-
-        return ndf.read(obj_type, filename)

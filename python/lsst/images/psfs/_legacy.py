@@ -143,6 +143,7 @@ class PSFExSerializationModel(serialization.ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "psfex_psf"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = PSFExWrapper
 
     average_x: float = pydantic.Field(
         description="Average X position of the stars used to build this PSF model."

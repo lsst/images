@@ -1,0 +1,51 @@
+# This file is part of lsst-images.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# Use of this source code is governed by a 3-clause BSD-style
+# license that can be found in the LICENSE file.
+from __future__ import annotations
+
+__all__ = ("inspect",)
+
+import click
+
+from lsst.utils.introspection import get_full_type_name
+
+from ..serialization import ArchiveReadError, backend_for_path, public_type_for_schema
+
+
+@click.command(name="inspect")
+@click.argument("file", type=click.Path(exists=True, dir_okay=False))
+def inspect(file: str) -> None:
+    """Print basic information about an lsst.images file.
+
+    Reports the schema URL, container format version, and the public
+    Python class registered for the file's schema (when known) without
+    deserializing pixel data.
+    """
+    try:
+        backend = backend_for_path(file)
+    except ValueError as err:
+        raise click.ClickException(str(err)) from None
+    try:
+        info = backend.input_archive.get_basic_info(file)
+    except (ArchiveReadError, ValueError) as err:
+        raise click.ClickException(f"Could not read {file}: {err}") from None
+    fmt = "n/a" if info.format_version is None else str(info.format_version)
+    public_cls = public_type_for_schema(info.schema_name)
+    if public_cls is not None:
+        python_class = get_full_type_name(public_cls)
+    else:
+        python_class = f"<unregistered: {info.schema_name}>"
+    click.echo(f"path:           {file}")
+    click.echo(f"format:         {backend.name}")
+    click.echo(f"schema name:    {info.schema_name}")
+    click.echo(f"schema version: {info.schema_version}")
+    click.echo(f"schema URL:     {info.schema_url}")
+    click.echo(f"format version: {fmt}")
+    click.echo(f"python class:   {python_class}")

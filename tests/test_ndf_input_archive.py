@@ -28,6 +28,7 @@ from lsst.images.serialization import (
     ArrayReferenceModel,
     InlineArrayModel,
     NumberType,
+    read,
 )
 
 try:
@@ -38,7 +39,7 @@ try:
         NdfOutputArchive,
         NdfPointerModel,
         _hds,
-        read,
+        read_starlink,
         write,
     )
 
@@ -244,7 +245,9 @@ class NdfInputArchiveOpaqueMetadataTestCase(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfReadFunctionTestCase(unittest.TestCase):
-    """Tests for the module-level `ndf.read()` function."""
+    """Tests for the generic ``read`` (symmetric LSST trees) and the
+    NDF-specific ``ndf.read_starlink`` (schema-less auto-detect).
+    """
 
     def test_read_round_trips_image(self):
         image = Image(
@@ -254,26 +257,26 @@ class NdfReadFunctionTestCase(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
             write(image, tmp.name)
-            result = read(Image, tmp.name)
-            self.assertIsInstance(result.deserialized, Image)
-            np.testing.assert_array_equal(result.deserialized.array, image.array)
-            self.assertEqual(result.deserialized.bbox, image.bbox)
+            result = read(tmp.name, Image)
+            self.assertIsInstance(result, Image)
+            np.testing.assert_array_equal(result.array, image.array)
+            self.assertEqual(result.bbox, image.bbox)
 
     def test_read_starlink_file_auto_detects_image(self):
         # The canonical fixture has no /MORE/LSST/JSON, no QUALITY,
         # no VARIANCE -- auto-detect should return an Image whose array
         # shape matches the file (611x609 int16).
         example_path = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
-        result = read(Image, example_path)
-        self.assertIsInstance(result.deserialized, Image)
-        self.assertEqual(result.deserialized.array.shape, (611, 609))
-        self.assertEqual(result.deserialized.array.dtype, np.int16)
-        self.assertIsNotNone(result.deserialized.projection)
+        result = read_starlink(Image, example_path)
+        self.assertIsInstance(result, Image)
+        self.assertEqual(result.array.shape, (611, 609))
+        self.assertEqual(result.array.dtype, np.int16)
+        self.assertIsNotNone(result.projection)
 
     def test_read_starlink_file_recovers_opaque_fits_metadata(self):
         example_path = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
-        result = read(Image, example_path)
-        opaque = result.deserialized._opaque_metadata
+        result = read_starlink(Image, example_path)
+        opaque = result._opaque_metadata
         self.assertIn(ExtensionKey(), opaque.headers)
         # The fixture is a real Starlink M57 image; sample one card we know
         # is present (NAXIS).
@@ -296,13 +299,13 @@ class NdfReadFunctionTestCase(unittest.TestCase):
                 _hds.write_array(quality_array_struct, "ORIGIN", np.array([0, 0], dtype=np.int32))
                 _hds.write_array(quality_array_struct, "BAD_PIXEL", np.array(False, dtype=np.bool_))
                 _hds.write_array(quality, "BADBITS", np.array(1, dtype=np.uint8))
-            result = read(MaskedImage, tmp.name)
-            self.assertIsInstance(result.deserialized, MaskedImage)
-            np.testing.assert_array_equal(result.deserialized.mask.array[:, :, 0], quality_array)
-            self.assertEqual(set(result.deserialized.mask.schema.names), {f"MASK{i}" for i in range(8)})
-            image_result = read(Image, tmp.name)
-            self.assertIsInstance(image_result.deserialized, Image)
-            np.testing.assert_array_equal(image_result.deserialized.array, image_array)
+            result = read_starlink(MaskedImage, tmp.name)
+            self.assertIsInstance(result, MaskedImage)
+            np.testing.assert_array_equal(result.mask.array[:, :, 0], quality_array)
+            self.assertEqual(set(result.mask.schema.names), {f"MASK{i}" for i in range(8)})
+            image_result = read_starlink(Image, tmp.name)
+            self.assertIsInstance(image_result, Image)
+            np.testing.assert_array_equal(image_result.array, image_array)
 
     def test_read_auto_detect_preserves_quality_bits(self):
         image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
@@ -322,9 +325,9 @@ class NdfReadFunctionTestCase(unittest.TestCase):
                 _hds.write_array(quality_array_struct, "ORIGIN", np.array([0, 0], dtype=np.int32))
                 _hds.write_array(quality_array_struct, "BAD_PIXEL", np.array(False, dtype=np.bool_))
                 _hds.write_array(quality, "BADBITS", np.array(2, dtype=np.uint8))
-            result = read(MaskedImage, tmp.name)
-            self.assertIsInstance(result.deserialized, MaskedImage)
-            mask = result.deserialized.mask
+            result = read_starlink(MaskedImage, tmp.name)
+            self.assertIsInstance(result, MaskedImage)
+            mask = result.mask
             np.testing.assert_array_equal(mask.array[:, :, 0], quality_array)
             np.testing.assert_array_equal(mask.get("MASK1"), expected_mask1)
             np.testing.assert_array_equal(mask.get("MASK2"), expected_mask2)
@@ -341,16 +344,16 @@ class NdfReadFunctionTestCase(unittest.TestCase):
                 data_array = _hds.create_structure(f, "DATA_ARRAY", "ARRAY")
                 _hds.write_array(data_array, "DATA", image_array)
                 _hds.write_array(data_array, "ORIGIN", np.array([5, 4], dtype=np.int32))
-            result = read(MaskedImage, tmp.name)
-            self.assertIsInstance(result.deserialized, MaskedImage)
-            self.assertEqual(result.deserialized.bbox, Box.factory[4:6, 5:8])
-            np.testing.assert_array_equal(result.deserialized.image.array, image_array)
+            result = read_starlink(MaskedImage, tmp.name)
+            self.assertIsInstance(result, MaskedImage)
+            self.assertEqual(result.bbox, Box.factory[4:6, 5:8])
+            np.testing.assert_array_equal(result.image.array, image_array)
             np.testing.assert_array_equal(
-                result.deserialized.mask.array,
+                result.mask.array,
                 np.zeros((2, 3, 1), dtype=np.uint8),
             )
             np.testing.assert_array_equal(
-                result.deserialized.variance.array,
+                result.variance.array,
                 np.ones((2, 3), dtype=np.float32),
             )
 
@@ -368,11 +371,11 @@ class NdfReadFunctionTestCase(unittest.TestCase):
                 variance = _hds.create_structure(f, "VARIANCE", "ARRAY")
                 _hds.write_array(variance, "DATA", variance_array)
                 _hds.write_array(variance, "ORIGIN", np.array([5, 4], dtype=np.int32))
-            result = read(MaskedImage, tmp.name)
-            self.assertIsInstance(result.deserialized, MaskedImage)
-            np.testing.assert_array_equal(result.deserialized.variance.array, variance_array)
+            result = read_starlink(MaskedImage, tmp.name)
+            self.assertIsInstance(result, MaskedImage)
+            np.testing.assert_array_equal(result.variance.array, variance_array)
             np.testing.assert_array_equal(
-                result.deserialized.mask.array,
+                result.mask.array,
                 np.zeros((2, 3, 1), dtype=np.uint8),
             )
 
@@ -386,8 +389,8 @@ class NdfReadFunctionTestCase(unittest.TestCase):
                 data_array = _hds.create_structure(f, "DATA_ARRAY", "ARRAY")
                 _hds.write_array(data_array, "DATA", image_array)
                 f.create_dataset("UNITS", data=np.bytes_("count"))
-            result = read(Image, tmp.name)
-            self.assertEqual(result.deserialized.unit, u.ct)
+            result = read_starlink(Image, tmp.name)
+            self.assertEqual(result.unit, u.ct)
 
     def test_read_missing_data_array_raises(self):
         # A file with only /MORE/LSST/JSON is fine for the symmetric
@@ -399,11 +402,11 @@ class NdfReadFunctionTestCase(unittest.TestCase):
                 f["/"].attrs["CLASS"] = "NDF"
                 # Note: no DATA_ARRAY, no /MORE/LSST/JSON.
             with self.assertRaises(ArchiveReadError):
-                read(Image, tmp.name)
+                read_starlink(Image, tmp.name)
 
     def test_read_auto_detect_wrong_target_type_raises(self):
         # Auto-detect only knows how to produce Image-like objects from NDF
         # components; unrelated target classes should fail clearly.
         example_path = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
         with self.assertRaises(ArchiveReadError):
-            read(Mask, example_path)
+            read_starlink(Mask, example_path)

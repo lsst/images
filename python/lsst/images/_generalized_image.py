@@ -20,9 +20,22 @@ from typing import TYPE_CHECKING, Any, Self, TypeVar
 
 import astropy.wcs
 
+from lsst.resources import ResourcePathExpression
+
 from ._geom import Box
 from ._transforms import Projection, ProjectionAstropyView
-from .serialization import ArchiveTree, ButlerInfo, MetadataValue, OpaqueArchiveMetadata
+from .serialization import (
+    ArchiveTree,
+    ButlerInfo,
+    MetadataValue,
+    OpaqueArchiveMetadata,
+)
+from .serialization import (
+    read as read_archive,
+)
+from .serialization import (
+    write as write_archive,
+)
 
 if TYPE_CHECKING:
     from lsst.daf.butler import DatasetProvenance, SerializedDatasetRef
@@ -186,6 +199,40 @@ class GeneralizedImage(ABC):
         are not copied.
         """
         raise NotImplementedError()
+
+    @classmethod
+    def read(cls, path: ResourcePathExpression, **kwargs: Any) -> Self:
+        """Read an instance of this class from a file.
+
+        A thin convenience wrapper around `lsst.images.serialization.read`
+        that fixes the expected in-memory type to this class.  The container
+        format is inferred from ``path``'s extension.
+
+        Parameters
+        ----------
+        path
+            File to read; convertible to `lsst.resources.ResourcePath`.
+        **kwargs
+            Forwarded to `~lsst.images.serialization.read` (e.g. ``bbox`` to
+            read a subimage).
+        """
+        return read_archive(path, cls, **kwargs)
+
+    def write(self, path: str, **kwargs: Any) -> None:
+        """Write this object to a file.
+
+        A thin convenience wrapper around `lsst.images.serialization.write`.
+        The container format is chosen from ``path``'s extension.
+
+        Parameters
+        ----------
+        path
+            Destination file path.  Must not already exist.
+        **kwargs
+            Forwarded to `~lsst.images.serialization.write` (e.g.
+            ``compression_options`` and ``compression_seed`` for FITS).
+        """
+        write_archive(self, path, **kwargs)
 
     @property
     def butler_dataset(self) -> SerializedDatasetRef | None:

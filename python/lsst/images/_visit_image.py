@@ -509,8 +509,6 @@ class VisitImage(MaskedImage):
         """
         return VisitImageSerializationModel[pointer_type]  # type: ignore
 
-    # write_fits and read_fits inherited from MaskedImage.
-
     @staticmethod
     def from_legacy(
         legacy: LegacyExposure,
@@ -881,6 +879,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     SCHEMA_NAME: ClassVar[str] = "visit_image"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = VisitImage
 
     # Inherited attributes are duplicated because that improves the docs
     # (some limitation in the sphinx/pydantic integration), and these are

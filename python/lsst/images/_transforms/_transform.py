@@ -528,6 +528,7 @@ class TransformSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "transform"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = Transform
 
     frames: list[SerializableFrame] = pydantic.Field(
         default_factory=list,

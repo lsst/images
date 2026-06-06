@@ -10,3 +10,4 @@ setupOptional(meas_extensions_psfex)
 setupOptional(cell_coadds)
 
 envPrepend(PYTHONPATH, ${PRODUCT_DIR}/python)
+envPrepend(PATH, ${PRODUCT_DIR}/bin)

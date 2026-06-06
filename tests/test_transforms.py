@@ -264,6 +264,7 @@ class FrameSetTestHolderModel[P: pydantic.BaseModel](ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "_test_frame_set_holder"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = FrameSetTestHolder
 
     frames: CameraFrameSetSerializationModel | P
     pixels_to_fp: TransformSerializationModel[P]

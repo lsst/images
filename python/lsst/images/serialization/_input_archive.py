@@ -11,12 +11,13 @@
 
 from __future__ import annotations
 
-__all__ = ("InputArchive",)
+__all__ = ("ArchiveInfo", "InputArchive")
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from types import EllipsisType
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import astropy.io.fits
 import astropy.table
@@ -24,8 +25,10 @@ import astropy.units
 import numpy as np
 import pydantic
 
+from lsst.resources import ResourcePath, ResourcePathExpression
+
 from ._asdf_utils import ArrayReferenceModel, InlineArrayModel
-from ._common import ArchiveTree, OpaqueArchiveMetadata, no_header_updates
+from ._common import SCHEMA_URL_HOST, ArchiveTree, OpaqueArchiveMetadata, no_header_updates
 from ._tables import TableModel
 
 if TYPE_CHECKING:
@@ -35,6 +38,54 @@ if TYPE_CHECKING:
 # This pre-python-3.12 declaration is needed by Sphinx (probably the
 # autodoc-typehints plugin.
 P = TypeVar("P", bound=pydantic.BaseModel)
+
+
+class ArchiveInfo(pydantic.BaseModel, frozen=True):
+    """Basic identifying information about an on-disk archive.
+
+    Read from a file's headers/metadata without deserializing pixel data.
+    """
+
+    schema_url: str
+    """Canonical schema URL of the top-level tree."""
+
+    schema_name: str
+    """Schema name parsed from ``schema_url``."""
+
+    schema_version: str
+    """Schema version parsed from ``schema_url``."""
+
+    format_version: int | None
+    """Container layout version (FITS ``FMTVER`` / NDF ``FORMAT_VERSION``);
+    `None` for formats with no separate container version (JSON)."""
+
+    @classmethod
+    def from_schema_url(cls, schema_url: str, *, format_version: int | None) -> ArchiveInfo:
+        """Build an `ArchiveInfo` by parsing a schema URL of the form
+        ``https://images.lsst.io/schemas/{name}-{version}``.
+
+        The URL is parsed with `~lsst.resources.ResourcePath` and its
+        hostname must be ``images.lsst.io``, so a ``DATAMODL`` header written
+        by an unrelated tool cannot steer reads toward an arbitrary schema.
+        """
+        parsed = ResourcePath(schema_url)
+        if parsed.netloc != SCHEMA_URL_HOST:
+            raise ValueError(
+                f"Schema URL {schema_url!r} is not hosted at {SCHEMA_URL_HOST!r}; "
+                "this file was not written by lsst.images."
+            )
+        tail = parsed.basename()
+        # Split on the last hyphen: schema names may contain hyphens; the
+        # version (after the final hyphen) is assumed not to.
+        name, _, version = tail.rpartition("-")
+        if not name or not version:
+            raise ValueError(f"Cannot parse schema name/version from URL {schema_url!r}.")
+        return cls(
+            schema_url=schema_url,
+            schema_name=name,
+            schema_version=version,
+            format_version=format_version,
+        )
 
 
 class InputArchive[P: pydantic.BaseModel](ABC):
@@ -51,6 +102,36 @@ class InputArchive[P: pydantic.BaseModel](ABC):
     archive implementations will provide a method to load the paired model from
     a file, but this is not part of the base class interface.
     """
+
+    @classmethod
+    def get_basic_info(cls, path: ResourcePathExpression) -> ArchiveInfo:
+        """Return basic identifying information for the archive at ``path``
+        without deserializing pixel data.
+
+        Each concrete backend reads only the headers/metadata it needs.
+        """
+        raise NotImplementedError(f"{cls.__name__} does not implement get_basic_info.")
+
+    @classmethod
+    def open_tree(
+        cls,
+        path: ResourcePathExpression,
+        tree_cls: type[ArchiveTree],
+        *,
+        partial: bool = True,
+        **backend_kwargs: Any,
+    ) -> AbstractContextManager[tuple[InputArchive[P], ArchiveTree]]:
+        """Open ``path``, load and validate its top-level tree, and yield
+        ``(archive, tree)`` as a context manager.
+
+        ``tree_cls`` is the un-parameterized `ArchiveTree` subclass; each
+        backend parameterizes it with its own pointer model.  Backend-specific
+        open options (e.g. ``page_size`` for FITS) are accepted via
+        ``**backend_kwargs``; ``partial`` is honoured where meaningful.
+
+        Each concrete backend implements this.
+        """
+        raise NotImplementedError(f"{cls.__name__} does not implement open_tree.")
 
     @abstractmethod
     def deserialize_pointer[U: ArchiveTree, V](

@@ -20,13 +20,12 @@ __all__ = (
     "JsonRef",
     "MetadataValue",
     "OpaqueArchiveMetadata",
-    "ReadResult",
     "no_header_updates",
 )
 
 import operator
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, Protocol, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, Self
 
 import astropy.table
 import astropy.units
@@ -50,6 +49,12 @@ if TYPE_CHECKING:
 type MetadataValue = (
     pydantic.StrictInt | pydantic.StrictFloat | pydantic.StrictStr | pydantic.StrictBool | None
 )
+
+SCHEMA_URL_HOST = "images.lsst.io"
+"""Canonical hostname for lsst.images schema URLs."""
+
+SCHEMA_URL_BASE = f"https://{SCHEMA_URL_HOST}/schemas"
+"""Base for schema URLs, used as ``{SCHEMA_URL_BASE}/{name}-{version}``."""
 
 
 class ButlerInfo(pydantic.BaseModel):
@@ -87,6 +92,11 @@ class ArchiveTree(
     SCHEMA_NAME: ClassVar[str]
     SCHEMA_VERSION: ClassVar[str]
     MIN_READ_VERSION: ClassVar[int]
+    PUBLIC_TYPE: ClassVar[type]
+    """In-memory Python type produced by this tree's ``deserialize`` (e.g.
+    `dict` for a mapping return).  Declared explicitly by each concrete
+    subclass and surfaced by
+    `~lsst.images.serialization.public_type_for_schema`."""
 
     schema_version: str = pydantic.Field(
         default="1.0.0",
@@ -118,7 +128,7 @@ class ArchiveTree(
         Computed from ``SCHEMA_NAME`` and ``SCHEMA_VERSION`` ClassVars.
         """
         cls = type(self)
-        return f"https://images.lsst.io/schemas/{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION}"
+        return f"{SCHEMA_URL_BASE}/{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION}"
 
     @pydantic.model_validator(mode="after")
     def _check_and_normalize_schema_version(self) -> Self:
@@ -150,10 +160,12 @@ class ArchiveTree(
 
     @classmethod
     def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
-        """Inject ``$id`` and ``title`` into the subclass's JSON Schema.
+        """Inject ``$id`` and ``title`` into the subclass's JSON Schema, and
+        register the subclass in the schema-name registry.
 
         Populates ``model_config['json_schema_extra']`` with values derived
-        from the subclass's ``SCHEMA_NAME`` / ``SCHEMA_VERSION`` ClassVars.
+        from the subclass's ``SCHEMA_NAME`` / ``SCHEMA_VERSION`` ClassVars,
+        then registers the subclass so it can be looked up by schema name.
         Subclasses that haven't declared the ClassVars are skipped.
         """
         super().__pydantic_init_subclass__(**kwargs)
@@ -162,12 +174,16 @@ class ArchiveTree(
         if name is None or version is None:
             return
         json_schema_extra = cls.model_config.get("json_schema_extra") or {}
-        if not isinstance(json_schema_extra, dict):
-            return
-        existing = dict(json_schema_extra)
-        existing.setdefault("$id", f"https://images.lsst.io/schemas/{name}-{version}")
-        existing.setdefault("title", name)
-        cls.model_config = {**cls.model_config, "json_schema_extra": existing}
+        if isinstance(json_schema_extra, dict):
+            existing = dict(json_schema_extra)
+            existing.setdefault("$id", f"{SCHEMA_URL_BASE}/{name}-{version}")
+            existing.setdefault("title", name)
+            cls.model_config = {**cls.model_config, "json_schema_extra": existing}
+        # Local import to avoid the _io -> _common circular dependency at
+        # module load time.
+        from ._io import register_schema_class
+
+        register_schema_class(cls)
 
     @abstractmethod
     def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> Any:
@@ -245,22 +261,6 @@ class ArchiveTree(
         if isinstance(component_model, ArchiveTree):
             return component_model.deserialize(archive, **kwargs)
         return component_model
-
-
-class ReadResult[T: Any](NamedTuple):
-    """A struct that can be used to return both a deserialized object and
-    metadata associated with it, even when the in-memory type cannot hold
-    metadata.
-    """
-
-    deserialized: T
-    """The deserialized object itself."""
-
-    metadata: dict[str, MetadataValue]
-    """Additional flexible metadata stored with the object."""
-
-    butler_info: ButlerInfo | None
-    """Butler provenance information for the dataset this file backs."""
 
 
 class ArchiveReadError(RuntimeError):

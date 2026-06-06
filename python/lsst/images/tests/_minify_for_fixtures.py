@@ -76,10 +76,9 @@ import os
 from collections.abc import Callable
 from typing import Any
 
-import astropy.io.fits
 import numpy as np
 
-from .. import VisitImage
+from .. import DifferenceImage, VisitImage
 from .. import json as images_json
 from .._cell_grid import CellGrid, CellGridBounds, CellIJ, PatchDefinition
 from .._geom import YX, Box
@@ -90,8 +89,8 @@ from .._transforms._ast import PolyMap
 from ..cells import CellCoadd
 from ..cells._provenance import CoaddProvenance
 from ..cells._psf import CellPointSpreadFunction
-from ..fits import read as fits_read
 from ..psfs import PiffWrapper
+from ..serialization import backend_for_path, read
 from ._creation import make_random_projection
 
 # Default morph parameters for CellCoadd.  ``CELL_SIZE`` should divide the
@@ -143,20 +142,13 @@ def minify(in_path: str, out_path: str, *, schema_name: str | None = None) -> No
     NotImplementedError
         If the top-level type is not one this helper knows how to subset.
     """
-    if in_path.endswith(".fits") or in_path.endswith(".fits.gz"):
-        backend = "fits"
-    elif in_path.endswith(".sdf") or in_path.endswith(".ndf"):
-        backend = "ndf"
-    else:
-        raise ValueError(f"Unrecognised file extension: {in_path}")
-
+    backend = backend_for_path(in_path)
     if schema_name is None:
-        schema_name = _detect_schema_name(in_path, backend)
+        schema_name = backend.input_archive.get_basic_info(in_path).schema_name
 
     cls, subsetter = _dispatch(schema_name)
 
-    read = _read_function(backend)
-    obj, _, _ = read(cls, in_path)
+    obj: Any = read(in_path, cls)
     subset = subsetter(obj)
 
     tree = images_json.write(subset)
@@ -170,6 +162,7 @@ def _dispatch(schema_name: str) -> tuple[type, Callable[[Any], Any]]:
     """Return the ``(class, subsetter)`` pair for a top-level schema name."""
     registry: dict[str, tuple[type, Callable[[Any], Any]]] = {
         "visit_image": (VisitImage, _subset_visit_image),
+        "difference_image": (DifferenceImage, _subset_visit_image),
         "cell_coadd": (CellCoadd, _subset_cell_coadd),
     }
     try:
@@ -180,105 +173,11 @@ def _dispatch(schema_name: str) -> tuple[type, Callable[[Any], Any]]:
         ) from None
 
 
-def _read_function(backend: str) -> Callable[..., Any]:
-    """Return the ``read`` free function for the given backend.
-
-    The NDF backend is imported lazily because it requires the optional
-    ``h5py`` dependency; FITS-only users should not need it installed.
-    """
-    if backend == "fits":
-        return fits_read
-    from ..ndf import read as ndf_read
-
-    return ndf_read
-
-
-# -- Type detection --------------------------------------------------------
-
-
-def _detect_schema_name(in_path: str, backend: str) -> str:
-    """Peek the stored top-level tree and return its schema name.
-
-    The schema name is derived from the ``schema_url`` field that every
-    serialized tree carries, e.g. ``.../schemas/visit_image-1.0.0`` ->
-    ``visit_image``.
-    """
-    if backend == "fits":
-        raw = _peek_fits_top_json(in_path)
-    else:
-        raw = _peek_ndf_top_json(in_path)
-    url = raw.get("schema_url")
-    if not url:
-        raise NotImplementedError(
-            f"Could not determine the schema of {in_path!r} (no schema_url "
-            "in the top-level tree); pass schema_name explicitly."
-        )
-    # schema_url is f".../schemas/{SCHEMA_NAME}-{SCHEMA_VERSION}".
-    return url.rsplit("/", 1)[-1].rsplit("-", 1)[0]
-
-
-def _peek_fits_top_json(in_path: str) -> dict[str, Any]:
-    """Return the parsed top-level JSON object from a FITS archive.
-
-    Reads only the primary header and the special JSON HDU it points at (via
-    the ``JSONADDR`` / ``JSONSIZE`` cards), so the potentially large image and
-    table HDUs are never touched.
-    """
-    with open(in_path, "rb") as stream:
-        primary = astropy.io.fits.PrimaryHDU.readfrom(stream)
-        try:
-            json_address = primary.header["JSONADDR"]
-            json_size = primary.header["JSONSIZE"]
-        except KeyError:
-            raise NotImplementedError(
-                f"{in_path!r} is not an lsst.images FITS archive "
-                "(no JSONADDR/JSONSIZE cards); pass schema_name explicitly."
-            ) from None
-        stream.seek(json_address)
-        json_hdu = astropy.io.fits.BinTableHDU.fromstring(stream.read(json_size))
-    payload = bytes(json_hdu.data[0][0])
-    obj = json.loads(payload.decode("utf-8"))
-    if not isinstance(obj, dict):
-        raise NotImplementedError(
-            f"Top-level JSON tree in {in_path!r} is not an object; pass schema_name explicitly."
-        )
-    return obj
-
-
-def _peek_ndf_top_json(in_path: str) -> dict[str, Any]:
-    """Return the parsed top-level JSON object from an NDF archive."""
-    import h5py
-
-    found: dict[str, Any] = {}
-
-    def visit(name: str, item: Any) -> Any:
-        if found:
-            return True  # stop walking
-        if isinstance(item, h5py.Dataset) and name.rsplit("/", 1)[-1] == "JSON":
-            try:
-                payload = bytes(np.asarray(item).tobytes())
-                obj = json.loads(payload.decode("utf-8").rstrip("\x00").strip())
-            except (UnicodeDecodeError, ValueError, TypeError):
-                return None
-            if isinstance(obj, dict) and "schema_url" in obj:
-                found.update(obj)
-                return True
-        return None
-
-    with h5py.File(in_path, "r") as handle:
-        handle.visititems(visit)
-    if not found:
-        raise NotImplementedError(
-            f"Could not locate the top-level JSON tree in {in_path!r}; pass schema_name explicitly."
-        )
-    return found
-
-
 # -- VisitImage ------------------------------------------------------------
 
 
 def _subset_visit_image(
-    visit_image: VisitImage,
+    visit_like_image: VisitImage | DifferenceImage,
     *,
     size: int = 16,
     max_amplifiers: int = _MAX_AMPLIFIERS,
@@ -286,7 +185,7 @@ def _subset_visit_image(
     linearize_projection: bool = True,
     projection_tol: float = _PROJECTION_LINEAR_APPROX_TOL,
     psf_interp_order: int | None = _PSF_INTERP_ORDER,
-) -> VisitImage:
+) -> VisitImage | DifferenceImage:
     """Crop a VisitImage's pixel planes to a small corner and trim its
     homogeneous collections.
 
@@ -299,12 +198,12 @@ def _subset_visit_image(
     is truncated to ``psf_interp_order`` (see ``_simplify_piff_psf``) unless
     that is `None`.
     """
-    bbox = visit_image.bbox
+    bbox = visit_like_image.bbox
     y0 = bbox.y.start
     x0 = bbox.x.start
     y1 = min(y0 + size, bbox.y.stop)
     x1 = min(x0 + size, bbox.x.stop)
-    subset = visit_image[Box.factory[y0:y1, x0:x1]]
+    subset = visit_like_image[Box.factory[y0:y1, x0:x1]]
 
     # ``subset`` is a fresh throwaway object whose detector amplifier list,
     # aperture-correction map and PSF are live, mutable components.  Trim them
@@ -326,7 +225,7 @@ def _subset_visit_image(
     # image plane's projection is actually serialized, but keeping all three
     # consistent avoids surprises.
     linear = _linear_approx_projection(subset.projection, subset.image.bbox, tol=projection_tol)
-    return VisitImage(
+    return type(visit_like_image)(
         subset.image.view(projection=linear),
         mask=subset.mask.view(projection=linear),
         variance=subset.variance.view(projection=linear),

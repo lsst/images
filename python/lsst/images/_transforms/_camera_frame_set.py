@@ -229,6 +229,7 @@ class CameraFrameSetSerializationModel(ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "camera_frame_set"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = CameraFrameSet
 
     instrument: str = pydantic.Field(description="Name of the instrument.")
     ast: str = pydantic.Field(

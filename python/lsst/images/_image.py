@@ -317,44 +317,6 @@ class Image(GeneralizedImage):
     top-level object.
     """
 
-    def write_fits(
-        self,
-        filename: str,
-        *,
-        compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
-        compression_seed: int | None = None,
-    ) -> None:
-        """Write the image to a FITS file.
-
-        Parameters
-        ----------
-        filename
-            Name of the file to write to.  Must be a local file.
-        compression
-            Compression options.
-        compression_seed
-            A FITS tile compression seed to use whenever the configured
-            compression seed is `None` or (for backwards compatibility) ``0``.
-        """
-        compression_options = {}
-        if compression is not fits.FitsCompressionOptions.DEFAULT:
-            compression_options[self._archive_default_name] = compression
-        fits.write(self, filename, compression_options, compression_seed=compression_seed)
-
-    @staticmethod
-    def read_fits(url: ResourcePathExpression, *, bbox: Box | None = None) -> Image:
-        """Read an image from a FITS file.
-
-        Parameters
-        ----------
-        url
-            URL of the file to read; may be any type supported by
-            `lsst.resources.ResourcePath`.
-        bbox
-            Bounding box of a subimage to read instead.
-        """
-        return fits.read(Image, url, bbox=bbox).deserialized
-
     @staticmethod
     def from_legacy(legacy: LegacyImage, unit: astropy.units.UnitBase | None = None) -> Image:
         """Convert from an `lsst.afw.image.Image` instance.
@@ -502,6 +464,7 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "image"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = Image
 
     data: ArrayReferenceQuantityModel | ArrayReferenceModel | InlineArrayModel | InlineArrayQuantityModel = (
         pydantic.Field(description="Reference to pixel data.")

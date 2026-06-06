@@ -25,7 +25,8 @@ from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
 from lsst.images._transforms import FrameLookupError, FrameSet, Transform
 from lsst.images._transforms._frames import DetectorFrame, Frame
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
-from lsst.images.serialization import ArrayReferenceModel, InlineArrayModel
+from lsst.images.serialization import ArrayReferenceModel, InlineArrayModel, read
+from lsst.images.serialization import open as open_archive
 from lsst.images.tests import make_random_projection
 
 try:
@@ -35,7 +36,6 @@ try:
         NdfInputArchive,
         NdfOutputArchive,
         _hds,
-        read,
         write,
     )
 
@@ -505,8 +505,8 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
                 self.assertTrue(any(c.startswith("FOO") for c in cards))
                 self.assertTrue(any(c.startswith("CONTINUE") for c in cards))
                 self.assertTrue(all(len(c.encode("ascii")) <= 80 for c in cards))
-            result = read(Image, tmp.name)
-            recovered = result.deserialized._opaque_metadata.headers[ExtensionKey()]
+            result = read(tmp.name, Image)
+            recovered = result._opaque_metadata.headers[ExtensionKey()]
             self.assertEqual(recovered["LONGSTR"], long_value)
 
     def test_write_image_main_json_round_trips_back(self):
@@ -534,8 +534,8 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
                 self.assertIn("UNITS", f)
                 self.assertEqual(f["/UNITS"].shape, ())
                 self.assertEqual(f["/UNITS"][()].decode("ascii").rstrip(" "), "count")
-            result = read(Image, tmp.name)
-            self.assertEqual(result.deserialized.unit, u.ct)
+            result = read(tmp.name, Image)
+            self.assertEqual(result.unit, u.ct)
 
     def test_write_propagates_metadata(self):
         image = Image(np.arange(6, dtype=np.float32).reshape(2, 3))
@@ -545,6 +545,6 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
             tree = write(image, tmp.name, metadata=extra)
             self.assertEqual(tree.metadata["test_key"], 42)
             self.assertEqual(tree.metadata["another"], "hello")
-            result = read(Image, tmp.name)
-            self.assertEqual(result.metadata["test_key"], 42)
-            self.assertEqual(result.metadata["another"], "hello")
+            with open_archive(tmp.name, Image) as reader:
+                self.assertEqual(reader.metadata["test_key"], 42)
+                self.assertEqual(reader.metadata["another"], "hello")

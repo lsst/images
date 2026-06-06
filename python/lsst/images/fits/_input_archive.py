@@ -14,7 +14,6 @@ from __future__ import annotations
 __all__ = (
     "FitsInputArchive",
     "FitsOpaqueMetadata",
-    "read",
 )
 
 import io
@@ -34,14 +33,15 @@ from lsst.resources import ResourcePath, ResourcePathExpression
 
 from .._transforms import FrameSet
 from ..serialization import (
+    ArchiveInfo,
     ArchiveReadError,
     ArchiveTree,
     ArrayReferenceModel,
     InlineArrayModel,
     InputArchive,
-    ReadResult,
     TableModel,
     no_header_updates,
+    parameterize_tree,
 )
 from ..serialization._common import _check_format_version
 from ._common import (
@@ -58,53 +58,6 @@ _FITS_FORMAT_VERSION = 1
 """Container layout version this release of `FitsInputArchive` understands."""
 
 
-def read[T: Any](
-    cls: type[T],
-    path: ResourcePathExpression,
-    *,
-    page_size: int = 2880 * 50,
-    partial: bool | None = None,
-    **kwargs: Any,
-) -> ReadResult[T]:
-    """Read an object from a FITS file.
-
-    Parameters
-    ----------
-    path
-        File to read; convertible to `lsst.resources.ResourcePath`.
-    page_size
-        Minimum number of bytes to read at at once.  Making this a multiple
-        of the FITS block size (2880) is recommended.
-    partial
-        Whether we will be reading only some of the archive, or if memory
-        pressure forces us to read it only a little at a time.  If `False`,
-        the entire raw file may be read into memory up front. Defaults to
-        `True` if any extra ``**kwargs`` are passed with values other than
-        `None`, since those usually indicate that only some of the original
-        object will be loaded.
-    **kwargs
-        Extra keyword arguments passed to ``cls.deserialize``.
-
-    Returns
-    -------
-    ReadResult
-        A named tuple containing the deserialized object and any additional
-        metadata or butler information saved alongside it.
-
-    Notes
-    -----
-    Supported types must implement ``deserialize`` and
-    ``_get_archive_tree_type`` (see `.Image` for an example).
-    """
-    if partial is None:
-        partial = any(v is not None for v in kwargs.values())
-    with FitsInputArchive.open(path, page_size=page_size, partial=partial) as archive:
-        tree = archive.get_tree(cls._get_archive_tree_type(PointerModel))
-        obj = tree.deserialize(archive, **kwargs)
-        obj._opaque_metadata = archive.get_opaque_metadata()
-        return ReadResult(obj, tree.metadata, tree.butler_info)
-
-
 class FitsInputArchive(InputArchive[PointerModel]):
     """An implementation of the `.serialization.InputArchive` interface that
     reads from FITS files.
@@ -112,6 +65,44 @@ class FitsInputArchive(InputArchive[PointerModel]):
     Instances of this class should only be constructed via the `open`
     context manager.
     """
+
+    @classmethod
+    def get_basic_info(cls, path: ResourcePathExpression) -> ArchiveInfo:
+        """Read ``DATAMODL`` (schema URL) and ``FMTVER`` (container version)
+        from the primary header.
+
+        Every FITS file written by this package records the schema URL in
+        the ``DATAMODL`` card, so the schema can be identified without
+        reading the (potentially large) JSON tree HDU.
+        """
+        with ResourcePath(path).open("rb") as stream:
+            primary = astropy.io.fits.PrimaryHDU.readfrom(stream)
+            header = primary.header
+            format_version = int(header.get("FMTVER", 1))
+            schema_url = header.get("DATAMODL")
+        if not schema_url:
+            raise ArchiveReadError(f"{path!r} is not an lsst.images FITS archive (no DATAMODL card).")
+        return ArchiveInfo.from_schema_url(schema_url, format_version=format_version)
+
+    @classmethod
+    @contextmanager
+    def open_tree(
+        cls,
+        path: ResourcePathExpression,
+        tree_cls: type[ArchiveTree],
+        *,
+        partial: bool = True,
+        **backend_kwargs: Any,
+    ) -> Iterator[tuple[Self, ArchiveTree]]:
+        """Open the FITS file and yield ``(archive, tree)``.
+
+        Honors the ``page_size`` and ``partial`` open options.
+        """
+        page_size = backend_kwargs.pop("page_size", 2880 * 50)
+        parameterized = parameterize_tree(tree_cls, PointerModel)
+        with cls.open(path, page_size=page_size, partial=partial) as archive:
+            tree = archive.get_tree(parameterized)
+            yield archive, tree
 
     def __init__(self, stream: IO[bytes]):
         self._primary_hdu = astropy.io.fits.PrimaryHDU.readfrom(stream)

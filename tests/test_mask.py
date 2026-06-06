@@ -135,9 +135,9 @@ class MaskTestCase(unittest.TestCase):
             metadata={"four_and_a_half": 4.5},
         )
         with lsst.utils.tests.getTempFilePath(".fits") as tmpFile:
-            mask.write_fits(tmpFile)
+            mask.write(tmpFile)
 
-            new = Mask.read_fits(tmpFile)
+            new = Mask.read(tmpFile)
             self.assertEqual(new, mask)
             # __eq__ ignores metadata.
             self.assertEqual(new.metadata["four_and_a_half"], 4.5)

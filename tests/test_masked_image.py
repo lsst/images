@@ -192,14 +192,16 @@ class MaskedImageTestCase(unittest.TestCase):
         )
         with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
             tmp.close()
-            self.masked_image.write_fits(
+            self.masked_image.write(
                 tmp.name,
-                image_compression=FitsCompressionOptions.LOSSY,
-                variance_compression=FitsCompressionOptions.LOSSY,
+                compression_options={
+                    "image": FitsCompressionOptions.LOSSY,
+                    "variance": FitsCompressionOptions.LOSSY,
+                },
                 compression_seed=50,
             )
-            roundtripped = MaskedImage.read_fits(tmp.name)
-            subimage = MaskedImage.read_fits(tmp.name, bbox=subbox)
+            roundtripped = MaskedImage.read(tmp.name)
+            subimage = MaskedImage.read(tmp.name, bbox=subbox)
             with astropy.io.fits.open(tmp.name, disable_image_compression=True) as fits:
                 self.assertEqual(fits[1].header["ZCMPTYPE"], "RICE_1")
                 self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")

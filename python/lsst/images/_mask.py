@@ -674,40 +674,6 @@ class Mask(GeneralizedImage):
     top-level object.
     """
 
-    def write_fits(
-        self,
-        filename: str,
-        *,
-        compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
-    ) -> None:
-        """Write the mask to a FITS file.
-
-        Parameters
-        ----------
-        filename
-            Name of the file to write to.  Must be a local file.
-        compression
-            Compression options.
-        """
-        compression_options = {}
-        if compression is not fits.FitsCompressionOptions.DEFAULT:
-            compression_options[self._archive_default_name] = compression
-        fits.write(self, filename, compression_options)
-
-    @staticmethod
-    def read_fits(url: ResourcePathExpression, *, bbox: Box | None = None) -> Mask:
-        """Read an image from a FITS file.
-
-        Parameters
-        ----------
-        url
-            URL of the file to read; may be any type supported by
-            `lsst.resources.ResourcePath`.
-        bbox
-            Bounding box of a subimage to read instead.
-        """
-        return fits.read(Mask, url, bbox=bbox).deserialized
-
     @staticmethod
     def from_legacy(
         legacy: Any,
@@ -869,6 +835,7 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "mask"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = Mask
 
     data: list[ArrayReferenceModel | InlineArrayModel] = pydantic.Field(
         description="References to pixel data."

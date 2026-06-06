@@ -11,69 +11,35 @@
 
 from __future__ import annotations
 
-__all__ = ("JsonInputArchive", "read")
+__all__ = ("JsonInputArchive",)
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from types import EllipsisType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 import astropy.table
 import numpy as np
+from pydantic_core import from_json
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
 from .._transforms import FrameSet
 from ..serialization import (
+    ArchiveInfo,
     ArchiveReadError,
     ArchiveTree,
     ArrayReferenceModel,
     InlineArrayModel,
     InputArchive,
     JsonRef,
-    ReadResult,
     TableModel,
     no_header_updates,
+    parameterize_tree,
 )
 
 if TYPE_CHECKING:
     import astropy.io.fits
-
-
-def read[T: Any](
-    cls: type[T],
-    target: ResourcePathExpression | ArchiveTree,
-    **kwargs: Any,
-) -> ReadResult[T]:
-    """Read an object from a JSON file.
-
-    Parameters
-    ----------
-    target
-        File to read (convertible to `lsst.resources.ResourcePath`) or an
-        `.serialization.ArchiveTree` to finish deserializing.  If the latter,
-        its ``indirect`` `list` will be interpreted and then cleared.
-    **kwargs
-        Extra keyword arguments passed to ``cls.deserialize`` (e.g. ``bbox``
-        for image subset reads), matching the FITS and NDF backends.
-
-    Returns
-    -------
-    ReadResult
-        A named tuple containing the deserialized object and any additional
-        metadata or butler information saved alongside it.
-
-    Notes
-    -----
-    Supported types must implement ``deserialize`` and
-    ``_get_archive_tree_type`` (see `.Image` for an example).
-    """
-    tree_type: type[ArchiveTree] = cls._get_archive_tree_type(JsonRef)
-    if not isinstance(target, ArchiveTree):
-        target = tree_type.model_validate_json(ResourcePath(target).read())
-    archive = JsonInputArchive(target.indirect)
-    obj: T = target.deserialize(archive, **kwargs)
-    target.indirect = []
-    return ReadResult(obj, target.metadata, target.butler_info)
 
 
 class JsonInputArchive(InputArchive[JsonRef]):
@@ -86,6 +52,47 @@ class JsonInputArchive(InputArchive[JsonRef]):
         The `.serialization.ArchiveTree.indirect` attribute of the root
         serialization model.
     """
+
+    @classmethod
+    def get_basic_info(cls, path: ResourcePathExpression) -> ArchiveInfo:
+        """Read the top-level tree's ``schema_url``; JSON has no container
+        format version.
+
+        This parses the whole document.  Unlike the FITS and NDF backends
+        there is no cheap header to read: ``schema_url`` is a computed field
+        serialized after the (potentially large) ``indirect`` payload, and
+        nested trees carry their own ``schema_url``, so a bounded prefix
+        cannot identify the top-level tree reliably.  JSON is not intended
+        for large pixel archives, where FITS or NDF should be used instead.
+        """
+        raw = from_json(ResourcePath(path).read())
+        if not isinstance(raw, dict) or not raw.get("schema_url"):
+            raise ArchiveReadError(f"{path!r} has no schema_url in its top-level JSON tree.")
+        return ArchiveInfo.from_schema_url(raw["schema_url"], format_version=None)
+
+    @classmethod
+    @contextmanager
+    def open_tree(
+        cls,
+        path: ResourcePathExpression,
+        tree_cls: type[ArchiveTree],
+        *,
+        partial: bool = True,
+        **backend_kwargs: Any,
+    ) -> Iterator[tuple[Self, ArchiveTree]]:
+        """Parse the JSON tree and yield ``(archive, tree)``.
+
+        A no-resource context manager: JSON is fully in memory, so
+        ``partial`` is a no-op.
+        ``tree.indirect`` is released when the context exits.
+        """
+        parameterized = parameterize_tree(tree_cls, JsonRef)
+        tree = parameterized.model_validate_json(ResourcePath(path).read())
+        archive = cls(tree.indirect)
+        try:
+            yield archive, tree
+        finally:
+            tree.indirect = []
 
     def __init__(self, indirect: list[Any] | None = None):
         self._indirect = indirect if indirect is not None else []

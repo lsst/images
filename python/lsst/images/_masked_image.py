@@ -33,7 +33,13 @@ from ._geom import Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._transforms import Frame, Projection, ProjectionSerializationModel
-from .serialization import ArchiveTree, InputArchive, InvalidParameterError, MetadataValue, OutputArchive
+from .serialization import (
+    ArchiveTree,
+    InputArchive,
+    InvalidParameterError,
+    MetadataValue,
+    OutputArchive,
+)
 from .utils import is_none
 
 if TYPE_CHECKING:
@@ -238,55 +244,6 @@ class MaskedImage(GeneralizedImage):
         """
         return MaskedImageSerializationModel[pointer_type]  # type: ignore
 
-    def write_fits(
-        self,
-        filename: str,
-        *,
-        image_compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
-        mask_compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
-        variance_compression: fits.FitsCompressionOptions | None = fits.FitsCompressionOptions.DEFAULT,
-        compression_seed: int | None = None,
-    ) -> None:
-        """Write the image to a FITS file.
-
-        Parameters
-        ----------
-        filename
-            Name of the file to write to.  Must be a local file.
-        image_compression
-            Compression options for the `image` plane.
-        mask_compression
-            Compression options for the `mask` plane.
-        variance_compression
-            Compression options for the `variance` plane.
-        compression_seed
-            A FITS tile compression seed to use whenever the configured
-            compression seed is `None` or (for backwards compatibility) ``0``.
-            This value is then incremented every time it is used.
-        """
-        compression_options = {}
-        if image_compression is not fits.FitsCompressionOptions.DEFAULT:
-            compression_options["image"] = image_compression
-        if mask_compression is not fits.FitsCompressionOptions.DEFAULT:
-            compression_options["mask"] = mask_compression
-        if variance_compression is not fits.FitsCompressionOptions.DEFAULT:
-            compression_options["variance"] = variance_compression
-        fits.write(self, filename, compression_options=compression_options, compression_seed=compression_seed)
-
-    @classmethod
-    def read_fits(cls, url: ResourcePathExpression, *, bbox: Box | None = None) -> MaskedImage:
-        """Read an image from a FITS file.
-
-        Parameters
-        ----------
-        url
-            URL of the file to read; may be any type supported by
-            `lsst.resources.ResourcePath`.
-        bbox
-            Bounding box of a subimage to read instead.
-        """
-        return fits.read(cls, url, bbox=bbox).deserialized
-
     @staticmethod
     def from_legacy(
         legacy: LegacyMaskedImage,
@@ -452,6 +409,7 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     SCHEMA_NAME: ClassVar[str] = "masked_image"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = MaskedImage
 
     image: ImageSerializationModel[P] = pydantic.Field(description="The main data image.")
     mask: MaskSerializationModel[P] = pydantic.Field(
