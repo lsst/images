@@ -20,6 +20,7 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
     RoundtripNdf,
+    RoundtripZarr,
     assert_images_equal,
     assert_sky_projections_equal,
     make_random_sky_projection,
@@ -33,6 +34,13 @@ try:
     HAVE_H5PY = True
 except ImportError:
     HAVE_H5PY = False
+
+try:
+    import zarr  # noqa: F401
+
+    HAVE_ZARR = True
+except ImportError:
+    HAVE_ZARR = False
 
 
 class ColorImageTestCase(unittest.TestCase):
@@ -105,6 +113,17 @@ class ColorImageTestCase(unittest.TestCase):
         with RoundtripNdf(self, self.color_image, "ColorImage") as roundtrip:
             pass
         self.assert_color_images_equal(roundtrip.result, self.color_image, expect_view=False)
+
+    @unittest.skipUnless(HAVE_ZARR, "zarr is not installed")
+    def test_fits_zarr_consistency(self) -> None:
+        """FITS and zarr backends produce equal ColorImages on round-trip."""
+        with (
+            RoundtripFits(self, self.color_image) as fits_rt,
+            RoundtripZarr(self, self.color_image) as zarr_rt,
+        ):
+            self.assert_color_images_equal(fits_rt.result, self.color_image, expect_view=False)
+            self.assert_color_images_equal(zarr_rt.result, self.color_image, expect_view=False)
+            self.assert_color_images_equal(fits_rt.result, zarr_rt.result, expect_view=False)
 
     def test_fits_json_consistency(self) -> None:
         """FITS and JSON backends produce equal ColorImages on round-trip."""

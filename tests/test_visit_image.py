@@ -49,6 +49,7 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
     RoundtripNdf,
+    RoundtripZarr,
     TemporaryButler,
     assert_close,
     assert_masked_images_equal,
@@ -67,6 +68,13 @@ try:
     HAVE_H5PY = True
 except ImportError:
     HAVE_H5PY = False
+
+try:
+    import zarr  # noqa: F401
+
+    HAVE_ZARR = True
+except ImportError:
+    HAVE_ZARR = False
 
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -314,6 +322,17 @@ class VisitImageTestCase(unittest.TestCase):
             assert_visit_images_equal(self, self.visit_image, fits_rt.result, expect_view=False)
             assert_visit_images_equal(self, self.visit_image, json_rt.result, expect_view=False)
             assert_visit_images_equal(self, fits_rt.result, json_rt.result, expect_view=False)
+
+    @unittest.skipUnless(HAVE_ZARR, "zarr is not installed")
+    def test_fits_zarr_consistency(self):
+        """FITS and zarr backends produce equal VisitImages on round-trip."""
+        with (
+            RoundtripFits(self, self.visit_image) as fits_rt,
+            RoundtripZarr(self, self.visit_image) as zarr_rt,
+        ):
+            assert_visit_images_equal(self, self.visit_image, fits_rt.result, expect_view=False)
+            assert_visit_images_equal(self, self.visit_image, zarr_rt.result, expect_view=False)
+            assert_visit_images_equal(self, fits_rt.result, zarr_rt.result, expect_view=False)
 
     def test_read_write(self) -> None:
         """Test that a visit can round trip through a FITS file."""
