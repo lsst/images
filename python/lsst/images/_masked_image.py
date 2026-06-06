@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("MaskedImage", "MaskedImageSerializationModel")
 
 import functools
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from contextlib import ExitStack
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
@@ -401,6 +401,30 @@ class MaskedImage(GeneralizedImage):
             result = MaskedImage(image, mask=mask, variance=variance)
         result._opaque_metadata = opaque_metadata
         return result
+
+    def _fill_legacy_metadata(self, legacy_metadata: MutableMapping[str, Any]) -> None:
+        """Fill a legacy mutable mapping (e.g `lsst.daf.base.PropertySet`)
+        with metadata suitable for an `lsst.afw.image.Exposure` representation
+        of this object.
+        """
+        # We just dump all of the FITS headers and non-FITS metadata into the
+        # legacy metadata component, to make sure we have everything. We dump
+        # the latter into a pair of special cards to be able to full round-trip
+        # them (including case preservation).
+        if self.unit is not None:
+            try:
+                legacy_metadata["BUNIT"] = self.unit.to_string(format="fits")
+            except ValueError:
+                # Write units that astropy doesn't think FITS will accept
+                # anyway; FITS standard says "SHOULD" about using its
+                # recommended units, and coloring outside the lines is better
+                # than lying.
+                legacy_metadata["BUNIT"] = self.unit.to_string()
+        if isinstance(self._opaque_metadata, fits.FitsOpaqueMetadata):
+            legacy_metadata.update(self._opaque_metadata.headers[fits.ExtensionKey()])
+        for n, (k, v) in enumerate(self.metadata.items()):
+            legacy_metadata[f"LSST IMAGES KEY {n + 1}"] = k
+            legacy_metadata[f"LSST IMAGES VALUE {n + 1}"] = v
 
 
 class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):

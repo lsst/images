@@ -44,7 +44,7 @@ from .aperture_corrections import (
 )
 from .cameras import Detector, DetectorSerializationModel
 from .fields import BaseField, Field, FieldSerializationModel, field_from_legacy_photo_calib
-from .fits import ExtensionKey, FitsOpaqueMetadata
+from .fits import FitsOpaqueMetadata
 from .psfs import (
     GaussianPointSpreadFunction,
     GaussianPSFSerializationModel,
@@ -665,23 +665,7 @@ class VisitImage(MaskedImage):
             result_info.setPhotoCalib(self._photometric_scaling.to_legacy_photo_calib(self.unit))
         else:
             result_info.setPhotoCalib(BaseField.make_legacy_photo_calib(self.unit))
-        # We just dump all of the FITS headers and non-FITS metadata into the
-        # legacy metadata component, to make sure we have everything. We dump
-        # the latter into a pair of special cards to be able to full round-trip
-        # them (including case preservation).
-        result_md = result_info.getMetadata()
-        try:
-            result_md["BUNIT"] = self.unit.to_string(format="fits")
-        except ValueError:
-            # Write units that astropy doesn't think FITS will accept anyway;
-            # FITS standard says "SHOULD" about using it's recommended units,
-            # and coloring outside the lines is better than lying.
-            result_md["BUNIT"] = self.unit.to_string()
-        if isinstance(self._opaque_metadata, FitsOpaqueMetadata):
-            result_md.update(self._opaque_metadata.headers[ExtensionKey()])
-        for n, (k, v) in enumerate(self.metadata.items()):
-            result_md[f"LSST IMAGES KEY {n + 1}"] = k
-            result_md[f"LSST IMAGES VALUE {n + 1}"] = v
+        self._fill_legacy_metadata(result_info.getMetadata())
         if isinstance(self._psf, LegacyPointSpreadFunction):
             result_info.setPsf(self._psf.legacy_psf)
         elif isinstance(self._psf, PiffWrapper):
