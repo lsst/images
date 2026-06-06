@@ -42,9 +42,10 @@ def backend_for_path(path: ResourcePathExpression) -> Backend:
     """Return the `Backend` for ``path`` based on its file extension.
 
     Supported extensions: ``.fits`` / ``.fits.gz`` (FITS), ``.sdf`` /
-    ``.ndf`` (NDF), and ``.json`` (JSON).  The NDF and FITS backends are
-    imported lazily so optional dependencies (e.g. ``h5py``) are only
-    required when actually used.
+    ``.ndf`` (NDF), ``.json`` (JSON), and ``.zarr`` / ``.zarr.zip`` (zarr).
+    The NDF, FITS, and zarr backends are imported lazily so optional
+    dependencies (e.g. ``h5py``, ``zarr``) are only required when actually
+    used.
 
     Raises
     ------
@@ -67,6 +68,12 @@ def backend_for_path(path: ResourcePathExpression) -> Backend:
         from ..json import write as json_write
 
         return Backend("json", json_write, JsonInputArchive)
+    if s.endswith(".zarr") or s.endswith(".zarr.zip"):
+        from ..zarr import ZarrInputArchive
+        from ..zarr import write as zarr_write
+
+        return Backend("zarr", zarr_write, ZarrInputArchive)
     raise ValueError(
-        f"Unrecognised file extension: {path!r}; expected one of .fits, .fits.gz, .sdf, .ndf, .json."
+        f"Unrecognised file extension: {path!r}; "
+        "expected one of .fits, .fits.gz, .sdf, .ndf, .json, .zarr, .zarr.zip."
     )

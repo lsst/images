@@ -53,7 +53,9 @@ class GenericFormatter(FormatterV2):
     """
 
     default_extension: ClassVar[str] = ".fits"
-    supported_extensions: ClassVar[frozenset[str]] = frozenset({".fits", ".sdf", ".json"})
+    supported_extensions: ClassVar[frozenset[str]] = frozenset(
+        {".fits", ".sdf", ".json", ".zarr", ".zarr.zip"}
+    )
     supported_write_parameters: ClassVar[frozenset[str]] = frozenset({"format", "recipe"})
     can_read_from_uri: ClassVar[bool] = True
 
@@ -66,9 +68,8 @@ class GenericFormatter(FormatterV2):
         fmt = self.write_parameters.get("format", default_fmt)
         ext = "." + fmt
         if ext not in self.supported_extensions:
-            raise RuntimeError(
-                f"Requested format {fmt!r} is not supported; expected one of {{fits, json, sdf}}."
-            )
+            allowed = ", ".join(sorted(e.lstrip(".") for e in self.supported_extensions))
+            raise RuntimeError(f"Requested format {fmt!r} is not supported; expected one of {{{allowed}}}.")
         return ext
 
     def _validate_write_parameters(self) -> None:
@@ -102,8 +103,8 @@ class GenericFormatter(FormatterV2):
             kwargs["update_header"] = self._update_header
             kwargs["compression_options"] = self._get_compression_options()
             kwargs["compression_seed"] = self._get_compression_seed()
-        # The generic write() dispatches to the FITS / JSON / NDF backend by
-        # the file extension, which get_write_extension has already set on uri.
+        # The generic write() dispatches to the per-format backend by the
+        # file extension, which get_write_extension has already set on uri.
         write(in_memory_dataset, uri.ospath, **kwargs)
 
     def add_provenance(
