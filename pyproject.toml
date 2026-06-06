@@ -52,6 +52,9 @@ coadd_provenance = "lsst.images.cells._provenance:CoaddProvenanceSerializationMo
 [project.optional-dependencies]
 test = [
     "pytest >= 7.4",
+    # Validates zarr-backend output against the OME-NGFF schemas in
+    # tests/test_zarr_ome_compliance.py.
+    "ngff-zarr[validate]",
 ]
 # Also expose the optional dependencies of lsst-resources as optional
 # dependencies of lsst-images (lsst-daf-butler doe the same thing).
@@ -64,6 +67,8 @@ piff = ["piff >= 1.6", "galsim >= 2.7"]
 butler = ["lsst-daf-butler"]
 # Add feature for Starlink NDF (HDS-on-HDF5) read/write support.
 ndf = ["h5py >= 3.10"]
+# Add feature for Zarr v3 read/write support.
+zarr = ["zarr >= 3.0"]
 
 [tool.setuptools.packages.find]
 where = ["python"]
