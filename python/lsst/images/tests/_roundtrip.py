@@ -11,8 +11,9 @@
 
 from __future__ import annotations
 
-__all__ = ("RoundtripFits", "RoundtripJson", "RoundtripNdf", "TemporaryButler")
+__all__ = ("RoundtripFits", "RoundtripJson", "RoundtripNdf", "RoundtripZarr", "TemporaryButler")
 
+import os
 import tempfile
 import unittest
 import uuid
@@ -370,3 +371,33 @@ class RoundtripNdf[T](RoundtripBase[T]):
 
     def _get_extension(self) -> str:
         return ".sdf"
+
+
+class RoundtripZarr[T](RoundtripBase[T]):
+    """Round-trip helper for the zarr backend.
+
+    Zarr archives are directories rather than single files, so the
+    base class's ``NamedTemporaryFile`` pattern doesn't fit.
+    ``_run_without_butler`` is overridden to use a ``TemporaryDirectory``
+    and a fresh archive path inside it.
+    """
+
+    def inspect(self) -> Any:
+        """Open the zarr archive's IR for inspection."""
+        import zarr as _zarr
+
+        from ..zarr._model import ZarrDocument
+
+        return ZarrDocument.from_zarr(_zarr.storage.LocalStore(self.filename, read_only=True))
+
+    def _get_extension(self) -> str:
+        return ".zarr"
+
+    def _run_without_butler(self) -> None:
+        parent = self._exit_stack.enter_context(tempfile.TemporaryDirectory())
+        target = os.path.join(parent, f"out{self._get_extension()}")
+        self._filename = target
+        self._serialized = write_archive(self._original, target, **self._write_kwargs)
+        with open_archive(target, type(self._original)) as reader:
+            self._tc.assertIsNone(reader.butler_info)
+            self.result = reader.read()
