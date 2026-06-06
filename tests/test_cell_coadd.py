@@ -27,6 +27,7 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
     RoundtripNdf,
+    RoundtripZarr,
     assert_cell_coadds_equal,
     assert_masked_images_equal,
     assert_psfs_equal,
@@ -42,6 +43,15 @@ try:
     HAVE_H5PY = True
 except ImportError:
     HAVE_H5PY = False
+
+try:
+    import zarr
+
+    from lsst.images.zarr._store import open_store_for_read
+
+    HAVE_ZARR = True
+except ImportError:
+    HAVE_ZARR = False
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -268,6 +278,33 @@ class CellCoaddTestCase(unittest.TestCase):
             assert_cell_coadds_equal(self, self.cell_coadd, fits_rt.result, expect_view=False)
             assert_cell_coadds_equal(self, self.cell_coadd, ndf_rt.result, expect_view=False)
             assert_cell_coadds_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
+
+    @unittest.skipUnless(HAVE_ZARR, "zarr is not installed")
+    def test_zarr_roundtrip_uses_cell_aligned_chunks(self) -> None:
+        """Writing a CellCoadd to zarr aligns chunks to the cell shape.
+
+        The bug fixed in DM-55041 was that ``write()`` probed
+        ``obj.cell_shape`` / ``obj.cell_grid`` but `CellCoadd` exposes
+        the cell shape under ``obj.grid.cell_shape``. Without the fix,
+        real CellCoadd writes fall back to generic 256-pixel chunks
+        instead of cell-aligned chunks.
+        """
+        cell_shape = self.cell_coadd.grid.cell_shape
+        with RoundtripZarr(self, self.cell_coadd, "CellCoadd") as roundtrip:
+            with open_store_for_read(roundtrip.filename) as store:
+                root = zarr.open_group(store=store, mode="r", zarr_format=3)
+                self.assertEqual(tuple(root["image"].chunks), (cell_shape.y, cell_shape.x))
+
+    @unittest.skipUnless(HAVE_ZARR, "zarr is not installed")
+    def test_fits_zarr_consistency(self) -> None:
+        """FITS and zarr backends produce equal CellCoadds on round-trip."""
+        with (
+            RoundtripFits(self, self.cell_coadd) as fits_rt,
+            RoundtripZarr(self, self.cell_coadd) as zarr_rt,
+        ):
+            assert_cell_coadds_equal(self, self.cell_coadd, fits_rt.result, expect_view=False)
+            assert_cell_coadds_equal(self, self.cell_coadd, zarr_rt.result, expect_view=False)
+            assert_cell_coadds_equal(self, fits_rt.result, zarr_rt.result, expect_view=False)
 
 
 if __name__ == "__main__":
