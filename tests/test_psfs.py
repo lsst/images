@@ -21,7 +21,13 @@ import pytest
 from lsst.images import Box
 from lsst.images.psfs import GaussianPointSpreadFunction, PiffWrapper, PointSpreadFunction, PSFExWrapper
 from lsst.images.psfs._piff import _ArchivePiffWriter
-from lsst.images.tests import RoundtripFits, RoundtripJson, RoundtripNdf, compare_psf_to_legacy
+from lsst.images.tests import (
+    RoundtripFits,
+    RoundtripJson,
+    RoundtripNdf,
+    RoundtripZarr,
+    compare_psf_to_legacy,
+)
 
 try:
     import h5py  # noqa: F401
@@ -29,6 +35,13 @@ try:
     HAVE_H5PY = True
 except ImportError:
     HAVE_H5PY = False
+
+try:
+    import zarr  # noqa: F401
+
+    HAVE_ZARR = True
+except ImportError:
+    HAVE_ZARR = False
 
 try:
     from lsst.afw.detection import Psf as LegacyPsf
@@ -161,6 +174,11 @@ def test_piff(legacy_piff_psf_and_bbox: tuple[LegacyPsf, Box]) -> None:
     with RoundtripNdf(psf) as roundtrip3:
         pass
     compare_psf_to_legacy(roundtrip3.result, legacy_psf)
+    if not HAVE_ZARR:
+        pytest.skip("zarr is not available.")
+    with RoundtripZarr(psf) as roundtrip4:
+        pass
+    compare_psf_to_legacy(roundtrip4.result, legacy_psf)
     legacy_psf_2 = roundtrip1.result.to_legacy()
     compare_psf_to_legacy(psf, legacy_psf_2)
     assert legacy_psf.getAveragePosition() == legacy_psf_2.getAveragePosition()

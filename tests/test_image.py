@@ -26,6 +26,7 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
     RoundtripNdf,
+    RoundtripZarr,
     assert_close,
     assert_images_equal,
     assert_sky_projections_equal,
@@ -40,6 +41,13 @@ try:
 except ImportError:
     HAVE_H5PY = False
 
+try:
+    import zarr  # noqa: F401
+
+    HAVE_ZARR = True
+except ImportError:
+    HAVE_ZARR = False
+
 if TYPE_CHECKING:
     try:
         from lsst.afw.image import MaskedImageReader as LegacyMaskedImageReader
@@ -49,6 +57,7 @@ if TYPE_CHECKING:
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
+skip_no_zarr = pytest.mark.skipif(not HAVE_ZARR, reason="zarr is not installed")
 
 
 @dataclasses.dataclass
@@ -173,6 +182,22 @@ def test_fits_ndf_consistency() -> None:
         assert_images_equal(image, fits_rt.result)
         assert_images_equal(image, ndf_rt.result)
         assert_images_equal(fits_rt.result, ndf_rt.result)
+
+
+@skip_no_zarr
+def test_fits_zarr_consistency() -> None:
+    """Verify FITS and zarr round-trips produce equal Images."""
+    rng = np.random.default_rng(321)
+    image = Image(
+        rng.normal(100.0, 8.0, size=(60, 80)),
+        dtype=np.float64,
+        unit=u.nJy,
+        yx0=(0, 0),
+    )
+    with RoundtripFits(image) as fits_rt, RoundtripZarr(image) as zarr_rt:
+        assert_images_equal(image, fits_rt.result)
+        assert_images_equal(image, zarr_rt.result)
+        assert_images_equal(fits_rt.result, zarr_rt.result)
 
 
 def test_fits_json_consistency() -> None:

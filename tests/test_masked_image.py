@@ -38,6 +38,7 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
     RoundtripNdf,
+    RoundtripZarr,
     assert_masked_images_equal,
     compare_masked_image_to_legacy,
 )
@@ -50,6 +51,13 @@ except ImportError:
     HAVE_H5PY = False
 
 try:
+    import zarr  # noqa: F401
+
+    HAVE_ZARR = True
+except ImportError:
+    HAVE_ZARR = False
+
+try:
     from lsst.afw.image import MaskedImageReader as LegacyMaskedImageReader
 
 except ImportError:
@@ -58,6 +66,7 @@ except ImportError:
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
+skip_no_zarr = pytest.mark.skipif(not HAVE_ZARR, reason="zarr is not installed")
 
 
 @dataclasses.dataclass
@@ -352,6 +361,21 @@ def test_fits_ndf_consistency() -> None:
         assert_masked_images_equal(mi, fits_rt.result, expect_view=False)
         assert_masked_images_equal(mi, ndf_rt.result, expect_view=False)
         assert_masked_images_equal(fits_rt.result, ndf_rt.result, expect_view=False)
+
+
+@skip_no_zarr
+def test_fits_zarr_consistency() -> None:
+    """Verify FITS and zarr backends produce equal MaskedImages on
+    round-trip.
+    """
+    mi = make_masked_image()
+    with (
+        RoundtripFits(mi) as fits_rt,
+        RoundtripZarr(mi) as zarr_rt,
+    ):
+        assert_masked_images_equal(mi, fits_rt.result, expect_view=False)
+        assert_masked_images_equal(mi, zarr_rt.result, expect_view=False)
+        assert_masked_images_equal(fits_rt.result, zarr_rt.result, expect_view=False)
 
 
 def test_fits_json_consistency() -> None:
