@@ -30,6 +30,7 @@ from .._image import Image, ImageSerializationModel
 from .._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_legacy_deep_coadd_mask_planes
 from .._masked_image import MaskedImage, MaskedImageSerializationModel
 from .._transforms import Projection, ProjectionSerializationModel, TractFrame
+from ..fields import BaseField
 from ..serialization import InputArchive, InvalidParameterError, OutputArchive
 from ._aperture_corrections import CellApertureCorrectionMapSerializationModel, CellField
 from ._provenance import CoaddProvenance, CoaddProvenanceSerializationModel
@@ -37,9 +38,11 @@ from ._psf import CellPointSpreadFunction, CellPointSpreadFunctionSerializationM
 
 if TYPE_CHECKING:
     try:
+        from lsst.afw.image import Exposure as LegacyExposure
         from lsst.cell_coadds import MultipleCellCoadd as LegacyMultipleCellCoadd
         from lsst.skymap import TractInfo
     except ImportError:
+        type LegacyExposure = Any  # type: ignore[no-redef]
         type LegacyMultipleCellCoadd = Any  # type: ignore[no-redef]
         type TractInfo = Any  # type: ignore[no-redef]
 
@@ -537,6 +540,59 @@ class CellCoadd(MaskedImage):
             common=legacy_common,
             inner_bbox=self.bbox.to_legacy(),
         )
+
+    def to_legacy_exposure(
+        self, copy: bool | None = None, plane_map: Mapping[str, MaskPlane] | None = None
+    ) -> LegacyExposure:
+        """Convert to a `lsst.afw.image.Exposure` instance.
+
+        Parameters
+        ----------
+        copy
+            If `True`, always copy the image and variance pixel data.
+            If `False`, return a view, and raise `TypeError` if the pixel data
+            is read-only (this is not supported by afw).  If `None`, only copy
+            if the pixel data is read-only.  Mask pixel data is always copied.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
+
+        Returns
+        -------
+        `lsst.afw.image.Exposure`
+            A legacy representation of the coadd.  This will have its ``wcs``,
+            ``psf``, ``filter``, ``photoCalib``, and ``metadata`` components
+            set.  The ``apCorrMap`` component is not set, because there is no
+            true `lsst.afw.math.BoundedField` representation for cell-coadd
+            aperture corrections, and the ``coaddInputs`` component is not set
+            because that data structure cannot fully capture cell-coadd
+            provenance.
+
+        Notes
+        -----
+        This method requires the `provenance` attribute to have been populated
+        at construction.
+        """
+        from lsst.afw.image import Exposure as LegacyExposure
+        from lsst.afw.image import FilterLabel as LegacyFilterLabel
+
+        if plane_map is None:
+            plane_map = get_legacy_deep_coadd_mask_planes()
+        legacy_masked_image = super().to_legacy(copy=copy, plane_map=plane_map)
+        result = LegacyExposure(legacy_masked_image, dtype=self.image.array.dtype)
+        result_info = result.info
+        result_info.setWcs(self.projection.to_legacy())
+        result_info.setPsf(self.psf.to_legacy())
+        result_info.setFilter(LegacyFilterLabel.fromBand(self.band))
+        result_info.setPhotoCalib(BaseField.make_legacy_photo_calib(self.unit))
+        # We don't do setCoaddInputs because that data structure can't really
+        # represent cell-coadd provenance accurately, and it's not clear
+        # anything would use it.
+        self._fill_legacy_metadata(result_info.getMetadata())
+        # We can't do setApCorrMap because the legacy
+        # StitchedApertureCorrection is not a real C++ BoundedField, just a
+        # Python duck-alike.
+        return result
 
 
 class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializationModel[P]):

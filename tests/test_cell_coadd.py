@@ -30,6 +30,9 @@ from lsst.images.tests import (
     assert_masked_images_equal,
     assert_psfs_equal,
     compare_cell_coadd_to_legacy,
+    compare_masked_image_to_legacy,
+    compare_projection_to_legacy_wcs,
+    compare_psf_to_legacy,
 )
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
@@ -211,6 +214,31 @@ class CellCoaddTestCase(unittest.TestCase):
             tract_bbox=Box.from_legacy(self.skymap[DP2_COADD_DATA_ID["tract"]].getBBox()),
             plane_map=self.plane_map,
             psf_points=self.psf_points,
+        )
+
+    def test_to_legacy_exposure(self) -> None:
+        """Test converting a CellCoadd back into a legacy Exposure."""
+        legacy_exposure = self.cell_coadd.to_legacy_exposure()
+
+        self.assertEqual(legacy_exposure.getFilter().bandLabel, self.cell_coadd.band)
+        self.assertEqual(Box.from_legacy(legacy_exposure.getBBox()), self.cell_coadd.bbox)
+        compare_masked_image_to_legacy(
+            self, self.cell_coadd, legacy_exposure.maskedImage, plane_map=self.plane_map, expect_view=True
+        )
+        compare_psf_to_legacy(
+            self,
+            self.cell_coadd.psf,
+            legacy_exposure.getPsf(),
+            points=self.psf_points,
+            expect_legacy_raise_on_out_of_bounds=True,
+        )
+        compare_projection_to_legacy_wcs(
+            self,
+            self.cell_coadd.projection,
+            legacy_exposure.getWcs(),
+            self.cell_coadd.projection.pixel_frame,
+            subimage_bbox=self.cell_coadd.bbox,
+            is_fits=True,
         )
 
 
