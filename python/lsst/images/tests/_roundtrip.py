@@ -58,6 +58,9 @@ class TemporaryButler:
         `~lsst.images.formatters.GenericFormatter` writes that format for
         those storage classes, overriding its ``.fits`` default.  Leave as
         `None` to keep the default formatter behaviour.
+    recipe
+        Optional write recipe to bind to every storage class registered by
+        ``**kwargs``.
     **kwargs
         A mapping from a dataset type name to its storage class.  For each
         entry, a dataset type will be registered with empty dimensions, and a
@@ -74,9 +77,17 @@ class TemporaryButler:
         of the test to continue.
     """
 
-    def __init__(self, run: str = "test_run", *, format: str | None = None, **kwargs: str):
+    def __init__(
+        self,
+        run: str = "test_run",
+        *,
+        format: str | None = None,
+        recipe: str | None = None,
+        **kwargs: str,
+    ):
         self.run = run
         self._format = format
+        self._recipe = recipe
         self._kwargs = kwargs
         self._exit_stack = ExitStack()
 
@@ -87,7 +98,12 @@ class TemporaryButler:
         root = self._exit_stack.enter_context(
             tempfile.TemporaryDirectory(ignore_cleanup_errors=True, delete=True)
         )
+        write_parameters: dict[str, str] = {}
         if self._format is not None:
+            write_parameters["format"] = self._format
+        if self._recipe is not None:
+            write_parameters["recipe"] = self._recipe
+        if write_parameters:
             # Overlay a per-storage-class formatter binding so the default
             # FITS-writing GenericFormatter writes the requested format
             # instead.  Keyed by the storage class name (matched by the
@@ -98,7 +114,7 @@ class TemporaryButler:
                         "formatters": {
                             storage_class: {
                                 "formatter": "lsst.images.formatters.GenericFormatter",
-                                "parameters": {"format": self._format},
+                                "parameters": write_parameters,
                             }
                             for storage_class in self._kwargs.values()
                         }
@@ -144,9 +160,12 @@ class RoundtripBase[T](ABC):
         A butler storage class name to use.  If not provided (or
         `lsst.daf.butler` cannot be imported), the roundtrip will just use
         a direct write to a temporary file.
-    format
-        Archive/file format to use when not using a butler (ignored when
-        using a butler).
+    recipe
+        Write recipe used to control butler puts; only used when roundtripping
+        through a butler.
+    **kwargs
+        Keyword arguments to pass to `write`, usually equivalent to what
+        ``recipe`` resolves to; ignored when roundtripping through a butler.
 
     Notes
     -----
@@ -165,6 +184,8 @@ class RoundtripBase[T](ABC):
         tc: unittest.TestCase,
         original: T,
         storage_class: str | None = None,
+        recipe: str | None = None,
+        **kwargs: Any,
     ):
         self._original = original
         self._storage_class = storage_class
@@ -172,6 +193,8 @@ class RoundtripBase[T](ABC):
         self._exit_stack = ExitStack()
         self._filename: str | None = None
         self._tc = tc
+        self._recipe = recipe
+        self._write_kwargs = kwargs
         self.result: Any
         self.butler: Butler | None = None
         self.ref: DatasetRef | None = None
@@ -274,7 +297,7 @@ class RoundtripBase[T](ABC):
         # matches ``_get_extension()`` on the round-trip check below.
         fmt = self._get_extension().lstrip(".")
         butler_helper = self._exit_stack.enter_context(
-            TemporaryButler(test_dataset=self._storage_class, format=fmt)
+            TemporaryButler(test_dataset=self._storage_class, format=fmt, recipe=self._recipe)
         )
         self.butler = butler_helper.butler
         quantum_id = uuid.uuid4()
@@ -298,7 +321,7 @@ class RoundtripBase[T](ABC):
         )
         tmp.close()
         self._filename = tmp.name
-        self._serialized = self._write(self._original, tmp.name)
+        self._serialized = self._write(self._original, tmp.name, **self._write_kwargs)
         with open_archive(tmp.name, type(self._original)) as reader:
             self._tc.assertIsNone(reader.butler_info)
             self.result = reader.read()

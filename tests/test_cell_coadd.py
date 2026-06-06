@@ -20,6 +20,7 @@ import numpy as np
 
 from lsst.images import YX, Box, Interval, get_legacy_deep_coadd_mask_planes
 from lsst.images.cells import CellCoadd, CellIJ
+from lsst.images.fits import FitsCompressionOptions
 from lsst.images.tests import (
     DP2_COADD_DATA_ID,
     DP2_COADD_MISSING_CELL,
@@ -164,6 +165,31 @@ class CellCoaddTestCase(unittest.TestCase):
             alternates=alternates,
             psf_points=self.psf_points,
         )
+
+    def test_fits_compression(self) -> None:
+        """Test writing with quantized FITS compression."""
+        with RoundtripFits(
+            self,
+            self.cell_coadd,
+            storage_class="CellCoadd",
+            recipe="lossy16",
+            compression_options={
+                "image": FitsCompressionOptions.LOSSY,
+                "variance": FitsCompressionOptions.LOSSY,
+            },
+        ) as roundtrip:
+            with roundtrip.inspect() as fits:
+                for extname in ["IMAGE", "MASK", "VARIANCE", "MASK_FRACTIONS/REJECTED"] + [
+                    f"NOISE_REALIZATIONS/{n}" for n in range(len(self.cell_coadd.noise_realizations))
+                ]:
+                    with self.subTest(extname=extname):
+                        self.assertEqual(fits[extname].header["ZTILE1"], self.cell_coadd.grid.cell_shape.x)
+                        self.assertEqual(fits[extname].header["ZTILE2"], self.cell_coadd.grid.cell_shape.y)
+                        if extname == "MASK" or extname.startswith("MASK_FRACTIONS"):
+                            self.assertEqual(fits[extname].header["ZCMPTYPE"], "GZIP_2")
+                        else:
+                            self.assertEqual(fits[extname].header["ZCMPTYPE"], "RICE_1")
+                            self.assertEqual(fits[extname].header["ZQUANTIZ"], "SUBTRACTIVE_DITHER_2")
 
     def test_fits_json_consistency(self) -> None:
         """FITS and JSON backends produce equal CellCoadds on round-trip."""
