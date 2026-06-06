@@ -251,6 +251,7 @@ class Image(GeneralizedImage):
         save_projection: bool = True,
         add_offset_wcs: str | None = "A",
         tile_shape: tuple[int, ...] | None = None,
+        options_name: str | None = None,
     ) -> ImageSerializationModel[P]:
         """Serialize the image to an output archive.
 
@@ -278,6 +279,8 @@ class Image(GeneralizedImage):
             The recommended shape of each tile, if the archive will save
             the array in distinct tiles for faster subarray retrieval.
             This is a hint; archives are not required to use this value.
+        options_name
+            Use this name to look up archive options.
         """
 
         def _update_header(header: astropy.io.fits.Header) -> None:
@@ -296,7 +299,9 @@ class Image(GeneralizedImage):
             if add_offset_wcs is not None:
                 fits.add_offset_wcs(header, x=self.bbox.x.start, y=self.bbox.y.start, key=add_offset_wcs)
 
-        array_model = archive.add_array(self.array, update_header=_update_header, tile_shape=tile_shape)
+        array_model = archive.add_array(
+            self.array, update_header=_update_header, tile_shape=tile_shape, options_name=options_name
+        )
         serialized_projection: ProjectionSerializationModel[P] | None = None
         if save_projection and self.projection is not None:
             serialized_projection = archive.serialize_direct("projection", self.projection.serialize)

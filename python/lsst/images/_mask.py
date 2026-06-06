@@ -585,6 +585,7 @@ class Mask(GeneralizedImage):
         save_projection: bool = True,
         add_offset_wcs: str | None = "A",
         tile_shape: tuple[int, ...] | None = None,
+        options_name: str | None = None,
     ) -> MaskSerializationModel[P]:
         """Serialize the mask to an output archive.
 
@@ -613,6 +614,8 @@ class Mask(GeneralizedImage):
             The recommended shape of each tile, if the archive will save
             the array in distinct tiles for faster subarray retrieval.
             This is a hint; archives are not required to use this value.
+        options_name
+            Use this name to look up archive options.
         """
         if _archive_prefers_native_mask_arrays(archive):
             # HDS presents array dimensions in Fortran order, which is the
@@ -623,6 +626,7 @@ class Mask(GeneralizedImage):
                 np.moveaxis(self._array, -1, 0),
                 update_header=update_header,
                 tile_shape=tile_shape,
+                options_name=options_name,
             )
             if not isinstance(array_model, ArrayReferenceModel):
                 raise RuntimeError("Native mask arrays require reference array storage.")
@@ -639,6 +643,7 @@ class Mask(GeneralizedImage):
                         update_header=update_header,
                         add_offset_wcs=add_offset_wcs,
                         tile_shape=tile_shape,
+                        options_name=options_name,
                     )
                 )
         serialized_projection: ProjectionSerializationModel[P] | None = None
@@ -662,6 +667,7 @@ class Mask(GeneralizedImage):
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
         add_offset_wcs: str | None = "A",
         tile_shape: tuple[int, ...] | None = None,
+        options_name: str | None = None,
     ) -> ArrayReferenceModel | InlineArrayModel:
         def _update_header(header: astropy.io.fits.Header) -> None:
             update_header(header)
@@ -673,7 +679,12 @@ class Mask(GeneralizedImage):
                 fits.add_offset_wcs(header, x=self.bbox.x.start, y=self.bbox.y.start, key=add_offset_wcs)
 
         assert self.array.shape[2] == 1, "Mask should be split before calling this method."
-        return archive.add_array(self._array[:, :, 0], update_header=_update_header, tile_shape=tile_shape)
+        return archive.add_array(
+            self._array[:, :, 0],
+            update_header=_update_header,
+            tile_shape=tile_shape,
+            options_name=options_name,
+        )
 
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](

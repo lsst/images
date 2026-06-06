@@ -261,13 +261,16 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
         tile_shape: tuple[int, ...] | None = None,
+        options_name: str | None = None,
     ) -> ArrayReferenceModel:
         if name is None:
             raise RuntimeError("Cannot save array with name=None unless it is nested.")
         extname = name.upper()
         hdu = self._opaque_metadata.maybe_use_precompressed(extname)
         if hdu is None:
-            if (compression_options := self._get_compression_options(name, tile_shape)) is not None:
+            if options_name is None:
+                options_name = name
+            if (compression_options := self._get_compression_options(options_name, tile_shape)) is not None:
                 hdu = compression_options.make_hdu(array, name=extname)
             else:
                 hdu = astropy.io.fits.ImageHDU(array, name=extname)

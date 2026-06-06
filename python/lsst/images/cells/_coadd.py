@@ -314,14 +314,21 @@ class CellCoadd(MaskedImage):
         serialized_mask_fractions = {
             k: archive.serialize_direct(
                 f"mask_fractions/{k}",
-                functools.partial(v.serialize, save_projection=False, tile_shape=self.grid.cell_shape),
+                functools.partial(
+                    v.serialize,
+                    save_projection=False,
+                    tile_shape=self.grid.cell_shape,
+                    options_name="mask_fractions",
+                ),
             )
             for k, v in self.mask_fractions.items()
         }
         serialized_noise_realizations = [
             archive.serialize_direct(
                 f"noise_realizations/{n}",
-                functools.partial(v.serialize, save_projection=False, tile_shape=self.grid.cell_shape),
+                functools.partial(
+                    v.serialize, save_projection=False, tile_shape=self.grid.cell_shape, options_name="image"
+                ),
             )
             for n, v in enumerate(self.noise_realizations)
         ]
