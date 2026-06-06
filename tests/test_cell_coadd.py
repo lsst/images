@@ -143,6 +143,12 @@ class CellCoaddTestCase(unittest.TestCase):
                     backgrounds = roundtrip.get("backgrounds")
                     self.assertEqual(backgrounds.keys(), set())
                     self.assertIsNone(backgrounds.subtracted)
+            with roundtrip.inspect() as fits:
+                for extname in ["IMAGE", "MASK", "VARIANCE", "MASK_FRACTIONS/REJECTED"] + [
+                    f"NOISE_REALIZATIONS/{n}" for n in range(len(self.cell_coadd.noise_realizations))
+                ]:
+                    self.assertEqual(fits[extname].header["ZTILE1"], self.cell_coadd.grid.cell_shape.x)
+                    self.assertEqual(fits[extname].header["ZTILE2"], self.cell_coadd.grid.cell_shape.y)
         # Fixture self-consistency: bbox and missing-cell set are what setUp
         # claims they are.
         self.assertEqual(self.cell_coadd.bounds.missing, {self.missing_cell})

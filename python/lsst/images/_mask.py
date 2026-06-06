@@ -584,6 +584,7 @@ class Mask(GeneralizedImage):
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
         save_projection: bool = True,
         add_offset_wcs: str | None = "A",
+        tile_shape: tuple[int, ...] | None = None,
     ) -> MaskSerializationModel[P]:
         """Serialize the mask to an output archive.
 
@@ -608,13 +609,21 @@ class Mask(GeneralizedImage):
             defined by ``bbox.start``.  Set to `None` to not write this WCS.
             If this is set to ``" "``, it will prevent the `Projection` from
             being saved as a FITS WCS.
+        tile_shape
+            The recommended shape of each tile, if the archive will save
+            the array in distinct tiles for faster subarray retrieval.
+            This is a hint; archives are not required to use this value.
         """
         if _archive_prefers_native_mask_arrays(archive):
             # HDS presents array dimensions in Fortran order, which is the
             # reverse of the h5py dataset shape. Store the in-memory trailing
             # mask-byte axis first in HDF5 so Starlink tools see HDS axes
             # (x, y, byte), without changing the bit packing within a pixel.
-            array_model = archive.add_array(np.moveaxis(self._array, -1, 0), update_header=update_header)
+            array_model = archive.add_array(
+                np.moveaxis(self._array, -1, 0),
+                update_header=update_header,
+                tile_shape=tile_shape,
+            )
             if not isinstance(array_model, ArrayReferenceModel):
                 raise RuntimeError("Native mask arrays require reference array storage.")
             array_model.shape = list(self._array.shape)
@@ -625,7 +634,12 @@ class Mask(GeneralizedImage):
                 mask_2d = Mask(0, bbox=self.bbox, schema=schema_2d, projection=self._projection)
                 mask_2d.update(self)
                 data.append(
-                    mask_2d._serialize_2d(archive, update_header=update_header, add_offset_wcs=add_offset_wcs)
+                    mask_2d._serialize_2d(
+                        archive,
+                        update_header=update_header,
+                        add_offset_wcs=add_offset_wcs,
+                        tile_shape=tile_shape,
+                    )
                 )
         serialized_projection: ProjectionSerializationModel[P] | None = None
         if save_projection and self.projection is not None:
@@ -647,6 +661,7 @@ class Mask(GeneralizedImage):
         *,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
         add_offset_wcs: str | None = "A",
+        tile_shape: tuple[int, ...] | None = None,
     ) -> ArrayReferenceModel | InlineArrayModel:
         def _update_header(header: astropy.io.fits.Header) -> None:
             update_header(header)
@@ -658,7 +673,7 @@ class Mask(GeneralizedImage):
                 fits.add_offset_wcs(header, x=self.bbox.x.start, y=self.bbox.y.start, key=add_offset_wcs)
 
         assert self.array.shape[2] == 1, "Mask should be split before calling this method."
-        return archive.add_array(self._array[:, :, 0], update_header=_update_header)
+        return archive.add_array(self._array[:, :, 0], update_header=_update_header, tile_shape=tile_shape)
 
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](

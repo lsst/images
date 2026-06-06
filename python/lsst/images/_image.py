@@ -250,6 +250,7 @@ class Image(GeneralizedImage):
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
         save_projection: bool = True,
         add_offset_wcs: str | None = "A",
+        tile_shape: tuple[int, ...] | None = None,
     ) -> ImageSerializationModel[P]:
         """Serialize the image to an output archive.
 
@@ -273,6 +274,10 @@ class Image(GeneralizedImage):
             defined by ``bbox.start``.  Set to `None` to not write this WCS.
             If this is set to ``" "``, it will prevent the `Projection` from
             being saved as a FITS WCS.
+        tile_shape
+            The recommended shape of each tile, if the archive will save
+            the array in distinct tiles for faster subarray retrieval.
+            This is a hint; archives are not required to use this value.
         """
 
         def _update_header(header: astropy.io.fits.Header) -> None:
@@ -291,7 +296,7 @@ class Image(GeneralizedImage):
             if add_offset_wcs is not None:
                 fits.add_offset_wcs(header, x=self.bbox.x.start, y=self.bbox.y.start, key=add_offset_wcs)
 
-        array_model = archive.add_array(self.array, update_header=_update_header)
+        array_model = archive.add_array(self.array, update_header=_update_header, tile_shape=tile_shape)
         serialized_projection: ProjectionSerializationModel[P] | None = None
         if save_projection and self.projection is not None:
             serialized_projection = archive.serialize_direct("projection", self.projection.serialize)

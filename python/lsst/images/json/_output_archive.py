@@ -124,6 +124,7 @@ class JsonOutputArchive(OutputArchive[JsonRef]):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        tile_shape: tuple[int, ...] | None = None,
     ) -> InlineArrayModel:
         return InlineArrayModel(
             data=array.tolist(),

@@ -465,6 +465,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        tile_shape: tuple[int, ...] | None = None,
     ) -> ArrayReferenceModel:
         # Recognised top-level names go to standard NDF locations.
         # Anything else hoists under /MORE/LSST.

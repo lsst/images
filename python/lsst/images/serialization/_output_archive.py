@@ -181,6 +181,7 @@ class OutputArchive[P](ABC):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        tile_shape: tuple[int, ...] | None = None,
     ) -> ArrayReferenceModel | InlineArrayModel:
         """Add an array to the archive.
 
@@ -198,6 +199,10 @@ class OutputArchive[P](ABC):
             containing this array in order to add keys to it.  This callback
             may be provided but will not be called if the output format is not
             FITS.
+        tile_shape
+            The recommended shape of each tile if the implementation will save
+            the array in distinct tiles for faster subarray retrieval.
+            This is a hint; implementations are not required to use this value.
 
         Returns
         -------
@@ -328,8 +333,11 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        tile_shape: tuple[int, ...] | None = None,
     ) -> ArrayReferenceModel | InlineArrayModel:
-        return self._parent.add_array(array, name=self._join_path(name), update_header=update_header)
+        return self._parent.add_array(
+            array, name=self._join_path(name), update_header=update_header, tile_shape=tile_shape
+        )
 
     def add_table(
         self,

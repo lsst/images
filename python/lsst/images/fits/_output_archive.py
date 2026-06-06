@@ -260,13 +260,14 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        tile_shape: tuple[int, ...] | None = None,
     ) -> ArrayReferenceModel:
         if name is None:
             raise RuntimeError("Cannot save array with name=None unless it is nested.")
         extname = name.upper()
         hdu = self._opaque_metadata.maybe_use_precompressed(extname)
         if hdu is None:
-            if (compression_options := self._get_compression_options(name)) is not None:
+            if (compression_options := self._get_compression_options(name, tile_shape)) is not None:
                 hdu = compression_options.make_hdu(array, name=extname)
             else:
                 hdu = astropy.io.fits.ImageHDU(array, name=extname)
@@ -367,9 +368,15 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         self._hdu_list.append(json_hdu)
         self._json_hdu_added = True
 
-    def _get_compression_options(self, name: str) -> FitsCompressionOptions | None:
+    def _get_compression_options(
+        self, name: str, tile_shape: tuple[int, ...] | None
+    ) -> FitsCompressionOptions | None:
         result = self._compression_options.get(name, FitsCompressionOptions.DEFAULT)
-        if result is None or result.quantization is None:
+        if result is None:
+            return result
+        if tile_shape is not None and result.tile_shape is None:
+            result = result.model_copy(update={"tile_shape": tile_shape})
+        if result.quantization is None:
             return result
         if self._compression_seed is not None and not result.quantization.seed:
             result = result.model_copy(

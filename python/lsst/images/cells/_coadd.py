@@ -297,21 +297,32 @@ class CellCoadd(MaskedImage):
             Archive to write to.
         """
         serialized_image = archive.serialize_direct(
-            "image", functools.partial(self.image.serialize, save_projection=False)
+            "image",
+            functools.partial(self.image.serialize, save_projection=False, tile_shape=self.grid.cell_shape),
         )
         serialized_mask = archive.serialize_direct(
-            "mask", functools.partial(self.mask.serialize, save_projection=False)
+            "mask",
+            functools.partial(self.mask.serialize, save_projection=False, tile_shape=self.grid.cell_shape),
         )
         serialized_variance = archive.serialize_direct(
-            "variance", functools.partial(self.variance.serialize, save_projection=False)
+            "variance",
+            functools.partial(
+                self.variance.serialize, save_projection=False, tile_shape=self.grid.cell_shape
+            ),
         )
         serialized_projection = archive.serialize_direct("projection", self.projection.serialize)
         serialized_mask_fractions = {
-            k: archive.serialize_direct(f"mask_fractions/{k}", v.serialize)
+            k: archive.serialize_direct(
+                f"mask_fractions/{k}",
+                functools.partial(v.serialize, save_projection=False, tile_shape=self.grid.cell_shape),
+            )
             for k, v in self.mask_fractions.items()
         }
         serialized_noise_realizations = [
-            archive.serialize_direct(f"noise_realizations/{n}", v.serialize)
+            archive.serialize_direct(
+                f"noise_realizations/{n}",
+                functools.partial(v.serialize, save_projection=False, tile_shape=self.grid.cell_shape),
+            )
             for n, v in enumerate(self.noise_realizations)
         ]
         serialized_psf = archive.serialize_direct("psf", self.psf.serialize)
