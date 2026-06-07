@@ -21,7 +21,7 @@ import pydantic
 from scipy.interpolate import Akima1DInterpolator
 
 from .._concrete_bounds import SerializableBounds
-from .._geom import Bounds, Box
+from .._geom import Bounds, Box, Interval
 from .._image import Image
 from ..serialization import (
     ArchiveTree,
@@ -85,8 +85,16 @@ class SplineField(BaseField):
             raise ValueError("'data' must be 2-d.")
         if y.ndim != 1:
             raise ValueError("'y' must be 1-d.")
+        if not y.size:
+            raise ValueError("No y grid points.")
+        if not np.all(y[:-1] < y[1:]):
+            raise ValueError(f"'y' must be monotonically increasing; got {y}")
         if x.ndim != 1:
             raise ValueError("'x' must be 1-d.")
+        if not x.size:
+            raise ValueError("No x grid points.")
+        if not np.all(x[:-1] < x[1:]):
+            raise ValueError(f"'x' must be monotonically increasing; got {x}")
         if data.shape != y.shape + x.shape:
             raise ValueError(
                 f"Shape of 2-d 'data' {data.shape} does not match "
@@ -162,8 +170,9 @@ class SplineField(BaseField):
         result = np.zeros(y.shape, dtype=np.float64)
         # There doesn't seem to be a way to avoid looping in Python here;
         # maybe someday we'll push this down to a compiled language.
+        x_interval = self.bounds.bbox.x
         for i, xv in np.ndenumerate(x):
-            if (x_interpolator := self._make_1d_interpolator(xg, y_render[:, *i])) is None:
+            if (x_interpolator := self._make_1d_interpolator(xg, y_render[:, *i], x_interval)) is None:
                 raise ValueError("No valid data points.")
             v = x_interpolator(xv)
             result[*i] = v
@@ -184,7 +193,8 @@ class SplineField(BaseField):
         if not np.all(mask):
             y_render = y_render[mask, :]
             xg = xg[mask]
-        if (x_interpolator := self._make_1d_interpolator(xg, y_render)) is None:
+        x_interval = self.bounds.bbox.x
+        if (x_interpolator := self._make_1d_interpolator(xg, y_render, x_interval)) is None:
             raise ValueError("No valid data points.")
         rendered_array = x_interpolator(bbox.x.arange)
         return Image(rendered_array.transpose().copy(), bbox=bbox, unit=self._unit, dtype=dtype)
@@ -271,7 +281,9 @@ class SplineField(BaseField):
             unit=unit,
         )
 
-    def _make_1d_interpolator(self, loc: np.ndarray, val: np.ndarray) -> Akima1DInterpolator | None:
+    def _make_1d_interpolator(
+        self, loc: np.ndarray, val: np.ndarray, fallback_interval: Interval
+    ) -> Akima1DInterpolator | None:
         match len(loc):
             case 0:
                 return None
@@ -279,7 +291,10 @@ class SplineField(BaseField):
                 # SciPy can handle only two points by downgrading to linear
                 # interpolation, but it raises if given only one.  Mock up
                 # two for the nearest-neighbor fallback.
-                return Akima1DInterpolator(np.array([loc[0], loc[0]]), np.array([val[0], val[0]]))
+                return Akima1DInterpolator(
+                    np.array([fallback_interval.min - 0.5, fallback_interval.max + 0.5]),
+                    np.array([val[0], val[0]]),
+                )
             case _:
                 return Akima1DInterpolator(loc, val, extrapolate=True)
 
@@ -291,7 +306,7 @@ class SplineField(BaseField):
             y = y[mask]
             z = z[mask]
         del mask
-        return self._make_1d_interpolator(y, z)
+        return self._make_1d_interpolator(y, z, self.bounds.bbox.y)
 
 
 class SplineFieldSerializationModel(ArchiveTree):
