@@ -1044,6 +1044,10 @@ def get_legacy_deep_coadd_mask_planes() -> dict[str, MaskPlane]:
             "Pixel was too close to the edge to be considered for detection, "
             "due to the finite size of the detection kernel.",
         ),
+        "CLIPPED": MaskPlane(
+            "CLIPPED",
+            "Region was identified as a probable artifact when comparing multiple single-visit warps.",
+        ),
         "REJECTED": MaskPlane(
             "REJECTED", "At least one input visit was left out of the coadd for this pixel due to masking."
         ),
