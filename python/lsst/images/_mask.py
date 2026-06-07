@@ -764,19 +764,15 @@ class Mask(GeneralizedImage):
         new_name_to_old_bitmask: dict[str, int] = {}
         for old_name, old_bit in old_planes.items():
             old_bitmask = 1 << old_bit
-            if plane_map is not None:
-                if new_plane := plane_map.get(old_name):
-                    # Already added to 'planes' at initialization.
-                    new_name_to_old_bitmask[new_plane.name] = old_bitmask
-                else:
-                    if n_orphaned := np.count_nonzero(array2d.astype(np.uint64) & old_bitmask):
-                        raise RuntimeError(
-                            f"Legacy mask plane {old_name!r} is not remapped, "
-                            f"but {n_orphaned} pixels have this bit set."
-                        )
+            if new_plane := plane_map.get(old_name):
+                # Already added to 'planes' at initialization.
+                new_name_to_old_bitmask[new_plane.name] = old_bitmask
             else:
-                planes.append(MaskPlane(old_name, ""))
-                new_name_to_old_bitmask[old_name] = old_bitmask
+                if n_orphaned := np.count_nonzero(array2d.astype(np.uint64) & old_bitmask):
+                    raise RuntimeError(
+                        f"Legacy mask plane {old_name!r} is not remapped, "
+                        f"but {n_orphaned} pixels have this bit set."
+                    )
         schema = MaskSchema(planes)
         mask = Mask(0, schema=schema, start=start, shape=array2d.shape, projection=projection)
         for new_name, old_bitmask in new_name_to_old_bitmask.items():
