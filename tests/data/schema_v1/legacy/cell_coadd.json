@@ -1536,6 +1536,21 @@
         {
           "data": {
             "data": [
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "datatype": "float64"
+          },
+          "name": "unmasked_fraction",
+          "description": "Fraction of the cell that was propagated to the coadd."
+        },
+        {
+          "data": {
+            "data": [
               0.001890980851084195,
               0.0019543733132633867,
               0.001890980851084195,

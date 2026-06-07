@@ -88,6 +88,7 @@ class CoaddProvenance:
         ("detector", np.uint16, "ID of the detector.", None),
         ("overlaps_center", np.bool_, "Whether a this observation overlaps the center of the cell.", None),
         ("overlap_fraction", np.float64, "Fraction of the cell that is covered by the overlap region.", None),
+        ("unmasked_fraction", np.float64, "Fraction of the cell propagated to the coadd.", None),
         ("weight", np.float64, "Weight to be used for this input in this cell.", None),
         ("psf_shape_xx", np.float64, "Second order moments of the PSF.", u.pix**2),
         ("psf_shape_yy", np.float64, "Second order moments of the PSF.", u.pix**2),
@@ -207,6 +208,7 @@ class CoaddProvenance:
                 contributions["detector"][n] = legacy_identifiers.detector
                 contributions["overlaps_center"][n] = legacy_inputs.overlaps_center
                 contributions["overlap_fraction"][n] = legacy_inputs.overlap_fraction
+                contributions["unmasked_fraction"][n] = legacy_inputs.unmasked_overlap_fraction
                 contributions["weight"][n] = legacy_inputs.weight
                 contributions["psf_shape_xx"][n] = legacy_inputs.psf_shape.getIxx()
                 contributions["psf_shape_yy"][n] = legacy_inputs.psf_shape.getIyy()
@@ -256,7 +258,7 @@ class CoaddProvenance:
             cell_inputs[obs] = LegacyCoaddInputs(
                 overlaps_center=bool(row["overlaps_center"]),
                 overlap_fraction=float(row["overlap_fraction"]),
-                unmasked_overlap_fraction=float("NaN"),  # TODO[DM-55129]: add this field!
+                unmasked_overlap_fraction=float(row["unmasked_fraction"]),
                 weight=float(row["weight"]),
                 psf_shape=Quadrupole(row["psf_shape_xx"], row["psf_shape_yy"], row["psf_shape_xy"]),
                 psf_shape_flag=bool(row["psf_shape_flag"]),

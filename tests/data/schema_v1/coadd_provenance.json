@@ -132,6 +132,14 @@
           "data": [],
           "datatype": "float64"
         },
+        "name": "unmasked_fraction",
+        "description": "Fraction of the cell that was propagated to the coadd."
+      },
+      {
+        "data": {
+          "data": [],
+          "datatype": "float64"
+        },
         "name": "weight",
         "description": "Weight to be used for this input in this cell."
       },
