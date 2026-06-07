@@ -291,6 +291,24 @@ class CellCoadd(MaskedImage):
             copy=True,
         )
 
+    def apply_background(self, name: str | None) -> None:
+        """Subtract the background with the given name, modifying the image
+        in place.
+
+        If ``name`` is `None`, restore the original background.
+        """
+        current_bg = self.backgrounds.subtracted
+        if current_bg is not None:
+            if name == current_bg.name:
+                return
+            self.image.quantity += current_bg.field.render(dtype=self.image.array.dtype).quantity
+        if name is None:
+            self._backgrounds._subtracted = None
+            return
+        new_bg = self.backgrounds[name]
+        self.image.quantity -= new_bg.field.render(dtype=self.image.array.dtype).quantity
+        self._backgrounds._subtracted = name
+
     def serialize(self, archive: OutputArchive[Any]) -> CellCoaddSerializationModel:
         """Serialize the image to an output archive.
 
