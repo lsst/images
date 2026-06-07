@@ -14,6 +14,7 @@ from __future__ import annotations
 __all__ = ("FitsOutputArchive", "write")
 
 import dataclasses
+import warnings
 from collections import Counter
 from collections.abc import Callable, Hashable, Iterator, Mapping
 from contextlib import contextmanager
@@ -193,7 +194,20 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
             yield archive
             if not archive._json_hdu_added:
                 raise RuntimeError("Write context exited without 'add_tree' being called.")
-            hdu_list.flush()
+            # If a header card has a long string that required CONTINUE,
+            # Astropy will truncate the comment and warn without reporting
+            # what the offending card is.  But it doesn't look at its own
+            # output_verify kwarg when doing that, and it doesn't actually
+            # trigger if you try to format the header cards one at a time!
+            # So we have no choice but to silence the warnings manually, until
+            # we can get Astropy fixed.
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message="comment will be truncated",
+                    category=astropy.io.fits.verify.VerifyWarning,
+                )
+                hdu_list.flush()
         # This multi-open dance is necessary to get Astropy to tell us the
         # byte addresses of the HDUs.  Hopefully we can get an upstream change
         # make this unnecessary at some point.
