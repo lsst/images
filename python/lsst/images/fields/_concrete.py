@@ -119,13 +119,13 @@ def field_from_legacy_background(
     from lsst.afw.math import ApproximateControl, BackgroundList
 
     if isinstance(legacy_background, BackgroundList):
-        return SumField.from_legacy_background(legacy_background)
+        return SumField.from_legacy_background(legacy_background, bounds=bounds, unit=unit)
 
     approx_control = legacy_background.getBackgroundControl().getApproximateControl()
     if approx_control.getStyle() == ApproximateControl.UNKNOWN:
-        return SplineField.from_legacy_background(legacy_background, unit=unit)
+        return SplineField.from_legacy_background(legacy_background, bounds=bounds, unit=unit)
     else:
-        return ChebyshevField.from_legacy_background(legacy_background, unit=unit)
+        return ChebyshevField.from_legacy_background(legacy_background, bounds=bounds, unit=unit)
 
 
 def field_from_legacy_photo_calib(
