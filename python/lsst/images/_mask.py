@@ -745,6 +745,10 @@ class Mask(GeneralizedImage):
         for old_name, new_plane in plane_map.items():
             old_bit = result.addMaskPlane(old_name)
             old_bitmask = 1 << old_bit
+            if old_bitmask == 2147483648:
+                # afw uses int32 masks, but relies on overflow wrapping, which
+                # numpy doesn't like.
+                old_bitmask = -2147483648
             if new_plane in self.schema:
                 result.array[self.get(new_plane.name)] |= old_bitmask
         return result
@@ -764,11 +768,15 @@ class Mask(GeneralizedImage):
         new_name_to_old_bitmask: dict[str, int] = {}
         for old_name, old_bit in old_planes.items():
             old_bitmask = 1 << old_bit
+            if old_bitmask == 2147483648:
+                # afw uses int32 masks, but relies on overflow wrapping, which
+                # numpy doesn't like.
+                old_bitmask = -2147483648
             if new_plane := plane_map.get(old_name):
                 # Already added to 'planes' at initialization.
                 new_name_to_old_bitmask[new_plane.name] = old_bitmask
             else:
-                if n_orphaned := np.count_nonzero(array2d.astype(np.uint64) & old_bitmask):
+                if n_orphaned := np.count_nonzero(array2d & old_bitmask):
                     raise RuntimeError(
                         f"Legacy mask plane {old_name!r} is not remapped, "
                         f"but {n_orphaned} pixels have this bit set."
