@@ -508,6 +508,13 @@ class VisitImageTestCase(unittest.TestCase):
         with RoundtripNdf(self, visit) as roundtrip:
             self._check_sum_background_round_trip(roundtrip.result, visit)
 
+    @unittest.skipUnless(HAVE_ZARR, "zarr is not installed")
+    def test_sum_background_round_trip_zarr(self) -> None:
+        """Zarr must disambiguate the repeated ``data`` leaf the same way."""
+        visit = self._make_sum_background_visit_image()
+        with RoundtripZarr(self, visit) as roundtrip:
+            self._check_sum_background_round_trip(roundtrip.result, visit)
+
     def _check_sum_background_round_trip(self, result: VisitImage, original: VisitImage) -> None:
         subtracted = result.backgrounds.subtracted
         assert subtracted is not None
