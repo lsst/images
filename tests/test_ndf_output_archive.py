@@ -157,6 +157,40 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 self.assertEqual(origin.dtype, np.int64)
                 self.assertEqual(origin.shape, (3,))
 
+    def test_long_hoisted_component_is_shrunk(self):
+        # Regression for the cell_coadd failure: the /noise_realizations/0
+        # archive path contains an 18-character component.
+        data = np.array([[1.0, 2.0]], dtype=np.float32)
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                ref = arch.add_array(data, name="noise_realizations/0")
+                # The reported path is exactly what is stored in the JSON.
+                self.assertTrue(ref.source.startswith("ndf:/MORE/LSST/"))
+                self.assertTrue(ref.source.endswith("/DATA_ARRAY/DATA"))
+            with h5py.File(tmp.name, "r") as f:
+                # Every HDS component is within the limit.
+                hdf5_path = ref.source[len("ndf:") :]
+                for component in hdf5_path.strip("/").split("/"):
+                    self.assertLessEqual(len(component), 16)
+                # The node the JSON points at actually exists.
+                self.assertIn(hdf5_path, f)
+
+    def test_repeated_long_name_gets_distinct_versioned_paths(self):
+        data = np.array([[1.0]], dtype=np.float32)
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                first = arch.add_array(data, name="noise_realizations_value")
+                second = arch.add_array(data, name="noise_realizations_value")
+                self.assertNotEqual(first.source, second.source)
+                # The second occurrence keeps a visible _2 version suffix.
+                second_leaf = second.source[len("ndf:") :].split("/")[-3]
+                self.assertTrue(second_leaf.endswith("_2"))
+            with h5py.File(tmp.name, "r") as f:
+                self.assertIn(first.source[len("ndf:") :], f)
+                self.assertIn(second.source[len("ndf:") :], f)
+
     def test_nested_array_hoists_as_sub_ndf(self):
         # Hoisted numeric arrays land under /MORE/LSST as hierarchical
         # sub-NDFs (CLASS="NDF" with DATA_ARRAY/DATA + ORIGIN inside) so
