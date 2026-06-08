@@ -57,8 +57,8 @@ _shrink_hds_name(name, max_length=16, hash_size=4):
   readable prefix at full width.
   32 bits keeps collisions negligible for the realistic number of distinct
   over-long names in a file (birthday probability ~1e-6 at 100 such names).
-  No collision registry or guard is used; we accept daf_butler's level of trust
-  in the digest.
+  A loud-failure guard (see below) covers the residual one-in-a-million surprise;
+  the hash size is fixed and never grows.
 - The component is uppercased before hashing so the on-disk token and its digest
   are self-consistent.
 - Components at or under 16 characters pass through unchanged (uppercased only),
@@ -110,6 +110,45 @@ translator then passes through untouched:
 `serialize_pointer` is unaffected: it dedupes by object identity and never
 versions, so its path is shrunk by the plain per-component translator only.
 
+### Collision guard
+
+The shrink functions stay pure and deterministic; the guard is a separate,
+path-level registry owned by `NdfOutputArchive` for the duration of one write.
+It catches the rare case where two genuinely different archive entries shrink to
+the same HDS path, turning silent data corruption (one node clobbering another)
+into a clear error.
+
+`NdfOutputArchive` holds `self._hdf5_path_owners: dict[str, str]` mapping a final
+HDF5 node path to the *un-shrunk* logical identity that produced it.
+Whenever a shrink-derived node path is computed, the archive registers it:
+
+```
+prev = self._hdf5_path_owners.get(hdf5_path)
+if prev is not None and prev != logical_id:
+    raise ValueError(
+        f"NDF/HDS name collision: archive entries {prev!r} and {logical_id!r} "
+        f"both map to {hdf5_path!r} after 16-character shrinking; increase hash_size."
+    )
+self._hdf5_path_owners[hdf5_path] = logical_id
+```
+
+- `logical_id` is the pre-shrink, version-applied archive path
+  (e.g. `/noise_realizations/0`, or `/data_2` for a versioned repeat), which is
+  unique per logical write.
+  Re-computing the same path for the same entry is idempotent (equal `logical_id`
+  → no error); only two *different* entries landing on one HDF5 path raise.
+- The guard is **full-path** level, not per-component: two different long names
+  that shrink to the same token but live under different parents have different
+  full paths and are correctly *not* flagged.
+- The guard only inspects; it never alters a shrink result, so writes stay
+  deterministic and reproducible.
+- Registration happens for the shrink-derived paths: the hoisted-array branch of
+  `add_array`, the per-column paths of `add_structured_array`, and the
+  `serialize_pointer` target.
+  Fixed NDF locations (`/DATA_ARRAY`, `/VARIANCE`, the QUALITY tree, the
+  `direct_ndf_array_paths` entries) are distinct by construction and need no
+  guarding.
+
 ## Changes
 
 1. `ndf/_common.py`
@@ -118,9 +157,14 @@ versions, so its path is shrunk by the plain per-component translator only.
      `_shrink_hds_name` instead of raising. (`archive_path_to_hdf5_path` needs no
      change; it composes the result.)
 2. `ndf/_output_archive.py`
+   - Add `self._hdf5_path_owners: dict[str, str]` and a small
+     `_register_hdf5_path(hdf5_path, logical_id)` helper implementing the guard.
    - `add_array`: replace `archive_path = f"{archive_path}_{version}"` with the
-     leaf-level `shrink_versioned_component` application described above.
-   - `add_structured_array`: replace `name = f"{name}_{version}"` likewise.
+     leaf-level `shrink_versioned_component` application described above, and
+     register the resulting node path against its un-shrunk logical identity.
+   - `add_structured_array`: replace `name = f"{name}_{version}"` likewise, and
+     register each per-column node path.
+   - `serialize_pointer`: register the target path.
 3. Tests (`tests/test_ndf_common.py` and NDF round-trip tests)
    - Replace `test_archive_path_to_hdf5_path_rejects_long_components` (which
      asserts the raise) with assertions on the shrunk form.
@@ -128,6 +172,9 @@ versions, so its path is shrunk by the plain per-component translator only.
      ≤16; two distinct long names produce distinct tokens; the same base at
      different versions produces distinct tokens that keep the visible `_{n}`
      suffix.
+   - Add a guard test: force a collision (e.g. via a monkeypatched/forced hash)
+     so two distinct archive entries map to one HDS path, and assert
+     `add_array` raises the collision `ValueError`.
    - Add a round-trip test that writes `cell_coadd.fits` (the reported failing
      case) to NDF and reads it back, asserting the noise-realization arrays
      survive.
@@ -136,6 +183,7 @@ versions, so its path is shrunk by the plain per-component translator only.
 
 - Reversing a shrunk name back to the original (not needed; the reader uses the
   stored path).
-- A collision-detection registry or dynamic hash sizing.
+- Dynamic hash sizing or auto-growing the hash on collision (the guard fails
+  loudly instead).
 - Changes to the FITS backend, which encodes versions via `EXTVER` and has no
   16-character limit.
