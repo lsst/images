@@ -13,6 +13,8 @@ from __future__ import annotations
 
 __all__ = ("NdfPointerModel", "archive_path_to_hdf5_path", "archive_path_to_hdf5_path_components")
 
+import hashlib
+
 import pydantic
 
 
@@ -26,6 +28,28 @@ class NdfPointerModel(pydantic.BaseModel):
 
     path: str
     """HDF5 absolute path (e.g. ``/MORE/LSST/PSF``)."""
+
+
+def _shrink_hds_name(name: str, max_length: int = 16, hash_size: int = 4) -> str:
+    """Shrink an HDS component name to fit the HDS length limit.
+
+    The name is uppercased.
+    Names at or under ``max_length`` are returned unchanged.
+    Longer names are replaced by a readable prefix and an
+    underscore-separated `blake2b` digest of the full uppercased name, so the
+    result is exactly ``max_length`` characters and distinct inputs almost
+    never collide.
+    ``hash_size`` is the digest length in bytes; it occupies
+    ``hash_size * 2 + 1`` characters of the result.
+    """
+    name = name.upper()
+    if len(name) <= max_length:
+        return name
+    digest = hashlib.blake2b(name.encode("ascii"), digest_size=hash_size).hexdigest().upper()
+    trunc = max_length - 2 * hash_size - 1
+    shrunk = f"{name[:trunc]}_{digest}"
+    assert len(shrunk) == max_length
+    return shrunk
 
 
 def archive_path_to_hdf5_path(archive_path: str) -> str:

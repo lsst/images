@@ -14,7 +14,11 @@ from __future__ import annotations
 import unittest
 
 try:
-    from lsst.images.ndf._common import NdfPointerModel, archive_path_to_hdf5_path
+    from lsst.images.ndf._common import (
+        NdfPointerModel,
+        _shrink_hds_name,
+        archive_path_to_hdf5_path,
+    )
 
     HAVE_H5PY = True
 except ImportError:
@@ -39,3 +43,30 @@ class NdfPointerModelTestCase(unittest.TestCase):
     def test_archive_path_to_hdf5_path_rejects_long_components(self):
         with self.assertRaisesRegex(ValueError, "16-character HDS limit"):
             archive_path_to_hdf5_path("/psf/this_component_is_too_long")
+
+
+@unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+class ShrinkHdsNameTestCase(unittest.TestCase):
+    """Tests for the pure HDS component shrinker."""
+
+    def test_short_names_pass_through_uppercased(self):
+        self.assertEqual(_shrink_hds_name("psf"), "PSF")
+        self.assertEqual(_shrink_hds_name("a" * 16), "A" * 16)
+
+    def test_long_names_are_shrunk_to_the_limit(self):
+        shrunk = _shrink_hds_name("noise_realizations")
+        self.assertEqual(len(shrunk), 16)
+        self.assertTrue(shrunk.startswith("NOISE_R"))
+        self.assertEqual(shrunk, shrunk.upper())
+
+    def test_shrink_is_deterministic(self):
+        self.assertEqual(
+            _shrink_hds_name("noise_realizations"),
+            _shrink_hds_name("noise_realizations"),
+        )
+
+    def test_distinct_long_names_get_distinct_tokens(self):
+        self.assertNotEqual(
+            _shrink_hds_name("noise_realization_field"),
+            _shrink_hds_name("noise_realization_other"),
+        )
