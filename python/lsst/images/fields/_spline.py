@@ -27,8 +27,10 @@ from ..serialization import (
     ArchiveTree,
     ArrayReferenceModel,
     InlineArray,
+    InlineArrayModel,
     InputArchive,
     InvalidParameterError,
+    NumberType,
     OutputArchive,
     Unit,
 )
@@ -207,9 +209,16 @@ class SplineField(BaseField):
 
     def serialize(self, archive: OutputArchive[Any]) -> SplineFieldSerializationModel:
         """Serialize the spline field to an output archive."""
+        if self._data.size > 64:
+            data = archive.add_array(self._data, name="data")
+        else:
+            data = InlineArrayModel(
+                data=self._data.tolist(),
+                datatype=NumberType.from_numpy(self._data.dtype),
+            )
         return SplineFieldSerializationModel(
             bounds=self.bounds.serialize(),
-            data=archive.add_array(self._data, name="data"),
+            data=data,
             y=self._y,
             x=self._x,
             unit=self._unit,
@@ -319,7 +328,7 @@ class SplineFieldSerializationModel(ArchiveTree):
 
     bounds: SerializableBounds = pydantic.Field(description=("The region where this field can be evaluated."))
 
-    data: ArrayReferenceModel = pydantic.Field(
+    data: ArrayReferenceModel | InlineArrayModel = pydantic.Field(
         description="2-d data to interpolate.  NaNs indicate missing values."
     )
 
@@ -335,9 +344,14 @@ class SplineFieldSerializationModel(ArchiveTree):
         """Deserialize the spline field from an input archive."""
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for SplineField: {set(kwargs.keys())}.")
+        data = (
+            np.array(self.data.data, dtype=self.data.datatype.to_numpy())
+            if isinstance(self.data, InlineArrayModel)
+            else archive.get_array(self.data)
+        )
         return SplineField(
             self.bounds.deserialize(),
-            archive.get_array(self.data),
+            data,
             y=self.y,
             x=self.x,
             unit=self.unit,
