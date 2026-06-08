@@ -52,6 +52,19 @@ def _shrink_hds_name(name: str, max_length: int = 16, hash_size: int = 4) -> str
     return shrunk
 
 
+def shrink_versioned_component(base: str, version: int, max_length: int = 16, hash_size: int = 4) -> str:
+    """Shrink a component while preserving a visible version suffix.
+
+    When ``version`` is greater than one a ``_{version}`` suffix is reserved at
+    the tail and the ``base`` is shrunk into the remaining characters, so the
+    version number stays readable in Starlink tools.
+    Version one (the first occurrence) is shrunk exactly like an unversioned
+    component.
+    """
+    suffix = f"_{version}" if version > 1 else ""
+    return _shrink_hds_name(base, max_length - len(suffix), hash_size) + suffix
+
+
 def archive_path_to_hdf5_path(archive_path: str) -> str:
     """Translate a serialization archive path to an NDF HDF5 path.
 
