@@ -11,7 +11,12 @@
 
 from __future__ import annotations
 
-__all__ = ("NdfPointerModel", "archive_path_to_hdf5_path", "archive_path_to_hdf5_path_components")
+__all__ = (
+    "NdfPointerModel",
+    "archive_path_to_hdf5_path",
+    "archive_path_to_hdf5_path_components",
+    "shrink_versioned_component",
+)
 
 import hashlib
 
