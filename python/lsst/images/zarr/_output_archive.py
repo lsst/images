@@ -106,6 +106,7 @@ class ZarrOutputArchive(OutputArchive[ZarrPointerModel]):
         archive_class: str = "Image",
         archive_metadata: Mapping[str, Any] | None = None,
     ) -> None:
+        super().__init__()
         self.document = ZarrDocument(root=ZarrGroup())
         self._chunks = dict(chunks) if chunks else {}
         self._shards = dict(shards) if shards else {}
@@ -169,7 +170,13 @@ class ZarrOutputArchive(OutputArchive[ZarrPointerModel]):
     ) -> ArrayReferenceModel:
         if name is None:
             raise ValueError("Anonymous arrays are not supported in ZarrOutputArchive.")
+        name, version = self._register_name(name)
         archive_path = name if name.startswith("/") else f"/{name}"
+        if version > 1:
+            # Repeated archive name (e.g. each operand of a SumField calling
+            # ``add_array(name="data")``): suffix the leaf so siblings get
+            # distinct on-disk arrays rather than overwriting each other.
+            archive_path = f"{archive_path}_{version}"
         zarr_path = archive_path_to_zarr_path(archive_path)
         leaf = zarr_path.rsplit("/", 1)[-1]
         parent_path = zarr_path[: -(len(leaf) + 1)] or "/"
