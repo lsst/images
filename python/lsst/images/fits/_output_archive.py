@@ -15,7 +15,6 @@ __all__ = ("FitsOutputArchive", "write")
 
 import dataclasses
 import warnings
-from collections import Counter
 from collections.abc import Callable, Hashable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, Self
@@ -138,7 +137,6 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         self._primary_hdu.header.set("INDXSIZE", 0, "Size of the HDU index.")
         self._primary_hdu.header.set("JSONADDR", 0, "Offset in bytes to the JSON tree HDU.")
         self._primary_hdu.header.set("JSONSIZE", 0, "Size of the JSON tree HDU.")
-        self._hdus_by_name = Counter[str]()
         self._compression_options = dict(compression_options) if compression_options is not None else {}
         self._compression_seed = compression_seed
         self._opaque_metadata = (
@@ -279,6 +277,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
     ) -> ArrayReferenceModel:
         if name is None:
             raise RuntimeError("Cannot save array with name=None unless it is nested.")
+        name, version = self._register_name(name)
         extname = name.upper()
         hdu = self._opaque_metadata.maybe_use_precompressed(extname)
         if hdu is None:
@@ -288,7 +287,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
                 hdu = compression_options.make_hdu(array, name=extname)
             else:
                 hdu = astropy.io.fits.ImageHDU(array, name=extname)
-        key = self._add_hdu(hdu, update_header)
+        key = self._add_hdu(hdu, version, update_header)
         return ArrayReferenceModel(
             source=str(key),
             shape=list(array.shape),
@@ -304,13 +303,14 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
     ) -> TableModel:
         if name is None:
             raise RuntimeError("Cannot save table with name=None unless it is nested.")
+        name, version = self._register_name(name)
         extname = name.upper()
         hdu: astropy.io.fits.BinTableHDU = astropy.io.fits.table_to_hdu(table, name=extname)
         # Extract column information directly from the input array, not the
         # data in the binary table HDU, because we want to assume as little as
         # possible about where Astropy does uint -> TZERO stuff.
         columns = TableColumnModel.from_table(table)
-        key = self._add_hdu(hdu, update_header)
+        key = self._add_hdu(hdu, version, update_header)
         for n, c in enumerate(columns, start=1):
             assert isinstance(c.data, ArrayReferenceModel)
             c.data.source = f"{key}[{n}]"
@@ -327,6 +327,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
     ) -> TableModel:
         if name is None:
             raise RuntimeError("Cannot save structured array with name=None unless it is nested.")
+        name, version = self._register_name(name)
         extname = name.upper()
         # Extract column information directly from the input array, not the
         # data in the binary table HDU, because we want to assume as little as
@@ -339,7 +340,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         if descriptions is not None:
             for c in columns:
                 c.description = descriptions.get(c.name, "")
-        key = self._add_hdu(hdu, update_header)
+        key = self._add_hdu(hdu, version, update_header)
         for n, c in enumerate(columns, start=1):
             assert isinstance(c.data, ArrayReferenceModel)
             c.data.source = f"{key}[{n}]"
@@ -348,14 +349,13 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
     def _add_hdu(
         self,
         hdu: astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU,
+        version: int,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> ExtensionKey:
-        n_hdus = self._hdus_by_name.get(hdu.name, 0)
-        key = ExtensionKey(hdu.name, n_hdus + 1)
+        key = ExtensionKey(hdu.name, version)
         key.check()
-        if n_hdus:
-            hdu.header["EXTVER"] = key.ver
-        self._hdus_by_name[hdu.name] += 1
+        if version > 1:
+            hdu.header["EXTVER"] = version
         update_header(hdu.header)
         if (opaque_headers := self._opaque_metadata.headers.get(key)) is not None:
             hdu.header.extend(opaque_headers)

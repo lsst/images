@@ -468,6 +468,9 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         tile_shape: tuple[int, ...] | None = None,
         options_name: str | None = None,
     ) -> ArrayReferenceModel:
+        if name is None:
+            raise ValueError("Anonymous arrays are not supported in the NDF archive.")
+        name, version = self._register_name(name)
         # Recognised top-level names go to standard NDF locations.
         # Anything else hoists under /MORE/LSST.
         if name == "image":
@@ -524,9 +527,12 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             path = f"{sub_ndf_path}/DATA_ARRAY/DATA"
             self._bbox_array_struct_paths.add(f"{sub_ndf_path}/DATA_ARRAY")
         else:
-            if name is None:
-                raise ValueError("Anonymous arrays are not supported in the NDF archive.")
             archive_path = name if name.startswith("/") else f"/{name}"
+            if version > 1:
+                # Repeated archive name (e.g. each operand of a SumField
+                # calling ``add_array(name="data")``): suffix the leaf
+                # so siblings get distinct sub-NDFs.
+                archive_path = f"{archive_path}_{version}"
             # Hoisted numeric arrays are wrapped as sub-NDFs under
             # /MORE/LSST/<UPPER_PATH> so Starlink tools (KAPPA `display`,
             # `hdstrace`, etc.) can inspect them just like the main
@@ -737,6 +743,9 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
                 if descriptions and (description := descriptions.get(c.name)):
                     c.description = description
             return TableModel(columns=columns)
+        name, version = self._register_name(name)
+        if version > 1:
+            name = f"{name}_{version}"
         columns = TableColumnModel.from_record_dtype(array.dtype)
         for c in columns:
             column_path = name if len(columns) == 1 else f"{name}/{c.name}"
