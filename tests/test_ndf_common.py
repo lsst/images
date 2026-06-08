@@ -41,9 +41,19 @@ class NdfPointerModelTestCase(unittest.TestCase):
         self.assertEqual(archive_path_to_hdf5_path("/psf"), "/MORE/LSST/PSF")
         self.assertEqual(archive_path_to_hdf5_path("/psf/coefficients"), "/MORE/LSST/PSF/COEFFICIENTS")
 
-    def test_archive_path_to_hdf5_path_rejects_long_components(self):
-        with self.assertRaisesRegex(ValueError, "16-character HDS limit"):
-            archive_path_to_hdf5_path("/psf/this_component_is_too_long")
+    def test_archive_path_shrinks_long_components(self):
+        result = archive_path_to_hdf5_path("/psf/this_component_is_too_long")
+        self.assertTrue(result.startswith("/MORE/LSST/PSF/"))
+        leaf = result.rsplit("/", 1)[-1]
+        self.assertLessEqual(len(leaf), 16)
+        # The short parent component is untouched; only the long leaf shrinks.
+        self.assertEqual(result.split("/")[3], "PSF")
+
+    def test_archive_path_shrink_round_trips_to_same_value(self):
+        self.assertEqual(
+            archive_path_to_hdf5_path("/noise_realizations/0"),
+            archive_path_to_hdf5_path("/noise_realizations/0"),
+        )
 
 
 @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")

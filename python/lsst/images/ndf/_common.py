@@ -85,12 +85,9 @@ def archive_path_to_hdf5_path(archive_path: str) -> str:
 
 
 def archive_path_to_hdf5_path_components(archive_path: str) -> list[str]:
-    """Return HDS-compatible path components for an archive path."""
-    components = [component.upper() for component in archive_path.strip("/").split("/") if component]
-    for component in components:
-        if len(component) > 16:
-            raise ValueError(
-                f"NDF/HDS component {component!r} from archive path {archive_path!r} "
-                "is longer than the 16-character HDS limit."
-            )
-    return components
+    """Return HDS-compatible path components for an archive path.
+
+    Each component is uppercased; components longer than the 16-character HDS
+    limit are deterministically shrunk by `_shrink_hds_name`.
+    """
+    return [_shrink_hds_name(component) for component in archive_path.strip("/").split("/") if component]
