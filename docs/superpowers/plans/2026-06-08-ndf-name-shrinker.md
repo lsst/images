@@ -25,6 +25,7 @@
 - `python/lsst/images/ndf/_output_archive.py` — **modify.** Add the per-write collision registry (`_hdf5_path_owners`), the `_register_hdf5_path` guard, and the `_versioned_archive_path` helper; rewire `add_array` and `add_structured_array` to apply versions through the shrink helper and register their node paths.
 - `tests/test_ndf_common.py` — **modify.** Replace the "rejects long components" test; add shrink, passthrough, version-aware, and determinism tests.
 - `tests/test_ndf_output_archive.py` — **modify.** Add long-name hoisting, the `/noise_realizations/0` regression, versioned-repeat, collision-guard, and write/read round-trip tests.
+- `tests/test_cell_coadd.py` — **modify.** Add a real end-to-end CellCoadd FITS/NDF round-trip and cross-backend consistency check (the original reported failure), mirroring the NDF tests in `test_visit_image.py`.
 
 ---
 
@@ -628,6 +629,10 @@ git commit -m "Apply version-aware shrink and guard in add_structured_array (DM-
 **Files:**
 - Test: `tests/test_ndf_output_archive.py`
 
+This is the always-on, dependency-free regression (no test data or
+`lsst.cell_coadds` needed); Task 8 adds the heavier real-CellCoadd reproduction
+on top.
+
 - [ ] **Step 1: Write the failing test**
 
 This guards the core invariant — the stored JSON path resolves on read. Add to
@@ -670,7 +675,94 @@ git commit -m "Round-trip a long hoisted NDF name through read (DM-55183)"
 
 ---
 
-## Task 8: Full NDF suite, lint, and type-check
+## Task 8: CellCoadd FITS/NDF round-trip in `test_cell_coadd.py`
+
+This is the real-world reproduction of the reported bug: a `CellCoadd` serialize
+hoists `noise_realizations/<n>` arrays, which is exactly what crashed. It mirrors
+the existing NDF tests in `test_visit_image.py` (`test_round_trip_ndf`,
+`test_fits_ndf_consistency`) and the zarr additions in commit `b53ab6a`. The case
+gracefully skips unless `TESTDATA_IMAGES_DIR`, `lsst.cell_coadds`, and `h5py` are
+all available (the class is already gated on `TESTDATA_IMAGES_DIR` and
+`lsst.cell_coadds` via `setUpClass`).
+
+**Files:**
+- Modify: `tests/test_cell_coadd.py`
+
+- [ ] **Step 1: Add the `RoundtripNdf` import and an `h5py` gate**
+
+In `tests/test_cell_coadd.py`, add `RoundtripNdf` to the
+`from lsst.images.tests import (...)` block (keep the list alphabetised):
+
+```python
+from lsst.images.tests import (
+    DP2_COADD_DATA_ID,
+    DP2_COADD_MISSING_CELL,
+    RoundtripFits,
+    RoundtripJson,
+    RoundtripNdf,
+    assert_cell_coadds_equal,
+    assert_masked_images_equal,
+    assert_psfs_equal,
+    compare_cell_coadd_to_legacy,
+)
+```
+
+Then, immediately after that import block and before
+`DATA_DIR = os.environ.get(...)`, add:
+
+```python
+try:
+    import h5py  # noqa: F401
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
+```
+
+- [ ] **Step 2: Write the failing tests**
+
+Add these two methods to `CellCoaddTestCase` (e.g. directly after
+`test_fits_json_consistency`):
+
+```python
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+    def test_round_trip_ndf(self) -> None:
+        """NDF round-trip for CellCoadd, exercising hoisted long-named arrays."""
+        with RoundtripNdf(self, self.cell_coadd, "CellCoadd") as roundtrip:
+            assert_cell_coadds_equal(self, roundtrip.result, self.cell_coadd, expect_view=False)
+
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+    def test_fits_ndf_consistency(self) -> None:
+        """FITS and NDF backends produce equal CellCoadds on round-trip."""
+        with (
+            RoundtripFits(self, self.cell_coadd) as fits_rt,
+            RoundtripNdf(self, self.cell_coadd) as ndf_rt,
+        ):
+            assert_cell_coadds_equal(self, self.cell_coadd, fits_rt.result, expect_view=False)
+            assert_cell_coadds_equal(self, self.cell_coadd, ndf_rt.result, expect_view=False)
+            assert_cell_coadds_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
+```
+
+- [ ] **Step 3: Run the tests**
+
+Run: `PYTHONPATH=$PWD/python ~/pyenv/bin/python -m pytest tests/test_cell_coadd.py -k "ndf" -v`
+Expected, depending on the environment:
+- With `TESTDATA_IMAGES_DIR`, `lsst.cell_coadds`, and `h5py` present: PASS — this proves the shrinker fix lets a real CellCoadd serialize to NDF and read back equal to FITS. (Before Tasks 1-6 it would FAIL with the `16-character HDS limit` `ValueError`.)
+- Otherwise: SKIPPED. That is acceptable — the always-on regression coverage lives in Task 7.
+
+If the tests are skipped in your environment, confirm there are no collection or
+import errors in the output (the file must still import cleanly).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tests/test_cell_coadd.py
+git commit -m "Round-trip CellCoadd through NDF and compare with FITS (DM-55183)"
+```
+
+---
+
+## Task 9: Full NDF suite, lint, and type-check
 
 **Files:** none (verification only).
 
