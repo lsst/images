@@ -86,8 +86,8 @@ class ZarrOutputArchive(OutputArchive[ZarrPointerModel]):
         ``write()`` before ``obj.serialize`` runs so ``add_array``
         sees the right value.
     archive_metadata
-        Class-specific layout hints (``cell_shape`` for ``CellCoadd``,
-        ``mask_schema`` for the mask packer).
+        Class-specific layout hints (``mask_schema`` for the mask
+        packer).
     """
 
     _prefer_native_mask_arrays: ClassVar[bool] = True
@@ -246,12 +246,7 @@ class ZarrOutputArchive(OutputArchive[ZarrPointerModel]):
 
         # Default chunks for the top-level image: from layout rules.
         if chunks is None and parent_path == "/" and leaf == "image":
-            chunks = chunks_for(
-                self._archive_class,
-                array.shape,
-                None,
-                archive_metadata=self._archive_metadata,
-            )
+            chunks = chunks_for(array.shape, None)
 
         # Default chunks for a CellCoadd-style 4-D PSF: one cell per chunk.
         if chunks is None and leaf == "psf" and array.ndim == 4 and parent_path == "/":
@@ -473,48 +468,24 @@ def _tile_shape_chunks(tile_shape: tuple[int, ...] | None, shape: tuple[int, ...
 def build_archive_metadata(obj: Any) -> dict[str, Any]:
     """Resolve layout-affecting metadata from an in-memory archive object.
 
-    The output archive's chunk and metadata rules consult
-    ``cell_shape`` (used by `~lsst.images.zarr._layout.chunks_for` to
-    align chunks to a `CellCoadd`'s cells) and ``mask_schema`` (used
+    The output archive's metadata rules consult ``mask_schema`` (used
     by `_pack_mask` to produce CF flag attributes). Different archive
-    classes expose this information under different attribute names:
+    classes expose this under different attribute names:
 
-    - ``Image``: nothing (no cell grid, no mask schema).
+    - ``Image``: nothing (no mask schema).
     - ``MaskedImage``: ``mask.schema``.
     - ``Mask``: ``schema`` directly on the object.
-    - ``CellCoadd``: ``mask.schema`` and ``grid.cell_shape``.
+    - ``CellCoadd``: ``mask.schema``.
 
     Returns a flat ``dict`` ready to pass as
     ``ZarrOutputArchive(archive_metadata=...)``. Keys are present
     only when a value was found.
     """
     metadata: dict[str, Any] = {}
-    cell_shape = _resolve_cell_shape(obj)
-    if cell_shape is not None:
-        metadata["cell_shape"] = cell_shape
     mask_schema = _resolve_mask_schema(obj)
     if mask_schema is not None:
         metadata["mask_schema"] = mask_schema
     return metadata
-
-
-def _resolve_cell_shape(obj: Any) -> tuple[int, ...] | None:
-    """Return the cell shape as a ``(y, x)`` tuple, or ``None``.
-
-    Tries ``obj.cell_shape`` first, then ``obj.grid.cell_shape``
-    (used by `CellCoadd`), then ``obj.cell_grid.cell_shape``.
-    """
-    direct = getattr(obj, "cell_shape", None)
-    if direct is not None:
-        return tuple(direct)
-    grid = getattr(obj, "grid", None)
-    if grid is None:
-        grid = getattr(obj, "cell_grid", None)
-    if grid is not None:
-        nested = getattr(grid, "cell_shape", None)
-        if nested is not None:
-            return tuple(nested)
-    return None
 
 
 def _resolve_mask_schema(obj: Any) -> MaskSchema | None:
