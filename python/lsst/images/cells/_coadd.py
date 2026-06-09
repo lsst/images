@@ -131,7 +131,7 @@ class CellCoadd(MaskedImage):
         self._noise_realizations = list(noise_realizations)
         self._band = band
         if psf.bounds.bbox != self.bbox:
-            psf = psf[self.bbox]
+            psf = psf[self.bbox.intersection(psf.bounds.bbox)]
         self._psf = psf
         self._aperture_corrections = dict(aperture_corrections) if aperture_corrections is not None else {}
         for ap_corr_name, ap_corr_field in self._aperture_corrections.items():
