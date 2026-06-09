@@ -167,10 +167,16 @@ class ZarrOutputArchive(OutputArchive[ZarrPointerModel]):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        tile_shape: tuple[int, ...] | None = None,
+        options_name: str | None = None,
     ) -> ArrayReferenceModel:
         if name is None:
             raise ValueError("Anonymous arrays are not supported in ZarrOutputArchive.")
         name, version = self._register_name(name)
+        # ``options_name`` lets a caller borrow another array's chunk, shard,
+        # and compression overrides (e.g. noise realizations following the
+        # image); fall back to this array's own name when unset.
+        options_key = options_name if options_name is not None else name
         archive_path = name if name.startswith("/") else f"/{name}"
         if version > 1:
             # Repeated archive name (e.g. each operand of a SumField calling
@@ -189,10 +195,12 @@ class ZarrOutputArchive(OutputArchive[ZarrPointerModel]):
         if leaf == "mask" and array.ndim == 3:
             array = np.moveaxis(array, 0, -1)
             packed, flag_attrs = self._pack_mask(array)
-            chunks = self._chunks.get(name) or self._chunks.get(leaf)
+            chunks = self._chunks.get(options_key) or self._chunks.get(leaf)
+            if chunks is None:
+                chunks = _tile_shape_chunks(tile_shape, packed.shape)
             if chunks is None and self._image_chunks is not None:
                 chunks = chunks_aligned_to(image_chunks=self._image_chunks, shape=packed.shape)
-            shards = self._shards.get(name) or self._shards.get(leaf)
+            shards = self._shards.get(options_key) or self._shards.get(leaf)
             if shards is None and chunks is not None:
                 shards = default_shards(
                     chunks=tuple(chunks),
@@ -206,7 +214,7 @@ class ZarrOutputArchive(OutputArchive[ZarrPointerModel]):
                 data=packed,
                 chunks=chunks,
                 shards=shards,
-                compression=self._compression.get(name),
+                compression=self._compression.get(options_key),
             )
             ir_array.attributes.extra = extra
             parent.arrays[leaf] = ir_array
@@ -220,7 +228,12 @@ class ZarrOutputArchive(OutputArchive[ZarrPointerModel]):
                 datatype=NumberType.from_numpy(array.dtype),
             )
 
-        chunks = self._chunks.get(name) or self._chunks.get(leaf)
+        chunks = self._chunks.get(options_key) or self._chunks.get(leaf)
+        # The caller's per-array tile hint (e.g. CellCoadd passes its cell
+        # shape) maps directly onto zarr chunks.
+        if chunks is None:
+            chunks = _tile_shape_chunks(tile_shape, array.shape)
+
         # variance / other top-level siblings: align to image's chunks.
         if (
             chunks is None
@@ -244,7 +257,7 @@ class ZarrOutputArchive(OutputArchive[ZarrPointerModel]):
         if chunks is None and leaf == "psf" and array.ndim == 4 and parent_path == "/":
             chunks = (1, 1, array.shape[2], array.shape[3])
 
-        shards = self._shards.get(name) or self._shards.get(leaf)
+        shards = self._shards.get(options_key) or self._shards.get(leaf)
         if shards is None and chunks is not None:
             shards = default_shards(
                 chunks=tuple(chunks),
@@ -256,7 +269,7 @@ class ZarrOutputArchive(OutputArchive[ZarrPointerModel]):
             data=np.ascontiguousarray(array),
             chunks=chunks,
             shards=shards,
-            compression=self._compression.get(name),
+            compression=self._compression.get(options_key),
         )
         if parent_path == "/" and leaf in ("image", "variance"):
             ir_array.attributes.extra = build_image_array_attrs(
@@ -442,6 +455,19 @@ class ZarrOutputArchive(OutputArchive[ZarrPointerModel]):
         # Single chunk: WCS is always read whole.
         self.document.root.arrays["wcs_ast"] = ZarrArray(data=wcs_data, chunks=wcs_data.shape)
         return "wcs_ast"
+
+
+def _tile_shape_chunks(tile_shape: tuple[int, ...] | None, shape: tuple[int, ...]) -> tuple[int, ...] | None:
+    """Turn an ``add_array`` ``tile_shape`` hint into a chunk shape.
+
+    Returns ``None`` when no hint was given or its rank does not match
+    the array, leaving the caller to fall back to its own defaults.
+    Otherwise each axis is clamped to the array extent so a tile larger
+    than the array does not over-chunk it.
+    """
+    if tile_shape is None or len(tile_shape) != len(shape):
+        return None
+    return tuple(min(t, dim) for t, dim in zip(tile_shape, shape, strict=True))
 
 
 def build_archive_metadata(obj: Any) -> dict[str, Any]:
