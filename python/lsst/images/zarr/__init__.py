@@ -50,9 +50,9 @@ For `~lsst.images.ColorImage`, the three channels are written as flat 2-D arrays
 at ``red``, ``green``, ``blue``.
 
 For ``CellCoadd``, ``image`` / ``variance`` / ``mask`` are siblings
-(cell-aligned chunks driven by ``cell_shape``), and ``psf`` is a 4-D
-``(Cy, Cx, Py, Px)`` array with single-cell chunks
-``(1, 1, Py, Px)``.
+(cell-aligned chunks driven by the ``tile_shape`` hint each array is
+serialized with), and ``psf`` is a 4-D ``(Cy, Cx, Py, Px)`` array with
+single-cell chunks ``(1, 1, Py, Px)``.
 
 WCS handling
 ------------
@@ -71,9 +71,10 @@ Cloud-friendly defaults
 -----------------------
 
 - Default chunk geometry is tile-aligned: ``min(256, dim)`` per
-  axis for plain images, ``cell_shape`` for ``CellCoadd``,
-  single-cell for ``CellCoadd``'s 4-D PSF. The per-axis cap is
-  configurable via the `DEFAULT_CHUNK_AXIS_LIMIT` constant.
+  axis for plain images, the per-array ``tile_shape`` hint (the cell
+  shape) for ``CellCoadd``, single-cell for ``CellCoadd``'s 4-D PSF.
+  The per-axis cap is configurable via the `DEFAULT_CHUNK_AXIS_LIMIT`
+  constant.
 - Bulk pixel arrays (``image``, ``variance``, ``mask``, and
   ``CellCoadd``'s ``psf``) are sharded by default to keep object
   counts on S3 / GCS low. The shard size is chosen by a byte-budget
