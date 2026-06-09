@@ -45,6 +45,7 @@ EXPECTED_TYPES = {
     "aperture_correction_map.json": "dict",
     "background_map.json": "lsst.images.BackgroundMap",
     "cell_psf.json": "lsst.images.cells.CellPointSpreadFunction",
+    "cell_aperture_correction_map.json": "dict",
     "chebyshev_field.json": "lsst.images.fields.ChebyshevField",
     "coadd_provenance.json": "lsst.images.cells.CoaddProvenance",
     "color_image.json": "lsst.images.ColorImage",

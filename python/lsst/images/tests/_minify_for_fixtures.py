@@ -86,9 +86,7 @@ from .._image import Image
 from .._mask import Mask
 from .._transforms import SkyProjection, TractFrame, Transform
 from .._transforms._ast import PolyMap
-from ..cells import CellCoadd
-from ..cells._provenance import CoaddProvenance
-from ..cells._psf import CellPointSpreadFunction
+from ..cells import CellCoadd, CellField, CellPointSpreadFunction, CoaddProvenance
 from ..psfs import PiffWrapper
 from ..serialization import backend_for_path, read
 from ._creation import make_random_sky_projection
@@ -440,6 +438,22 @@ def _subset_cell_coadd(
     if provenance is not None:
         provenance = _trim_provenance(provenance, max_inputs=max_inputs)
 
+    # Aperture corrections are not subset when CellCoadd is subset with a
+    # bounding box, because they're always tiny.  But that makes setting
+    # up a consistent new grid for them tricky.
+    aperture_corrections = {}
+    new_apcorr_bounds = None
+    for i, (name, field) in enumerate(block.aperture_corrections.items()):
+        if new_apcorr_bounds is None:
+            new_apcorr_bounds = CellGridBounds(
+                grid=new_grid,
+                bbox=_scale_box_to_grid(field.bounds.bbox, grid, cell_size),
+                missing=cell_coadd.bounds.missing,
+            )
+        aperture_corrections[name] = CellField(new_apcorr_bounds, field._array)
+        if i >= 2:
+            break
+
     return CellCoadd(
         image,
         mask=mask,
@@ -452,6 +466,7 @@ def _subset_cell_coadd(
         patch=patch,
         provenance=provenance,
         backgrounds=block._backgrounds,
+        aperture_corrections=aperture_corrections,
     )
 
 
