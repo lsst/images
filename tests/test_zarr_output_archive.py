@@ -14,7 +14,6 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
-from types import SimpleNamespace
 
 import astropy.io.fits
 import astropy.table
@@ -22,7 +21,7 @@ import astropy.units as u
 import numpy as np
 import pydantic
 
-from lsst.images import YX, Box, ColorImage, Image, Mask, MaskedImage, MaskPlane, MaskSchema
+from lsst.images import Box, ColorImage, Image, Mask, MaskedImage, MaskPlane, MaskSchema
 from lsst.images.fits._common import ExtensionKey, FitsOpaqueMetadata
 from lsst.images.serialization import ArrayReferenceModel
 
@@ -156,6 +155,30 @@ class ZarrOutputArchiveAddArrayTestCase(unittest.TestCase):
         ref = archive.add_array(np.ones((3,), dtype=np.float32), name="psf/centroids")
         self.assertEqual(ref.source, "zarr:/psf/centroids")
         self.assertEqual(archive.document.root.get("/psf/centroids").shape, (3,))
+
+    def test_tile_shape_drives_chunks(self) -> None:
+        # The caller's per-array tile hint (e.g. a CellCoadd cell shape)
+        # becomes the chunk shape, clamped per axis to the array extent.
+        archive = ZarrOutputArchive()
+        archive.add_array(np.ones((400, 600), dtype=np.float32), name="image", tile_shape=(150, 200))
+        self.assertEqual(tuple(archive.document.root.get("/image").chunks), (150, 200))
+
+    def test_tile_shape_clamped_to_array_extent(self) -> None:
+        archive = ZarrOutputArchive()
+        archive.add_array(np.ones((100, 80), dtype=np.float32), name="image", tile_shape=(150, 200))
+        self.assertEqual(tuple(archive.document.root.get("/image").chunks), (100, 80))
+
+    def test_explicit_chunk_override_beats_tile_shape(self) -> None:
+        archive = ZarrOutputArchive(chunks={"image": (32, 32)})
+        archive.add_array(np.ones((400, 600), dtype=np.float32), name="image", tile_shape=(150, 200))
+        self.assertEqual(tuple(archive.document.root.get("/image").chunks), (32, 32))
+
+    def test_options_name_borrows_chunk_override(self) -> None:
+        # ``options_name`` lets one array reuse another's overrides (e.g.
+        # noise realizations following the image).
+        archive = ZarrOutputArchive(chunks={"image": (64, 64)})
+        archive.add_array(np.ones((400, 600), dtype=np.float32), name="noise", options_name="image")
+        self.assertEqual(tuple(archive.document.root.get("/noise").chunks), (64, 64))
 
 
 @unittest.skipUnless(HAVE_ZARR, "zarr is not installed")
@@ -424,37 +447,7 @@ class ZarrOpaqueMetadataWriteTestCase(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_ZARR, "zarr is not installed")
 class BuildArchiveMetadataTestCase(unittest.TestCase):
-    """`build_archive_metadata` resolves cell shape and mask schema."""
-
-    def test_cell_shape_from_grid_attribute(self) -> None:
-        # CellCoadd exposes its cells via ``.grid.cell_shape`` (a YX),
-        # not via ``.cell_shape`` directly. The resolver must walk the
-        # grid attribute so cell-aligned chunks fire on real writes.
-        grid = SimpleNamespace(cell_shape=YX(y=150, x=200))
-        obj = SimpleNamespace(grid=grid)
-        metadata = build_archive_metadata(obj)
-        self.assertEqual(metadata["cell_shape"], (150, 200))
-
-    def test_cell_shape_direct_attribute_wins(self) -> None:
-        # If both ``.cell_shape`` and ``.grid.cell_shape`` exist the
-        # direct attribute is preferred (allows callers to override).
-        grid = SimpleNamespace(cell_shape=YX(y=150, x=200))
-        obj = SimpleNamespace(cell_shape=(64, 64), grid=grid)
-        metadata = build_archive_metadata(obj)
-        self.assertEqual(metadata["cell_shape"], (64, 64))
-
-    def test_cell_shape_from_legacy_cell_grid_attribute(self) -> None:
-        # Older / hypothetical objects may expose ``.cell_grid`` instead
-        # of ``.grid``; the resolver falls through to that.
-        cell_grid = SimpleNamespace(cell_shape=YX(y=128, x=128))
-        obj = SimpleNamespace(cell_grid=cell_grid)
-        metadata = build_archive_metadata(obj)
-        self.assertEqual(metadata["cell_shape"], (128, 128))
-
-    def test_no_cell_shape_for_plain_image(self) -> None:
-        image = Image(np.zeros((4, 5), dtype=np.float32), bbox=Box.factory[0:4, 0:5])
-        metadata = build_archive_metadata(image)
-        self.assertNotIn("cell_shape", metadata)
+    """`build_archive_metadata` resolves the mask schema."""
 
     def test_mask_schema_from_inner_mask(self) -> None:
         schema = MaskSchema([MaskPlane("BAD", "Bad pixel.")])
