@@ -1033,32 +1033,38 @@ def get_legacy_deep_coadd_mask_planes() -> dict[str, MaskPlane]:
     for LSST deep coadds, c. DP2.
     """
     return {
-        # TODO: reconcile this with counts from the DP2 coadds.
-        # BAD, CLIPPED, SUSPECT, PARTLY_VIGNETTED, SPIKE: should be fully
-        # rejected from (cell) coadds with no propagation.
         "NO_DATA": MaskPlane("NO_DATA", "No data was available for this pixel."),
         "INTRP": MaskPlane("INTERPOLATED", "Pixel value is the result of interpolating nearby good pixels."),
         "CR": MaskPlane(
             "COSMIC_RAY",
             "A cosmic ray affected this pixel on at least one input image (and was interpolated).",
         ),
-        "SAT": MaskPlane("SATURATED", "More than 10% of the potential input visits."),
+        "SAT": MaskPlane(
+            "SATURATED",
+            "More than 10% of the potential input visits had a saturated pixel at this location "
+            "('potential' because saturated pixel values are not actually propagated to the coadd). "
+            "SATURATED always implies REJECTED, and is often a reason for NO_DATA.",
+        ),
         "EDGE": MaskPlane(
             "DETECTION_EDGE",
-            "Pixel was too close to the edge to be considered for detection, "
+            "Pixel was too close to the edge of the patch to be considered for detection, "
             "due to the finite size of the detection kernel.",
         ),
         "CLIPPED": MaskPlane(
             "CLIPPED",
-            "Region was identified as a probable artifact when comparing multiple single-visit warps.",
+            "Region was identified as a probable artifact when comparing multiple single-visit warps. "
+            "CLIPPED always implies REJECTED.",
         ),
         "REJECTED": MaskPlane(
-            "REJECTED", "At least one input visit was left out of the coadd for this pixel due to masking."
+            "REJECTED",
+            "At least one input visit was left out of the coadd for this pixel due to masking. "
+            "REJECTED always implies INEXACT_PSF.",
         ),
         "DETECTED": MaskPlane("DETECTED", "Pixel was part of a detected source."),
         "INEXACT_PSF": MaskPlane(
             "INEXACT_PSF",
-            "Pixel is on or near a cell boundary and hence its PSF may be (usually slightly) discontinuous.",
+            "The set of visits contributing to this pixel differs from the set of visits "
+            "contributing to the PSF model for its cell.",
         ),
     }
 
