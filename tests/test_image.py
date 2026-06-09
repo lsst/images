@@ -26,9 +26,9 @@ from lsst.images.tests import (
     RoundtripNdf,
     assert_close,
     assert_images_equal,
-    assert_projections_equal,
+    assert_sky_projections_equal,
     compare_image_to_legacy,
-    make_random_projection,
+    make_random_sky_projection,
 )
 
 try:
@@ -185,14 +185,14 @@ class ImageTestCase(unittest.TestCase):
         md = {"int": 1, "float": 42.0, "bool": False, "long string header": "This is a string"}
         det_frame = DetectorFrame(instrument="Inst", visit=1234, detector=1, bbox=Box.factory[1:4096, 1:4096])
         rng = np.random.default_rng(500)
-        projection = make_random_projection(rng, det_frame, Box.factory[1:4096, 1:4096])
+        sky_projection = make_random_sky_projection(rng, det_frame, Box.factory[1:4096, 1:4096])
 
         image = Image(
             data,
             unit=u.dn,
             metadata=md,
             bbox=Box.factory[-2:1, 3:7],
-            projection=projection,
+            sky_projection=sky_projection,
         )
 
         with lsst.utils.tests.getTempFilePath(".fits") as tmpFile:
@@ -204,7 +204,9 @@ class ImageTestCase(unittest.TestCase):
             # __eq__ does not test all components.
             self.assertEqual(new.metadata, image.metadata)
             self.maxDiff = None
-            assert_projections_equal(self, new.projection, image.projection, expect_identity=False)
+            assert_sky_projections_equal(
+                self, new.sky_projection, image.sky_projection, expect_identity=False
+            )
 
             # Read subset.
             subset = Image.read(tmpFile, bbox=Box.factory[-2:0, 5:7])

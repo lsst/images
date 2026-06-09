@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("make_random_projection",)
+__all__ = ("make_random_sky_projection",)
 
 
 import astropy.units as u
@@ -19,11 +19,13 @@ import astropy.wcs.wcsapi
 import numpy as np
 
 from .._geom import Box
-from .._transforms import Frame, Projection
+from .._transforms import Frame, SkyProjection
 
 
-def make_random_projection[F: Frame](rng: np.random.Generator, pixel_frame: F, bbox: Box) -> Projection[F]:
-    """Create a test projection with random parameters.
+def make_random_sky_projection[F: Frame](
+    rng: np.random.Generator, pixel_frame: F, bbox: Box
+) -> SkyProjection[F]:
+    """Create a test sky_projection with random parameters.
 
     Parameters
     ----------
@@ -36,7 +38,7 @@ def make_random_projection[F: Frame](rng: np.random.Generator, pixel_frame: F, b
 
     Returns
     -------
-    `.Projection`
+    `.SkyProjection`
         A projection.  Guaranteed to be FITS-representable and have no FITS
         approximation attached.
     """
@@ -52,6 +54,6 @@ def make_random_projection[F: Frame](rng: np.random.Generator, pixel_frame: F, b
         "CROTA1": rng.uniform(low=0.0, high=2 * np.pi),
     }
     fits_wcs = astropy.wcs.WCS(header)
-    return Projection.from_fits_wcs(
+    return SkyProjection.from_fits_wcs(
         fits_wcs, pixel_frame, pixel_bounds=bbox, x0=bbox.x.start, y0=bbox.y.start
     )

@@ -35,7 +35,12 @@ from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_lega
 from ._masked_image import MaskedImage, MaskedImageSerializationModel
 from ._observation_summary_stats import ObservationSummaryStats
 from ._polygon import Polygon
-from ._transforms import DetectorFrame, Projection, ProjectionAstropyView, ProjectionSerializationModel
+from ._transforms import (
+    DetectorFrame,
+    SkyProjection,
+    SkyProjectionAstropyView,
+    SkyProjectionSerializationModel,
+)
 from .aperture_corrections import (
     ApertureCorrectionMap,
     ApertureCorrectionMapSerializationModel,
@@ -79,32 +84,32 @@ class VisitImage(MaskedImage):
     Parameters
     ----------
     image
-        The main image plane.  If this has a `Projection`, it will be used
-        for all planes unless a ``projection`` is passed separately.
+        The main image plane.  If this has a `SkyProjection`, it will be used
+        for all planes unless a ``sky_projection`` is passed separately.
     mask
         A bitmask image that annotates the main image plane.  Must have the
-        same bounding box as ``image`` if provided.  Any attached projection
-        is replaced (possibly by `None`).
+        same bounding box as ``image`` if provided.  Any attached
+        ``sky_projection`` is replaced (possibly by `None`).
     variance
         The per-pixel uncertainty of the main image as an image of variance
         values.  Must have the same bounding box as ``image`` if provided, and
         its units must be the square of ``image.unit`` or `None`.
-        Values default to ``1.0``.  Any attached projection is replaced
+        Values default to ``1.0``.  Any attached ``sky_projection`` is replaced
         (possibly by `None`).
     mask_schema
         Schema for the mask plane.  Must be provided if and only if ``mask`` is
         not provided.
-    projection
+    sky_projection
         Projection that maps the pixel grid to the sky.  Can only be `None` if
-        a projection is already attached to ``image``.
+        a ``sky_projection`` is already attached to ``image``.
     bounds
         The region where this image's pixels and other properties are valid.
         If not provided, the bounding box of the image is used.  Other
-        components (``psf``, ``projection``, ``aperture_corrections``, etc.)
-        are assumed to have their own bounds which may or may not be the same
-        as the image bounds.  If ``bounds`` extends beyond the image bounding
-        box, the intersection between ``bounds`` and the image bounding box
-        is used instead.
+        components (``psf``, ``sky_projection``, ``aperture_corrections``,
+        etc.) are assumed to have their own bounds which may or may not be the
+        same as the image bounds.  If ``bounds`` extends beyond the image
+        bounding box, the intersection between ``bounds`` and the image
+        bounding box is used instead.
     obs_info
         General information about this visit in standardized form.
     summary_stats
@@ -140,7 +145,7 @@ class VisitImage(MaskedImage):
         mask: Mask | None = None,
         variance: Image | None = None,
         mask_schema: MaskSchema | None = None,
-        projection: Projection[DetectorFrame] | None = None,
+        sky_projection: SkyProjection[DetectorFrame] | None = None,
         bounds: Bounds | None = None,
         obs_info: ObservationInfo | None = None,
         summary_stats: ObservationSummaryStats | None = None,
@@ -157,20 +162,20 @@ class VisitImage(MaskedImage):
             mask=mask,
             variance=variance,
             mask_schema=mask_schema,
-            projection=projection,
+            sky_projection=sky_projection,
             metadata=metadata,
         )
         if self.image.unit is None:
             raise TypeError("The image component of a VisitImage must have units.")
-        if self.image.projection is None:
-            raise TypeError("The projection component of a VisitImage cannot be None.")
+        if self.image.sky_projection is None:
+            raise TypeError("The sky_projection component of a VisitImage cannot be None.")
         if obs_info is None:
             raise TypeError("The observation info component of a VisitImage cannot be None.")
         if obs_info.physical_filter is None:
             raise ValueError("The obs_info.physical_filter attribute of a VisitImage cannot be None.")
         self._obs_info = obs_info
-        if not isinstance(self.image.projection.pixel_frame, DetectorFrame):
-            raise TypeError("The projection's pixel frame must be a DetectorFrame for VisitImage.")
+        if not isinstance(self.image.sky_projection.pixel_frame, DetectorFrame):
+            raise TypeError("The sky_projection's pixel frame must be a DetectorFrame for VisitImage.")
         if summary_stats is None:
             summary_stats = ObservationSummaryStats()
         self._summary_stats = summary_stats
@@ -192,11 +197,11 @@ class VisitImage(MaskedImage):
         return cast(astropy.units.UnitBase, super().unit)
 
     @property
-    def projection(self) -> Projection[DetectorFrame]:
+    def sky_projection(self) -> SkyProjection[DetectorFrame]:
         """The projection that maps the pixel grid to the sky
-        (`Projection` [`DetectorFrame`]).
+        (`SkyProjection` [`DetectorFrame`]).
         """
-        return cast(Projection[DetectorFrame], super().projection)
+        return cast(SkyProjection[DetectorFrame], super().sky_projection)
 
     @property
     def bounds(self) -> Bounds:
@@ -222,20 +227,20 @@ class VisitImage(MaskedImage):
         return self._band
 
     @property
-    def astropy_wcs(self) -> ProjectionAstropyView:
-        """An Astropy WCS for the pixel arrays (`ProjectionAstropyView`).
+    def astropy_wcs(self) -> SkyProjectionAstropyView:
+        """An Astropy WCS for the pixel arrays (`SkyProjectionAstropyView`).
 
         Notes
         -----
         As expected for Astropy WCS objects, this defines pixel coordinates
         such that the first row and column in the arrays are ``(0, 0)``, not
-        ``bbox.start``, as is the case for `projection`.
+        ``bbox.start``, as is the case for `sky_projection`.
 
         This object satisfies the `astropy.wcs.wcsapi.BaseHighLevelWCS` and
         `astropy.wcs.wcsapi.BaseLowLevelWCS` interfaces, but it is not an
         `astropy.wcs.WCS` (use `fits_wcs` for that).
         """
-        return cast(ProjectionAstropyView, super().astropy_wcs)
+        return cast(SkyProjectionAstropyView, super().astropy_wcs)
 
     @property
     def summary_stats(self) -> ObservationSummaryStats:
@@ -296,7 +301,7 @@ class VisitImage(MaskedImage):
                 self.image[bbox],
                 mask=self.mask[bbox],
                 variance=self.variance[bbox],
-                projection=self.projection,
+                sky_projection=self.sky_projection,
                 psf=self.psf,
                 obs_info=self.obs_info,
                 bounds=self._bounds,  # don't need to intersect here, because __init__ will do that.
@@ -390,7 +395,9 @@ class VisitImage(MaskedImage):
                 raise astropy.units.UnitConversionError(
                     f"Units must be converted ({self.unit} -> {unit}), but copy=False."
                 )
-            image = Image(self._image.array * factor, bbox=self.bbox, projection=self.projection, unit=unit)
+            image = Image(
+                self._image.array * factor, bbox=self.bbox, sky_projection=self.sky_projection, unit=unit
+            )
             variance = Image(
                 self._variance.array * factor**2,
                 bbox=self.bbox,
@@ -439,7 +446,7 @@ class VisitImage(MaskedImage):
                 image=image,
                 mask=self._mask if not copy_components else self._mask.copy(),
                 variance=variance,
-                projection=self.projection,  # never copied; immutable
+                sky_projection=self.sky_projection,  # never copied; immutable
                 obs_info=self.obs_info if not copy_components else self.obs_info.model_copy(),
                 psf=self._psf,  # never copied; immutable
                 bounds=self._bounds,  # never copied; immutable
@@ -477,7 +484,7 @@ class VisitImage(MaskedImage):
                 raise TypeError(
                     f"Cannot serialize VisitImage with unrecognized PSF type {type(self._psf).__name__}."
                 )
-        assert result.projection is not None, "VisitImage always has a projection."
+        assert result.sky_projection is not None, "VisitImage always has a sky_projection."
         result.obs_info = self.obs_info
         result.summary_stats = self.summary_stats
         result.bounds = self._bounds.serialize() if self._bounds != self.bbox else None
@@ -576,7 +583,7 @@ class VisitImage(MaskedImage):
             unit = hdr_unit
         elif hdr_unit is not None and hdr_unit != unit:
             raise ValueError(f"BUNIT value {hdr_unit} disagrees with given unit {unit}.")
-        projection = Projection.from_legacy(
+        sky_projection = SkyProjection.from_legacy(
             legacy_wcs,
             DetectorFrame(
                 instrument=instrument,
@@ -602,7 +609,7 @@ class VisitImage(MaskedImage):
             image=masked_image.image.view(unit=unit),
             mask=masked_image.mask,
             variance=masked_image.variance,
-            projection=projection,
+            sky_projection=sky_projection,
             psf=psf,
             obs_info=obs_info,
             summary_stats=(
@@ -658,7 +665,7 @@ class VisitImage(MaskedImage):
         result = LegacyExposure(legacy_masked_image, dtype=self.image.array.dtype)
         result_info = result.info
         result_info.setId(self.metadata.get("id"))
-        result_info.setWcs(self.projection.to_legacy())
+        result_info.setWcs(self.sky_projection.to_legacy())
         result_info.setDetector(self.detector.to_legacy())
         result_info.setFilter(LegacyFilterLabel.fromBandPhysical(self.band, self.obs_info.physical_filter))
         if self._photometric_scaling is not None:
@@ -691,7 +698,7 @@ class VisitImage(MaskedImage):
             "image",
             "mask",
             "variance",
-            "projection",
+            "sky_projection",
             "psf",
             "detector",
             "photometric_scaling",
@@ -737,7 +744,7 @@ class VisitImage(MaskedImage):
             raise ValueError(f"Exposure file {filename!r} does not have a Detector.")
         detector_bbox = Box.from_legacy(legacy_detector.getBBox())
         legacy_wcs = None
-        if component in (None, "image", "mask", "variance", "projection"):
+        if component in (None, "image", "mask", "variance", "sky_projection"):
             legacy_wcs = reader.readWcs()
             if legacy_wcs is None:
                 raise ValueError(f"Exposure file {filename!r} does not have a SkyWcs.")
@@ -768,7 +775,7 @@ class VisitImage(MaskedImage):
             "image",
             "mask",
             "variance",
-            "projection",
+            "sky_projection",
             "obs_info",
             "detector",
             "photometric_scaling",
@@ -810,7 +817,7 @@ class VisitImage(MaskedImage):
                 if component == "detector":
                     return detector
             assert component != "detector", "MyPy can't work this out from the above."
-            projection = Projection.from_legacy(
+            sky_projection = SkyProjection.from_legacy(
                 legacy_wcs,
                 DetectorFrame(
                     instrument=instrument,
@@ -819,8 +826,8 @@ class VisitImage(MaskedImage):
                     bbox=detector_bbox,
                 ),
             )
-            if component == "projection":
-                return projection
+            if component == "sky_projection":
+                return sky_projection
             if plane_map is None:
                 plane_map = get_legacy_visit_image_mask_planes()
             assert component != "psf", component  # for MyPy
@@ -833,15 +840,15 @@ class VisitImage(MaskedImage):
                 component=component,
             )
         if component is not None:
-            # This is the image, mask, or variance; attach the projection and
-            # obs_info and return
-            return from_masked_image.view(projection=projection)
+            # This is the image, mask, or variance; attach the sky_projection
+            # and obs_info and return
+            return from_masked_image.view(sky_projection=sky_projection)
         legacy_polygon = reader.readValidPolygon()
         result = VisitImage(
             from_masked_image.image,
             mask=from_masked_image.mask,
             variance=from_masked_image.variance,
-            projection=projection,
+            sky_projection=sky_projection,
             psf=psf,
             detector=detector,
             obs_info=obs_info,
@@ -876,7 +883,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     variance: ImageSerializationModel[P] = pydantic.Field(
         description="Per-pixel variance estimates for the main image."
     )
-    projection: ProjectionSerializationModel[P] = pydantic.Field(
+    sky_projection: SkyProjectionSerializationModel[P] = pydantic.Field(
         description="Projection that maps the pixel grid to the sky.",
     )
     psf: PiffSerializationModel | PSFExSerializationModel | GaussianPSFSerializationModel | Any = (
@@ -931,7 +938,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
             mask=masked_image.mask,
             variance=masked_image.variance,
             psf=psf,
-            projection=masked_image.projection,
+            sky_projection=masked_image.sky_projection,
             obs_info=self.obs_info,
             summary_stats=self.summary_stats,
             detector=detector,

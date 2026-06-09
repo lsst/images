@@ -39,7 +39,7 @@ from lsst.resources import ResourcePath, ResourcePathExpression
 from . import fits
 from ._generalized_image import GeneralizedImage
 from ._geom import YX, Box, NoOverlapError
-from ._transforms import Frame, Projection, ProjectionSerializationModel
+from ._transforms import Frame, SkyProjection, SkyProjectionSerializationModel
 from .serialization import (
     ArchiveReadError,
     ArchiveTree,
@@ -330,7 +330,7 @@ class Mask(GeneralizedImage):
         instance is passed).   Only needed if ``array_or_fill`` is not an
         array and ``bbox`` is not provided.  Like the bbox, this does not
         include the last dimension of the array.
-    projection
+    sky_projection
         Projection that maps the pixel grid to the sky.
     metadata
         Arbitrary flexible metadata to associate with the mask.
@@ -357,7 +357,7 @@ class Mask(GeneralizedImage):
         bbox: Box | None = None,
         yx0: Sequence[int] | None = None,
         shape: Sequence[int] | None = None,
-        projection: Projection | None = None,
+        sky_projection: SkyProjection | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ):
         super().__init__(metadata)
@@ -389,7 +389,7 @@ class Mask(GeneralizedImage):
         self._array = array
         self._bbox: Box = bbox
         self._schema: MaskSchema = schema
-        self._projection = projection
+        self._sky_projection = sky_projection
 
     @property
     def array(self) -> np.ndarray:
@@ -420,16 +420,16 @@ class Mask(GeneralizedImage):
         return self._bbox
 
     @property
-    def projection(self) -> Projection[Any] | None:
+    def sky_projection(self) -> SkyProjection[Any] | None:
         """The projection that maps this mask's pixel grid to the sky
-        (`Projection` | `None`).
+        (`SkyProjection` | `None`).
 
         Notes
         -----
         The pixel coordinates used by this projection account for the bounding
         box ``start`` (i.e. ``yx0``); they are not just array indices.
         """
-        return self._projection
+        return self._sky_projection
 
     def __getitem__(self, bbox: Box | EllipsisType) -> Mask:
         if bbox is ...:
@@ -440,7 +440,7 @@ class Mask(GeneralizedImage):
                 self.array[bbox.y.slice_within(self._bbox.y), bbox.x.slice_within(self._bbox.x), :],
                 bbox=bbox,
                 schema=self.schema,
-                projection=self._projection,
+                sky_projection=self._sky_projection,
             ),
             bbox=bbox,
         )
@@ -468,7 +468,9 @@ class Mask(GeneralizedImage):
     def copy(self) -> Mask:
         """Deep-copy the mask and metadata."""
         return self._transfer_metadata(
-            Mask(self._array.copy(), bbox=self._bbox, schema=self._schema, projection=self._projection),
+            Mask(
+                self._array.copy(), bbox=self._bbox, schema=self._schema, sky_projection=self._sky_projection
+            ),
             copy=True,
         )
 
@@ -476,7 +478,7 @@ class Mask(GeneralizedImage):
         self,
         *,
         schema: MaskSchema | EllipsisType = ...,
-        projection: Projection | None | EllipsisType = ...,
+        sky_projection: SkyProjection | None | EllipsisType = ...,
         yx0: Sequence[int] | EllipsisType = ...,
     ) -> Mask:
         """Make a view of the mask, with optional updates.
@@ -491,11 +493,13 @@ class Mask(GeneralizedImage):
         else:
             if list(schema.names) != list(self.schema.names):
                 raise ValueError("Cannot create a mask view with a schema with different names.")
-        if projection is ...:
-            projection = self._projection
+        if sky_projection is ...:
+            sky_projection = self._sky_projection
         if yx0 is ...:
             yx0 = self._bbox.start
-        return self._transfer_metadata(Mask(self._array, yx0=yx0, schema=schema, projection=projection))
+        return self._transfer_metadata(
+            Mask(self._array, yx0=yx0, schema=schema, sky_projection=sky_projection)
+        )
 
     def update(self, other: Mask) -> None:
         """Update ``self`` to include all common mask values set in ``other``.
@@ -598,7 +602,7 @@ class Mask(GeneralizedImage):
             FITS.  As multiple HDUs may be added, this function may be called
             multiple times.
         save_projection
-            If `True`, save the `Projection` attached to the image, if there
+            If `True`, save the `SkyProjection` attached to the image, if there
             is one.  This does not affect whether a FITS WCS corresponding to
             the projection is written (it always is, if available, and if
             ``add_offset_wcs`` is not ``" "``).
@@ -607,7 +611,7 @@ class Mask(GeneralizedImage):
             WCS that maps the FITS array to the logical pixel coordinates
             defined by ``bbox.start`` / ``yx0``.  Set to `None` to not write
             this WCS. If this is set to ``" "``, it will prevent the
-            `Projection` from being saved as a FITS WCS.
+            `SkyProjection` from being saved as a FITS WCS.
         tile_shape
             The recommended shape of each tile, if the archive will save
             the array in distinct tiles for faster subarray retrieval.
@@ -633,7 +637,7 @@ class Mask(GeneralizedImage):
         else:
             data = []
             for schema_2d in self.schema.split(np.int32):
-                mask_2d = Mask(0, bbox=self.bbox, schema=schema_2d, projection=self._projection)
+                mask_2d = Mask(0, bbox=self.bbox, schema=schema_2d, sky_projection=self._sky_projection)
                 mask_2d.update(self)
                 data.append(
                     mask_2d._serialize_2d(
@@ -644,9 +648,9 @@ class Mask(GeneralizedImage):
                         options_name=options_name,
                     )
                 )
-        serialized_projection: ProjectionSerializationModel[P] | None = None
-        if save_projection and self.projection is not None:
-            serialized_projection = archive.serialize_direct("projection", self.projection.serialize)
+        serialized_projection: SkyProjectionSerializationModel[P] | None = None
+        if save_projection and self.sky_projection is not None:
+            serialized_projection = archive.serialize_direct("sky_projection", self.sky_projection.serialize)
         serialized_dtype = NumberType.from_numpy(self.schema.dtype)
         assert is_integer(serialized_dtype), "Mask dtypes should always be integers."
         return MaskSerializationModel.model_construct(
@@ -654,7 +658,7 @@ class Mask(GeneralizedImage):
             yx0=list(self.bbox.start),
             planes=list(self.schema),
             dtype=serialized_dtype,
-            projection=serialized_projection,
+            sky_projection=serialized_projection,
             metadata=self.metadata,
         )
 
@@ -670,7 +674,7 @@ class Mask(GeneralizedImage):
         def _update_header(header: astropy.io.fits.Header) -> None:
             update_header(header)
             self.schema.update_header(header)
-            if self.projection is not None and add_offset_wcs != " ":
+            if self.sky_projection is not None and add_offset_wcs != " ":
                 if self.fits_wcs:
                     header.update(self.fits_wcs.to_header(relax=True))
             if add_offset_wcs is not None:
@@ -758,7 +762,7 @@ class Mask(GeneralizedImage):
         *,
         yx0: YX[int],
         plane_map: Mapping[str, MaskPlane] | None = None,
-        projection: Projection | None = None,
+        sky_projection: SkyProjection | None = None,
     ) -> Mask:
         if plane_map is None:
             plane_map = _guess_legacy_plane_map(old_planes)
@@ -780,7 +784,7 @@ class Mask(GeneralizedImage):
                         f"but {n_orphaned} pixels have this bit set."
                     )
         schema = MaskSchema(planes)
-        mask = Mask(0, schema=schema, yx0=yx0, shape=array2d.shape, projection=projection)
+        mask = Mask(0, schema=schema, yx0=yx0, shape=array2d.shape, sky_projection=sky_projection)
         for new_name, old_bitmask in new_name_to_old_bitmask.items():
             mask.set(new_name, array2d & old_bitmask)
         return mask
@@ -808,7 +812,8 @@ class Mask(GeneralizedImage):
             Name or index of the FITS HDU to read.
         fits_wcs_frame
             If not `None` and the HDU containing the mask has a FITS WCS,
-            attach a `Projection` to the returned mask by converting that WCS.
+            attach a `SkyProjection` to the returned mask by converting that
+            WCS.
         """
         opaque_metadata = fits.FitsOpaqueMetadata()
         fs, fspath = ResourcePath(uri).to_fsspec()
@@ -833,18 +838,18 @@ class Mask(GeneralizedImage):
         dy: int = hdu.header.pop("LTV2")
         yx0 = YX(y=-dy, x=-dx)
         old_planes = MaskPlane.read_legacy(hdu.header)
-        projection: Projection | None = None
+        sky_projection: SkyProjection | None = None
         if fits_wcs_frame is not None:
             try:
                 fits_wcs = astropy.wcs.WCS(hdu.header)
             except KeyError:
                 pass
             else:
-                projection = Projection.from_fits_wcs(
+                sky_projection = SkyProjection.from_fits_wcs(
                     fits_wcs, pixel_frame=fits_wcs_frame, x0=yx0.x, y0=yx0.y
                 )
         mask = Mask._from_legacy_array(
-            hdu.data, old_planes, yx0=yx0, plane_map=plane_map, projection=projection
+            hdu.data, old_planes, yx0=yx0, plane_map=plane_map, sky_projection=sky_projection
         )
         fits.strip_wcs_cards(hdu.header)
         hdu.header.strip()
@@ -873,7 +878,7 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     )
     planes: list[MaskPlane | None] = pydantic.Field(description="Definitions of the bitplanes in the mask.")
     dtype: IntegerType = pydantic.Field(description="Data type of the in-memory mask.")
-    projection: ProjectionSerializationModel[P] | None = pydantic.Field(
+    sky_projection: SkyProjectionSerializationModel[P] | None = pydantic.Field(
         default=None,
         exclude_if=is_none,
         description="Projection that maps the logical pixel grid onto the sky.",
@@ -921,13 +926,15 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         if not is_integer(self.dtype):
             raise ArchiveReadError(f"Mask array has a non-integer dtype: {self.dtype}.")
         schema = MaskSchema(self.planes, dtype=self.dtype.to_numpy())
-        projection = self.projection.deserialize(archive) if self.projection is not None else None
+        sky_projection = self.sky_projection.deserialize(archive) if self.sky_projection is not None else None
         if len(self.data) == 1 and tuple(self.data[0].shape) == tuple(self.bbox.shape) + (schema.mask_size,):
             storage_slices = slices if slices is ... else (slice(None),) + slices
             array = archive.get_array(self.data[0], strip_header=strip_header, slices=storage_slices)
             array = np.moveaxis(array, 0, -1)
-            return Mask(array, schema=schema, bbox=bbox, projection=projection)._finish_deserialize(self)
-        result = Mask(0, schema=schema, bbox=bbox, projection=projection)
+            return Mask(array, schema=schema, bbox=bbox, sky_projection=sky_projection)._finish_deserialize(
+                self
+            )
+        result = Mask(0, schema=schema, bbox=bbox, sky_projection=sky_projection)
         schemas_2d = schema.split(np.int32)
         if len(schemas_2d) != len(self.data):
             raise ArchiveReadError(

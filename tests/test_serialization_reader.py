@@ -43,7 +43,7 @@ class FitsOpenTreeTestCase(unittest.TestCase):
         assert tree_cls is not None
         with FitsInputArchive.open_tree(self.path, tree_cls) as (archive, tree):
             self.assertIsInstance(tree, ArchiveTree)
-            proj = tree.deserialize_component("projection", archive)
+            proj = tree.deserialize_component("sky_projection", archive)
             self.assertIsNotNone(proj)
 
     def test_read_still_works(self) -> None:
@@ -100,7 +100,7 @@ class JsonOpenTreeTestCase(unittest.TestCase):
         assert tree_cls is not None
         with JsonInputArchive.open_tree(self.path, tree_cls) as (archive, tree):
             self.assertIsInstance(tree, ArchiveTree)
-            self.assertIsNotNone(tree.deserialize_component("projection", archive))
+            self.assertIsNotNone(tree.deserialize_component("sky_projection", archive))
 
     def test_read_still_works(self) -> None:
         self.assertEqual(type(read(self.path)).__name__, "VisitImage")
@@ -121,7 +121,7 @@ class ReaderApiTestCase(unittest.TestCase):
         import lsst.images.serialization as ser
 
         with ser.open(path) as reader:
-            self.assertIsNotNone(reader.get_component("projection"))
+            self.assertIsNotNone(reader.get_component("sky_projection"))
             self.assertIsNotNone(reader.get_component("obs_info"))
             full = reader.read()
             self.assertEqual(type(full).__name__, "VisitImage")
@@ -177,7 +177,7 @@ class ReaderApiTestCase(unittest.TestCase):
         with ser.open(self.fits) as reader:
             pass
         with self.assertRaises(RuntimeError):
-            reader.get_component("projection")
+            reader.get_component("sky_projection")
 
 
 if __name__ == "__main__":

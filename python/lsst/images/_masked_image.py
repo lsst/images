@@ -32,7 +32,7 @@ from ._generalized_image import GeneralizedImage
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
-from ._transforms import Frame, Projection, ProjectionSerializationModel
+from ._transforms import Frame, SkyProjection, SkyProjectionSerializationModel
 from .serialization import (
     ArchiveTree,
     InputArchive,
@@ -55,22 +55,22 @@ class MaskedImage(GeneralizedImage):
     Parameters
     ----------
     image
-        The main image plane.  If this has a `Projection`, it will be used
-        for all planes unless a ``projection`` is passed separately.
+        The main image plane.  If this has a `SkyProjection`, it will be used
+        for all planes unless a ``sky_projection`` is passed separately.
     mask
         A bitmask image that annotates the main image plane.  Must have the
-        same bounding box as ``image`` if provided.  Any attached projection
-        is replaced (possibly by `None`).
+        same bounding box as ``image`` if provided.  Any attached
+        ``sky_projection`` is replaced (possibly by `None`).
     variance
         The per-pixel uncertainty of the main image as an image of variance
         values.  Must have the same bounding box as ``image`` if provided, and
         its units must be the square of ``image.unit`` or `None`.
-        Values default to ``1.0``.  Any attached projection is replaced
+        Values default to ``1.0``.  Any attached ``sky_projection`` is replaced
         (possibly by `None`).
     mask_schema
         Schema for the mask plane.  Must be provided if and only if ``mask`` is
         not provided.
-    projection
+    sky_projection
         Projection that maps the pixel grid to the sky.
     metadata
         Arbitrary flexible metadata to associate with the image.
@@ -83,36 +83,36 @@ class MaskedImage(GeneralizedImage):
         mask: Mask | None = None,
         variance: Image | None = None,
         mask_schema: MaskSchema | None = None,
-        projection: Projection | None = None,
+        sky_projection: SkyProjection | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ):
         super().__init__(metadata)
-        if projection is None:
-            projection = image.projection
+        if sky_projection is None:
+            sky_projection = image.sky_projection
         else:
-            image = image.view(projection=projection)
+            image = image.view(sky_projection=sky_projection)
         if mask is None:
             if mask_schema is None:
                 raise TypeError("'mask_schema' must be provided if 'mask' is not.")
-            mask = Mask(schema=mask_schema, bbox=image.bbox, projection=projection)
+            mask = Mask(schema=mask_schema, bbox=image.bbox, sky_projection=sky_projection)
         elif mask_schema is not None:
             raise TypeError("'mask_schema' may not be provided if 'mask' is.")
         else:
             if image.bbox != mask.bbox:
                 raise ValueError(f"Image ({image.bbox}) and mask ({mask.bbox}) bboxes do not agree.")
-            mask = mask.view(projection=projection)
+            mask = mask.view(sky_projection=sky_projection)
         if variance is None:
             variance = Image(
                 1.0,
                 dtype=np.float32,
                 bbox=image.bbox,
                 unit=None if image.unit is None else image.unit**2,
-                projection=projection,
+                sky_projection=sky_projection,
             )
         else:
             if image.bbox != variance.bbox:
                 raise ValueError(f"Image ({image.bbox}) and variance ({variance.bbox}) bboxes do not agree.")
-            variance = variance.view(projection=projection)
+            variance = variance.view(sky_projection=sky_projection)
             if image.unit is None:
                 if variance.unit is not None:
                     raise ValueError(f"Image has no units but variance does ({variance.unit}).")
@@ -154,11 +154,11 @@ class MaskedImage(GeneralizedImage):
         return self._image.unit
 
     @property
-    def projection(self) -> Projection[Any] | None:
+    def sky_projection(self) -> SkyProjection[Any] | None:
         """The projection that maps the pixel grid to the sky
-        (`~lsst.images.Projection` | `None`).
+        (`~lsst.images.SkyProjection` | `None`).
         """
-        return self._image.projection
+        return self._image.sky_projection
 
     def __getitem__(self, bbox: Box | EllipsisType) -> MaskedImage:
         if bbox is ...:
@@ -215,8 +215,8 @@ class MaskedImage(GeneralizedImage):
             "variance", functools.partial(self.variance.serialize, save_projection=False)
         )
         serialized_projection = (
-            archive.serialize_direct("projection", self.projection.serialize)
-            if self.projection is not None
+            archive.serialize_direct("sky_projection", self.sky_projection.serialize)
+            if self.sky_projection is not None
             else None
         )
         # When M is a subclass of MaskedImageSerializationModel, it probably
@@ -231,7 +231,7 @@ class MaskedImage(GeneralizedImage):
             image=serialized_image,
             mask=serialized_mask,
             variance=serialized_variance,
-            projection=serialized_projection,
+            sky_projection=serialized_projection,
             metadata=self.metadata,
         )
 
@@ -328,7 +328,7 @@ class MaskedImage(GeneralizedImage):
             A component to read instead of the full image.
         fits_wcs_frame
             If not `None` and the HDU containing the image plane has a FITS
-            WCS, attach a `~lsst.images.Projection` to the returned masked
+            WCS, attach a `~lsst.images.SkyProjection` to the returned masked
             image by converting that WCS.  When ``component`` is one of
             ``"image"``, ``"mask"``, or ``"variance"``, a FITS WCS from the
             component HDU is used instead (all three should have the same WCS).
@@ -442,7 +442,7 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     variance: ImageSerializationModel[P] = pydantic.Field(
         description="Per-pixel variance estimates for the main image."
     )
-    projection: ProjectionSerializationModel[P] | None = pydantic.Field(
+    sky_projection: SkyProjectionSerializationModel[P] | None = pydantic.Field(
         default=None,
         exclude_if=is_none,
         description="Projection that maps the pixel grid to the sky.",
@@ -473,10 +473,10 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         image = self.image.deserialize(archive, bbox=bbox)
         mask = self.mask.deserialize(archive, bbox=bbox)
         variance = self.variance.deserialize(archive, bbox=bbox)
-        projection = self.projection.deserialize(archive) if self.projection is not None else None
-        return MaskedImage(image, mask=mask, variance=variance, projection=projection)._finish_deserialize(
-            self
-        )
+        sky_projection = self.sky_projection.deserialize(archive) if self.sky_projection is not None else None
+        return MaskedImage(
+            image, mask=mask, variance=variance, sky_projection=sky_projection
+        )._finish_deserialize(self)
 
     def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
         if component == "bbox" and kwargs:

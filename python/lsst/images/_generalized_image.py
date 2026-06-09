@@ -23,7 +23,7 @@ import astropy.wcs
 from lsst.resources import ResourcePathExpression
 
 from ._geom import YX, Box
-from ._transforms import Projection, ProjectionAstropyView
+from ._transforms import SkyProjection, SkyProjectionAstropyView
 from .serialization import (
     ArchiveTree,
     ButlerInfo,
@@ -46,7 +46,7 @@ T = TypeVar("T", bound="GeneralizedImage")  # for sphinx
 
 class GeneralizedImage(ABC):
     """A base class for types that represent one or more 2-d image-like arrays
-    with the same pixel grid and projection.
+    with the same pixel grid and sky projection.
 
     Parameters
     ----------
@@ -74,9 +74,9 @@ class GeneralizedImage(ABC):
 
     @property
     @abstractmethod
-    def projection(self) -> Projection[Any] | None:
+    def sky_projection(self) -> SkyProjection[Any] | None:
         """The projection that maps this image's pixel grid to the sky
-        (`~lsst.images.Projection` | `None`).
+        (`~lsst.images.SkyProjection` | `None`).
 
         Notes
         -----
@@ -86,20 +86,20 @@ class GeneralizedImage(ABC):
         raise NotImplementedError()
 
     @property
-    def astropy_wcs(self) -> ProjectionAstropyView | None:
+    def astropy_wcs(self) -> SkyProjectionAstropyView | None:
         """An Astropy WCS for this image's pixel array.
 
         Notes
         -----
         As expected for Astropy WCS objects, this defines pixel coordinates
         such that the first row and column in any associated arrays are
-        ``(0, 0)``, not ``bbox.start``, as is the case for `projection`.
+        ``(0, 0)``, not ``bbox.start``, as is the case for `sky_projection`.
 
         This object satisfies the `astropy.wcs.wcsapi.BaseHighLevelWCS` and
         `astropy.wcs.wcsapi.BaseLowLevelWCS` interfaces, but it is not an
         `astropy.wcs.WCS` (use `fits_wcs` for that).
         """
-        return self.projection.as_astropy(self.bbox) if self.projection is not None else None
+        return self.sky_projection.as_astropy(self.bbox) if self.sky_projection is not None else None
 
     @cached_property
     def fits_wcs(self) -> astropy.wcs.WCS | None:
@@ -109,14 +109,14 @@ class GeneralizedImage(ABC):
         -----
         As expected for Astropy WCS objects, this defines pixel coordinates
         such that the first row and column in any associated arrays are
-        ``(0, 0)``, not ``bbox.start``, as is the case for `projection`.
+        ``(0, 0)``, not ``bbox.start``, as is the case for `sky_projection`.
 
-        This may be an approximation or absent if `projection` is not
+        This may be an approximation or absent if `sky_projection` is not
         naturally representable as a FITS WCS.
         """
         return (
-            self.projection.as_fits_wcs(self.bbox, allow_approximation=True)
-            if self.projection is not None
+            self.sky_projection.as_fits_wcs(self.bbox, allow_approximation=True)
+            if self.sky_projection is not None
             else None
         )
 
@@ -134,7 +134,7 @@ class GeneralizedImage(ABC):
         the parent image.
 
         Note that most `lsst.images` types (e.g. `~lsst.images.Box`,
-        `~lsst.images.Projection`, `~lsst.images.psfs.PointSpreadFunction`)
+        `~lsst.images.SkyProjection`, `~lsst.images.psfs.PointSpreadFunction`)
         operate instead in "absolute" coordinates, which is shared by subimage
         and their parents.
 
@@ -155,7 +155,7 @@ class GeneralizedImage(ABC):
         In this convention, the first row and column of the pixel grid is
         ``bbox.start``.  A subimage and its parent image share the same
         absolute pixel coordinate system, and most `lsst.images` types (e.g.
-        `~lsst.images.Box`, `~lsst.images.Projection`,
+        `~lsst.images.Box`, `~lsst.images.SkyProjection`,
         `~lsst.images.psfs.PointSpreadFunction`) operate exclusively in this
         system.
 
@@ -202,8 +202,8 @@ class GeneralizedImage(ABC):
     def copy(self) -> Self:
         """Deep-copy the image and metadata.
 
-        Attached immutable objects (like `~lsst.images.Projection` instances)
-        are not copied.
+        Attached immutable objects (like `~lsst.images.SkyProjection`
+        instances) are not copied.
         """
         raise NotImplementedError()
 

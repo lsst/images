@@ -55,7 +55,7 @@ EXPECTED_TYPES = {
     "masked_image.json": "lsst.images.MaskedImage",
     "piff_psf.json": "lsst.images.psfs.PiffWrapper",
     "product_field.json": "lsst.images.fields.ProductField",
-    "projection.json": "lsst.images.Projection",
+    "sky_projection.json": "lsst.images.SkyProjection",
     "sum_field.json": "lsst.images.fields.SumField",
     "transform.json": "lsst.images.Transform",
     "visit_image.json": "lsst.images.VisitImage",

@@ -27,7 +27,7 @@ from lsst.images._transforms._frames import DetectorFrame, Frame
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
 from lsst.images.serialization import ArrayReferenceModel, InlineArrayModel, read
 from lsst.images.serialization import open as open_archive
-from lsst.images.tests import make_random_projection
+from lsst.images.tests import make_random_sky_projection
 
 try:
     import h5py
@@ -361,11 +361,11 @@ class NdfWriteWcsTestCase(unittest.TestCase):
         rng = np.random.default_rng(42)
         det_frame = DetectorFrame(instrument="TestInst", detector=4, bbox=Box.factory[1:4096, 1:4096])
         bbox = Box.factory[10:14, 20:25]
-        projection = make_random_projection(rng, det_frame, Box.factory[1:4096, 1:4096])
+        sky_projection = make_random_sky_projection(rng, det_frame, Box.factory[1:4096, 1:4096])
         image = Image(
             np.arange(20, dtype=np.float32).reshape(4, 5),
             bbox=bbox,
-            projection=projection,
+            sky_projection=sky_projection,
         )
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
@@ -388,7 +388,7 @@ class NdfWriteWcsTestCase(unittest.TestCase):
                 self.assertIn("Sft2 = -9", stripped)
 
     def test_write_without_projection_omits_wcs_component(self):
-        # Image with no projection -> no /WCS in the file.
+        # Image with no sky_projection -> no /WCS in the file.
         image = Image(np.zeros((2, 2), dtype=np.float32))
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
@@ -399,18 +399,18 @@ class NdfWriteWcsTestCase(unittest.TestCase):
     def test_mask_sub_ndf_gets_3d_wcs(self):
         # When an incompatible mask is hoisted to /MORE/LSST/MASK as a
         # sub-NDF, it should carry its own 3D /WCS.  The first two axes
-        # retain the parent image sky projection while the third axis is
+        # retain the parent image sky_projection while the third axis is
         # a generic mask-byte coordinate.
         rng = np.random.default_rng(42)
         det_frame = DetectorFrame(instrument="TestInst", detector=4, bbox=Box.factory[1:4096, 1:4096])
         bbox = Box.factory[10:14, 20:25]
-        projection = make_random_projection(rng, det_frame, Box.factory[1:4096, 1:4096])
+        sky_projection = make_random_sky_projection(rng, det_frame, Box.factory[1:4096, 1:4096])
         # 12-plane schema -> native 3D uint8 mask, hoisted to /MORE/LSST/MASK.
         planes = [MaskPlane(f"P{i}", f"Plane {i}") for i in range(12)]
         image = Image(
             np.arange(20, dtype=np.float32).reshape(4, 5),
             bbox=bbox,
-            projection=projection,
+            sky_projection=sky_projection,
         )
         masked = MaskedImage(image, mask_schema=MaskSchema(planes))
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:

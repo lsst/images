@@ -31,8 +31,8 @@ from lsst.images.tests import (
     assert_psfs_equal,
     compare_cell_coadd_to_legacy,
     compare_masked_image_to_legacy,
-    compare_projection_to_legacy_wcs,
     compare_psf_to_legacy,
+    compare_sky_projection_to_legacy_wcs,
 )
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
@@ -134,7 +134,7 @@ class CellCoaddTestCase(unittest.TestCase):
                 alternates = {
                     k: roundtrip.get(k)
                     for k in [
-                        "projection",
+                        "sky_projection",
                         "image",
                         "mask",
                         "variance",
@@ -232,11 +232,11 @@ class CellCoaddTestCase(unittest.TestCase):
             points=self.psf_points,
             expect_legacy_raise_on_out_of_bounds=True,
         )
-        compare_projection_to_legacy_wcs(
+        compare_sky_projection_to_legacy_wcs(
             self,
-            self.cell_coadd.projection,
+            self.cell_coadd.sky_projection,
             legacy_exposure.getWcs(),
-            self.cell_coadd.projection.pixel_frame,
+            self.cell_coadd.sky_projection.pixel_frame,
             subimage_bbox=self.cell_coadd.bbox,
             is_fits=True,
         )

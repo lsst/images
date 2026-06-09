@@ -32,7 +32,7 @@ from lsst.images import (
     MaskSchema,
     ObservationSummaryStats,
     Polygon,
-    ProjectionAstropyView,
+    SkyProjectionAstropyView,
     TractFrame,
     VisitImage,
     get_legacy_difference_image_mask_planes,
@@ -52,13 +52,13 @@ from lsst.images.tests import (
     TemporaryButler,
     assert_close,
     assert_masked_images_equal,
-    assert_projections_equal,
+    assert_sky_projections_equal,
     assert_visit_images_equal,
     compare_aperture_corrections_to_legacy,
     compare_detector_to_legacy,
     compare_photo_calib_to_legacy,
     compare_visit_image_to_legacy,
-    make_random_projection,
+    make_random_sky_projection,
 )
 
 try:
@@ -101,15 +101,15 @@ class VisitImageTestCase(unittest.TestCase):
         cls.variance = Image(5.0, shape=(1024, 1024), unit=u.nJy * u.nJy)
         # polygon is the lower triangle of the image.
         cls.polygon = Polygon(x_vertices=[-0.5, 1023.5, -0.5], y_vertices=[-0.5, -0.5, 1023.5])
-        cls.projection = make_random_projection(cls.rng, det_frame, Box.factory[1:4096, 1:4096])
-        # API signature suggests projection and obs_info can be None but they
-        # are required (unless you pass them in via the image plane).
+        cls.sky_projection = make_random_sky_projection(cls.rng, det_frame, Box.factory[1:4096, 1:4096])
+        # API signature suggests sky_projection and obs_info can be None but
+        # they are required (unless you pass them in via the image plane).
         cls.visit_image = VisitImage(
             cls.image,
             variance=cls.variance,
             psf=GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13]),
             mask_schema=cls.mask_schema,
-            projection=cls.projection,
+            sky_projection=cls.sky_projection,
             obs_info=cls.obs_info,
             summary_stats=cls.summary_stats,
             detector=cls.detector,
@@ -128,7 +128,7 @@ class VisitImageTestCase(unittest.TestCase):
             cls.image,
             psf=GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13]),
             mask_schema=cls.mask_schema,
-            projection=cls.projection,
+            sky_projection=cls.sky_projection,
             detector=cls.detector,
             obs_info=cls.obs_info,
             band="r",
@@ -149,7 +149,7 @@ class VisitImageTestCase(unittest.TestCase):
         )
 
         astropy_wcs = visit.astropy_wcs
-        self.assertIsInstance(astropy_wcs, ProjectionAstropyView)
+        self.assertIsInstance(astropy_wcs, SkyProjectionAstropyView)
         approx_wcs = visit.fits_wcs
         self.assertIsInstance(approx_wcs, astropy.wcs.WCS)
 
@@ -158,7 +158,7 @@ class VisitImageTestCase(unittest.TestCase):
             VisitImage(
                 self.image,
                 mask_schema=self.mask_schema,
-                projection=self.projection,
+                sky_projection=self.sky_projection,
                 obs_info=self.obs_info,
                 detector=self.detector,
                 band="r",
@@ -170,13 +170,13 @@ class VisitImageTestCase(unittest.TestCase):
                 self.image,
                 psf=self.gaussian_psf,
                 mask_schema=self.mask_schema,
-                projection=self.projection,
+                sky_projection=self.sky_projection,
                 detector=self.detector,
                 band="r",
             )
 
         with self.assertRaises(TypeError):
-            # Requires a projection.
+            # Requires a sky_projection.
             VisitImage(
                 self.image,
                 psf=self.gaussian_psf,
@@ -192,7 +192,7 @@ class VisitImageTestCase(unittest.TestCase):
                 self.image,
                 psf=self.gaussian_psf,
                 mask_schema=self.mask_schema,
-                projection=self.projection,
+                sky_projection=self.sky_projection,
                 obs_info=self.obs_info,
                 band="r",
             )
@@ -202,7 +202,7 @@ class VisitImageTestCase(unittest.TestCase):
             VisitImage(
                 self.image,
                 psf=self.gaussian_psf,
-                projection=self.projection,
+                sky_projection=self.sky_projection,
                 obs_info=self.obs_info,
                 detector=self.detector,
                 band="r",
@@ -213,7 +213,7 @@ class VisitImageTestCase(unittest.TestCase):
                 Image(42, shape=(5, 5)),
                 psf=self.gaussian_psf,
                 mask_schema=self.mask_schema,
-                projection=self.projection,
+                sky_projection=self.sky_projection,
                 obs_info=self.obs_info,
                 detector=self.detector,
                 band="r",
@@ -221,11 +221,11 @@ class VisitImageTestCase(unittest.TestCase):
 
         # Requires a DetectorFrame.
         tract_frame = TractFrame(skymap="Skymap", tract=1, bbox=Box.factory[1:10, 1:10])
-        tract_proj = make_random_projection(self.rng, tract_frame, Box.factory[1:4096, 1:4096])
+        tract_proj = make_random_sky_projection(self.rng, tract_frame, Box.factory[1:4096, 1:4096])
         with self.assertRaises(TypeError):
             VisitImage(
                 self.image,
-                projection=tract_proj,
+                sky_projection=tract_proj,
                 psf=self.gaussian_psf,
                 mask_schema=self.mask_schema,
                 obs_info=self.obs_info,
@@ -240,7 +240,7 @@ class VisitImageTestCase(unittest.TestCase):
                 variance=self.image,
                 psf=self.gaussian_psf,
                 mask_schema=self.mask_schema,
-                projection=self.projection,
+                sky_projection=self.sky_projection,
                 obs_info=self.obs_info,
                 detector=self.detector,
                 band="r",
@@ -414,17 +414,17 @@ class VisitImageLegacyTestMixin:
     def test_component_reads(self) -> None:
         """Test reads of components from legacy file."""
         visit = VisitImage.read_legacy(self.filename)
-        proj = VisitImage.read_legacy(self.filename, component="projection")
-        assert_projections_equal(self, proj, visit.projection, expect_identity=False)
+        proj = VisitImage.read_legacy(self.filename, component="sky_projection")
+        assert_sky_projections_equal(self, proj, visit.sky_projection, expect_identity=False)
         image = VisitImage.read_legacy(self.filename, component="image")
         self.assertEqual(image, visit.image)
-        assert_projections_equal(self, proj, image.projection, expect_identity=False)
+        assert_sky_projections_equal(self, proj, image.sky_projection, expect_identity=False)
         variance = VisitImage.read_legacy(self.filename, component="variance")
         self.assertEqual(variance, visit.variance)
-        assert_projections_equal(self, proj, variance.projection, expect_identity=False)
+        assert_sky_projections_equal(self, proj, variance.sky_projection, expect_identity=False)
         mask = VisitImage.read_legacy(self.filename, component="mask")
         self.assertEqual(mask, visit.mask)
-        assert_projections_equal(self, proj, mask.projection, expect_identity=False)
+        assert_sky_projections_equal(self, proj, mask.sky_projection, expect_identity=False)
         psf = VisitImage.read_legacy(self.filename, component="psf")
         self.assertIsInstance(psf, PointSpreadFunction)
         obs_info = VisitImage.read_legacy(self.filename, component="obs_info")
@@ -538,7 +538,7 @@ class VisitImageLegacyTestMixin:
                 alternates = {
                     k: roundtrip.get(k)
                     for k in [
-                        "projection",
+                        "sky_projection",
                         "image",
                         "mask",
                         "variance",
@@ -639,11 +639,11 @@ class VisitImageLegacyTestMixin:
             self.assertEqual(bbox, visit_image.bbox)
             alternates = {
                 k: helper.butler.get(visit_image_ref.makeComponentRef(k))
-                # TODO: including "projection" or "obs_info" here fails because
-                # there's code in daf_butler that expects any component to be
-                # valid for the *internal* storage class, not the requested
-                # one, and that's difficult to fix because it's tied up with
-                # the data ID standardization logic.
+                # TODO: including "sky_projection" or "obs_info" here fails
+                # because there's code in daf_butler that expects any component
+                # to be valid for the *internal* storage class, not the
+                # requested one, and that's difficult to fix because it's tied
+                # up with the data ID standardization logic.
                 for k in ["image", "mask", "variance", "bbox", "psf", "detector"]
             }
             compare_visit_image_to_legacy(
@@ -753,7 +753,7 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
         # Test that we haven't dropped any component objects along the way,
         # and that they're all still the same objects or thin views.
         self.assertTrue(np.may_share_memory(visit_image_mJy.mask.array, original.mask.array))
-        self.assertIs(visit_image_mJy.projection, original.projection)
+        self.assertIs(visit_image_mJy.sky_projection, original.sky_projection)
         self.assertIs(visit_image_mJy.obs_info, original.obs_info)
         self.assertIs(visit_image_mJy.summary_stats, original.summary_stats)
         self.assertIs(visit_image_mJy.psf, original.psf)

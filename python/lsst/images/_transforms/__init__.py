@@ -12,5 +12,5 @@
 from ._camera_frame_set import *
 from ._frame_set import *
 from ._frames import *
-from ._projection import *
+from ._sky_projection import *
 from ._transform import *
