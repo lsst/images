@@ -4,7 +4,8 @@
 
 The NDF backend stores hoisted sub-trees and arrays as HDS components under
 `/MORE/LSST/...`.
-HDS limits every component name to 16 characters.
+HDS limits every component name to 15 characters (Starlink `dat_par.h`
+`DAT__SZNAM`).
 `archive_path_to_hdf5_path_components` (`ndf/_common.py`) currently uppercases
 each path component and raises `ValueError` when any component exceeds that
 limit.
@@ -43,17 +44,20 @@ on `daf_butler`, and we never need to un-shrink).
 For a component longer than the limit, keep a readable prefix and append a hash
 of the full component:
 
+The limit lives in one place as `DAT__SZNAM = 15` in `_hds.py` (mirroring
+Starlink `dat_par.h`) and is the default `max_length`:
+
 ```
-_shrink_hds_name(name, max_length=16, hash_size=4):
+_shrink_hds_name(name, max_length=DAT__SZNAM, hash_size=4):
     name = name.upper()
     if len(name) <= max_length:
         return name
     digest = blake2b(name.encode("ascii"), digest_size=hash_size).hexdigest().upper()
-    trunc = max_length - 2 * hash_size - 1          # 7 at the defaults
+    trunc = max_length - 2 * hash_size - 1          # 6 at DAT__SZNAM=15
     return f"{name[:trunc]}_{digest}"               # exactly max_length characters
 ```
 
-- `hash_size=4` gives an 8-hex-character (32-bit) digest, leaving a 7-character
+- `hash_size=4` gives an 8-hex-character (32-bit) digest, leaving a 6-character
   readable prefix at full width.
   32 bits keeps collisions negligible for the realistic number of distinct
   over-long names in a file (birthday probability ~1e-6 at 100 such names).
@@ -61,7 +65,7 @@ _shrink_hds_name(name, max_length=16, hash_size=4):
   the hash size is fixed and never grows.
 - The component is uppercased before hashing so the on-disk token and its digest
   are self-consistent.
-- Components at or under 16 characters pass through unchanged (uppercased only),
+- Components at or under the limit (`DAT__SZNAM`, 15) pass through unchanged (uppercased only),
   preserving today's readable layout (`/MORE/LSST/PSF/COEFFICIENTS`) and every
   existing file.
 
@@ -69,10 +73,10 @@ _shrink_hds_name(name, max_length=16, hash_size=4):
 
 Version disambiguation and shrinking must compose so that the visible version
 number survives. `noise_realizations_99` shrinks as "shrink `noise_realizations`
-into `16 - len("_99")` characters, then append `_99`":
+into `DAT__SZNAM - len("_99")` characters, then append `_99`":
 
 ```
-shrink_versioned_component(base, version, max_length=16, hash_size=4):
+shrink_versioned_component(base, version, max_length=DAT__SZNAM, hash_size=4):
     suffix = f"_{version}" if version > 1 else ""
     return _shrink_hds_name(base, max_length - len(suffix), hash_size) + suffix
 ```
@@ -127,7 +131,8 @@ prev = self._hdf5_path_owners.get(hdf5_path)
 if prev is not None and prev != logical_id:
     raise ValueError(
         f"NDF/HDS name collision: archive entries {prev!r} and {logical_id!r} "
-        f"both map to {hdf5_path!r} after 16-character shrinking; increase hash_size."
+        f"both map to {hdf5_path!r} after shrinking to the {DAT__SZNAM}-character "
+        f"HDS name limit; rename one of them or increase hash_size."
     )
 self._hdf5_path_owners[hdf5_path] = logical_id
 ```
@@ -168,8 +173,9 @@ self._hdf5_path_owners[hdf5_path] = logical_id
 3. Tests (`tests/test_ndf_common.py` and NDF round-trip tests)
    - Replace `test_archive_path_to_hdf5_path_rejects_long_components` (which
      asserts the raise) with assertions on the shrunk form.
-   - Add: components ≤16 pass through unchanged; shrink is deterministic and
-     ≤16; two distinct long names produce distinct tokens; the same base at
+   - Add: components ≤ `DAT__SZNAM` pass through unchanged; shrink is
+     deterministic and ≤ `DAT__SZNAM`; two distinct long names produce distinct
+     tokens; the same base at
      different versions produces distinct tokens that keep the visible `_{n}`
      suffix.
    - Add a guard test: force a collision (e.g. via a monkeypatched/forced hash)
@@ -186,4 +192,4 @@ self._hdf5_path_owners[hdf5_path] = logical_id
 - Dynamic hash sizing or auto-growing the hash on collision (the guard fails
   loudly instead).
 - Changes to the FITS backend, which encodes versions via `EXTVER` and has no
-  16-character limit.
+  HDS name-length limit.
