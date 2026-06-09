@@ -779,13 +779,17 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
                     c.description = description
             return TableModel(columns=columns)
         name, version = self._register_name(name)
-        if version > 1:
-            name = f"{name}_{version}"
+        base_path, base_logical = self._versioned_archive_path(name, version)
         columns = TableColumnModel.from_record_dtype(array.dtype)
         for c in columns:
-            column_path = name if len(columns) == 1 else f"{name}/{c.name}"
-            archive_path = column_path if column_path.startswith("/") else f"/{column_path}"
+            if len(columns) == 1:
+                archive_path = base_path
+                logical_id = base_logical
+            else:
+                archive_path = f"{base_path}/{c.name}"
+                logical_id = f"{base_logical}/{c.name}"
             sub_ndf_path = self._archive_path_to_hdf5_path(archive_path)
+            self._register_hdf5_path(sub_ndf_path, logical_id)
             column_array = np.asarray(array[c.name])
             sub_ndf = self._document.ensure_ndf(sub_ndf_path)
             sub_ndf.set_array_component(

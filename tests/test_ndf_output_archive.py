@@ -401,6 +401,29 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
                     rec["solution"],
                 )
 
+    def test_structured_array_long_name_is_shrunk_and_versioned(self):
+        dtype = np.dtype([("alpha", "f8"), ("beta", "i4")])
+        arr = np.zeros(3, dtype=dtype)
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                first = arch.add_structured_array(arr, name="catalog_of_long_named_sources")
+                second = arch.add_structured_array(arr, name="catalog_of_long_named_sources")
+                for model in (first, second):
+                    for column in model.columns:
+                        token = column.data.source[len("ndf:") :]
+                        for component in token.strip("/").split("/"):
+                            self.assertLessEqual(len(component), 16)
+                # The two structured arrays land in distinct sub-trees.
+                self.assertNotEqual(
+                    first.columns[0].data.source,
+                    second.columns[0].data.source,
+                )
+            with h5py.File(tmp.name, "r") as f:
+                for model in (first, second):
+                    for column in model.columns:
+                        self.assertIn(column.data.source[len("ndf:") :], f)
+
 
 @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
 class NdfWriteWcsTestCase(unittest.TestCase):
