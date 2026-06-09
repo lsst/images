@@ -321,7 +321,7 @@ class Mask(GeneralizedImage):
     bbox
         Bounding box for the mask.  This sets the shape of the first two
         dimensions of the array.
-    start
+    yx0
         Logical coordinates of the first pixel in the array, ordered ``y``,
         ``x`` (unless an `XY` instance is passed).  Ignored if
         ``bbox`` is provided.  Defaults to zeros.
@@ -338,7 +338,7 @@ class Mask(GeneralizedImage):
     Notes
     -----
     Indexing the `array` attribute of a `Mask` does not take into account its
-    ``start`` offset, but accessing a subimage mask by indexing a `Mask` with
+    ``yx0`` offset, but accessing a subimage mask by indexing a `Mask` with
     a `Box` does, and the `bbox` of the subimage is set to match its location
     within the original mask.
 
@@ -355,7 +355,7 @@ class Mask(GeneralizedImage):
         *,
         schema: MaskSchema,
         bbox: Box | None = None,
-        start: Sequence[int] | None = None,
+        yx0: Sequence[int] | None = None,
         shape: Sequence[int] | None = None,
         projection: Projection | None = None,
         metadata: dict[str, MetadataValue] | None = None,
@@ -363,14 +363,12 @@ class Mask(GeneralizedImage):
         super().__init__(metadata)
         if shape is not None:
             shape = tuple(shape)
-        if start is not None:
-            start = tuple(start)
         if isinstance(array_or_fill, np.ndarray):
             array = np.array(array_or_fill, dtype=schema.dtype, copy=None)
             if array.ndim != 3:
                 raise ValueError("Mask array must be 3-d.")
             if bbox is None:
-                bbox = Box.from_shape(array.shape[:-1], start=start)
+                bbox = Box.from_shape(array.shape[:-1], start=yx0)
             elif bbox.shape + (schema.mask_size,) != array.shape:
                 raise ValueError(
                     f"Explicit bbox shape {bbox.shape} and schema of size {schema.mask_size} do not "
@@ -386,7 +384,7 @@ class Mask(GeneralizedImage):
             if bbox is None:
                 if shape is None:
                     raise TypeError("No bbox, size, or array provided.")
-                bbox = Box.from_shape(shape, start=start)
+                bbox = Box.from_shape(shape, start=yx0)
             array = np.full(bbox.shape + (schema.mask_size,), array_or_fill, dtype=schema.dtype)
         self._array = array
         self._bbox: Box = bbox
@@ -429,7 +427,7 @@ class Mask(GeneralizedImage):
         Notes
         -----
         The pixel coordinates used by this projection account for the bounding
-        box ``start``; they are not just array indices.
+        box ``start`` (i.e. ``yx0``); they are not just array indices.
         """
         return self._projection
 
@@ -479,7 +477,7 @@ class Mask(GeneralizedImage):
         *,
         schema: MaskSchema | EllipsisType = ...,
         projection: Projection | None | EllipsisType = ...,
-        start: Sequence[int] | EllipsisType = ...,
+        yx0: Sequence[int] | EllipsisType = ...,
     ) -> Mask:
         """Make a view of the mask, with optional updates.
 
@@ -495,9 +493,9 @@ class Mask(GeneralizedImage):
                 raise ValueError("Cannot create a mask view with a schema with different names.")
         if projection is ...:
             projection = self._projection
-        if start is ...:
-            start = self._bbox.start
-        return self._transfer_metadata(Mask(self._array, start=start, schema=schema, projection=projection))
+        if yx0 is ...:
+            yx0 = self._bbox.start
+        return self._transfer_metadata(Mask(self._array, yx0=yx0, schema=schema, projection=projection))
 
     def update(self, other: Mask) -> None:
         """Update ``self`` to include all common mask values set in ``other``.
@@ -607,9 +605,9 @@ class Mask(GeneralizedImage):
         add_offset_wcs
             A FITS WCS single-character suffix to use when adding a linear
             WCS that maps the FITS array to the logical pixel coordinates
-            defined by ``bbox.start``.  Set to `None` to not write this WCS.
-            If this is set to ``" "``, it will prevent the `Projection` from
-            being saved as a FITS WCS.
+            defined by ``bbox.start`` / ``yx0``.  Set to `None` to not write
+            this WCS. If this is set to ``" "``, it will prevent the
+            `Projection` from being saved as a FITS WCS.
         tile_shape
             The recommended shape of each tile, if the archive will save
             the array in distinct tiles for faster subarray retrieval.
@@ -653,7 +651,7 @@ class Mask(GeneralizedImage):
         assert is_integer(serialized_dtype), "Mask dtypes should always be integers."
         return MaskSerializationModel.model_construct(
             data=data,
-            start=list(self.bbox.start),
+            yx0=list(self.bbox.start),
             planes=list(self.schema),
             dtype=serialized_dtype,
             projection=serialized_projection,
@@ -721,7 +719,7 @@ class Mask(GeneralizedImage):
         return Mask._from_legacy_array(
             legacy.array,
             legacy.getMaskPlaneDict(),
-            start=YX(y=legacy.getY0(), x=legacy.getX0()),
+            yx0=YX(y=legacy.getY0(), x=legacy.getX0()),
             plane_map=plane_map,
         )
 
@@ -758,7 +756,7 @@ class Mask(GeneralizedImage):
         array2d: np.ndarray,
         old_planes: Mapping[str, int],
         *,
-        start: YX[int],
+        yx0: YX[int],
         plane_map: Mapping[str, MaskPlane] | None = None,
         projection: Projection | None = None,
     ) -> Mask:
@@ -782,7 +780,7 @@ class Mask(GeneralizedImage):
                         f"but {n_orphaned} pixels have this bit set."
                     )
         schema = MaskSchema(planes)
-        mask = Mask(0, schema=schema, start=start, shape=array2d.shape, projection=projection)
+        mask = Mask(0, schema=schema, yx0=yx0, shape=array2d.shape, projection=projection)
         for new_name, old_bitmask in new_name_to_old_bitmask.items():
             mask.set(new_name, array2d & old_bitmask)
         return mask
@@ -833,7 +831,7 @@ class Mask(GeneralizedImage):
             hdu = astropy.io.fits.CompImageHDU(bintable=hdu)
         dx: int = hdu.header.pop("LTV1")
         dy: int = hdu.header.pop("LTV2")
-        start = YX(y=-dy, x=-dx)
+        yx0 = YX(y=-dy, x=-dx)
         old_planes = MaskPlane.read_legacy(hdu.header)
         projection: Projection | None = None
         if fits_wcs_frame is not None:
@@ -843,10 +841,10 @@ class Mask(GeneralizedImage):
                 pass
             else:
                 projection = Projection.from_fits_wcs(
-                    fits_wcs, pixel_frame=fits_wcs_frame, x0=start.x, y0=start.y
+                    fits_wcs, pixel_frame=fits_wcs_frame, x0=yx0.x, y0=yx0.y
                 )
         mask = Mask._from_legacy_array(
-            hdu.data, old_planes, start=start, plane_map=plane_map, projection=projection
+            hdu.data, old_planes, yx0=yx0, plane_map=plane_map, projection=projection
         )
         fits.strip_wcs_cards(hdu.header)
         hdu.header.strip()
@@ -870,7 +868,7 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     data: list[ArrayReferenceModel | InlineArrayModel] = pydantic.Field(
         description="References to pixel data."
     )
-    start: list[int] = pydantic.Field(
+    yx0: list[int] = pydantic.Field(
         description="Coordinate of the first pixels in the array, ordered (y, x)."
     )
     planes: list[MaskPlane | None] = pydantic.Field(description="Definitions of the bitplanes in the mask.")
@@ -887,7 +885,7 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         shape = self.data[0].shape
         if len(shape) == 3:
             shape = shape[:2]
-        return Box.from_shape(shape, start=self.start)
+        return Box.from_shape(shape, start=self.yx0)
 
     def deserialize(
         self,
@@ -946,7 +944,7 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     def _deserialize_2d(
         ref: ArrayReferenceModel | InlineArrayModel,
         schema_2d: MaskSchema,
-        start: Sequence[int],
+        yx0: Sequence[int],
         archive: InputArchive[Any],
         *,
         slices: tuple[slice, ...] | EllipsisType = ...,
@@ -958,7 +956,7 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
             fits.strip_wcs_cards(header)
 
         array_2d = archive.get_array(ref, strip_header=_strip_header, slices=slices)
-        return Mask(array_2d[:, :, np.newaxis], schema=schema_2d, start=start)
+        return Mask(array_2d[:, :, np.newaxis], schema=schema_2d, yx0=yx0)
 
     def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
         if kwargs:

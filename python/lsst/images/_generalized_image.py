@@ -22,7 +22,7 @@ import astropy.wcs
 
 from lsst.resources import ResourcePathExpression
 
-from ._geom import Box
+from ._geom import YX, Box
 from ._transforms import Projection, ProjectionAstropyView
 from .serialization import (
     ArchiveTree,
@@ -64,6 +64,13 @@ class GeneralizedImage(ABC):
     def bbox(self) -> Box:
         """Bounding box for the image (`~lsst.images.Box`)."""
         raise NotImplementedError()
+
+    @property
+    def yx0(self) -> YX[int]:
+        """The coordinates of the first pixel in the array
+        (`~lsst.geom.YX` [`int`]).
+        """
+        return self.bbox.start
 
     @property
     @abstractmethod

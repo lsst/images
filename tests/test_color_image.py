@@ -76,7 +76,7 @@ class ColorImageTestCase(unittest.TestCase):
     def test_constructor(self) -> None:
         """Test alternate constructor arguments."""
         self.assert_color_images_equal(
-            ColorImage(self.array, start=self.bbox.start, projection=self.projection),
+            ColorImage(self.array, yx0=self.bbox.start, projection=self.projection),
             self.color_image,
             expect_view=True,
         )

@@ -39,7 +39,7 @@ class ColorImage(GeneralizedImage):
         the shape of the third dimension equal to three.
     bbox
         Bounding box for the image.
-    start
+    yx0
         Logical coordinates of the first pixel in the array, ordered ``y``,
         ``x`` (unless an `XY` instance is passed).  Ignored if
         ``bbox`` is provided.  Defaults to zeros.
@@ -55,13 +55,13 @@ class ColorImage(GeneralizedImage):
         /,
         *,
         bbox: Box | None = None,
-        start: Sequence[int] | None = None,
+        yx0: Sequence[int] | None = None,
         projection: Projection[Any] | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ):
         super().__init__(metadata)
         if bbox is None:
-            bbox = Box.from_shape(array.shape[:2], start=start)
+            bbox = Box.from_shape(array.shape[:2], start=yx0)
         elif bbox.shape + (3,) != array.shape:
             raise ValueError(
                 f"Shape from bbox {bbox.shape + (3,)} does not match array with shape {array.shape}."

@@ -94,7 +94,7 @@ class ImageTestCase(unittest.TestCase):
         """Test saving a tiny image to pure JSON."""
         image = Image(
             np.arange(15).reshape(5, 3),
-            start=(2, -1),
+            yx0=(2, -1),
         )
         with RoundtripJson(self, image, "ImageV2") as roundtrip:
             pass
@@ -104,7 +104,7 @@ class ImageTestCase(unittest.TestCase):
         """Test saving a tiny image to FITS generically."""
         image = Image(
             np.arange(15).reshape(5, 3),
-            start=(2, -1),
+            yx0=(2, -1),
         )
         with RoundtripFits(self, image, "ImageV2") as roundtrip:
             subbox = Box.factory[3:5, 0:1]
@@ -116,7 +116,7 @@ class ImageTestCase(unittest.TestCase):
         """Test saving a tiny image to NDF."""
         image = Image(
             np.arange(15).reshape(5, 3),
-            start=(2, -1),
+            yx0=(2, -1),
         )
         with RoundtripNdf(self, image, "ImageV2") as roundtrip:
             pass
@@ -132,7 +132,7 @@ class ImageTestCase(unittest.TestCase):
             rng.normal(100.0, 8.0, size=(60, 80)),
             dtype=np.float64,
             unit=u.nJy,
-            start=(0, 0),
+            yx0=(0, 0),
         )
         with RoundtripFits(self, image) as fits_rt, RoundtripNdf(self, image) as ndf_rt:
             assert_images_equal(self, image, fits_rt.result)
@@ -148,7 +148,7 @@ class ImageTestCase(unittest.TestCase):
             rng.normal(100.0, 8.0, size=(60, 80)),
             dtype=np.float64,
             unit=u.nJy,
-            start=(0, 0),
+            yx0=(0, 0),
         )
         with RoundtripFits(self, image) as fits_rt, RoundtripJson(self, image) as json_rt:
             assert_images_equal(self, image, fits_rt.result)

@@ -63,7 +63,7 @@ class Image(GeneralizedImage):
         ``shape`` must be provided.
     bbox
         Bounding box for the image.
-    start
+    yx0
         Logical coordinates of the first pixel in the array, ordered ``y``,
         ``x`` (unless an `XY` instance is passed).  Ignored if
         ``bbox`` is provided.  Defaults to zeros.
@@ -84,7 +84,7 @@ class Image(GeneralizedImage):
     Notes
     -----
     Indexing the `array` attribute of an `Image` does not take into account its
-    ``start`` offset, but accessing a subimage by indexing an `Image` with a
+    ``yx0`` offset, but accessing a subimage by indexing an `Image` with a
     `Box` does, and the `bbox` of the subimage is set to match its location
     within the original image.
 
@@ -109,7 +109,7 @@ class Image(GeneralizedImage):
         /,
         *,
         bbox: Box | None = None,
-        start: Sequence[int] | None = None,
+        yx0: Sequence[int] | None = None,
         shape: Sequence[int] | None = None,
         dtype: npt.DTypeLike | None = None,
         unit: astropy.units.UnitBase | None = None,
@@ -123,7 +123,7 @@ class Image(GeneralizedImage):
             else:
                 array = array_or_fill
             if bbox is None:
-                bbox = Box.from_shape(array.shape, start=start)
+                bbox = Box.from_shape(array.shape, start=yx0)
             elif bbox.shape != array.shape:
                 raise ValueError(
                     f"Explicit bbox shape {bbox.shape} does not match array with shape {array.shape}."
@@ -134,7 +134,7 @@ class Image(GeneralizedImage):
             if bbox is None:
                 if shape is None:
                     raise TypeError("No bbox, shape, or array provided.")
-                bbox = Box.from_shape(shape, start=start)
+                bbox = Box.from_shape(shape, start=yx0)
             elif shape is not None and shape != bbox.shape:
                 raise ValueError(f"Explicit shape {shape} does not match bbox shape {bbox.shape}.")
             array = np.full(bbox.shape, array_or_fill, dtype=dtype)
@@ -232,16 +232,16 @@ class Image(GeneralizedImage):
         *,
         unit: astropy.units.UnitBase | None | EllipsisType = ...,
         projection: Projection | None | EllipsisType = ...,
-        start: Sequence[int] | EllipsisType = ...,
+        yx0: Sequence[int] | EllipsisType = ...,
     ) -> Image:
         """Make a view of the image, with optional updates."""
         if unit is ...:
             unit = self._unit
         if projection is ...:
             projection = self._projection
-        if start is ...:
-            start = self._bbox.start
-        return self._transfer_metadata(Image(self._array, start=start, unit=unit, projection=projection))
+        if yx0 is ...:
+            yx0 = self._bbox.start
+        return self._transfer_metadata(Image(self._array, yx0=yx0, unit=unit, projection=projection))
 
     def serialize[P: pydantic.BaseModel](
         self,
@@ -308,7 +308,7 @@ class Image(GeneralizedImage):
         data = array_model if self.unit is None else array_model.with_units(self.unit)
         return ImageSerializationModel.model_construct(
             data=data,
-            start=list(self.bbox.start),
+            yx0=list(self.bbox.start),
             projection=serialized_projection,
             metadata=self.metadata,
         )
@@ -339,7 +339,7 @@ class Image(GeneralizedImage):
         unit
             Units of the image.
         """
-        return Image(legacy.array, start=(legacy.getY0(), legacy.getX0()), unit=unit)
+        return Image(legacy.array, yx0=YX(y=legacy.getY0(), x=legacy.getX0()), unit=unit)
 
     def to_legacy(self, *, copy: bool | None = None) -> LegacyImage:
         """Convert to an `lsst.afw.image.Image` instance.
@@ -441,7 +441,7 @@ class Image(GeneralizedImage):
                     unit = astropy.units.electron**2
         dx: int = hdu.header.pop("LTV1")
         dy: int = hdu.header.pop("LTV2")
-        start = YX(y=-dy, x=-dx)
+        yx0 = YX(y=-dy, x=-dx)
         read_only: bool = False
         if preserve_bintable is not None:
             opaque_metadata.precompressed[hdu.name] = fits.PrecompressedImage.from_bintable(preserve_bintable)
@@ -454,9 +454,9 @@ class Image(GeneralizedImage):
                 pass
             else:
                 projection = Projection.from_fits_wcs(
-                    fits_wcs, pixel_frame=fits_wcs_frame, x0=start.x, y0=start.y
+                    fits_wcs, pixel_frame=fits_wcs_frame, x0=yx0.x, y0=yx0.y
                 )
-        image = Image(hdu.data, start=start, unit=unit, projection=projection)
+        image = Image(hdu.data, yx0=yx0, unit=unit, projection=projection)
         if read_only:
             image._array.flags["WRITEABLE"] = False
         fits.strip_wcs_cards(hdu.header)
@@ -479,7 +479,7 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     data: ArrayReferenceQuantityModel | ArrayReferenceModel | InlineArrayModel | InlineArrayQuantityModel = (
         pydantic.Field(description="Reference to pixel data.")
     )
-    start: list[int] = pydantic.Field(
+    yx0: list[int] = pydantic.Field(
         description="Coordinate of the first pixels in the array, ordered (y, x)."
     )
     projection: ProjectionSerializationModel[P] | None = pydantic.Field(
@@ -496,7 +496,7 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
                 shape = self.data.value.shape
             case ArrayReferenceModel() | InlineArrayModel():
                 shape = self.data.shape
-        return Box.from_shape(shape, self.start)
+        return Box.from_shape(shape, self.yx0)
 
     def deserialize(
         self,
@@ -543,7 +543,7 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         projection = self.projection.deserialize(archive) if self.projection is not None else None
         return Image(
             array,
-            start=self.start if bbox is None else bbox.start,
+            yx0=self.yx0 if bbox is None else bbox.start,
             unit=unit,
             projection=projection,
         )._finish_deserialize(self)
