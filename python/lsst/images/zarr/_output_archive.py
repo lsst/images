@@ -117,7 +117,7 @@ class ZarrOutputArchive(OutputArchive[ZarrPointerModel]):
         self._frame_sets: list[tuple[FrameSet, ZarrPointerModel]] = []
         self._image_chunks: tuple[int, ...] | None = None
 
-    def serialize_direct[T: pydantic.BaseModel](
+    def serialize_direct[T: pydantic.BaseModel | None](
         self,
         name: str,
         serializer: Callable[[OutputArchive[ZarrPointerModel]], T],
