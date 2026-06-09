@@ -15,8 +15,7 @@ This module centralises the decisions that vary by image type:
 
 - which OME axes apply (``ColorImage`` has no root multiscale)
 - default chunk sizes (clamped to ``DEFAULT_CHUNK_AXIS_LIMIT`` per axis,
-  cell-aligned for `CellCoadd`, image-aligned for `variance` / `mask`
-  siblings)
+  image-aligned for `variance` / `mask` siblings)
 - the affine residual validator that gates the OME
   ``coordinateTransformations`` block
 
@@ -39,7 +38,6 @@ __all__ = (
 )
 
 import math
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -64,38 +62,27 @@ def axes_for_archive_class(name: str) -> tuple[str, ...]:
 
 
 def chunks_for(
-    archive_class: str,
     shape: tuple[int, ...],
     override: tuple[int, ...] | None,
-    *,
-    archive_metadata: Mapping[str, Any] | None = None,
 ) -> tuple[int, ...]:
-    """Return the chunk shape to use for a top-level array.
+    """Return the default chunk shape for a top-level array.
+
+    This is the fallback used when neither an explicit override nor an
+    ``add_array`` ``tile_shape`` hint applies; cell-aligned chunks for a
+    `CellCoadd` arrive via that ``tile_shape`` hint instead.
 
     Parameters
     ----------
-    archive_class
-        Top-level archive class name; used for class-specific
-        defaults like ``CellCoadd``'s cell-aligned chunks.
     shape
         The full array shape, used to clamp the default per-axis.
     override
         User-supplied chunk shape. If not ``None`` it is returned
         verbatim after a length check.
-    archive_metadata
-        Class-specific layout hints. ``CellCoadd`` reads
-        ``"cell_shape"`` from this mapping.
     """
     if override is not None:
         if len(override) != len(shape):
-            raise ValueError(
-                f"chunks override has rank {len(override)}, expected {len(shape)} for {archive_class!r}."
-            )
+            raise ValueError(f"chunks override has rank {len(override)}, expected {len(shape)}.")
         return tuple(override)
-    if archive_class == "CellCoadd" and archive_metadata is not None:
-        cell_shape = archive_metadata.get("cell_shape")
-        if cell_shape is not None:
-            return tuple(min(c, dim) for c, dim in zip(cell_shape, shape, strict=True))
     return tuple(min(DEFAULT_CHUNK_AXIS_LIMIT, dim) for dim in shape)
 
 

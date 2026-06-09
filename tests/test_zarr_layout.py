@@ -56,24 +56,12 @@ class LayoutTestCase(unittest.TestCase):
 
     def test_chunks_for_default(self) -> None:
         # Plain images clamp to the per-axis chunk limit (256 by default).
-        self.assertEqual(chunks_for("Image", (4096, 4096), None), (256, 256))
+        self.assertEqual(chunks_for((4096, 4096), None), (256, 256))
         # Smaller than the limit -> use full dim.
-        self.assertEqual(chunks_for("Image", (200, 100), None), (200, 100))
+        self.assertEqual(chunks_for((200, 100), None), (200, 100))
 
     def test_chunks_for_override(self) -> None:
-        self.assertEqual(chunks_for("Image", (4096, 4096), (256, 256)), (256, 256))
-
-    def test_chunks_for_cell_coadd_uses_cell_shape(self) -> None:
-        result = chunks_for(
-            "CellCoadd",
-            (4096, 4096),
-            None,
-            archive_metadata={"cell_shape": (256, 256)},
-        )
-        self.assertEqual(result, (256, 256))
-
-    def test_chunks_for_cell_coadd_without_metadata_falls_back(self) -> None:
-        self.assertEqual(chunks_for("CellCoadd", (4096, 4096), None), (256, 256))
+        self.assertEqual(chunks_for((4096, 4096), (256, 256)), (256, 256))
 
     def test_chunks_aligned_to_matches_image(self) -> None:
         # variance / mask follow image's chunks when not overridden.
