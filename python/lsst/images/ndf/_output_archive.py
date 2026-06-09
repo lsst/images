@@ -701,8 +701,8 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
     def _register_hdf5_path(self, hdf5_path: str, logical_id: str) -> None:
         """Record that ``logical_id`` owns ``hdf5_path``; raise on collision.
 
-        ``logical_id`` is the un-shrunk, version-applied archive path, which is
-        unique per logical write.
+        ``logical_id`` is the un-shrunk archive path (with any version suffix
+        applied), which is unique per logical write.
         Two different archive entries shrinking to the same HDS path would
         silently clobber one another, so this fails loudly instead.
         """
@@ -710,7 +710,8 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         if previous is not None and previous != logical_id:
             raise ValueError(
                 f"NDF/HDS name collision: archive entries {previous!r} and {logical_id!r} "
-                f"both map to {hdf5_path!r} after 16-character shrinking; increase hash_size."
+                f"both map to {hdf5_path!r} after 16-character shrinking; rename one of them "
+                f"or increase hash_size to reduce the hash-collision probability."
             )
         self._hdf5_path_owners[hdf5_path] = logical_id
 
