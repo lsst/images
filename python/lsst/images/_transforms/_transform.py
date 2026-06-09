@@ -33,8 +33,6 @@ from . import _ast as astshim
 from ._frames import Frame, SerializableFrame, SkyFrame
 
 if TYPE_CHECKING:
-    from ._projection import Projection
-
     try:
         from lsst.afw.geom import TransformPoint2ToPoint2 as LegacyTransform
     except ImportError:
@@ -68,7 +66,8 @@ class Transform[I: Frame, O: Frame]:
     - `from_legacy` converts an `lsst.afw.geom.Transform` instance.
 
     When applied to celestial coordinate systems, ``x=ra`` and ``y=dec``.
-    `Projection` provides a more natural interface for pixel-to-sky transforms.
+    `SkyProjection` provides a more natural interface for pixel-to-sky
+    transforms.
 
     `Transform` is conceptually immutable (the internal AST Mapping should
     never be modified in-place after construction), and hence does not need to
@@ -132,7 +131,7 @@ class Transform[I: Frame, O: Frame]:
 
         See Also
         --------
-        Projection.from_fits_wcs
+        SkyProjection.from_fits_wcs
         """
         ast_stream = astshim.StringStream(fits_wcs.to_header_string(relax=True))
         ast_fits_chan = astshim.FitsChan(ast_stream, "Encoding=FITS-WCS, SipReplace=0, IWC=1")
@@ -338,15 +337,6 @@ class Transform[I: Frame, O: Frame]:
             components=components,
         )
 
-    def as_projection(self: Transform[I, SkyFrame]) -> Projection[I]:
-        """Return a `Projection` view of this transform.
-
-        This is only valid when `out_frame` is `~SkyFrame.ICRS`.
-        """
-        from ._projection import Projection
-
-        return Projection(self)
-
     def as_fits_wcs(self, bbox: Box) -> astropy.wcs.WCS | None:
         """Return a FITS WCS representation of this transform, if possible.
 
@@ -397,8 +387,8 @@ class Transform[I: Frame, O: Frame]:
             If `True`, decompose the transform and try to reference component
             mappings that were already serialized into a `FrameSet` in the
             archive.  Note that if multiple transforms exist between a pair of
-            frames (e.g. a `Projection` and its FITS approximation), this may
-            cause the wrong one to be saved.  When this option is used, the
+            frames (e.g. a `SkyProjection` and its FITS approximation), this
+            may cause the wrong one to be saved.  When this option is used, the
             frame set must be saved before the transform, and it must be
             deserialized before the transform as well.
 

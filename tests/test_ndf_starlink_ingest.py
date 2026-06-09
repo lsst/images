@@ -45,9 +45,9 @@ class StarlinkIngestTestCase(unittest.TestCase):
     def test_wcs_produces_projection(self):
         """Auto-detect path builds a Projection from the NDF WCS component."""
         image = read_starlink(Image, EXAMPLE)
-        self.assertIsNotNone(image.projection)
+        self.assertIsNotNone(image.sky_projection)
         # M57 (Ring Nebula) is near RA~283.4 deg, Dec~33.0 deg.
-        sky = image.projection.pixel_to_sky_transform.apply_forward(
+        sky = image.sky_projection.pixel_to_sky_transform.apply_forward(
             x=np.array([300.0]),
             y=np.array([300.0]),
         )

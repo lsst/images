@@ -92,7 +92,7 @@ class JsonOutputArchive(OutputArchive[JsonRef]):
         self._indirect: list[Any] = []
         self._frame_sets: list[tuple[FrameSet, JsonRef]] = []
 
-    def serialize_direct[T: pydantic.BaseModel](
+    def serialize_direct[T: pydantic.BaseModel | None](
         self, name: str, serializer: Callable[[OutputArchive[JsonRef]], T]
     ) -> T:
         nested = NestedOutputArchive[JsonRef](name, self)
@@ -124,6 +124,8 @@ class JsonOutputArchive(OutputArchive[JsonRef]):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        tile_shape: tuple[int, ...] | None = None,
+        options_name: str | None = None,
     ) -> InlineArrayModel:
         return InlineArrayModel(
             data=array.tolist(),

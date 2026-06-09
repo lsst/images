@@ -84,14 +84,12 @@ from .._cell_grid import CellGrid, CellGridBounds, CellIJ, PatchDefinition
 from .._geom import YX, Box
 from .._image import Image
 from .._mask import Mask
-from .._transforms import Projection, TractFrame, Transform
+from .._transforms import SkyProjection, TractFrame, Transform
 from .._transforms._ast import PolyMap
-from ..cells import CellCoadd
-from ..cells._provenance import CoaddProvenance
-from ..cells._psf import CellPointSpreadFunction
+from ..cells import CellCoadd, CellField, CellPointSpreadFunction, CoaddProvenance
 from ..psfs import PiffWrapper
 from ..serialization import backend_for_path, read
-from ._creation import make_random_projection
+from ._creation import make_random_sky_projection
 
 # Default morph parameters for CellCoadd.  ``CELL_SIZE`` should divide the
 # native cell size evenly; ``KERNEL_SIZE`` must be odd.  ``MAX_INPUTS`` caps
@@ -216,7 +214,7 @@ def _subset_visit_image(
     if psf_interp_order is not None and isinstance(subset.psf, PiffWrapper):
         _simplify_piff_psf(subset.psf, order=psf_interp_order)
 
-    if not linearize_projection or subset.projection is None:
+    if not linearize_projection or subset.sky_projection is None:
         return subset
 
     # The pixel planes carry the projection immutably (there is no public
@@ -224,12 +222,12 @@ def _subset_visit_image(
     # VisitImage from its public components with re-viewed planes.  Only the
     # image plane's projection is actually serialized, but keeping all three
     # consistent avoids surprises.
-    linear = _linear_approx_projection(subset.projection, subset.image.bbox, tol=projection_tol)
+    linear = _linear_approx_projection(subset.sky_projection, subset.image.bbox, tol=projection_tol)
     return type(visit_like_image)(
-        subset.image.view(projection=linear),
-        mask=subset.mask.view(projection=linear),
-        variance=subset.variance.view(projection=linear),
-        projection=linear,
+        subset.image.view(sky_projection=linear),
+        mask=subset.mask.view(sky_projection=linear),
+        variance=subset.variance.view(sky_projection=linear),
+        sky_projection=linear,
         psf=subset.psf,
         obs_info=subset.obs_info,
         bounds=subset.bounds,
@@ -243,9 +241,9 @@ def _subset_visit_image(
     )
 
 
-def _linear_approx_projection(projection: Projection, bbox: Box, *, tol: float) -> Projection:
-    """Return a copy of ``projection`` whose pixel->sky mapping is replaced by
-    its best linear (affine) approximation over ``bbox``.
+def _linear_approx_projection(sky_projection: SkyProjection, bbox: Box, *, tol: float) -> SkyProjection:
+    """Return a copy of ``sky_projection`` whose pixel->sky mapping is replaced
+    by its best linear (affine) approximation over ``bbox``.
 
     Real WCS mappings (e.g. TAN-SIP) serialize as large AST polynomial dumps.
     Over the small box of a fixture they are linear to far below a pixel, so
@@ -253,14 +251,15 @@ def _linear_approx_projection(projection: Projection, bbox: Box, *, tol: float) 
     smaller.  The result carries no FITS approximation (the affine is itself
     trivially FITS-representable).
 
-    This is written as a self-contained ``projection -> projection`` transform
-    so it can be promoted to a public ``Projection.linear_approx(bbox, tol)``
-    method later with essentially no change.  It assumes a 2-D pixel->sky
+    This is written as a self-contained ``sky_projection -> sky_projection``
+    transform so it can be promoted to a public
+    ``SkyProjection.linear_approx(bbox, tol)`` method later with essentially
+    no change.  It assumes a 2-D pixel->sky
     mapping.
 
     Parameters
     ----------
-    projection
+    sky_projection
         The projection to approximate.
     bbox
         Box (in pixel coordinates) over which the approximation must hold.
@@ -269,7 +268,7 @@ def _linear_approx_projection(projection: Projection, bbox: Box, *, tol: float) 
         displacement in the output (sky, radians) coordinates.  AST raises
         ``RuntimeError`` if no fit within ``tol`` exists.
     """
-    transform = projection.pixel_to_sky_transform
+    transform = sky_projection.pixel_to_sky_transform
     mapping = transform._ast_mapping
     lbnd = [bbox.x.start, bbox.y.start]
     ubnd = [bbox.x.stop, bbox.y.stop]
@@ -286,9 +285,9 @@ def _linear_approx_projection(projection: Projection, bbox: Box, *, tol: float) 
         transform.in_frame,
         transform.out_frame,
         PolyMap(forward, inverse),
-        in_bounds=projection.pixel_bounds,
+        in_bounds=sky_projection.pixel_bounds,
     )
-    return affine.as_projection()
+    return SkyProjection(affine)
 
 
 def _affine_polymap_coeffs(matrix: np.ndarray, offset: np.ndarray) -> np.ndarray:
@@ -371,14 +370,14 @@ def _subset_cell_coadd(
 
     grid = block.grid
     cs = grid.cell_shape
-    start = block.bounds.grid_start
-    stop = block.bounds.grid_stop
+    start = block.bounds.subgrid_start
+    stop = block.bounds.subgrid_stop
     n_i = stop.i - start.i
     n_j = stop.j - start.j
 
     # 2. Build a tiny full-patch grid with the same cell *count* as the
     #    original patch but ``cell_size`` pixels per cell, anchored at (0, 0).
-    full_shape = grid.grid_shape
+    full_shape = grid.grid_size
     new_grid = CellGrid(
         bbox=Box.factory[0 : full_shape.i * cell_size, 0 : full_shape.j * cell_size],
         cell_shape=YX(y=cell_size, x=cell_size),
@@ -400,13 +399,13 @@ def _subset_cell_coadd(
     def shrink3d(array: np.ndarray) -> np.ndarray:
         return np.ascontiguousarray(array[::step_y, ::step_x, :][:ny, :nx, :])
 
-    # 4. Synthetic-but-valid projection over the tiny tract frame.
+    # 4. Synthetic-but-valid sky_projection over the tiny tract frame.
     rng = np.random.default_rng(0)
     tract_frame = TractFrame(skymap=cell_coadd.skymap, tract=cell_coadd.tract, bbox=new_grid.bbox)
-    projection = make_random_projection(rng, tract_frame, new_block_bbox)
+    sky_projection = make_random_sky_projection(rng, tract_frame, new_block_bbox)
 
     unit = cell_coadd.unit
-    image = Image(shrink2d(block.image.array), bbox=new_block_bbox, unit=unit, projection=projection)
+    image = Image(shrink2d(block.image.array), bbox=new_block_bbox, unit=unit, sky_projection=sky_projection)
     mask = Mask(shrink3d(block.mask.array), schema=block.mask.schema, bbox=new_block_bbox)
     variance = Image(shrink2d(block.variance.array), bbox=new_block_bbox, unit=unit**2)
     mask_fractions = {
@@ -439,18 +438,35 @@ def _subset_cell_coadd(
     if provenance is not None:
         provenance = _trim_provenance(provenance, max_inputs=max_inputs)
 
+    # Aperture corrections are not subset when CellCoadd is subset with a
+    # bounding box, because they're always tiny.  But that makes setting
+    # up a consistent new grid for them tricky.
+    aperture_corrections = {}
+    new_apcorr_bounds = None
+    for i, (name, field) in enumerate(block.aperture_corrections.items()):
+        if new_apcorr_bounds is None:
+            new_apcorr_bounds = CellGridBounds(
+                grid=new_grid,
+                bbox=_scale_box_to_grid(field.bounds.bbox, grid, cell_size),
+                missing=cell_coadd.bounds.missing,
+            )
+        aperture_corrections[name] = CellField(new_apcorr_bounds, field._array)
+        if i >= 2:
+            break
+
     return CellCoadd(
         image,
         mask=mask,
         variance=variance,
         mask_fractions=mask_fractions,
         noise_realizations=noise_realizations,
-        projection=projection,
+        sky_projection=sky_projection,
         band=block.band,
         psf=psf,
         patch=patch,
         provenance=provenance,
         backgrounds=block._backgrounds,
+        aperture_corrections=aperture_corrections,
     )
 
 
@@ -488,8 +504,8 @@ def _choose_block_bbox(cell_coadd: CellCoadd) -> Box:
     """
     bounds = cell_coadd.bounds
     grid = bounds.grid
-    start = bounds.grid_start
-    stop = bounds.grid_stop
+    start = bounds.subgrid_start
+    stop = bounds.subgrid_stop
     span_i = min(2, stop.i - start.i)
     span_j = min(2, stop.j - start.j)
 

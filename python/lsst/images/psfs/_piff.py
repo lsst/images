@@ -26,7 +26,7 @@ import pydantic
 
 from .. import serialization
 from .._concrete_bounds import SerializableBounds
-from .._geom import XY, Bounds, Box
+from .._geom import XY, YX, Bounds, Box
 from .._image import Image
 from ..utils import round_half_up
 from ._base import PointSpreadFunction
@@ -75,7 +75,7 @@ class PiffWrapper(PointSpreadFunction):
             raise NotImplementedError("Chromatic PSFs are not yet supported.")
         gs_image = self._impl.draw(x, y, stamp_size=self._stamp_size, center=True)
         r = self._stamp_size // 2
-        result = Image(gs_image.array.copy(), start=(-r, -r))
+        result = Image(gs_image.array.copy(), yx0=YX(y=-r, x=-r))
         result.array /= np.sum(result.array)
         return result
 
@@ -84,7 +84,7 @@ class PiffWrapper(PointSpreadFunction):
             raise NotImplementedError("Chromatic PSFs are not yet supported.")
         gs_image = self._impl.draw(x, y, stamp_size=self._stamp_size, center=None)
         r = self._stamp_size // 2
-        result = Image(gs_image.array.copy(), start=(round_half_up(y) - r, round_half_up(x) - r))
+        result = Image(gs_image.array.copy(), yx0=YX(y=round_half_up(y) - r, x=round_half_up(x) - r))
         result.array /= np.sum(result.array)
         return result
 

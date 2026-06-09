@@ -27,19 +27,23 @@ from .._backgrounds import BackgroundMap, BackgroundMapSerializationModel
 from .._cell_grid import CellGrid, CellGridBounds, PatchDefinition
 from .._geom import YX, Box
 from .._image import Image, ImageSerializationModel
-from .._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
+from .._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_legacy_deep_coadd_mask_planes
 from .._masked_image import MaskedImage, MaskedImageSerializationModel
-from .._transforms import Projection, ProjectionSerializationModel, TractFrame
+from .._transforms import SkyProjection, SkyProjectionSerializationModel, TractFrame
+from ..fields import BaseField
 from ..serialization import InputArchive, InvalidParameterError, OutputArchive
+from ._aperture_corrections import CellApertureCorrectionMapSerializationModel, CellField
 from ._provenance import CoaddProvenance, CoaddProvenanceSerializationModel
 from ._psf import CellPointSpreadFunction, CellPointSpreadFunctionSerializationModel
 
 if TYPE_CHECKING:
     try:
-        from lsst.cell_coadds import MultipleCellCoadd
+        from lsst.afw.image import Exposure as LegacyExposure
+        from lsst.cell_coadds import MultipleCellCoadd as LegacyMultipleCellCoadd
         from lsst.skymap import TractInfo
     except ImportError:
-        type MultipleCellCoadd = Any  # type: ignore[no-redef]
+        type LegacyExposure = Any  # type: ignore[no-redef]
+        type LegacyMultipleCellCoadd = Any  # type: ignore[no-redef]
         type TractInfo = Any  # type: ignore[no-redef]
 
 
@@ -49,17 +53,17 @@ class CellCoadd(MaskedImage):
     Parameters
     ----------
     image
-        The main image plane.  If this has a `.Projection`, it will be used
-        for all planes unless a ``projection`` is passed separately.
+        The main image plane.  If this has a `.SkyProjection`, it will be used
+        for all planes unless a ``sky_projection`` is passed separately.
     mask
         A bitmask image that annotates the main image plane.  Must have the
-        same bounding box as ``image`` if provided.  Any attached projection
-        is replaced (possibly by `None`).
+        same bounding box as ``image`` if provided.  Any attached
+        ``sky_projection`` is replaced (possibly by `None`).
     variance
         The per-pixel uncertainty of the main image as an image of variance
         values.  Must have the same bounding box as ``image`` if provided, and
         its units must be the square of ``image.unit`` or `None`.
-        Values default to ``1.0``.  Any attached projection is replaced
+        Values default to ``1.0``.  Any attached ``sky_projection`` is replaced
         (possibly by `None`).
     mask_fractions
         A mapping from an input-image mask plane name to an image of the
@@ -70,7 +74,7 @@ class CellCoadd(MaskedImage):
     mask_schema
         Schema for the mask plane.  Must be provided if and only if ``mask`` is
         not provided.
-    projection
+    sky_projection
         Projection that maps the pixel grid to the sky.  Can only be `None` if
         a projection is already attached to ``image``.
     band
@@ -80,6 +84,8 @@ class CellCoadd(MaskedImage):
         reported by ``psf.bounds`` are assumed to apply to all image data for
         that cell as well (i.e. there is a PSF for a cell if and only if
         there is image data for that cell).
+    aperture_corrections
+        Aperture corrections for different photometry algorithms.
     patch
         Identifiers and geometry of the full patch, if the image is confined
         to a single patch.  When present, the cell grid of the PSF and
@@ -100,9 +106,10 @@ class CellCoadd(MaskedImage):
         mask_fractions: Mapping[str, Image] | None = None,
         noise_realizations: Sequence[Image] = (),
         mask_schema: MaskSchema | None = None,
-        projection: Projection[TractFrame] | None = None,
+        sky_projection: SkyProjection[TractFrame] | None = None,
         band: str | None = None,
         psf: CellPointSpreadFunction,
+        aperture_corrections: Mapping[str, CellField] | None = None,
         patch: PatchDefinition | None = None,
         provenance: CoaddProvenance | None = None,
         backgrounds: BackgroundMap | None = None,
@@ -112,20 +119,26 @@ class CellCoadd(MaskedImage):
             mask=mask,
             variance=variance,
             mask_schema=mask_schema,
-            projection=projection,
+            sky_projection=sky_projection,
         )
         if self.image.unit is None:
             raise TypeError("The image component of a CellCoadd must have units.")
-        if self.image.projection is None:
-            raise TypeError("The projection component of a CellCoadd cannot be None.")
-        if not isinstance(self.image.projection.pixel_frame, TractFrame):
-            raise TypeError("The projection's pixel frame must be a TractFrame for CellCoadd.")
+        if self.image.sky_projection is None:
+            raise TypeError("The sky_projection component of a CellCoadd cannot be None.")
+        if not isinstance(self.image.sky_projection.pixel_frame, TractFrame):
+            raise TypeError("The sky_projection's pixel frame must be a TractFrame for CellCoadd.")
         self._mask_fractions = dict(mask_fractions) if mask_fractions is not None else {}
         self._noise_realizations = list(noise_realizations)
         self._band = band
         if psf.bounds.bbox != self.bbox:
-            psf = psf[self.bbox]
+            psf = psf[self.bbox.intersection(psf.bounds.bbox)]
         self._psf = psf
+        self._aperture_corrections = dict(aperture_corrections) if aperture_corrections is not None else {}
+        for ap_corr_name, ap_corr_field in self._aperture_corrections.items():
+            if ap_corr_field.bounds.grid != self.grid:
+                raise ValueError(
+                    f"Grids for cell PSF and {ap_corr_name} aperture corrections are not consistent."
+                )
         self._patch = patch
         self._provenance = provenance
         if self._provenance and not self._patch:
@@ -135,12 +148,12 @@ class CellCoadd(MaskedImage):
     @property
     def skymap(self) -> str:
         """Name of the skymap (`str`)."""
-        return self.projection.pixel_frame.skymap
+        return self.sky_projection.pixel_frame.skymap
 
     @property
     def tract(self) -> int:
         """ID of the tract (`int`)."""
-        return self.projection.pixel_frame.tract
+        return self.sky_projection.pixel_frame.tract
 
     @property
     def patch(self) -> PatchDefinition:
@@ -177,11 +190,11 @@ class CellCoadd(MaskedImage):
         return cast(astropy.units.UnitBase, super().unit)
 
     @property
-    def projection(self) -> Projection[TractFrame]:
+    def sky_projection(self) -> SkyProjection[TractFrame]:
         """The projection that maps the pixel grid to the sky
-        (`.Projection` [`.TractFrame`]).
+        (`.SkyProjection` [`.TractFrame`]).
         """
-        return cast(Projection[TractFrame], super().projection)
+        return cast(SkyProjection[TractFrame], super().sky_projection)
 
     @property
     def psf(self) -> CellPointSpreadFunction:
@@ -189,6 +202,13 @@ class CellCoadd(MaskedImage):
         (`CellPointSpreadFunction`).
         """
         return self._psf
+
+    @property
+    def aperture_corrections(self) -> Mapping[str, CellField]:
+        """Aperture corrections for different photometry algorithms
+        (`dict` [`str`, `CellField`]).
+        """
+        return self._aperture_corrections
 
     @property
     def bounds(self) -> CellGridBounds:
@@ -228,7 +248,7 @@ class CellCoadd(MaskedImage):
                 self.image[bbox],
                 mask=self.mask[bbox],
                 variance=self.variance[bbox],
-                projection=self.projection,
+                sky_projection=self.sky_projection,
                 mask_fractions={k: v[bbox] for k, v in self._mask_fractions.items()},
                 noise_realizations=[v[bbox] for v in self._noise_realizations],
                 band=self.band,
@@ -240,6 +260,7 @@ class CellCoadd(MaskedImage):
                     else None
                 ),
                 backgrounds=self._backgrounds,
+                aperture_corrections=self._aperture_corrections.copy(),
             ),
             bbox=bbox,
         )
@@ -257,7 +278,7 @@ class CellCoadd(MaskedImage):
                 image=self._image.copy(),
                 mask=self._mask.copy(),
                 variance=self._variance.copy(),
-                projection=self.projection,
+                sky_projection=self.sky_projection,
                 mask_fractions={k: v.copy() for k, v in self._mask_fractions.items()},
                 noise_realizations=[v.copy() for v in self._noise_realizations],
                 band=self.band,
@@ -265,9 +286,28 @@ class CellCoadd(MaskedImage):
                 patch=self.patch,
                 provenance=self.provenance,
                 backgrounds=self._backgrounds.copy(),
+                aperture_corrections=self._aperture_corrections.copy(),
             ),
             copy=True,
         )
+
+    def apply_background(self, name: str | None) -> None:
+        """Subtract the background with the given name, modifying the image
+        in place.
+
+        If ``name`` is `None`, restore the original background.
+        """
+        current_bg = self.backgrounds.subtracted
+        if current_bg is not None:
+            if name == current_bg.name:
+                return
+            self.image.quantity += current_bg.field.render(dtype=self.image.array.dtype).quantity
+        if name is None:
+            self._backgrounds._subtracted = None
+            return
+        new_bg = self.backgrounds[name]
+        self.image.quantity -= new_bg.field.render(dtype=self.image.array.dtype).quantity
+        self._backgrounds._subtracted = name
 
     def serialize(self, archive: OutputArchive[Any]) -> CellCoaddSerializationModel:
         """Serialize the image to an output archive.
@@ -278,24 +318,48 @@ class CellCoadd(MaskedImage):
             Archive to write to.
         """
         serialized_image = archive.serialize_direct(
-            "image", functools.partial(self.image.serialize, save_projection=False)
+            "image",
+            functools.partial(self.image.serialize, save_projection=False, tile_shape=self.grid.cell_shape),
         )
         serialized_mask = archive.serialize_direct(
-            "mask", functools.partial(self.mask.serialize, save_projection=False)
+            "mask",
+            functools.partial(self.mask.serialize, save_projection=False, tile_shape=self.grid.cell_shape),
         )
         serialized_variance = archive.serialize_direct(
-            "variance", functools.partial(self.variance.serialize, save_projection=False)
+            "variance",
+            functools.partial(
+                self.variance.serialize, save_projection=False, tile_shape=self.grid.cell_shape
+            ),
         )
-        serialized_projection = archive.serialize_direct("projection", self.projection.serialize)
+        serialized_projection = archive.serialize_direct("sky_projection", self.sky_projection.serialize)
         serialized_mask_fractions = {
-            k: archive.serialize_direct(f"mask_fractions/{k}", v.serialize)
+            k: archive.serialize_direct(
+                f"mask_fractions/{k}",
+                functools.partial(
+                    v.serialize,
+                    save_projection=False,
+                    tile_shape=self.grid.cell_shape,
+                    options_name="mask_fractions",
+                ),
+            )
             for k, v in self.mask_fractions.items()
         }
         serialized_noise_realizations = [
-            archive.serialize_direct(f"noise_realizations/{n}", v.serialize)
+            archive.serialize_direct(
+                f"noise_realizations/{n}",
+                functools.partial(
+                    v.serialize, save_projection=False, tile_shape=self.grid.cell_shape, options_name="image"
+                ),
+            )
             for n, v in enumerate(self.noise_realizations)
         ]
         serialized_psf = archive.serialize_direct("psf", self.psf.serialize)
+        serialized_aperture_corrections = archive.serialize_direct(
+            "aperture_corrections",
+            functools.partial(
+                CellApertureCorrectionMapSerializationModel.serialize, self.aperture_corrections
+            ),
+        )
         serialized_provenance = (
             archive.serialize_direct("provenance", self._provenance.serialize)
             if self._provenance is not None
@@ -306,11 +370,12 @@ class CellCoadd(MaskedImage):
             image=serialized_image,
             mask=serialized_mask,
             variance=serialized_variance,
-            projection=serialized_projection,
+            sky_projection=serialized_projection,
             mask_fractions=serialized_mask_fractions,
             noise_realizations=serialized_noise_realizations,
             band=self._band,
             psf=serialized_psf,
+            aperture_corrections=serialized_aperture_corrections,
             patch=self._patch,
             provenance=serialized_provenance,
             backgrounds=serialized_backgrounds,
@@ -328,12 +393,13 @@ class CellCoadd(MaskedImage):
 
     @staticmethod
     def from_legacy(  # type: ignore[override]
-        legacy: MultipleCellCoadd,
+        legacy: LegacyMultipleCellCoadd,
         *,
         plane_map: Mapping[str, MaskPlane] | None = None,
         tract_info: TractInfo,
+        bbox: Box | None = None,
     ) -> CellCoadd:
-        """Convert from an `lsst.cell_coadds.MultipleCellCoadd` instance.
+        """Convert from a `lsst.cell_coadds.MultipleCellCoadd` instance.
 
         Parameters
         ----------
@@ -344,16 +410,24 @@ class CellCoadd(MaskedImage):
             description.
         tract_info
             Information about the full tract.
+        bbox
+            Bounding box of the image.  The default is to include just the
+            bounding box of the valid cells, which may not cover a full patch.
         """
         from lsst.geom import Box2I
 
-        legacy_bbox = Box2I()
-        for single_cell in legacy.cells.values():
-            legacy_bbox.include(single_cell.inner.bbox)
+        if plane_map is None:
+            plane_map = get_legacy_deep_coadd_mask_planes()
+        if bbox is None:
+            legacy_bbox = Box2I()
+            for single_cell in legacy.cells.values():
+                legacy_bbox.include(single_cell.inner.bbox)
+        else:
+            legacy_bbox = bbox.to_legacy()
         legacy_stitched = legacy.stitch(legacy_bbox)
         unit = astropy.units.Unit(legacy.units.value)
         tract_bbox = Box.from_legacy(tract_info.getBBox())
-        projection = Projection.from_legacy(
+        sky_projection = SkyProjection.from_legacy(
             legacy.wcs,
             TractFrame(
                 skymap=legacy.identifiers.skymap,
@@ -375,6 +449,10 @@ class CellCoadd(MaskedImage):
             else {}
         )
         psf = CellPointSpreadFunction.from_legacy(legacy_stitched.psf, image.bbox)
+        aperture_corrections = {
+            ap_corr_name: CellField.from_legacy_aperture_correction(legacy_ap_corr, psf.bounds)
+            for ap_corr_name, legacy_ap_corr in legacy_stitched.ap_corr_map.items()
+        }
         patch_info = tract_info[legacy.identifiers.patch]
         patch = PatchDefinition(
             id=patch_info.getSequentialIndex(),
@@ -389,12 +467,157 @@ class CellCoadd(MaskedImage):
             variance=variance,
             mask_fractions=mask_fractions,
             noise_realizations=noise_realizations,
-            projection=projection,
+            sky_projection=sky_projection,
             band=band,
             psf=psf,
+            aperture_corrections=aperture_corrections,
             patch=patch,
             provenance=provenance,
         )
+
+    def to_legacy(
+        self, copy: bool | None = None, plane_map: Mapping[str, MaskPlane] | None = None
+    ) -> LegacyMultipleCellCoadd:
+        """Convert to a `lsst.cell_coadds.MultipleCellCoadd` instance.
+
+        Parameters
+        ----------
+        copy
+            If `True`, always copy the image and variance pixel data.
+            If `False`, return a view, and raise `TypeError` if the pixel data
+            is read-only (this is not supported by afw).  If `None`, only copy
+            if the pixel data is read-only.  Mask pixel data is always copied.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
+        """
+        from frozendict import frozendict  # type: ignore[import-not-found]
+
+        from lsst.cell_coadds import CellIdentifiers as LegacyCellIdentifiers
+        from lsst.cell_coadds import CoaddUnits as LegacyCoaddUnits
+        from lsst.cell_coadds import CommonComponents as LegacyCommonComponents
+        from lsst.cell_coadds import MultipleCellCoadd as LegacyMultipleCellCoadd
+        from lsst.cell_coadds import OwnedImagePlanes as LegacyOwnedImagePlanes
+        from lsst.cell_coadds import PatchIdentifiers as LegacyPatchIdentifiers
+        from lsst.cell_coadds import SingleCellCoadd as LegacySingleCellCoadd
+        from lsst.skymap import Index2D as LegacyIndex2D
+
+        if plane_map is None:
+            plane_map = get_legacy_deep_coadd_mask_planes()
+        if self.unit != astropy.units.nJy:
+            raise ValueError("CellCoadd.to_legacy requires nJy pixel units.")
+        legacy_grid = self.grid.to_legacy()
+        visit_polygons = self.provenance.to_legacy_polygon_map()
+        legacy_common = LegacyCommonComponents(
+            units=LegacyCoaddUnits.nJy,
+            wcs=self.sky_projection.to_legacy(),
+            band=self.band,
+            identifiers=LegacyPatchIdentifiers(
+                self.skymap,
+                self.tract,
+                LegacyIndex2D(x=self.patch.index.x, y=self.patch.index.y),
+                band=self.band,
+            ),
+            visit_polygons=visit_polygons,
+        )
+        legacy_inputs = self.provenance.to_legacy_cell_coadd_inputs(visit_polygons.keys())
+        cells: list[LegacySingleCellCoadd] = []
+        for cell_index in self.bounds.cell_indices():
+            cell_bbox = self.grid.bbox_of(cell_index)
+            # Legacy type only has room for one mask_fractions plane.
+            legacy_mask_fractions = (
+                next(iter(self.mask_fractions.values()))[cell_bbox].to_legacy(copy=copy)
+                if self.mask_fractions
+                else None
+            )
+            legacy_planes = LegacyOwnedImagePlanes(
+                image=self.image[cell_bbox].to_legacy(copy=copy),
+                mask=self.mask[cell_bbox].to_legacy(plane_map),
+                variance=self.variance[cell_bbox].to_legacy(copy=copy),
+                mask_fractions=legacy_mask_fractions,
+                noise_realizations=[n[cell_bbox].to_legacy(copy=copy) for n in self.noise_realizations],
+            )
+            legacy_aperture_correction_map = frozendict(
+                {name: field.value_in_cell(cell_index) for name, field in self.aperture_corrections.items()}
+            )
+            cells.append(
+                LegacySingleCellCoadd(
+                    legacy_planes,
+                    psf=self.psf[cell_index].to_legacy(copy=copy),
+                    inner_bbox=cell_bbox.to_legacy(),
+                    common=legacy_common,
+                    inputs=legacy_inputs[cell_index.to_legacy()],
+                    identifiers=LegacyCellIdentifiers(
+                        self.skymap,
+                        self.tract,
+                        legacy_common.identifiers.patch,
+                        band=self.band,
+                        cell=cell_index.to_legacy(),
+                    ),
+                    aperture_correction_map=legacy_aperture_correction_map,
+                )
+            )
+        return LegacyMultipleCellCoadd(
+            cells,
+            legacy_grid,
+            outer_cell_size=self.grid.cell_shape.to_legacy_extent(),
+            psf_image_size=self.psf.kernel_bbox.shape.to_legacy_extent(),
+            common=legacy_common,
+            inner_bbox=self.bbox.to_legacy(),
+        )
+
+    def to_legacy_exposure(
+        self, copy: bool | None = None, plane_map: Mapping[str, MaskPlane] | None = None
+    ) -> LegacyExposure:
+        """Convert to a `lsst.afw.image.Exposure` instance.
+
+        Parameters
+        ----------
+        copy
+            If `True`, always copy the image and variance pixel data.
+            If `False`, return a view, and raise `TypeError` if the pixel data
+            is read-only (this is not supported by afw).  If `None`, only copy
+            if the pixel data is read-only.  Mask pixel data is always copied.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
+
+        Returns
+        -------
+        `lsst.afw.image.Exposure`
+            A legacy representation of the coadd.  This will have its ``wcs``,
+            ``psf``, ``filter``, ``photoCalib``, and ``metadata`` components
+            set.  The ``apCorrMap`` component is not set, because there is no
+            true `lsst.afw.math.BoundedField` representation for cell-coadd
+            aperture corrections, and the ``coaddInputs`` component is not set
+            because that data structure cannot fully capture cell-coadd
+            provenance.
+
+        Notes
+        -----
+        This method requires the `provenance` attribute to have been populated
+        at construction.
+        """
+        from lsst.afw.image import Exposure as LegacyExposure
+        from lsst.afw.image import FilterLabel as LegacyFilterLabel
+
+        if plane_map is None:
+            plane_map = get_legacy_deep_coadd_mask_planes()
+        legacy_masked_image = super().to_legacy(copy=copy, plane_map=plane_map)
+        result = LegacyExposure(legacy_masked_image, dtype=self.image.array.dtype)
+        result_info = result.info
+        result_info.setWcs(self.sky_projection.to_legacy())
+        result_info.setPsf(self.psf.to_legacy())
+        result_info.setFilter(LegacyFilterLabel.fromBand(self.band))
+        result_info.setPhotoCalib(BaseField.make_legacy_photo_calib(self.unit))
+        # We don't do setCoaddInputs because that data structure can't really
+        # represent cell-coadd provenance accurately, and it's not clear
+        # anything would use it.
+        self._fill_legacy_metadata(result_info.getMetadata())
+        # We can't do setApCorrMap because the legacy
+        # StitchedApertureCorrection is not a real C++ BoundedField, just a
+        # Python duck-alike.
+        return result
 
 
 class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializationModel[P]):
@@ -416,7 +639,7 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
     variance: ImageSerializationModel[P] = pydantic.Field(
         description="Per-pixel variance estimates for the main image."
     )
-    projection: ProjectionSerializationModel[P] = pydantic.Field(
+    sky_projection: SkyProjectionSerializationModel[P] = pydantic.Field(
         description="Projection that maps the pixel grid to the sky.",
     )
     mask_fractions: dict[str, ImageSerializationModel[P]] = pydantic.Field(
@@ -432,6 +655,9 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
     band: str | None = pydantic.Field(description="Name of the band.")
     psf: CellPointSpreadFunctionSerializationModel = pydantic.Field(
         description="Effective point-spread function model for the coadd."
+    )
+    aperture_corrections: CellApertureCorrectionMapSerializationModel | None = pydantic.Field(
+        None, description="Coadded aperture corrections for different photometry algorithms."
     )
     patch: PatchDefinition | None = pydantic.Field(description="Identifiers and geometry for the patch.")
     provenance: CoaddProvenanceSerializationModel | None = pydantic.Field(
@@ -471,8 +697,11 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
             k.removeprefix("mask_fractions/"): v.deserialize(archive) for k, v in self.mask_fractions.items()
         }
         noise_realizations = [v.deserialize(archive) for v in self.noise_realizations]
-        projection = self.projection.deserialize(archive)
+        sky_projection = self.sky_projection.deserialize(archive)
         psf = self.psf.deserialize(archive, bbox=bbox)
+        aperture_corrections = (
+            self.aperture_corrections.deserialize(archive) if self.aperture_corrections is not None else {}
+        )
         coadd_provenance: CoaddProvenance | None = None
         if self.provenance is not None and provenance:
             coadd_provenance = self.provenance.deserialize(archive)
@@ -485,9 +714,10 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
             variance=masked_image.variance,
             mask_fractions=mask_fractions,
             noise_realizations=noise_realizations,
-            projection=projection,
+            sky_projection=sky_projection,
             band=self.band,
             psf=psf,
+            aperture_corrections=aperture_corrections,
             patch=self.patch,
             provenance=coadd_provenance,
             backgrounds=backgrounds,
@@ -502,4 +732,7 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
                 }
             case "noise_realizations":
                 return [image_model.deserialize(archive, **kwargs) for image_model in self.noise_realizations]
+            case "aperture_corrections" if self.aperture_corrections is None:
+                # super() delegation handles the not-None case.
+                return {}
         return super().deserialize_component(component, archive, **kwargs)

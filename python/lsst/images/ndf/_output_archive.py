@@ -116,7 +116,7 @@ def write(
             tree.butler_info = butler_info
         archive.add_tree(
             tree,
-            projection=getattr(obj, "projection", None),
+            sky_projection=getattr(obj, "sky_projection", None),
             bbox=getattr(obj, "bbox", None),
             unit=getattr(obj, "unit", None),
             root_name=archive_default_name or type(obj).__name__,
@@ -341,7 +341,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         self,
         tree: ArchiveTree,
         *,
-        projection: Any = None,
+        sky_projection: Any = None,
         bbox: Any = None,
         unit: astropy.units.UnitBase | None = None,
         root_name: str | None = None,
@@ -349,27 +349,27 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         """Finalize the file: write WCS, units, JSON tree, and ORIGIN.
 
         Writes the canonical NDF ``/WCS`` HDS structure (an AST channel
-        text dump that KAPPA / hdstrace expect) when ``projection`` is
+        text dump that KAPPA / hdstrace expect) when ``sky_projection`` is
         provided. A native mask sub-NDF at ``/MORE/LSST/MASK`` gets a 3D
         WCS whose first two axes reuse the parent's sky projection and
         whose third axis is the mask-byte coordinate. The JSON tree at
         ``<lsst_path>/JSON`` remains the source of truth for symmetric
         round-trips; ``/WCS`` is for Starlink tools. Auto-detect read of
-        ``/WCS/DATA`` into a typed ``Projection`` is a follow-up.
+        ``/WCS/DATA`` into a typed ``SkyProjection`` is a follow-up.
 
         Parameters
         ----------
         tree
             Pydantic tree returned by the object's ``serialize`` method,
             with ``metadata``/``butler_info`` already applied.
-        projection, bbox, unit
+        sky_projection, bbox, unit
             Top-level object attributes that drive NDF-canonical writes.
         root_name
             Value to assign to the root group's ``HDS_ROOT_NAME``
             attribute (fixed-length ASCII so KAPPA / hdstrace decode it).
         """
-        if projection is not None:
-            self._write_wcs(projection, bbox)
+        if sky_projection is not None:
+            self._write_wcs(sky_projection, bbox)
         if unit is not None and isinstance(self._document.root, Ndf):
             self._document.ensure_ndf("/").set_units(_unit_to_ndf_string(unit))
         json_text = tree.model_dump_json()
@@ -396,8 +396,8 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             self._document.root_name = root_name
         self._flush()
 
-    def _write_wcs(self, projection: Any, bbox: Any) -> None:
-        ast_frame_set = projection._pixel_to_sky._get_ast_frame_set()
+    def _write_wcs(self, sky_projection: Any, bbox: Any) -> None:
+        ast_frame_set = sky_projection._pixel_to_sky._get_ast_frame_set()
         text = _show_ast_for_ndf(ast_frame_set, bbox)
         lines = _hds.encode_ndf_ast_data(text)
         for ndf_path in self._wcs_ndf_paths:
@@ -407,7 +407,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             mask_origin = _origin_from_bbox(bbox) if bbox is not None else (0, 0)
             mask_ndim = self._model_array_ndim("/MORE/LSST/MASK/DATA_ARRAY")
             mask_origin = (*mask_origin, *((0,) * max(0, mask_ndim - len(mask_origin))))
-            mask_ast_frame_set = projection._pixel_to_sky._get_ast_frame_set()
+            mask_ast_frame_set = sky_projection._pixel_to_sky._get_ast_frame_set()
             mask_text = _show_mask_ast_for_ndf(
                 mask_ast_frame_set,
                 mask_origin,
@@ -415,7 +415,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             )
             self._document.ensure_ndf("/MORE/LSST/MASK").set_wcs(NdfWcs(_hds.encode_ndf_ast_data(mask_text)))
 
-    def serialize_direct[T: pydantic.BaseModel](
+    def serialize_direct[T: pydantic.BaseModel | None](
         self, name: str, serializer: Callable[[OutputArchive[NdfPointerModel]], T]
     ) -> T:
         nested = NestedOutputArchive[NdfPointerModel](name, self)
@@ -465,6 +465,8 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        tile_shape: tuple[int, ...] | None = None,
+        options_name: str | None = None,
     ) -> ArrayReferenceModel:
         # Recognised top-level names go to standard NDF locations.
         # Anything else hoists under /MORE/LSST.

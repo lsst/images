@@ -27,14 +27,17 @@ from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, Ou
 
 if TYPE_CHECKING:
     try:
-        from lsst.cell_coadds import CoaddInputs as LegacyCoaddInputs
-        from lsst.cell_coadds import MultipleCellCoadd, ObservationIdentifiers
-        from lsst.skymap import Index2D
+        from lsst.afw.geom import Polygon as LegacyPolygon
+        from lsst.cell_coadds import CoaddInputs as LegacyCellCoaddInputs
+        from lsst.cell_coadds import MultipleCellCoadd as LegacyMultipleCellCoadd
+        from lsst.cell_coadds import ObservationIdentifiers as LegacyObservationIdentifiers
+        from lsst.skymap import Index2D as LegacyIndex2D
     except ImportError:
-        type Index2D = Any  # type: ignore[no-redef]
-        type LegacyCoaddInputs = Any  # type: ignore[no-redef]
-        type MultipleCellCoadd = Any  # type: ignore[no-redef]
-        type ObservationIdentifiers = Any  # type: ignore[no-redef]
+        type LegacyIndex2D = Any  # type: ignore[no-redef]
+        type LegacyCellCoaddInputs = Any  # type: ignore[no-redef]
+        type LegacyPolygon = Any  # type: ignore[no-redef]
+        type LegacyMultipleCellCoadd = Any  # type: ignore[no-redef]
+        type LegacyObservationIdentifiers = Any  # type: ignore[no-redef]
 
 
 class CoaddProvenance:
@@ -85,6 +88,7 @@ class CoaddProvenance:
         ("detector", np.uint16, "ID of the detector.", None),
         ("overlaps_center", np.bool_, "Whether a this observation overlaps the center of the cell.", None),
         ("overlap_fraction", np.float64, "Fraction of the cell that is covered by the overlap region.", None),
+        ("unmasked_fraction", np.float64, "Fraction of the cell propagated to the coadd.", None),
         ("weight", np.float64, "Weight to be used for this input in this cell.", None),
         ("psf_shape_xx", np.float64, "Second order moments of the PSF.", u.pix**2),
         ("psf_shape_yy", np.float64, "Second order moments of the PSF.", u.pix**2),
@@ -176,7 +180,7 @@ class CoaddProvenance:
         )
 
     @staticmethod
-    def from_legacy(legacy_cell_coadd: MultipleCellCoadd) -> CoaddProvenance:
+    def from_legacy(legacy_cell_coadd: LegacyMultipleCellCoadd) -> CoaddProvenance:
         """Extract provenance from a legacy
         `lsst.cell_coadds.MultipleCellCoadd` object.
         """
@@ -204,6 +208,7 @@ class CoaddProvenance:
                 contributions["detector"][n] = legacy_identifiers.detector
                 contributions["overlaps_center"][n] = legacy_inputs.overlaps_center
                 contributions["overlap_fraction"][n] = legacy_inputs.overlap_fraction
+                contributions["unmasked_fraction"][n] = legacy_inputs.unmasked_overlap_fraction
                 contributions["weight"][n] = legacy_inputs.weight
                 contributions["psf_shape_xx"][n] = legacy_inputs.psf_shape.getIxx()
                 contributions["psf_shape_yy"][n] = legacy_inputs.psf_shape.getIyy()
@@ -211,6 +216,54 @@ class CoaddProvenance:
                 contributions["psf_shape_flag"][n] = legacy_inputs.psf_shape_flag
                 n += 1
         return CoaddProvenance(inputs=inputs, contributions=contributions)
+
+    def to_legacy_polygon_map(self) -> dict[LegacyObservationIdentifiers, LegacyPolygon]:
+        """Construct a legacy mapping from
+        `lsst.cell_coadds.ObservationIdentifiers` to `lsst.afw.geom.Polygon`
+        from the `inputs` table.
+        """
+        from lsst.cell_coadds import ObservationIdentifiers as LegacyObservationIdentifiers
+
+        return {
+            LegacyObservationIdentifiers(
+                instrument=str(row["instrument"]),
+                physical_filter=str(row["physical_filter"]),
+                visit=int(row["visit"]),
+                day_obs=int(row["day_obs"]),
+                detector=int(row["detector"]),
+            ): row["polygon"].to_legacy()
+            for row in self.inputs
+        }
+
+    def to_legacy_cell_coadd_inputs(
+        self, observations: Iterable[LegacyObservationIdentifiers] | None
+    ) -> dict[LegacyIndex2D, dict[LegacyObservationIdentifiers, LegacyCellCoaddInputs]]:
+        """Construct a mapping from legacy cell index to the list of legacy
+        input structs for that cell.
+        """
+        from lsst.afw.geom.ellipses import Quadrupole
+        from lsst.cell_coadds import CoaddInputs as LegacyCoaddInputs
+        from lsst.skymap import Index2D as LegacyIndex2D
+
+        if observations is None:
+            observations = self.to_legacy_polygon_map().keys()
+        observations_by_key: dict[tuple[str, int, int], LegacyObservationIdentifiers] = {
+            (obs.instrument, obs.visit, obs.detector): obs for obs in observations
+        }
+        result: dict[LegacyIndex2D, dict[LegacyObservationIdentifiers, LegacyCoaddInputs]] = {}
+        for row in self.contributions:
+            obs_key = (str(row["instrument"]), int(row["visit"]), int(row["detector"]))
+            obs = observations_by_key[obs_key]
+            cell_inputs = result.setdefault(LegacyIndex2D(x=int(row["cell_j"]), y=int(row["cell_i"])), {})
+            cell_inputs[obs] = LegacyCoaddInputs(
+                overlaps_center=bool(row["overlaps_center"]),
+                overlap_fraction=float(row["overlap_fraction"]),
+                unmasked_overlap_fraction=float(row["unmasked_fraction"]),
+                weight=float(row["weight"]),
+                psf_shape=Quadrupole(row["psf_shape_xx"], row["psf_shape_yy"], row["psf_shape_xy"]),
+                psf_shape_flag=bool(row["psf_shape_flag"]),
+            )
+        return result
 
 
 class CoaddProvenanceSerializationModel(ArchiveTree):

@@ -26,7 +26,7 @@ from lsst.images import (
     CameraFrameSetSerializationModel,
     DetectorFrame,
     FocalPlaneFrame,
-    Projection,
+    SkyProjection,
     Transform,
     TransformSerializationModel,
 )
@@ -37,7 +37,7 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
     check_transform,
-    compare_projection_to_legacy_wcs,
+    compare_sky_projection_to_legacy_wcs,
     legacy_points_to_xy_array,
 )
 
@@ -45,7 +45,7 @@ DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
 
 class TransformTestCase(unittest.TestCase):
-    """Tests for the Transform, Projection, and FrameSet classes."""
+    """Tests for the Transform, SkyProjection, and FrameSet classes."""
 
     def test_identity(self) -> None:
         """Test an identity transform."""
@@ -174,7 +174,9 @@ class TransformTestCase(unittest.TestCase):
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_detector_wcs(self) -> None:
-        """Test the Transform/Projection representation of a detector WCS."""
+        """Test the Transform/SkyProjection representation of a detector
+        WCS.
+        """
         try:
             from lsst.afw.image import ExposureFitsReader
         except ImportError:
@@ -186,35 +188,37 @@ class TransformTestCase(unittest.TestCase):
         wcs_bbox = Box.from_legacy(reader.readDetector().getBBox())
         subimage_bbox = Box.from_legacy(reader.readBBox())
         detector_frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=wcs_bbox)
-        projection = Projection.from_legacy(legacy_wcs, detector_frame)
-        assert projection.fits_approximation is not None
-        compare_projection_to_legacy_wcs(self, projection, legacy_wcs, detector_frame, subimage_bbox)
+        sky_projection = SkyProjection.from_legacy(legacy_wcs, detector_frame)
+        assert sky_projection.fits_approximation is not None
+        compare_sky_projection_to_legacy_wcs(self, sky_projection, legacy_wcs, detector_frame, subimage_bbox)
         # When we convert from a legacy SkyWcs, the internal AST Mapping needs
         # to really be an AST FrameSet in order to be able to convert back.
-        self.assertIn("Begin FrameSet", projection.show())
-        compare_projection_to_legacy_wcs(
-            self, projection, projection.to_legacy(), detector_frame, subimage_bbox
+        self.assertIn("Begin FrameSet", sky_projection.show())
+        compare_sky_projection_to_legacy_wcs(
+            self, sky_projection, sky_projection.to_legacy(), detector_frame, subimage_bbox
         )
-        self.assertIn("Begin FrameSet", projection.fits_approximation.show())
-        compare_projection_to_legacy_wcs(
+        self.assertIn("Begin FrameSet", sky_projection.fits_approximation.show())
+        compare_sky_projection_to_legacy_wcs(
             self,
-            projection.fits_approximation,
-            projection.fits_approximation.to_legacy(),
+            sky_projection.fits_approximation,
+            sky_projection.fits_approximation.to_legacy(),
             detector_frame,
             subimage_bbox,
             is_fits=True,
         )
-        with RoundtripJson(self, projection, "Projection") as roundtrip:
+        with RoundtripJson(self, sky_projection, "SkyProjection") as roundtrip:
             pass
-        compare_projection_to_legacy_wcs(self, roundtrip.result, legacy_wcs, detector_frame, subimage_bbox)
+        compare_sky_projection_to_legacy_wcs(
+            self, roundtrip.result, legacy_wcs, detector_frame, subimage_bbox
+        )
         # The AST FrameSet-ness needs to propagate through serialization.
         self.assertIn("Begin FrameSet", roundtrip.result.show())
-        compare_projection_to_legacy_wcs(
-            self, projection, roundtrip.result.to_legacy(), detector_frame, subimage_bbox
+        compare_sky_projection_to_legacy_wcs(
+            self, sky_projection, roundtrip.result.to_legacy(), detector_frame, subimage_bbox
         )
-        with RoundtripJson(self, projection.fits_approximation, "Projection") as roundtrip:
+        with RoundtripJson(self, sky_projection.fits_approximation, "SkyProjection") as roundtrip:
             pass
-        compare_projection_to_legacy_wcs(
+        compare_sky_projection_to_legacy_wcs(
             self,
             roundtrip.result,
             legacy_wcs.getFitsApproximation(),
@@ -223,9 +227,9 @@ class TransformTestCase(unittest.TestCase):
             is_fits=True,
         )
         self.assertIn("Begin FrameSet", roundtrip.result.show())
-        compare_projection_to_legacy_wcs(
+        compare_sky_projection_to_legacy_wcs(
             self,
-            projection.fits_approximation,
+            sky_projection.fits_approximation,
             roundtrip.result.to_legacy(),
             detector_frame,
             subimage_bbox,

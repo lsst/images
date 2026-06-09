@@ -20,6 +20,7 @@ import numpy as np
 
 from lsst.images import YX, Box, Interval, get_legacy_deep_coadd_mask_planes
 from lsst.images.cells import CellCoadd, CellIJ
+from lsst.images.fits import FitsCompressionOptions
 from lsst.images.tests import (
     DP2_COADD_DATA_ID,
     DP2_COADD_MISSING_CELL,
@@ -29,6 +30,9 @@ from lsst.images.tests import (
     assert_masked_images_equal,
     assert_psfs_equal,
     compare_cell_coadd_to_legacy,
+    compare_masked_image_to_legacy,
+    compare_psf_to_legacy,
+    compare_sky_projection_to_legacy_wcs,
 )
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
@@ -129,12 +133,26 @@ class CellCoaddTestCase(unittest.TestCase):
                 self.assertEqual(roundtrip.get("bbox"), self.cell_coadd.bbox)
                 alternates = {
                     k: roundtrip.get(k)
-                    for k in ["projection", "image", "mask", "variance", "psf", "provenance"]
+                    for k in [
+                        "sky_projection",
+                        "image",
+                        "mask",
+                        "variance",
+                        "psf",
+                        "aperture_corrections",
+                        "provenance",
+                    ]
                 }
                 with self.subTest():
                     backgrounds = roundtrip.get("backgrounds")
                     self.assertEqual(backgrounds.keys(), set())
                     self.assertIsNone(backgrounds.subtracted)
+            with roundtrip.inspect() as fits:
+                for extname in ["IMAGE", "MASK", "VARIANCE", "MASK_FRACTIONS/REJECTED"] + [
+                    f"NOISE_REALIZATIONS/{n}" for n in range(len(self.cell_coadd.noise_realizations))
+                ]:
+                    self.assertEqual(fits[extname].header["ZTILE1"], self.cell_coadd.grid.cell_shape.x)
+                    self.assertEqual(fits[extname].header["ZTILE2"], self.cell_coadd.grid.cell_shape.y)
         # Fixture self-consistency: bbox and missing-cell set are what setUp
         # claims they are.
         self.assertEqual(self.cell_coadd.bounds.missing, {self.missing_cell})
@@ -151,6 +169,31 @@ class CellCoaddTestCase(unittest.TestCase):
             psf_points=self.psf_points,
         )
 
+    def test_fits_compression(self) -> None:
+        """Test writing with quantized FITS compression."""
+        with RoundtripFits(
+            self,
+            self.cell_coadd,
+            storage_class="CellCoadd",
+            recipe="lossy16",
+            compression_options={
+                "image": FitsCompressionOptions.LOSSY,
+                "variance": FitsCompressionOptions.LOSSY,
+            },
+        ) as roundtrip:
+            with roundtrip.inspect() as fits:
+                for extname in ["IMAGE", "MASK", "VARIANCE", "MASK_FRACTIONS/REJECTED"] + [
+                    f"NOISE_REALIZATIONS/{n}" for n in range(len(self.cell_coadd.noise_realizations))
+                ]:
+                    with self.subTest(extname=extname):
+                        self.assertEqual(fits[extname].header["ZTILE1"], self.cell_coadd.grid.cell_shape.x)
+                        self.assertEqual(fits[extname].header["ZTILE2"], self.cell_coadd.grid.cell_shape.y)
+                        if extname == "MASK" or extname.startswith("MASK_FRACTIONS"):
+                            self.assertEqual(fits[extname].header["ZCMPTYPE"], "GZIP_2")
+                        else:
+                            self.assertEqual(fits[extname].header["ZCMPTYPE"], "RICE_1")
+                            self.assertEqual(fits[extname].header["ZQUANTIZ"], "SUBTRACTIVE_DITHER_2")
+
     def test_fits_json_consistency(self) -> None:
         """FITS and JSON backends produce equal CellCoadds on round-trip."""
         with (
@@ -160,6 +203,43 @@ class CellCoaddTestCase(unittest.TestCase):
             assert_cell_coadds_equal(self, self.cell_coadd, fits_rt.result, expect_view=False)
             assert_cell_coadds_equal(self, self.cell_coadd, json_rt.result, expect_view=False)
             assert_cell_coadds_equal(self, fits_rt.result, json_rt.result, expect_view=False)
+
+    def test_to_legacy(self) -> None:
+        """Test converting a CellCoadd back into a legacy MultipleCellCoadd."""
+        legacy_cell_coadd = self.cell_coadd.to_legacy()
+        compare_cell_coadd_to_legacy(
+            self,
+            self.cell_coadd,
+            legacy_cell_coadd,
+            tract_bbox=Box.from_legacy(self.skymap[DP2_COADD_DATA_ID["tract"]].getBBox()),
+            plane_map=self.plane_map,
+            psf_points=self.psf_points,
+        )
+
+    def test_to_legacy_exposure(self) -> None:
+        """Test converting a CellCoadd back into a legacy Exposure."""
+        legacy_exposure = self.cell_coadd.to_legacy_exposure()
+
+        self.assertEqual(legacy_exposure.getFilter().bandLabel, self.cell_coadd.band)
+        self.assertEqual(Box.from_legacy(legacy_exposure.getBBox()), self.cell_coadd.bbox)
+        compare_masked_image_to_legacy(
+            self, self.cell_coadd, legacy_exposure.maskedImage, plane_map=self.plane_map, expect_view=True
+        )
+        compare_psf_to_legacy(
+            self,
+            self.cell_coadd.psf,
+            legacy_exposure.getPsf(),
+            points=self.psf_points,
+            expect_legacy_raise_on_out_of_bounds=True,
+        )
+        compare_sky_projection_to_legacy_wcs(
+            self,
+            self.cell_coadd.sky_projection,
+            legacy_exposure.getWcs(),
+            self.cell_coadd.sky_projection.pixel_frame,
+            subimage_bbox=self.cell_coadd.bbox,
+            is_fits=True,
+        )
 
 
 if __name__ == "__main__":

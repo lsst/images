@@ -24,13 +24,13 @@ import pydantic
 from ._generalized_image import GeneralizedImage
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
-from ._transforms import Projection, ProjectionSerializationModel
+from ._transforms import SkyProjection, SkyProjectionSerializationModel
 from .serialization import ArchiveTree, InputArchive, InvalidParameterError, MetadataValue, OutputArchive
 from .utils import is_none
 
 
 class ColorImage(GeneralizedImage):
-    """An RGB image with an optional `Projection`.
+    """An RGB image with an optional `SkyProjection`.
 
     Parameters
     ----------
@@ -39,11 +39,11 @@ class ColorImage(GeneralizedImage):
         the shape of the third dimension equal to three.
     bbox
         Bounding box for the image.
-    start
+    yx0
         Logical coordinates of the first pixel in the array, ordered ``y``,
         ``x`` (unless an `XY` instance is passed).  Ignored if
         ``bbox`` is provided.  Defaults to zeros.
-    projection
+    sky_projection
         Projection that maps the pixel grid to the sky.
     metadata
         Arbitrary flexible metadata to associate with the image.
@@ -55,21 +55,21 @@ class ColorImage(GeneralizedImage):
         /,
         *,
         bbox: Box | None = None,
-        start: Sequence[int] | None = None,
-        projection: Projection[Any] | None = None,
+        yx0: Sequence[int] | None = None,
+        sky_projection: SkyProjection[Any] | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ):
         super().__init__(metadata)
         if bbox is None:
-            bbox = Box.from_shape(array.shape[:2], start=start)
+            bbox = Box.from_shape(array.shape[:2], start=yx0)
         elif bbox.shape + (3,) != array.shape:
             raise ValueError(
                 f"Shape from bbox {bbox.shape + (3,)} does not match array with shape {array.shape}."
             )
         self._array = array
-        self._red = Image(self._array[..., 0], bbox=bbox, projection=projection)
-        self._green = Image(self._array[..., 1], bbox=bbox, projection=projection)
-        self._blue = Image(self._array[..., 2], bbox=bbox, projection=projection)
+        self._red = Image(self._array[..., 0], bbox=bbox, sky_projection=sky_projection)
+        self._green = Image(self._array[..., 1], bbox=bbox, sky_projection=sky_projection)
+        self._blue = Image(self._array[..., 2], bbox=bbox, sky_projection=sky_projection)
 
     @staticmethod
     def from_channels(
@@ -77,20 +77,20 @@ class ColorImage(GeneralizedImage):
         g: Image,
         b: Image,
         *,
-        projection: Projection[Any] | None = None,
+        sky_projection: SkyProjection[Any] | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ) -> ColorImage:
         """Construct from separate RGB images.
 
-        All channels are assumed to have the same bounding box, projection,
+        All channels are assumed to have the same bounding box, sky_projection,
         and pixel type.
         """
-        if projection is None and r.projection is not None:
-            projection = r.projection
+        if sky_projection is None and r.sky_projection is not None:
+            sky_projection = r.sky_projection
         return ColorImage(
             np.stack([r.array, g.array, b.array], axis=2),
             bbox=r.bbox,
-            projection=projection,
+            sky_projection=sky_projection,
             metadata=metadata,
         )
 
@@ -120,11 +120,11 @@ class ColorImage(GeneralizedImage):
         return self._red.bbox
 
     @property
-    def projection(self) -> Projection[Any] | None:
+    def sky_projection(self) -> SkyProjection[Any] | None:
         """The projection that maps the pixel grid to the sky
-        (`Projection` | `None`).
+        (`SkyProjection` | `None`).
         """
-        return self._red.projection
+        return self._red.sky_projection
 
     def __getitem__(self, bbox: Box | EllipsisType) -> ColorImage:
         super().__getitem__(bbox)
@@ -134,7 +134,7 @@ class ColorImage(GeneralizedImage):
             ColorImage(
                 self.array[bbox.slice_within(self.bbox) + (slice(None),)],
                 bbox=bbox,
-                projection=self.projection,
+                sky_projection=self.sky_projection,
             ),
             bbox=bbox,
         )
@@ -151,7 +151,7 @@ class ColorImage(GeneralizedImage):
     def copy(self) -> ColorImage:
         """Deep-copy the image."""
         return self._transfer_metadata(
-            ColorImage(self._array.copy(), bbox=self.bbox, projection=self.projection), copy=True
+            ColorImage(self._array.copy(), bbox=self.bbox, sky_projection=self.sky_projection), copy=True
         )
 
     def serialize(self, archive: OutputArchive[Any]) -> ColorImageSerializationModel:
@@ -166,12 +166,12 @@ class ColorImage(GeneralizedImage):
         g = archive.serialize_direct("green", functools.partial(self.green.serialize, save_projection=False))
         b = archive.serialize_direct("blue", functools.partial(self.blue.serialize, save_projection=False))
         serialized_projection = (
-            archive.serialize_direct("projection", self.projection.serialize)
-            if self.projection is not None
+            archive.serialize_direct("sky_projection", self.sky_projection.serialize)
+            if self.sky_projection is not None
             else None
         )
         return ColorImageSerializationModel(
-            red=r, green=g, blue=b, projection=serialized_projection, metadata=self.metadata
+            red=r, green=g, blue=b, sky_projection=serialized_projection, metadata=self.metadata
         )
 
     @staticmethod
@@ -195,7 +195,7 @@ class ColorImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     red: ImageSerializationModel[P] = pydantic.Field(description="The red channel.")
     green: ImageSerializationModel[P] = pydantic.Field(description="The green channel.")
     blue: ImageSerializationModel[P] = pydantic.Field(description="The blue channel")
-    projection: ProjectionSerializationModel[P] | None = pydantic.Field(
+    sky_projection: SkyProjectionSerializationModel[P] | None = pydantic.Field(
         default=None,
         exclude_if=is_none,
         description="Projection that maps the pixel grid to the sky.",
@@ -226,5 +226,5 @@ class ColorImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         r = self.red.deserialize(archive, bbox=bbox)
         g = self.green.deserialize(archive, bbox=bbox)
         b = self.blue.deserialize(archive, bbox=bbox)
-        projection = self.projection.deserialize(archive) if self.projection is not None else None
-        return ColorImage.from_channels(r, g, b, projection=projection)._finish_deserialize(self)
+        sky_projection = self.sky_projection.deserialize(archive) if self.sky_projection is not None else None
+        return ColorImage.from_channels(r, g, b, sky_projection=sky_projection)._finish_deserialize(self)

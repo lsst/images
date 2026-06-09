@@ -58,7 +58,7 @@ class LegacyConversionTestCase(unittest.TestCase):
         self.assertEqual(b, d)
 
     def test_image(self) -> None:
-        i = Image(self.rng.normal(100.0, 8.0, size=(200, 251)), dtype=np.float64, start=(5, 8))
+        i = Image(self.rng.normal(100.0, 8.0, size=(200, 251)), dtype=np.float64, yx0=(5, 8))
         j = i.to_legacy()
         self.assertIsInstance(j, lsst.afw.image.ImageD)
         self.assertEqual(Box.from_legacy(j.getBBox()), i.bbox)

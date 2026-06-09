@@ -176,7 +176,8 @@ class FitsCompressionOptions(pydantic.BaseModel, frozen=True):
     tile_shape: tuple[int, ...] | None = None
     """Shape ``(..., y, x)`` of independently compressed tiles.
 
-    The default of `None` compresses each row separately.
+    The default of `None` leaves the tile shape up to the ``tile_shape``
+    argument to `~lsst.images.serialization.OutputArchive.add_array`.
     """
 
     quantization: FitsQuantizationOptions | None = None

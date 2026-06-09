@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("Projection", "ProjectionAstropyView", "ProjectionSerializationModel")
+__all__ = ("SkyProjection", "SkyProjectionAstropyView", "SkyProjectionSerializationModel")
 
 import functools
 from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeVar, final
@@ -52,7 +52,7 @@ def _set_ast_skyframe_system(frame: astshim.SkyFrame, system: str) -> None:
 
 
 @final
-class Projection[F: Frame]:
+class SkyProjection[F: Frame]:
     """A transform from pixel coordinates to sky coordinates.
 
     Parameters
@@ -89,7 +89,7 @@ class Projection[F: Frame]:
         pixel_bounds: Bounds | None = None,
         x0: int = 0,
         y0: int = 0,
-    ) -> Projection[F]:
+    ) -> SkyProjection[F]:
         """Construct a transform from a FITS WCS.
 
         Parameters
@@ -119,7 +119,7 @@ class Projection[F: Frame]:
         --------
         Transform.from_fits_wcs
         """
-        return Projection(
+        return SkyProjection(
             Transform.from_fits_wcs(
                 fits_wcs, pixel_frame, SkyFrame.ICRS, in_bounds=pixel_bounds, x0=x0, y0=y0
             )
@@ -130,8 +130,8 @@ class Projection[F: Frame]:
         ast_frame_set: astshim.FrameSet,
         pixel_frame: F,
         pixel_bounds: Bounds | None = None,
-    ) -> Projection[F]:
-        """Construct a projection from an AST FrameSet.
+    ) -> SkyProjection[F]:
+        """Construct a sky projection from an AST FrameSet.
 
         The current frame of the FrameSet must be an AST SkyFrame.  Its
         coordinate system is forced to ICRS (AST adjusts the mapping
@@ -161,7 +161,7 @@ class Projection[F: Frame]:
                 f"(got {type(current_frame).__name__})."
             )
         _set_ast_skyframe_system(current_frame, "ICRS")
-        return Projection(Transform(pixel_frame, SkyFrame.ICRS, ast_frame_set, in_bounds=pixel_bounds))
+        return SkyProjection(Transform(pixel_frame, SkyFrame.ICRS, ast_frame_set, in_bounds=pixel_bounds))
 
     @property
     def pixel_frame(self) -> F:
@@ -189,11 +189,11 @@ class Projection[F: Frame]:
         return self._pixel_to_sky.inverted()
 
     @property
-    def fits_approximation(self) -> Projection[F] | None:
+    def fits_approximation(self) -> SkyProjection[F] | None:
         """An approximation to this projection that is guaranteed to have an
         `as_fits_wcs` method that does not return `None`.
         """
-        return Projection(self._fits_approximation) if self._fits_approximation is not None else None
+        return SkyProjection(self._fits_approximation) if self._fits_approximation is not None else None
 
     def show(self, simplified: bool = False, comments: bool = False) -> str:
         """Return the AST native representation of the transform.
@@ -249,8 +249,8 @@ class Projection[F: Frame]:
             y=dec.to_value(u.rad),
         )
 
-    def as_astropy(self, bbox: Box | None = None) -> ProjectionAstropyView:
-        """Return an `astropy.wcs` view of this `Projection`.
+    def as_astropy(self, bbox: Box | None = None) -> SkyProjectionAstropyView:
+        """Return an `astropy.wcs` view of this `SkyProjection`.
 
         Parameters
         ----------
@@ -265,11 +265,11 @@ class Projection[F: Frame]:
         This returns an object that satisfies the
         `astropy.wcs.wcsapi.BaseHighLevelWCS` and
         `astropy.wcs.wcsapi.BaseLowLevelWCS` interfaces while evaluating the
-        underlying `Projection` itself.  It is *not* an `astropy.wcs.WCS`
+        underlying `SkyProjection` itself.  It is *not* an `astropy.wcs.WCS`
         instance, which is a type that also satisfies those interfaces but
         only supports FITS WCS representations (see `as_fits_wcs`).
         """
-        return ProjectionAstropyView(self._pixel_to_sky._ast_mapping, bbox)
+        return SkyProjectionAstropyView(self._pixel_to_sky._ast_mapping, bbox)
 
     def as_fits_wcs(self, bbox: Box, allow_approximation: bool = False) -> astropy.wcs.WCS | None:
         """Return a FITS WCS representation of this projection, if possible.
@@ -283,7 +283,7 @@ class Projection[F: Frame]:
             first row and column in that box to be ``(0, 0)`` (in Astropy
             interfaces) or ``(1, 1)`` (in the FITS representation itself).
         allow_approximation
-            If `True` and this `Projection` holds a FITS approximation to
+            If `True` and this `SkyProjection` holds a FITS approximation to
             itself, return that approximation.
         """
         if allow_approximation and self._fits_approximation:
@@ -292,7 +292,7 @@ class Projection[F: Frame]:
 
     def serialize[P: pydantic.BaseModel](
         self, archive: OutputArchive[P], *, use_frame_sets: bool = False
-    ) -> ProjectionSerializationModel[P]:
+    ) -> SkyProjectionSerializationModel[P]:
         """Serialize a projection to an archive.
 
         Parameters
@@ -307,7 +307,7 @@ class Projection[F: Frame]:
 
         Returns
         -------
-        `ProjectionSerializationModel`
+        `SkyProjectionSerializationModel`
             Serialized form of the projection.
         """
         pixel_to_sky = archive.serialize_direct(
@@ -318,21 +318,23 @@ class Projection[F: Frame]:
             if self._fits_approximation is not None
             else None
         )
-        return ProjectionSerializationModel(pixel_to_sky=pixel_to_sky, fits_approximation=fits_approximation)
+        return SkyProjectionSerializationModel(
+            pixel_to_sky=pixel_to_sky, fits_approximation=fits_approximation
+        )
 
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
         pointer_type: type[P],
-    ) -> type[ProjectionSerializationModel[P]]:
+    ) -> type[SkyProjectionSerializationModel[P]]:
         """Return the serialization model type for this object for an archive
         type that uses the given pointer type.
         """
-        return ProjectionSerializationModel[pointer_type]  # type: ignore
+        return SkyProjectionSerializationModel[pointer_type]  # type: ignore
 
     @staticmethod
     def from_legacy(
         sky_wcs: LegacySkyWcs, pixel_frame: F, pixel_bounds: Bounds | None = None
-    ) -> Projection[F]:
+    ) -> SkyProjection[F]:
         """Construct a transform from a legacy `lsst.afw.geom.SkyWcs`.
 
         Parameters
@@ -352,7 +354,7 @@ class Projection[F: Frame]:
                 legacy_fits_approximation.getFrameDict(),
                 pixel_bounds,
             )
-        return Projection(
+        return SkyProjection(
             Transform(pixel_frame, SkyFrame.ICRS, sky_wcs.getFrameDict(), pixel_bounds),
             fits_approximation=fits_approximation,
         )
@@ -375,19 +377,19 @@ class Projection[F: Frame]:
         return legacy_wcs
 
 
-class ProjectionAstropyView(BaseLowLevelWCS, HighLevelWCSMixin):
-    """An Astropy-interface view of a `Projection`.
+class SkyProjectionAstropyView(BaseLowLevelWCS, HighLevelWCSMixin):
+    """An Astropy-interface view of a `SkyProjection`.
 
     Notes
     -----
     The constructor of this classe is considered a private implementation
-    detail; use `Projection.as_astropy` instead.
+    detail; use `SkyProjection.as_astropy` instead.
 
     This object satisfies the `astropy.wcs.wcsapi.BaseHighLevelWCS` and
     `astropy.wcs.wcsapi.BaseLowLevelWCS` interfaces while evaluating the
-    underlying `Projection` itself.  It is *not* an `astropy.wcs.WCS`
+    underlying `SkyProjection` itself.  It is *not* an `astropy.wcs.WCS`
     subclass, which is a type that also satisfies those interfaces but
-    only supports FITS WCS representations (see `Projection.as_fits_wcs`).
+    only supports FITS WCS representations (see `SkyProjection.as_fits_wcs`).
     """
 
     def __init__(self, ast_pixel_to_sky: astshim.Mapping, bbox: Box | None):
@@ -462,13 +464,13 @@ class ProjectionAstropyView(BaseLowLevelWCS, HighLevelWCSMixin):
         return _ast_apply(self._ast_pixel_to_sky.applyInverse, x=ra, y=dec)
 
 
-class ProjectionSerializationModel[P: pydantic.BaseModel](ArchiveTree):
+class SkyProjectionSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     """Serialization model for projetions."""
 
-    SCHEMA_NAME: ClassVar[str] = "projection"
+    SCHEMA_NAME: ClassVar[str] = "sky_projection"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
-    PUBLIC_TYPE: ClassVar[type] = Projection
+    PUBLIC_TYPE: ClassVar[type] = SkyProjection
 
     pixel_to_sky: TransformSerializationModel[P] = pydantic.Field(
         description="The transform that maps pixel coordinates to the sky."
@@ -481,7 +483,7 @@ class ProjectionSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         exclude_if=is_none,
     )
 
-    def deserialize(self, archive: InputArchive[P], **kwargs: Any) -> Projection[Any]:
+    def deserialize(self, archive: InputArchive[P], **kwargs: Any) -> SkyProjection[Any]:
         """Deserialize a projection from an archive.
 
         Parameters
@@ -498,4 +500,4 @@ class ProjectionSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         fits_approximation = (
             self.fits_approximation.deserialize(archive) if self.fits_approximation is not None else None
         )
-        return Projection(pixel_to_sky, fits_approximation=fits_approximation)
+        return SkyProjection(pixel_to_sky, fits_approximation=fits_approximation)

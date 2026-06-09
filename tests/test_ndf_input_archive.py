@@ -271,7 +271,7 @@ class NdfReadFunctionTestCase(unittest.TestCase):
         self.assertIsInstance(result, Image)
         self.assertEqual(result.array.shape, (611, 609))
         self.assertEqual(result.array.dtype, np.int16)
-        self.assertIsNotNone(result.projection)
+        self.assertIsNotNone(result.sky_projection)
 
     def test_read_starlink_file_recovers_opaque_fits_metadata(self):
         example_path = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")

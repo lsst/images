@@ -7,39 +7,16 @@
     "data": {
       "value": {
         "data": [
-          [
-            0.0,
-            0.0,
-            0.0,
-            0.0
-          ],
-          [
-            0.0,
-            0.0,
-            0.0,
-            0.0
-          ],
-          [
-            0.0,
-            0.0,
-            0.0,
-            0.0
-          ],
-          [
-            0.0,
-            0.0,
-            0.0,
-            0.0
-          ]
+          [0.0, 0.0, 0.0, 0.0],
+          [0.0, 0.0, 0.0, 0.0],
+          [0.0, 0.0, 0.0, 0.0],
+          [0.0, 0.0, 0.0, 0.0]
         ],
         "datatype": "float32"
       },
       "unit": "nJy"
     },
-    "start": [
-      0,
-      0
-    ],
+    "yx0": [0, 0],
     "schema_url": "https://images.lsst.io/schemas/image-1.0.0"
   },
   "mask": {
@@ -48,38 +25,15 @@
     "data": [
       {
         "data": [
-          [
-            0,
-            0,
-            0,
-            0
-          ],
-          [
-            0,
-            0,
-            0,
-            0
-          ],
-          [
-            0,
-            0,
-            0,
-            0
-          ],
-          [
-            0,
-            0,
-            0,
-            0
-          ]
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0]
         ],
         "datatype": "int32"
       }
     ],
-    "start": [
-      0,
-      0
-    ],
+    "yx0": [0, 0],
     "planes": [
       {
         "name": "BAD",
@@ -95,42 +49,19 @@
     "data": {
       "value": {
         "data": [
-          [
-            1.0,
-            1.0,
-            1.0,
-            1.0
-          ],
-          [
-            1.0,
-            1.0,
-            1.0,
-            1.0
-          ],
-          [
-            1.0,
-            1.0,
-            1.0,
-            1.0
-          ],
-          [
-            1.0,
-            1.0,
-            1.0,
-            1.0
-          ]
+          [1.0, 1.0, 1.0, 1.0],
+          [1.0, 1.0, 1.0, 1.0],
+          [1.0, 1.0, 1.0, 1.0],
+          [1.0, 1.0, 1.0, 1.0]
         ],
         "datatype": "float32"
       },
       "unit": "nJy**2"
     },
-    "start": [
-      0,
-      0
-    ],
+    "yx0": [0, 0],
     "schema_url": "https://images.lsst.io/schemas/image-1.0.0"
   },
-  "projection": {
+  "sky_projection": {
     "schema_version": "1.0.0",
     "min_read_version": 1,
     "pixel_to_sky": {
@@ -175,7 +106,7 @@
       ],
       "schema_url": "https://images.lsst.io/schemas/transform-1.0.0"
     },
-    "schema_url": "https://images.lsst.io/schemas/projection-1.0.0"
+    "schema_url": "https://images.lsst.io/schemas/sky_projection-1.0.0"
   },
   "psf": {
     "schema_version": "1.0.0",
@@ -217,18 +148,8 @@
     "skyBg": NaN,
     "skyNoise": NaN,
     "meanVar": NaN,
-    "raCorners": [
-      NaN,
-      NaN,
-      NaN,
-      NaN
-    ],
-    "decCorners": [
-      NaN,
-      NaN,
-      NaN,
-      NaN
-    ],
+    "raCorners": [NaN, NaN, NaN, NaN],
+    "decCorners": [NaN, NaN, NaN, NaN],
     "psfAdaptiveThresholdValue": NaN,
     "psfAdaptiveIncludeThresholdMultiplier": NaN,
     "nShapeletsStar": 0,
@@ -386,10 +307,7 @@
           "saturation": 130537.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"
@@ -472,10 +390,7 @@
           "saturation": 131084.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"
@@ -558,10 +473,7 @@
           "saturation": 131527.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"
@@ -644,10 +556,7 @@
           "saturation": 132008.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"
@@ -730,10 +639,7 @@
           "saturation": 132886.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"
@@ -816,10 +722,7 @@
           "saturation": 132035.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"
@@ -902,10 +805,7 @@
           "saturation": 132865.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"
@@ -988,10 +888,7 @@
           "saturation": 131722.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"
@@ -1074,10 +971,7 @@
           "saturation": 136516.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"
@@ -1160,10 +1054,7 @@
           "saturation": 136425.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"
@@ -1246,10 +1137,7 @@
           "saturation": 135914.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"
@@ -1332,10 +1220,7 @@
           "saturation": 133857.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"
@@ -1418,10 +1303,7 @@
           "saturation": 134390.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"
@@ -1504,10 +1386,7 @@
           "saturation": 135570.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"
@@ -1590,10 +1469,7 @@
           "saturation": 136388.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"
@@ -1676,10 +1552,7 @@
           "saturation": 136683.0,
           "suspect_level": NaN,
           "linearity_coefficients": {
-            "data": [
-              0.0,
-              142857.0
-            ],
+            "data": [0.0, 142857.0],
             "datatype": "float64"
           },
           "linearity_type": "PROPORTIONAL"

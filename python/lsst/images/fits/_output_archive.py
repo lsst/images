@@ -14,6 +14,7 @@ from __future__ import annotations
 __all__ = ("FitsOutputArchive", "write")
 
 import dataclasses
+import warnings
 from collections import Counter
 from collections.abc import Callable, Hashable, Iterator, Mapping
 from contextlib import contextmanager
@@ -193,7 +194,20 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
             yield archive
             if not archive._json_hdu_added:
                 raise RuntimeError("Write context exited without 'add_tree' being called.")
-            hdu_list.flush()
+            # If a header card has a long string that required CONTINUE,
+            # Astropy will truncate the comment and warn without reporting
+            # what the offending card is.  But it doesn't look at its own
+            # output_verify kwarg when doing that, and it doesn't actually
+            # trigger if you try to format the header cards one at a time!
+            # So we have no choice but to silence the warnings manually, until
+            # we can get Astropy fixed.
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message="comment will be truncated",
+                    category=astropy.io.fits.verify.VerifyWarning,
+                )
+                hdu_list.flush()
         # This multi-open dance is necessary to get Astropy to tell us the
         # byte addresses of the HDUs.  Hopefully we can get an upstream change
         # make this unnecessary at some point.
@@ -215,7 +229,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         with open(filename, "r+b") as stream:
             stream.write(archive._primary_hdu.header.tostring().encode())
 
-    def serialize_direct[T: pydantic.BaseModel](
+    def serialize_direct[T: pydantic.BaseModel | None](
         self, name: str, serializer: Callable[[OutputArchive[PointerModel]], T]
     ) -> T:
         nested = NestedOutputArchive[PointerModel](name, self)
@@ -260,13 +274,17 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        tile_shape: tuple[int, ...] | None = None,
+        options_name: str | None = None,
     ) -> ArrayReferenceModel:
         if name is None:
             raise RuntimeError("Cannot save array with name=None unless it is nested.")
         extname = name.upper()
         hdu = self._opaque_metadata.maybe_use_precompressed(extname)
         if hdu is None:
-            if (compression_options := self._get_compression_options(name)) is not None:
+            if options_name is None:
+                options_name = name
+            if (compression_options := self._get_compression_options(options_name, tile_shape)) is not None:
                 hdu = compression_options.make_hdu(array, name=extname)
             else:
                 hdu = astropy.io.fits.ImageHDU(array, name=extname)
@@ -367,9 +385,15 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         self._hdu_list.append(json_hdu)
         self._json_hdu_added = True
 
-    def _get_compression_options(self, name: str) -> FitsCompressionOptions | None:
+    def _get_compression_options(
+        self, name: str, tile_shape: tuple[int, ...] | None
+    ) -> FitsCompressionOptions | None:
         result = self._compression_options.get(name, FitsCompressionOptions.DEFAULT)
-        if result is None or result.quantization is None:
+        if result is None:
+            return result
+        if tile_shape is not None and result.tile_shape is None:
+            result = result.model_copy(update={"tile_shape": tile_shape})
+        if result.quantization is None:
             return result
         if self._compression_seed is not None and not result.quantization.seed:
             result = result.model_copy(

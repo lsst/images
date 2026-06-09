@@ -21,8 +21,8 @@ from lsst.images.tests import (
     RoundtripJson,
     RoundtripNdf,
     assert_images_equal,
-    assert_projections_equal,
-    make_random_projection,
+    assert_sky_projections_equal,
+    make_random_sky_projection,
 )
 
 try:
@@ -43,9 +43,9 @@ class ColorImageTestCase(unittest.TestCase):
         self.rng = np.random.default_rng(500)
         self.pixel_frame = TractFrame(skymap="test_skymap", tract=33, bbox=Box.factory[:50, :64])
         self.bbox = Box.factory[20:25, 40:48]
-        self.projection = make_random_projection(self.rng, self.pixel_frame, self.pixel_frame.bbox)
+        self.sky_projection = make_random_sky_projection(self.rng, self.pixel_frame, self.pixel_frame.bbox)
         self.array = self.rng.integers(low=0, high=255, size=self.bbox.shape + (3,), dtype=np.uint8)
-        self.color_image = ColorImage(self.array, bbox=self.bbox, projection=self.projection)
+        self.color_image = ColorImage(self.array, bbox=self.bbox, sky_projection=self.sky_projection)
 
     def test_properties(self) -> None:
         """Test the properties of the nominal ColorImage constructed in
@@ -56,27 +56,29 @@ class ColorImageTestCase(unittest.TestCase):
         assert_images_equal(
             self,
             self.color_image.red,
-            Image(self.array[:, :, 0], bbox=self.bbox, projection=self.projection),
+            Image(self.array[:, :, 0], bbox=self.bbox, sky_projection=self.sky_projection),
             expect_view="array",
         )
         assert_images_equal(
             self,
             self.color_image.green,
-            Image(self.array[:, :, 1], bbox=self.bbox, projection=self.projection),
+            Image(self.array[:, :, 1], bbox=self.bbox, sky_projection=self.sky_projection),
             expect_view="array",
         )
         assert_images_equal(
             self,
             self.color_image.blue,
-            Image(self.array[:, :, 2], bbox=self.bbox, projection=self.projection),
+            Image(self.array[:, :, 2], bbox=self.bbox, sky_projection=self.sky_projection),
             expect_view="array",
         )
-        assert_projections_equal(self, self.color_image.projection, self.projection, expect_identity=True)
+        assert_sky_projections_equal(
+            self, self.color_image.sky_projection, self.sky_projection, expect_identity=True
+        )
 
     def test_constructor(self) -> None:
         """Test alternate constructor arguments."""
         self.assert_color_images_equal(
-            ColorImage(self.array, start=self.bbox.start, projection=self.projection),
+            ColorImage(self.array, yx0=self.bbox.start, sky_projection=self.sky_projection),
             self.color_image,
             expect_view=True,
         )
@@ -85,7 +87,7 @@ class ColorImageTestCase(unittest.TestCase):
                 self.color_image.red,
                 self.color_image.green,
                 self.color_image.blue,
-                projection=self.projection,
+                sky_projection=self.sky_projection,
             ),
             self.color_image,
             expect_view=False,
@@ -142,7 +144,7 @@ class ColorImageTestCase(unittest.TestCase):
         """Check that the given ColorImage matches the nominal one constructed
         in setUp.
         """
-        assert_projections_equal(self, a.projection, b.projection)
+        assert_sky_projections_equal(self, a.sky_projection, b.sky_projection)
         if expect_view is not None:
             self.assertEqual(np.may_share_memory(a.array, b.array), expect_view)
         if not expect_view:

@@ -43,5 +43,5 @@
     ],
     "schema_url": "https://images.lsst.io/schemas/transform-1.0.0"
   },
-  "schema_url": "https://images.lsst.io/schemas/projection-1.0.0"
+  "schema_url": "https://images.lsst.io/schemas/sky_projection-1.0.0"
 }

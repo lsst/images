@@ -180,7 +180,7 @@
       },
       "unit": "nJy"
     },
-    "start": [
+    "yx0": [
       48,
       36
     ],
@@ -193,12 +193,12 @@
       {
         "data": [
           [
-            32,
-            32,
-            32,
-            32,
-            32,
-            32,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
             0,
             0,
             0,
@@ -207,12 +207,12 @@
             0
           ],
           [
-            32,
-            32,
-            32,
-            32,
-            32,
-            32,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
             0,
             0,
             0,
@@ -221,12 +221,12 @@
             0
           ],
           [
-            32,
-            32,
-            32,
-            32,
-            32,
-            32,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
             0,
             0,
             0,
@@ -235,12 +235,12 @@
             0
           ],
           [
-            32,
-            32,
-            32,
-            32,
-            32,
-            32,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
             0,
             0,
             0,
@@ -249,40 +249,26 @@
             0
           ],
           [
-            32,
-            32,
-            32,
-            32,
-            32,
-            32,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
             0,
             0,
             0,
-            2,
-            0,
-            0
-          ],
-          [
-            32,
-            32,
-            32,
-            32,
-            32,
-            32,
-            0,
-            0,
-            0,
-            0,
+            128,
             0,
             0
           ],
           [
-            0,
-            0,
-            0,
-            0,
-            72,
-            2,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
             0,
             0,
             0,
@@ -295,50 +281,8 @@
             0,
             0,
             0,
-            0,
-            0,
-            2,
-            0,
-            2,
-            0,
-            2,
-            0
-          ],
-          [
-            0,
-            2,
-            2,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            2
-          ],
-          [
-            2,
-            0,
-            0,
-            0,
-            2,
-            0,
-            0,
-            2,
-            72,
-            0,
-            0,
-            0
-          ],
-          [
-            0,
-            0,
-            2,
-            0,
-            74,
-            0,
+            320,
+            128,
             0,
             0,
             0,
@@ -348,11 +292,67 @@
           ],
           [
             0,
-            72,
             0,
             0,
             0,
-            72,
+            0,
+            0,
+            128,
+            0,
+            128,
+            0,
+            128,
+            0
+          ],
+          [
+            0,
+            128,
+            128,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            128
+          ],
+          [
+            128,
+            0,
+            0,
+            0,
+            128,
+            0,
+            0,
+            128,
+            320,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            128,
+            0,
+            448,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            320,
+            0,
+            0,
+            0,
+            320,
             0,
             0,
             0,
@@ -364,42 +364,46 @@
         "datatype": "int32"
       }
     ],
-    "start": [
+    "yx0": [
       48,
       36
     ],
     "planes": [
       {
-        "name": "COSMIC_RAY",
-        "description": "A cosmic ray affected this pixel on at least one input image (and was interpolated)."
-      },
-      {
-        "name": "DETECTED",
-        "description": "Pixel was part of a detected source."
-      },
-      {
-        "name": "DETECTION_EDGE",
-        "description": "Pixel was too close to the edge to be considered for detection, due to the finite size of the detection kernel."
-      },
-      {
-        "name": "INEXACT_PSF",
-        "description": "Pixel is on or near a cell boundary and hence its PSF may be (usually slightly) discontinuous."
+        "name": "NO_DATA",
+        "description": "No data was available for this pixel."
       },
       {
         "name": "INTERPOLATED",
         "description": "Pixel value is the result of interpolating nearby good pixels."
       },
       {
-        "name": "NO_DATA",
-        "description": "No data was available for this pixel."
-      },
-      {
-        "name": "REJECTED",
-        "description": "At least one input visit was left out of the coadd for this pixel due to masking."
+        "name": "COSMIC_RAY",
+        "description": "A cosmic ray affected this pixel on at least one input image (and was interpolated)."
       },
       {
         "name": "SATURATED",
-        "description": "More than 10% of the potential input visits."
+        "description": "More than 10% of the potential input visits had a saturated pixel at this location ('potential' because saturated pixel values are not actually propagated to the coadd). SATURATED always implies REJECTED, and is often a reason for NO_DATA."
+      },
+      {
+        "name": "DETECTION_EDGE",
+        "description": "Pixel was too close to the edge of the patch to be considered for detection, due to the finite size of the detection kernel."
+      },
+      {
+        "name": "CLIPPED",
+        "description": "Region was identified as a probable artifact when comparing multiple single-visit warps. CLIPPED always implies REJECTED."
+      },
+      {
+        "name": "REJECTED",
+        "description": "At least one input visit was left out of the coadd for this pixel due to masking. REJECTED always implies INEXACT_PSF."
+      },
+      {
+        "name": "DETECTED",
+        "description": "Pixel was part of a detected source."
+      },
+      {
+        "name": "INEXACT_PSF",
+        "description": "The set of visits contributing to this pixel differs from the set of visits contributing to the PSF model for its cell."
       }
     ],
     "dtype": "uint8",
@@ -584,13 +588,13 @@
       },
       "unit": "nJy**2"
     },
-    "start": [
+    "yx0": [
       48,
       36
     ],
     "schema_url": "https://images.lsst.io/schemas/image-1.0.0"
   },
-  "projection": {
+  "sky_projection": {
     "schema_version": "1.0.0",
     "min_read_version": 1,
     "pixel_to_sky": {
@@ -634,7 +638,7 @@
       ],
       "schema_url": "https://images.lsst.io/schemas/transform-1.0.0"
     },
-    "schema_url": "https://images.lsst.io/schemas/projection-1.0.0"
+    "schema_url": "https://images.lsst.io/schemas/sky_projection-1.0.0"
   },
   "mask_fractions": {
     "rejected": {
@@ -813,7 +817,7 @@
         ],
         "datatype": "float32"
       },
-      "start": [
+      "yx0": [
         48,
         36
       ],
@@ -997,7 +1001,7 @@
         ],
         "datatype": "float32"
       },
-      "start": [
+      "yx0": [
         48,
         36
       ],
@@ -1200,6 +1204,144 @@
       ]
     },
     "schema_url": "https://images.lsst.io/schemas/cell_psf-1.0.0"
+  },
+  "aperture_corrections": {
+    "schema_version": "1.0.0",
+    "min_read_version": 1,
+    "table": {
+      "columns": [
+        {
+          "data": {
+            "data": [
+              7,
+              7,
+              7,
+              8,
+              8,
+              9,
+              9,
+              9,
+              10,
+              10,
+              10
+            ],
+            "datatype": "int64"
+          },
+          "name": "cell_i"
+        },
+        {
+          "data": {
+            "data": [
+              5,
+              6,
+              7,
+              5,
+              7,
+              5,
+              6,
+              7,
+              5,
+              6,
+              7
+            ],
+            "datatype": "int64"
+          },
+          "name": "cell_j"
+        },
+        {
+          "data": {
+            "data": [
+              2.192693079842637,
+              2.2010547532587057,
+              2.2106199097311294,
+              2.202258964136873,
+              2.2089625645964346,
+              2.2010391533018487,
+              2.2020743766674933,
+              2.205999544870317,
+              2.2011009515375,
+              2.201743236164232,
+              2.2030632632122784
+            ],
+            "datatype": "float64"
+          },
+          "name": "ext_convolved_ConvolvedFlux_2_3_3_instFlux"
+        },
+        {
+          "data": {
+            "data": [
+              0.0004150307957085515,
+              0.00039969491563020764,
+              0.00038643260592982213,
+              0.0004052590048780763,
+              0.0003978747652494246,
+              0.000401122766954486,
+              0.0004084005948868367,
+              0.00040492820266940934,
+              0.0004011450546995857,
+              0.00041913699556258085,
+              0.0004090742428303859
+            ],
+            "datatype": "float64"
+          },
+          "name": "ext_gaap_GaapFlux_1_15x_2_5_instFluxErr"
+        },
+        {
+          "data": {
+            "data": [
+              0.9878798122735652,
+              0.9880651887172903,
+              0.9876464553973402,
+              0.987688298893678,
+              0.9878748117252941,
+              0.987657363678226,
+              0.9877685932923512,
+              0.9878387832030812,
+              0.987617141838761,
+              0.9877511674481816,
+              0.9879534995404913
+            ],
+            "datatype": "float64"
+          },
+          "name": "modelfit_CModel_initial_instFlux"
+        }
+      ]
+    },
+    "bounds": {
+      "grid": {
+        "bbox": {
+          "y": {
+            "start": 0,
+            "stop": 132
+          },
+          "x": {
+            "start": 0,
+            "stop": 132
+          }
+        },
+        "cell_shape": [
+          6,
+          6
+        ]
+      },
+      "bbox": {
+        "y": {
+          "start": 42,
+          "stop": 66
+        },
+        "x": {
+          "start": 30,
+          "stop": 48
+        }
+      },
+      "missing": [
+        {
+          "i": 8,
+          "j": 6
+        }
+      ]
+    },
+    "schema_url": "https://images.lsst.io/schemas/cell_aperture_correction_map-1.0.0"
   },
   "patch": {
     "id": 43,
@@ -1532,6 +1674,21 @@
           },
           "name": "overlap_fraction",
           "description": "Fraction of the cell that is covered by the overlap region."
+        },
+        {
+          "data": {
+            "data": [
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "datatype": "float64"
+          },
+          "name": "unmasked_fraction",
+          "description": "Fraction of the cell propagated to the coadd."
         },
         {
           "data": {

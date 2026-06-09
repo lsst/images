@@ -31,7 +31,7 @@ from .._geom import Box
 from .._image import Image
 from .._mask import Mask, MaskPlane, MaskSchema
 from .._masked_image import MaskedImage
-from .._transforms import FrameSet, Projection
+from .._transforms import FrameSet, SkyProjection
 from .._transforms import _ast as astshim
 from .._transforms._frames import GeneralFrame
 from ..fits._common import FitsOpaqueMetadata
@@ -370,7 +370,7 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> T:
             quality_arr, quality_bbox = _read_data_array_with_bbox(q["QUALITY"])
             quality_arr = _validate_quality_array(quality_arr)
 
-    projection: Projection | None = None
+    sky_projection: SkyProjection | None = None
     if "WCS" in ndf_group:
         try:
             wcs_group = ndf_group["WCS"]
@@ -380,7 +380,7 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> T:
                 ast_obj = astshim.Object.fromString(wcs_text)
                 if isinstance(ast_obj, astshim.FrameSet):
                     pixel_frame = GeneralFrame(unit=u.pix)
-                    projection = Projection.from_ast_frame_set(
+                    sky_projection = SkyProjection.from_ast_frame_set(
                         ast_obj,
                         pixel_frame,
                         pixel_bounds=bbox,
@@ -418,7 +418,7 @@ def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> T:
     # Build the requested in-memory object. Any NDF can be read as an Image;
     # MaskedImage construction uses whatever VARIANCE/QUALITY are present and
     # lets the MaskedImage constructor provide defaults for missing planes.
-    image = Image(data_arr, bbox=bbox, unit=unit, projection=projection)
+    image = Image(data_arr, bbox=bbox, unit=unit, sky_projection=sky_projection)
     obj: Any
     if cls is Image:
         obj = image

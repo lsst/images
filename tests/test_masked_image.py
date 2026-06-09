@@ -46,7 +46,7 @@ class MaskedImageTestCase(unittest.TestCase):
         self.maxDiff = None
         self.rng = np.random.default_rng(500)
         self.masked_image = MaskedImage(
-            Image(self.rng.normal(100.0, 8.0, size=(200, 251)), dtype=np.float64, unit=u.nJy, start=(5, 8)),
+            Image(self.rng.normal(100.0, 8.0, size=(200, 251)), dtype=np.float64, unit=u.nJy, yx0=(5, 8)),
             mask_schema=MaskSchema(
                 [
                     MaskPlane("BAD", "Pixel is very bad, possibly downright evil."),
@@ -227,7 +227,7 @@ class MaskedImageTestCase(unittest.TestCase):
                 rng.normal(100.0, 8.0, size=(50, 60)),
                 dtype=np.float64,
                 unit=u.nJy,
-                start=(0, 0),
+                yx0=(0, 0),
             ),
             mask_schema=MaskSchema(planes),
         )
@@ -245,7 +245,7 @@ class MaskedImageTestCase(unittest.TestCase):
                 rng.normal(100.0, 8.0, size=(10, 12)),
                 dtype=np.float64,
                 unit=u.nJy,
-                start=(0, 0),
+                yx0=(0, 0),
             ),
             mask_schema=MaskSchema(planes),
         )

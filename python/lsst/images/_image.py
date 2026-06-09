@@ -30,7 +30,7 @@ from lsst.resources import ResourcePath, ResourcePathExpression
 from . import fits
 from ._generalized_image import GeneralizedImage
 from ._geom import YX, Box
-from ._transforms import Frame, Projection, ProjectionSerializationModel
+from ._transforms import Frame, SkyProjection, SkyProjectionSerializationModel
 from .serialization import (
     ArchiveTree,
     ArrayReferenceModel,
@@ -63,7 +63,7 @@ class Image(GeneralizedImage):
         ``shape`` must be provided.
     bbox
         Bounding box for the image.
-    start
+    yx0
         Logical coordinates of the first pixel in the array, ordered ``y``,
         ``x`` (unless an `XY` instance is passed).  Ignored if
         ``bbox`` is provided.  Defaults to zeros.
@@ -76,7 +76,7 @@ class Image(GeneralizedImage):
         Pixel data type override.
     unit
         Units for the image's pixel values.
-    projection
+    sky_projection
         Projection that maps the pixel grid to the sky.
     metadata
         Arbitrary flexible metadata to associate with the image.
@@ -84,7 +84,7 @@ class Image(GeneralizedImage):
     Notes
     -----
     Indexing the `array` attribute of an `Image` does not take into account its
-    ``start`` offset, but accessing a subimage by indexing an `Image` with a
+    ``yx0`` offset, but accessing a subimage by indexing an `Image` with a
     `Box` does, and the `bbox` of the subimage is set to match its location
     within the original image.
 
@@ -109,11 +109,11 @@ class Image(GeneralizedImage):
         /,
         *,
         bbox: Box | None = None,
-        start: Sequence[int] | None = None,
+        yx0: Sequence[int] | None = None,
         shape: Sequence[int] | None = None,
         dtype: npt.DTypeLike | None = None,
         unit: astropy.units.UnitBase | None = None,
-        projection: Projection[Any] | None = None,
+        sky_projection: SkyProjection[Any] | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ):
         super().__init__(metadata)
@@ -123,7 +123,7 @@ class Image(GeneralizedImage):
             else:
                 array = array_or_fill
             if bbox is None:
-                bbox = Box.from_shape(array.shape, start=start)
+                bbox = Box.from_shape(array.shape, start=yx0)
             elif bbox.shape != array.shape:
                 raise ValueError(
                     f"Explicit bbox shape {bbox.shape} does not match array with shape {array.shape}."
@@ -134,14 +134,14 @@ class Image(GeneralizedImage):
             if bbox is None:
                 if shape is None:
                     raise TypeError("No bbox, shape, or array provided.")
-                bbox = Box.from_shape(shape, start=start)
+                bbox = Box.from_shape(shape, start=yx0)
             elif shape is not None and shape != bbox.shape:
                 raise ValueError(f"Explicit shape {shape} does not match bbox shape {bbox.shape}.")
             array = np.full(bbox.shape, array_or_fill, dtype=dtype)
         self._array: np.ndarray = array
         self._bbox: Box = bbox
         self._unit = unit
-        self._projection = projection
+        self._sky_projection = sky_projection
 
     @property
     def array(self) -> np.ndarray:
@@ -182,16 +182,16 @@ class Image(GeneralizedImage):
         return self._unit
 
     @property
-    def projection(self) -> Projection[Any] | None:
+    def sky_projection(self) -> SkyProjection[Any] | None:
         """The projection that maps this image's pixel grid to the sky
-        (`Projection` | `None`).
+        (`SkyProjection` | `None`).
 
         Notes
         -----
         The pixel coordinates used by this projection account for the bounding
         box ``start``; they are not just array indices.
         """
-        return self._projection
+        return self._sky_projection
 
     def __getitem__(self, bbox: Box | EllipsisType) -> Image:
         if bbox is ...:
@@ -199,7 +199,7 @@ class Image(GeneralizedImage):
         super().__getitem__(bbox)
         indices = bbox.slice_within(self._bbox)
         return self._transfer_metadata(
-            Image(self._array[indices], bbox=bbox, unit=self._unit, projection=self._projection),
+            Image(self._array[indices], bbox=bbox, unit=self._unit, sky_projection=self._sky_projection),
             bbox=bbox,
         )
 
@@ -223,7 +223,7 @@ class Image(GeneralizedImage):
 
     def copy(self) -> Image:
         return self._transfer_metadata(
-            Image(self._array.copy(), bbox=self._bbox, unit=self._unit, projection=self._projection),
+            Image(self._array.copy(), bbox=self._bbox, unit=self._unit, sky_projection=self._sky_projection),
             copy=True,
         )
 
@@ -231,17 +231,17 @@ class Image(GeneralizedImage):
         self,
         *,
         unit: astropy.units.UnitBase | None | EllipsisType = ...,
-        projection: Projection | None | EllipsisType = ...,
-        start: Sequence[int] | EllipsisType = ...,
+        sky_projection: SkyProjection | None | EllipsisType = ...,
+        yx0: Sequence[int] | EllipsisType = ...,
     ) -> Image:
         """Make a view of the image, with optional updates."""
         if unit is ...:
             unit = self._unit
-        if projection is ...:
-            projection = self._projection
-        if start is ...:
-            start = self._bbox.start
-        return self._transfer_metadata(Image(self._array, start=start, unit=unit, projection=projection))
+        if sky_projection is ...:
+            sky_projection = self._sky_projection
+        if yx0 is ...:
+            yx0 = self._bbox.start
+        return self._transfer_metadata(Image(self._array, yx0=yx0, unit=unit, sky_projection=sky_projection))
 
     def serialize[P: pydantic.BaseModel](
         self,
@@ -250,6 +250,8 @@ class Image(GeneralizedImage):
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
         save_projection: bool = True,
         add_offset_wcs: str | None = "A",
+        tile_shape: tuple[int, ...] | None = None,
+        options_name: str | None = None,
     ) -> ImageSerializationModel[P]:
         """Serialize the image to an output archive.
 
@@ -263,7 +265,7 @@ class Image(GeneralizedImage):
             may be provided but will not be called if the output format is not
             FITS.
         save_projection
-            If `True`, save the `Projection` attached to the image, if there
+            If `True`, save the `SkyProjection` attached to the image, if there
             is one.  This does not affect whether a FITS WCS corresponding to
             the projection is written (it always is, if available, and if
             ``add_offset_wcs`` is not ``" "``).
@@ -271,8 +273,14 @@ class Image(GeneralizedImage):
             A FITS WCS single-character suffix to use when adding a linear
             WCS that maps the FITS array to the logical pixel coordinates
             defined by ``bbox.start``.  Set to `None` to not write this WCS.
-            If this is set to ``" "``, it will prevent the `Projection` from
+            If this is set to ``" "``, it will prevent the `SkyProjection` from
             being saved as a FITS WCS.
+        tile_shape
+            The recommended shape of each tile, if the archive will save
+            the array in distinct tiles for faster subarray retrieval.
+            This is a hint; archives are not required to use this value.
+        options_name
+            Use this name to look up archive options.
         """
 
         def _update_header(header: astropy.io.fits.Header) -> None:
@@ -285,21 +293,23 @@ class Image(GeneralizedImage):
                     # the accepted units are just a recommendation in the
                     # standard.
                     header["BUNIT"] = self.unit.to_string()
-            if self.projection is not None and add_offset_wcs != " ":
+            if self.sky_projection is not None and add_offset_wcs != " ":
                 if self.fits_wcs:
                     header.update(self.fits_wcs.to_header(relax=True))
             if add_offset_wcs is not None:
                 fits.add_offset_wcs(header, x=self.bbox.x.start, y=self.bbox.y.start, key=add_offset_wcs)
 
-        array_model = archive.add_array(self.array, update_header=_update_header)
-        serialized_projection: ProjectionSerializationModel[P] | None = None
-        if save_projection and self.projection is not None:
-            serialized_projection = archive.serialize_direct("projection", self.projection.serialize)
+        array_model = archive.add_array(
+            self.array, update_header=_update_header, tile_shape=tile_shape, options_name=options_name
+        )
+        serialized_projection: SkyProjectionSerializationModel[P] | None = None
+        if save_projection and self.sky_projection is not None:
+            serialized_projection = archive.serialize_direct("sky_projection", self.sky_projection.serialize)
         data = array_model if self.unit is None else array_model.with_units(self.unit)
         return ImageSerializationModel.model_construct(
             data=data,
-            start=list(self.bbox.start),
-            projection=serialized_projection,
+            yx0=list(self.bbox.start),
+            sky_projection=serialized_projection,
             metadata=self.metadata,
         )
 
@@ -329,7 +339,7 @@ class Image(GeneralizedImage):
         unit
             Units of the image.
         """
-        return Image(legacy.array, start=(legacy.getY0(), legacy.getX0()), unit=unit)
+        return Image(legacy.array, yx0=YX(y=legacy.getY0(), x=legacy.getX0()), unit=unit)
 
     def to_legacy(self, *, copy: bool | None = None) -> LegacyImage:
         """Convert to an `lsst.afw.image.Image` instance.
@@ -385,7 +395,7 @@ class Image(GeneralizedImage):
             Name or index of the FITS HDU to read.
         fits_wcs_frame
             If not `None` and the HDU containing the image has a FITS WCS,
-            attach a `Projection` to the returned image by converting that
+            attach a `SkyProjection` to the returned image by converting that
             WCS.
         """
         opaque_metadata = fits.FitsOpaqueMetadata()
@@ -431,22 +441,22 @@ class Image(GeneralizedImage):
                     unit = astropy.units.electron**2
         dx: int = hdu.header.pop("LTV1")
         dy: int = hdu.header.pop("LTV2")
-        start = YX(y=-dy, x=-dx)
+        yx0 = YX(y=-dy, x=-dx)
         read_only: bool = False
         if preserve_bintable is not None:
             opaque_metadata.precompressed[hdu.name] = fits.PrecompressedImage.from_bintable(preserve_bintable)
             read_only = True
-        projection: Projection | None = None
+        sky_projection: SkyProjection | None = None
         if fits_wcs_frame is not None:
             try:
                 fits_wcs = astropy.wcs.WCS(hdu.header)
             except KeyError:
                 pass
             else:
-                projection = Projection.from_fits_wcs(
-                    fits_wcs, pixel_frame=fits_wcs_frame, x0=start.x, y0=start.y
+                sky_projection = SkyProjection.from_fits_wcs(
+                    fits_wcs, pixel_frame=fits_wcs_frame, x0=yx0.x, y0=yx0.y
                 )
-        image = Image(hdu.data, start=start, unit=unit, projection=projection)
+        image = Image(hdu.data, yx0=yx0, unit=unit, sky_projection=sky_projection)
         if read_only:
             image._array.flags["WRITEABLE"] = False
         fits.strip_wcs_cards(hdu.header)
@@ -469,10 +479,10 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
     data: ArrayReferenceQuantityModel | ArrayReferenceModel | InlineArrayModel | InlineArrayQuantityModel = (
         pydantic.Field(description="Reference to pixel data.")
     )
-    start: list[int] = pydantic.Field(
+    yx0: list[int] = pydantic.Field(
         description="Coordinate of the first pixels in the array, ordered (y, x)."
     )
-    projection: ProjectionSerializationModel[P] | None = pydantic.Field(
+    sky_projection: SkyProjectionSerializationModel[P] | None = pydantic.Field(
         default=None,
         exclude_if=is_none,
         description="Projection that maps the logical pixel grid onto the sky.",
@@ -486,7 +496,7 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
                 shape = self.data.value.shape
             case ArrayReferenceModel() | InlineArrayModel():
                 shape = self.data.shape
-        return Box.from_shape(shape, self.start)
+        return Box.from_shape(shape, self.yx0)
 
     def deserialize(
         self,
@@ -530,12 +540,12 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
 
         slices = bbox.slice_within(self.bbox) if bbox is not None else ...
         array = archive.get_array(array_model, strip_header=_strip_header, slices=slices)
-        projection = self.projection.deserialize(archive) if self.projection is not None else None
+        sky_projection = self.sky_projection.deserialize(archive) if self.sky_projection is not None else None
         return Image(
             array,
-            start=self.start if bbox is None else bbox.start,
+            yx0=self.yx0 if bbox is None else bbox.start,
             unit=unit,
-            projection=projection,
+            sky_projection=sky_projection,
         )._finish_deserialize(self)
 
     def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:

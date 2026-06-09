@@ -26,9 +26,9 @@ from lsst.images.tests import (
     RoundtripNdf,
     assert_close,
     assert_images_equal,
-    assert_projections_equal,
+    assert_sky_projections_equal,
     compare_image_to_legacy,
-    make_random_projection,
+    make_random_sky_projection,
 )
 
 try:
@@ -94,7 +94,7 @@ class ImageTestCase(unittest.TestCase):
         """Test saving a tiny image to pure JSON."""
         image = Image(
             np.arange(15).reshape(5, 3),
-            start=(2, -1),
+            yx0=(2, -1),
         )
         with RoundtripJson(self, image, "ImageV2") as roundtrip:
             pass
@@ -104,7 +104,7 @@ class ImageTestCase(unittest.TestCase):
         """Test saving a tiny image to FITS generically."""
         image = Image(
             np.arange(15).reshape(5, 3),
-            start=(2, -1),
+            yx0=(2, -1),
         )
         with RoundtripFits(self, image, "ImageV2") as roundtrip:
             subbox = Box.factory[3:5, 0:1]
@@ -116,7 +116,7 @@ class ImageTestCase(unittest.TestCase):
         """Test saving a tiny image to NDF."""
         image = Image(
             np.arange(15).reshape(5, 3),
-            start=(2, -1),
+            yx0=(2, -1),
         )
         with RoundtripNdf(self, image, "ImageV2") as roundtrip:
             pass
@@ -132,7 +132,7 @@ class ImageTestCase(unittest.TestCase):
             rng.normal(100.0, 8.0, size=(60, 80)),
             dtype=np.float64,
             unit=u.nJy,
-            start=(0, 0),
+            yx0=(0, 0),
         )
         with RoundtripFits(self, image) as fits_rt, RoundtripNdf(self, image) as ndf_rt:
             assert_images_equal(self, image, fits_rt.result)
@@ -148,7 +148,7 @@ class ImageTestCase(unittest.TestCase):
             rng.normal(100.0, 8.0, size=(60, 80)),
             dtype=np.float64,
             unit=u.nJy,
-            start=(0, 0),
+            yx0=(0, 0),
         )
         with RoundtripFits(self, image) as fits_rt, RoundtripJson(self, image) as json_rt:
             assert_images_equal(self, image, fits_rt.result)
@@ -185,14 +185,14 @@ class ImageTestCase(unittest.TestCase):
         md = {"int": 1, "float": 42.0, "bool": False, "long string header": "This is a string"}
         det_frame = DetectorFrame(instrument="Inst", visit=1234, detector=1, bbox=Box.factory[1:4096, 1:4096])
         rng = np.random.default_rng(500)
-        projection = make_random_projection(rng, det_frame, Box.factory[1:4096, 1:4096])
+        sky_projection = make_random_sky_projection(rng, det_frame, Box.factory[1:4096, 1:4096])
 
         image = Image(
             data,
             unit=u.dn,
             metadata=md,
             bbox=Box.factory[-2:1, 3:7],
-            projection=projection,
+            sky_projection=sky_projection,
         )
 
         with lsst.utils.tests.getTempFilePath(".fits") as tmpFile:
@@ -204,7 +204,9 @@ class ImageTestCase(unittest.TestCase):
             # __eq__ does not test all components.
             self.assertEqual(new.metadata, image.metadata)
             self.maxDiff = None
-            assert_projections_equal(self, new.projection, image.projection, expect_identity=False)
+            assert_sky_projections_equal(
+                self, new.sky_projection, image.sky_projection, expect_identity=False
+            )
 
             # Read subset.
             subset = Image.read(tmpFile, bbox=Box.factory[-2:0, 5:7])

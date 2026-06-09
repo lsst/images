@@ -14,7 +14,7 @@ import unittest
 from typing import Any, ClassVar
 from unittest import mock
 
-from lsst.images import Projection, VisitImage
+from lsst.images import SkyProjection, VisitImage
 from lsst.images._image import ImageSerializationModel
 from lsst.images._visit_image import VisitImageSerializationModel
 from lsst.images.serialization import ArchiveTree, _io, class_for_schema, public_type_for_schema
@@ -110,7 +110,7 @@ class PublicTypeTestCase(unittest.TestCase):
     def test_generic_in_memory_type(self) -> None:
         # ProjectionSerializationModel produces a Projection (its PUBLIC_TYPE
         # is the unparameterised class, not Projection[Any]).
-        self.assertIs(public_type_for_schema("projection"), Projection)
+        self.assertIs(public_type_for_schema("sky_projection"), SkyProjection)
 
     def test_unregistered_schema_returns_none(self) -> None:
         self.assertIsNone(public_type_for_schema("no-such-schema"))

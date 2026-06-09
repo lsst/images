@@ -28,7 +28,7 @@ from ._geom import Bounds, Box
 from ._image import Image
 from ._mask import Mask, MaskPlane, MaskSchema, get_legacy_difference_image_mask_planes
 from ._observation_summary_stats import ObservationSummaryStats
-from ._transforms import DetectorFrame, Projection
+from ._transforms import DetectorFrame, SkyProjection
 from ._visit_image import VisitImage, VisitImageSerializationModel
 from .aperture_corrections import (
     ApertureCorrectionMap,
@@ -53,32 +53,32 @@ class DifferenceImage(VisitImage):
     Parameters
     ----------
     image
-        The main image plane.  If this has a `Projection`, it will be used
-        for all planes unless a ``projection`` is passed separately.
+        The main image plane.  If this has a `SkyProjection`, it will be used
+        for all planes unless a ``sky_projection`` is passed separately.
     mask
         A bitmask image that annotates the main image plane.  Must have the
-        same bounding box as ``image`` if provided.  Any attached projection
-        is replaced (possibly by `None`).
+        same bounding box as ``image`` if provided.  Any attached
+        ``sky_projection`` is replaced (possibly by `None`).
     variance
         The per-pixel uncertainty of the main image as an image of variance
         values.  Must have the same bounding box as ``image`` if provided, and
         its units must be the square of ``image.unit`` or `None`.
-        Values default to ``1.0``.  Any attached projection is replaced
+        Values default to ``1.0``.  Any attached sky_projection is replaced
         (possibly by `None`).
     mask_schema
         Schema for the mask plane.  Must be provided if and only if ``mask`` is
         not provided.
-    projection
+    sky_projection
         Projection that maps the pixel grid to the sky.  Can only be `None` if
-        a projection is already attached to ``image``.
+        a ``sky_projection`` is already attached to ``image``.
     bounds
         The region where this image's pixels and other properties are valid.
         If not provided, the bounding box of the image is used.  Other
-        components (``psf``, ``projection``, ``aperture_corrections``, etc.)
-        are assumed to have their own bounds which may or may not be the same
-        as the image bounds.  If ``bounds`` extends beyond the image bounding
-        box, the intersection between ``bounds`` and the image bounding box
-        is used instead.
+        components (``psf``, ``sky_projection``, ``aperture_corrections``,
+        etc.) are assumed to have their own bounds which may or may not be the
+        same as the image bounds.  If ``bounds`` extends beyond the image
+        bounding box, the intersection between ``bounds`` and the image
+        bounding box is used instead.
     obs_info
         General information about this visit in standardized form.
     summary_stats
@@ -114,7 +114,7 @@ class DifferenceImage(VisitImage):
         mask: Mask | None = None,
         variance: Image | None = None,
         mask_schema: MaskSchema | None = None,
-        projection: Projection[DetectorFrame] | None = None,
+        sky_projection: SkyProjection[DetectorFrame] | None = None,
         bounds: Bounds | None = None,
         obs_info: ObservationInfo | None = None,
         summary_stats: ObservationSummaryStats | None = None,
@@ -131,7 +131,7 @@ class DifferenceImage(VisitImage):
             mask=mask,
             variance=variance,
             mask_schema=mask_schema,
-            projection=projection,
+            sky_projection=sky_projection,
             bounds=bounds,
             obs_info=obs_info,
             summary_stats=summary_stats,
@@ -151,7 +151,7 @@ class DifferenceImage(VisitImage):
                 visit_image.image,
                 mask=visit_image.mask,
                 variance=visit_image.variance,
-                projection=visit_image.projection,
+                sky_projection=visit_image.sky_projection,
                 bounds=visit_image.bounds,
                 obs_info=visit_image.obs_info,
                 summary_stats=visit_image.summary_stats,
@@ -304,7 +304,7 @@ class DifferenceImage(VisitImage):
             "image",
             "mask",
             "variance",
-            "projection",
+            "sky_projection",
             "psf",
             "detector",
             "photometric_scaling",

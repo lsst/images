@@ -10,6 +10,7 @@
 # license that can be found in the LICENSE file.
 
 from .._cell_grid import *
+from ._aperture_corrections import *
 from ._coadd import *
 from ._provenance import *
 from ._psf import *

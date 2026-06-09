@@ -24,6 +24,7 @@ __all__ = ("GenericFormatter",)
 
 import hashlib
 import json as _stdlib_json  # disambiguates from .json subpackage
+from collections.abc import Mapping
 from typing import Any, ClassVar
 
 import astropy.io.fits
@@ -74,6 +75,18 @@ class GenericFormatter(FormatterV2):
         ext = self.get_write_extension()
         if ext != ".fits" and "recipe" in self.write_parameters:
             raise RuntimeError("The 'recipe' write parameter is only valid for FITS output.")
+
+    @classmethod
+    def validate_write_recipes(cls, recipes: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+        if not recipes:
+            return recipes
+        for name, recipe in recipes.items():
+            try:
+                _fits.FitsCompressionOptions.model_validate(recipe)
+            except Exception as err:
+                err.add_note(name)
+                raise
+        return recipes
 
     # --- Write path ---------------------------------------------------------
 

@@ -56,7 +56,7 @@ class OutputArchive[P](ABC):
     """
 
     @abstractmethod
-    def serialize_direct[T: pydantic.BaseModel](
+    def serialize_direct[T: pydantic.BaseModel | None](
         self, name: str, serializer: Callable[[OutputArchive], T]
     ) -> T:
         """Use a serializer function to save a nested object.
@@ -181,6 +181,8 @@ class OutputArchive[P](ABC):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        tile_shape: tuple[int, ...] | None = None,
+        options_name: str | None = None,
     ) -> ArrayReferenceModel | InlineArrayModel:
         """Add an array to the archive.
 
@@ -198,6 +200,13 @@ class OutputArchive[P](ABC):
             containing this array in order to add keys to it.  This callback
             may be provided but will not be called if the output format is not
             FITS.
+        tile_shape
+            The recommended shape of each tile if the implementation will save
+            the array in distinct tiles for faster subarray retrieval.
+            This is a hint; implementations are not required to use this value.
+        options_name
+            Use the options (e.g. for compression) associated with this name
+            when saving this array.
 
         Returns
         -------
@@ -304,7 +313,7 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         self._root = root
         self._parent = parent
 
-    def serialize_direct[T: pydantic.BaseModel](
+    def serialize_direct[T: pydantic.BaseModel | None](
         self, name: str, serializer: Callable[[OutputArchive[P]], T]
     ) -> T:
         return self._parent.serialize_direct(self._join_path(name), serializer)
@@ -328,8 +337,16 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         *,
         name: str | None = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+        tile_shape: tuple[int, ...] | None = None,
+        options_name: str | None = None,
     ) -> ArrayReferenceModel | InlineArrayModel:
-        return self._parent.add_array(array, name=self._join_path(name), update_header=update_header)
+        return self._parent.add_array(
+            array,
+            name=self._join_path(name),
+            update_header=update_header,
+            tile_shape=tile_shape,
+            options_name=options_name,
+        )
 
     def add_table(
         self,

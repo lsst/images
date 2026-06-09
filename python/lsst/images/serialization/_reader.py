@@ -14,6 +14,7 @@ from __future__ import annotations
 
 __all__ = ("Reader", "open")
 
+from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from typing import Any, TypeVar, overload
 
@@ -114,7 +115,7 @@ def open(
     path: ResourcePathExpression, cls: None = ..., *, partial: bool = ..., **backend_kwargs: Any
 ) -> AbstractContextManager[Reader[Any]]: ...
 @contextmanager
-def open(path, cls=None, *, partial=True, **backend_kwargs):
+def open(path: ResourcePathExpression, cls=None, *, partial=True, **backend_kwargs: Any) -> Iterator[Reader]:
     """Open an ``lsst.images`` file for incremental, component-wise reads.
 
     Dispatches to the appropriate backend by file extension, resolves the
