@@ -157,7 +157,7 @@ class ImageTestCase(unittest.TestCase):
             rng.normal(100.0, 8.0, size=(60, 80)),
             dtype=np.float64,
             unit=u.nJy,
-            start=(0, 0),
+            yx0=(0, 0),
         )
         with RoundtripFits(self, image) as fits_rt, RoundtripZarr(self, image) as zarr_rt:
             assert_images_equal(self, image, fits_rt.result)
