@@ -177,6 +177,18 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 # The node the JSON points at actually exists.
                 self.assertIn(hdf5_path, f)
 
+    def test_long_name_round_trips_through_input_archive(self):
+        from lsst.images.ndf import NdfInputArchive
+
+        data = np.arange(6, dtype=np.float32).reshape(2, 3)
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                ref = arch.add_array(data, name="noise_realizations/0")
+            with NdfInputArchive.open(tmp.name) as inp:
+                read_back = inp.get_array(ref)
+        np.testing.assert_array_equal(read_back, data)
+
     def test_repeated_long_name_gets_distinct_versioned_paths(self):
         data = np.array([[1.0]], dtype=np.float32)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
