@@ -39,6 +39,7 @@ try:
         _hds,
         write,
     )
+    from lsst.images.ndf._hds import DAT__SZNAM
 
     HAVE_H5PY = True
 except ImportError:
@@ -173,7 +174,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 # Every HDS component is within the limit.
                 hdf5_path = ref.source[len("ndf:") :]
                 for component in hdf5_path.strip("/").split("/"):
-                    self.assertLessEqual(len(component), 16)
+                    self.assertLessEqual(len(component), DAT__SZNAM)
                 # The node the JSON points at actually exists.
                 self.assertIn(hdf5_path, f)
 
@@ -236,7 +237,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 # Force both long names to shrink to the same HDS token.
                 with mock.patch(
                     "lsst.images.ndf._common._shrink_hds_name",
-                    side_effect=lambda name, *a, **k: name.upper() if len(name) <= 16 else "CLASH",
+                    side_effect=lambda name, *a, **k: name.upper() if len(name) <= DAT__SZNAM else "CLASH",
                 ):
                     arch.add_array(data, name="long_component_name_one")
                     with self.assertRaisesRegex(ValueError, "name collision"):
@@ -425,7 +426,7 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
                     for column in model.columns:
                         token = column.data.source[len("ndf:") :]
                         for component in token.strip("/").split("/"):
-                            self.assertLessEqual(len(component), 16)
+                            self.assertLessEqual(len(component), DAT__SZNAM)
                 # The two structured arrays land in distinct sub-trees.
                 self.assertNotEqual(
                     first.columns[0].data.source,

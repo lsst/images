@@ -540,8 +540,8 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             # The sub-NDF has the canonical layout: top-level group with
             # CLASS="NDF" containing a DATA_ARRAY structure (CLASS="ARRAY")
             # with DATA + ORIGIN primitives.  Over-long components are shrunk
-            # to fit the 16-character HDS limit; repeated names get a version
-            # suffix on their leaf so siblings stay distinct.
+            # to fit the HDS object-name limit (DAT__SZNAM); repeated names
+            # get a version suffix on their leaf so siblings stay distinct.
             archive_path, logical_id = self._versioned_archive_path(name, version)
             sub_ndf_path = self._archive_path_to_hdf5_path(archive_path)
             self._register_hdf5_path(sub_ndf_path, logical_id)
@@ -710,8 +710,9 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         if previous is not None and previous != logical_id:
             raise ValueError(
                 f"NDF/HDS name collision: archive entries {previous!r} and {logical_id!r} "
-                f"both map to {hdf5_path!r} after 16-character shrinking; rename one of them "
-                f"or increase hash_size to reduce the hash-collision probability."
+                f"both map to {hdf5_path!r} after shrinking to the {_hds.DAT__SZNAM}-character "
+                f"HDS name limit; rename one of them or increase hash_size to reduce the "
+                f"hash-collision probability."
             )
         self._hdf5_path_owners[hdf5_path] = logical_id
 

@@ -22,6 +22,8 @@ import hashlib
 
 import pydantic
 
+from ._hds import DAT__SZNAM
+
 
 class NdfPointerModel(pydantic.BaseModel):
     """Reference to an NDF-archive sub-tree by HDF5 path.
@@ -35,7 +37,7 @@ class NdfPointerModel(pydantic.BaseModel):
     """HDF5 absolute path (e.g. ``/MORE/LSST/PSF``)."""
 
 
-def _shrink_hds_name(name: str, max_length: int = 16, hash_size: int = 4) -> str:
+def _shrink_hds_name(name: str, max_length: int = DAT__SZNAM, hash_size: int = 4) -> str:
     """Shrink an HDS component name to fit the HDS length limit.
 
     The name is uppercased.
@@ -57,7 +59,9 @@ def _shrink_hds_name(name: str, max_length: int = 16, hash_size: int = 4) -> str
     return shrunk
 
 
-def shrink_versioned_component(base: str, version: int, max_length: int = 16, hash_size: int = 4) -> str:
+def shrink_versioned_component(
+    base: str, version: int, max_length: int = DAT__SZNAM, hash_size: int = 4
+) -> str:
     """Shrink a component while preserving a visible version suffix.
 
     When ``version`` is greater than one a ``_{version}`` suffix is reserved at
@@ -76,7 +80,7 @@ def archive_path_to_hdf5_path(archive_path: str) -> str:
     The empty path maps to the main JSON tree at ``/MORE/LSST/JSON``.
     Any non-empty path is uppercased and kept hierarchical under
     ``/MORE/LSST/``. This mirrors the serialization path while keeping HDS
-    component names within their 16-character limit.
+    component names within the HDS object-name limit (``DAT__SZNAM``).
     """
     if not archive_path:
         return "/MORE/LSST/JSON"
@@ -87,7 +91,7 @@ def archive_path_to_hdf5_path(archive_path: str) -> str:
 def archive_path_to_hdf5_path_components(archive_path: str) -> list[str]:
     """Return HDS-compatible path components for an archive path.
 
-    Each component is uppercased; components longer than the 16-character HDS
-    limit are deterministically shrunk by `_shrink_hds_name`.
+    Each component is uppercased; components longer than the HDS object-name
+    limit (``DAT__SZNAM``) are deterministically shrunk by `_shrink_hds_name`.
     """
     return [_shrink_hds_name(component) for component in archive_path.strip("/").split("/") if component]

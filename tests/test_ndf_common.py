@@ -20,6 +20,7 @@ try:
         archive_path_to_hdf5_path,
         shrink_versioned_component,
     )
+    from lsst.images.ndf._hds import DAT__SZNAM
 
     HAVE_H5PY = True
 except ImportError:
@@ -45,7 +46,7 @@ class NdfPointerModelTestCase(unittest.TestCase):
         result = archive_path_to_hdf5_path("/psf/this_component_is_too_long")
         self.assertTrue(result.startswith("/MORE/LSST/PSF/"))
         leaf = result.rsplit("/", 1)[-1]
-        self.assertLessEqual(len(leaf), 16)
+        self.assertLessEqual(len(leaf), DAT__SZNAM)
         # The short parent component is untouched; only the long leaf shrinks.
         self.assertEqual(result.split("/")[3], "PSF")
 
@@ -62,12 +63,15 @@ class ShrinkHdsNameTestCase(unittest.TestCase):
 
     def test_short_names_pass_through_uppercased(self):
         self.assertEqual(_shrink_hds_name("psf"), "PSF")
-        self.assertEqual(_shrink_hds_name("a" * 16), "A" * 16)
+        # A name exactly at the limit passes through unchanged (uppercased).
+        self.assertEqual(_shrink_hds_name("a" * DAT__SZNAM), "A" * DAT__SZNAM)
+        # One character over the limit is shrunk to the limit.
+        self.assertEqual(len(_shrink_hds_name("a" * (DAT__SZNAM + 1))), DAT__SZNAM)
 
     def test_long_names_are_shrunk_to_the_limit(self):
         shrunk = _shrink_hds_name("noise_realizations")
-        self.assertEqual(len(shrunk), 16)
-        self.assertTrue(shrunk.startswith("NOISE_R"))
+        self.assertEqual(len(shrunk), DAT__SZNAM)
+        self.assertTrue(shrunk.startswith("NOISE"))
         self.assertEqual(shrunk, shrunk.upper())
 
     def test_shrink_is_deterministic(self):
@@ -98,7 +102,7 @@ class ShrinkVersionedComponentTestCase(unittest.TestCase):
 
     def test_long_versioned_name_preserves_suffix_within_limit(self):
         shrunk = shrink_versioned_component("noise_realizations", 99)
-        self.assertEqual(len(shrunk), 16)
+        self.assertEqual(len(shrunk), DAT__SZNAM)
         self.assertTrue(shrunk.endswith("_99"))
 
     def test_same_base_different_versions_are_distinct(self):
