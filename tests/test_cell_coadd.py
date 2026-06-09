@@ -26,6 +26,7 @@ from lsst.images.tests import (
     DP2_COADD_MISSING_CELL,
     RoundtripFits,
     RoundtripJson,
+    RoundtripNdf,
     assert_cell_coadds_equal,
     assert_masked_images_equal,
     assert_psfs_equal,
@@ -34,6 +35,13 @@ from lsst.images.tests import (
     compare_psf_to_legacy,
     compare_sky_projection_to_legacy_wcs,
 )
+
+try:
+    import h5py  # noqa: F401
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -240,6 +248,26 @@ class CellCoaddTestCase(unittest.TestCase):
             subimage_bbox=self.cell_coadd.bbox,
             is_fits=True,
         )
+
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+    def test_round_trip_ndf(self) -> None:
+        """NDF round-trip for CellCoadd, exercising hoisted long-named arrays.
+
+        This test covers the HDS name-shrinker fix for noise_realizations.
+        """
+        with RoundtripNdf(self, self.cell_coadd, "CellCoadd") as roundtrip:
+            assert_cell_coadds_equal(self, roundtrip.result, self.cell_coadd, expect_view=False)
+
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+    def test_fits_ndf_consistency(self) -> None:
+        """FITS and NDF backends produce equal CellCoadds on round-trip."""
+        with (
+            RoundtripFits(self, self.cell_coadd) as fits_rt,
+            RoundtripNdf(self, self.cell_coadd) as ndf_rt,
+        ):
+            assert_cell_coadds_equal(self, self.cell_coadd, fits_rt.result, expect_view=False)
+            assert_cell_coadds_equal(self, self.cell_coadd, ndf_rt.result, expect_view=False)
+            assert_cell_coadds_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
 
 
 if __name__ == "__main__":
