@@ -1,1 +1,0 @@
-Fixed models to support JSON Schema creation and validation.
