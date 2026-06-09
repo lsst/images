@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from unittest import mock
 
 import astropy.io.fits
 import astropy.table
@@ -214,6 +215,20 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 origin = sub["DATA_ARRAY/ORIGIN"]
                 self.assertEqual(origin.dtype, np.int64)
                 self.assertEqual(origin.shape, (data.ndim,))
+
+    def test_colliding_shrunk_names_raise(self):
+        data = np.array([[1.0]], dtype=np.float32)
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                # Force both long names to shrink to the same HDS token.
+                with mock.patch(
+                    "lsst.images.ndf._common._shrink_hds_name",
+                    side_effect=lambda name, *a, **k: name.upper() if len(name) <= 16 else "CLASH",
+                ):
+                    arch.add_array(data, name="long_component_name_one")
+                    with self.assertRaisesRegex(ValueError, "name collision"):
+                        arch.add_array(data, name="long_component_name_two")
 
 
 @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
