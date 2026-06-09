@@ -288,7 +288,7 @@ def _linear_approx_projection(projection: Projection, bbox: Box, *, tol: float) 
         PolyMap(forward, inverse),
         in_bounds=projection.pixel_bounds,
     )
-    return affine.as_projection()
+    return SkyProjection(affine)
 
 
 def _affine_polymap_coeffs(matrix: np.ndarray, offset: np.ndarray) -> np.ndarray:

@@ -33,8 +33,6 @@ from . import _ast as astshim
 from ._frames import Frame, SerializableFrame, SkyFrame
 
 if TYPE_CHECKING:
-    from ._projection import Projection
-
     try:
         from lsst.afw.geom import TransformPoint2ToPoint2 as LegacyTransform
     except ImportError:
@@ -337,15 +335,6 @@ class Transform[I: Frame, O: Frame]:
             out_bounds=next.out_bounds,
             components=components,
         )
-
-    def as_projection(self: Transform[I, SkyFrame]) -> Projection[I]:
-        """Return a `Projection` view of this transform.
-
-        This is only valid when `out_frame` is `~SkyFrame.ICRS`.
-        """
-        from ._projection import Projection
-
-        return Projection(self)
 
     def as_fits_wcs(self, bbox: Box) -> astropy.wcs.WCS | None:
         """Return a FITS WCS representation of this transform, if possible.
