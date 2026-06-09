@@ -419,6 +419,10 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
                     first.columns[0].data.source,
                     second.columns[0].data.source,
                 )
+                # The second structured array's parent token keeps a
+                # visible _2 version suffix.
+                second_parent = second.columns[0].data.source[len("ndf:") :].strip("/").split("/")[-4]
+                self.assertTrue(second_parent.endswith("_2"))
             with h5py.File(tmp.name, "r") as f:
                 for model in (first, second):
                     for column in model.columns:
