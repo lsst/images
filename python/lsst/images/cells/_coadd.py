@@ -397,6 +397,7 @@ class CellCoadd(MaskedImage):
         *,
         plane_map: Mapping[str, MaskPlane] | None = None,
         tract_info: TractInfo,
+        bbox: Box | None = None,
     ) -> CellCoadd:
         """Convert from a `lsst.cell_coadds.MultipleCellCoadd` instance.
 
@@ -409,14 +410,20 @@ class CellCoadd(MaskedImage):
             description.
         tract_info
             Information about the full tract.
+        bbox
+            Bounding box of the image.  The default is to include just the
+            bounding box of the valid cells, which may not cover a full patch.
         """
         from lsst.geom import Box2I
 
         if plane_map is None:
             plane_map = get_legacy_deep_coadd_mask_planes()
-        legacy_bbox = Box2I()
-        for single_cell in legacy.cells.values():
-            legacy_bbox.include(single_cell.inner.bbox)
+        if bbox is None:
+            legacy_bbox = Box2I()
+            for single_cell in legacy.cells.values():
+                legacy_bbox.include(single_cell.inner.bbox)
+        else:
+            legacy_bbox = bbox.to_legacy()
         legacy_stitched = legacy.stitch(legacy_bbox)
         unit = astropy.units.Unit(legacy.units.value)
         tract_bbox = Box.from_legacy(tract_info.getBBox())
