@@ -27,10 +27,6 @@ def _is_zip(rp: ResourcePath) -> bool:
     return rp.path.endswith(".zarr.zip") or rp.path.endswith(".zip")
 
 
-def _is_remote(rp: ResourcePath) -> bool:
-    return rp.scheme not in ("", "file")
-
-
 @contextmanager
 def open_store_for_write(path: ResourcePathExpression) -> Iterator[Store]:
     """Open a zarr store for writing.
@@ -42,7 +38,7 @@ def open_store_for_write(path: ResourcePathExpression) -> Iterator[Store]:
     rp = ResourcePath(path)
     store: Store
     if _is_zip(rp):
-        if _is_remote(rp):
+        if not rp.isLocal:
             raise NotImplementedError("Remote ZipStore writes are a follow-up.")
         local = rp.ospath
         if os.path.exists(local) and os.path.getsize(local) > 0:
@@ -54,10 +50,8 @@ def open_store_for_write(path: ResourcePathExpression) -> Iterator[Store]:
             if getattr(zip_store, "_is_open", False):
                 zip_store.close()
         return
-    if _is_remote(rp):
-        import fsspec
-
-        fs, fs_path = fsspec.url_to_fs(str(rp))
+    if not rp.isLocal:
+        fs, fs_path = rp.to_fsspec()
         if fs.exists(fs_path) and fs.ls(fs_path):
             raise OSError(f"Store {rp!s} already exists.")
         store = zarr.storage.FsspecStore(fs=fs, path=fs_path, read_only=False)
@@ -77,7 +71,10 @@ def open_store_for_read(path: ResourcePathExpression) -> Iterator[Store]:
     rp = ResourcePath(path)
     store: Store
     if _is_zip(rp):
-        if _is_remote(rp):
+        if not rp.isLocal:
+            # Experimented with using fsspec and ZipFile in special
+            # ZipStore variant but in tests it 5x slower than downloading
+            # the file and reading it locally.
             with rp.as_local() as local:
                 zip_store = zarr.storage.ZipStore(local.ospath, mode="r")
                 try:
@@ -93,10 +90,8 @@ def open_store_for_read(path: ResourcePathExpression) -> Iterator[Store]:
             if getattr(zip_store, "_is_open", False):
                 zip_store.close()
         return
-    if _is_remote(rp):
-        import fsspec
-
-        fs, fs_path = fsspec.url_to_fs(str(rp))
+    if not rp.isLocal:
+        fs, fs_path = rp.to_fsspec()
         store = zarr.storage.FsspecStore(fs=fs, path=fs_path, read_only=True)
         yield store
         return
