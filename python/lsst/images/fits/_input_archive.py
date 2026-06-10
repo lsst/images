@@ -58,6 +58,37 @@ from ._common import (
 _FITS_FORMAT_VERSION = 1
 """Container layout version this release of `FitsInputArchive` understands."""
 
+_DEFAULT_PAGE_SIZE = 2880 * 800
+"""Default fsspec read-block size for partial (remote) reads, in bytes.
+
+This is the single place to tune the block size for remote-store performance.
+On a buffered remote filesystem (e.g. GCS) each cache miss is one range
+request, so the block size trades round trips against over-fetch: a component
+read that touches scattered compressed tiles pulls one block per cluster of
+nearby tiles, rounded up to this size.
+
+The optimum depends on the access pattern.  Larger blocks favor reads that
+touch most of the file (full planes, large cutouts); smaller blocks reduce
+wasted bytes for small scattered cutouts.  ``2880 * 800`` (~2.3 MB, and a
+multiple of the 2880-byte FITS block) is a robust middle: across cutout sizes
+and full reads it stays within ~1.5x of the per-pattern optimum, whereas the
+historical 144 KB default was several times slower for all but the tiniest
+cutout.  Raise it (e.g. ``2880 * 1600``) when whole-file or large-cutout reads
+dominate; lower it when many tiny cutouts across many files dominate.
+
+Local filesystems ignore this (their opener does no buffering), so it only
+affects remote stores.
+"""
+
+_READ_CACHE_TYPE = "blockcache"
+"""fsspec cache strategy for partial reads.
+
+``blockcache`` keeps a bounded set of fixed-size blocks (so memory stays
+capped) and reuses them across the multiple components of one file -- image,
+mask, variance and so on often share blocks -- unlike the default unbounded
+single-block ``readahead``.
+"""
+
 
 class FitsInputArchive(InputArchive[PointerModel]):
     """An implementation of the `.serialization.InputArchive` interface that
@@ -100,7 +131,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
         parses, so no separate `get_basic_info` open is needed.  Honors the
         ``page_size`` and ``partial`` open options.
         """
-        page_size = backend_kwargs.pop("page_size", 2880 * 50)
+        page_size = backend_kwargs.pop("page_size", _DEFAULT_PAGE_SIZE)
         with cls.open(path, page_size=page_size, partial=partial) as archive:
             info = archive.info
             tree_cls = tree_class_for_info(info, path)
@@ -159,7 +190,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
         cls,
         path: ResourcePathExpression,
         *,
-        page_size: int = 2880 * 50,
+        page_size: int = _DEFAULT_PAGE_SIZE,
         partial: bool = False,
     ) -> Iterator[Self]:
         """Create an output archive that writes to the given file.
@@ -169,8 +200,9 @@ class FitsInputArchive(InputArchive[PointerModel]):
         path
             File to read; convertible to `lsst.resources.ResourcePath`.
         page_size
-            Minimum number of bytes to read at at once.  Making this a multiple
-            of the FITS block size (2880) is recommended.
+            Size of the fsspec read block for partial (remote) reads, in
+            bytes; a multiple of the FITS block size (2880) is recommended.
+            Defaults to `_DEFAULT_PAGE_SIZE`; see it for the tuning tradeoff.
         partial
             Whether we will be reading only some of the archive, or if memory
             pressure forces us to read it only a little at a time.  If `False`
@@ -189,7 +221,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
         else:
             fs: fsspec.AbstractFileSystem
             fs, fp = path.to_fsspec()
-            with fs.open(fp, block_size=page_size) as stream:
+            with fs.open(fp, block_size=page_size, cache_type=_READ_CACHE_TYPE) as stream:
                 yield cls(stream)
 
     @property
