@@ -55,12 +55,13 @@ class OutputArchive[P](ABC):
     not part of the base class interface.
     """
 
-    _name_versions: dict[str, int]
-    """Per-name occurrence count, used by `_register_name` to disambiguate
-    repeated logical names within a single write (e.g. each operand of a
-    `SumField` calling ``add_array(name="data")`` from the same nested
-    archive).
-    """
+    def __init__(self) -> None:
+        self._name_versions: dict[str, int] = {}
+        """Per-name occurrence count, used by `_register_name` to disambiguate
+        repeated logical names within a single write (e.g. each operand of a
+        `SumField` calling ``add_array(name="data")`` from the same nested
+        archive).
+        """
 
     def _register_name(self, name: str) -> tuple[str, int]:
         """Return the input name and its 1-based occurrence count.
@@ -93,13 +94,8 @@ class OutputArchive[P](ABC):
         # Normalize so direct (``"data"``) and nested (``"/foo/data"``)
         # callers agree on the dedupe key.
         key = name if name.startswith("/") else f"/{name}"
-        try:
-            registry = self._name_versions
-        except AttributeError:
-            registry = {}
-            self._name_versions = registry
-        version = registry.get(key, 0) + 1
-        registry[key] = version
+        version = self._name_versions.get(key, 0) + 1
+        self._name_versions[key] = version
         return name, version
 
     @abstractmethod
@@ -357,6 +353,7 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
     """
 
     def __init__(self, root: str, parent: OutputArchive):
+        super().__init__()
         self._root = root
         self._parent = parent
 

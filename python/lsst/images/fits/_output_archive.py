@@ -125,6 +125,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         opaque_metadata: Any = None,
         compression_seed: int | None = None,
     ):
+        super().__init__()
         # JSON blobs for objects we've saved as pointers:
         self._pointer_targets: list[bytes] = []
         # Mapping from user provided key (e.g. id(some object)) to a table

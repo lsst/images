@@ -290,6 +290,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         direct_ndf_array_paths: Mapping[str, str] | None = None,
         wcs_ndf_paths: Sequence[str] = ("/",),
     ) -> None:
+        super().__init__()
         self._file = file
         self._document = NdfDocument(root=root if root is not None else Ndf())
         self._lsst_path = lsst_path.rstrip("/") or "/LSST"
