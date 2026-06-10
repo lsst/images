@@ -64,13 +64,15 @@ def shrink_versioned_component(
 ) -> str:
     """Shrink a component while preserving a visible version suffix.
 
-    When ``version`` is greater than one a ``_{version}`` suffix is reserved at
-    the tail and the ``base`` is shrunk into the remaining characters, so the
-    version number stays readable in Starlink tools.
-    Version one (the first occurrence) is shrunk exactly like an unversioned
+    ``version`` is the 0-based occurrence count of the name.
+    Occurrences after the first reserve a 1-based ``_{version + 1}`` suffix at
+    the tail (the second occurrence of ``DATA`` becomes ``DATA_2``) and the
+    ``base`` is shrunk into the remaining characters, so the version number
+    stays readable in Starlink tools.
+    Version zero (the first occurrence) is shrunk exactly like an unversioned
     component.
     """
-    suffix = f"_{version}" if version > 1 else ""
+    suffix = f"_{version + 1}" if version > 0 else ""
     return _shrink_hds_name(base, max_length - len(suffix), hash_size) + suffix
 
 

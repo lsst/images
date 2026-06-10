@@ -353,10 +353,13 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         version: int,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     ) -> ExtensionKey:
-        key = ExtensionKey(hdu.name, version)
+        # ``version`` is the 0-based occurrence count from `_register_name`;
+        # FITS EXTVER is 1-based.
+        extver = version + 1
+        key = ExtensionKey(hdu.name, extver)
         key.check()
-        if version > 1:
-            hdu.header["EXTVER"] = version
+        if extver > 1:
+            hdu.header["EXTVER"] = extver
         update_header(hdu.header)
         if (opaque_headers := self._opaque_metadata.headers.get(key)) is not None:
             hdu.header.extend(opaque_headers)
