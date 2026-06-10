@@ -235,8 +235,9 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
             with h5py.File(tmp.name, "w") as f:
                 arch = NdfOutputArchive(f)
                 # Force both long names to shrink to the same HDS token.
-                with mock.patch(
-                    "lsst.images.ndf._common._shrink_hds_name",
+                with mock.patch.object(
+                    arch._name_shrinker,
+                    "shrink",
                     side_effect=lambda name, *a, **k: name.upper() if len(name) <= DAT__SZNAM else "CLASH",
                 ):
                     arch.add_array(data, name="long_component_name_one")

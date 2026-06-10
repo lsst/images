@@ -49,10 +49,10 @@ from ..serialization import (
 )
 from . import _hds
 from ._common import (
+    HdsNameShrinker,
     NdfPointerModel,
     archive_path_to_hdf5_path,
     archive_path_to_hdf5_path_components,
-    shrink_versioned_component,
 )
 from ._model import HdsPrimitive, HdsStructure, Ndf, NdfArray, NdfContainer, NdfDocument, NdfQuality, NdfWcs
 
@@ -302,6 +302,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         self._frame_sets: list[tuple[FrameSet, NdfPointerModel]] = []
         self._pointers: dict[Hashable, NdfPointerModel] = {}
         self._hdf5_path_owners: dict[str, str] = {}
+        self._name_shrinker = HdsNameShrinker()
         # Keep the open file in sync so existing direct-archive tests can
         # inspect it immediately, while all mutations go through the IR.
         self._flush()
@@ -693,10 +694,10 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
     def _archive_path_to_hdf5_path(self, archive_path: str) -> str:
         """Translate an archive path to this layout's HDF5 path."""
         if self._lsst_path == "/MORE/LSST":
-            return archive_path_to_hdf5_path(archive_path)
+            return archive_path_to_hdf5_path(archive_path, self._name_shrinker)
         if not archive_path:
             return f"{self._lsst_path}/JSON"
-        components = archive_path_to_hdf5_path_components(archive_path)
+        components = archive_path_to_hdf5_path_components(archive_path, self._name_shrinker)
         return f"{self._lsst_path}/{'/'.join(components)}"
 
     def _register_hdf5_path(self, hdf5_path: str, logical_id: str) -> None:
@@ -712,8 +713,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             raise ValueError(
                 f"NDF/HDS name collision: archive entries {previous!r} and {logical_id!r} "
                 f"both map to {hdf5_path!r} after shrinking to the {_hds.DAT__SZNAM}-character "
-                f"HDS name limit; rename one of them or increase hash_size to reduce the "
-                f"hash-collision probability."
+                f"HDS name limit; rename one of them."
             )
         self._hdf5_path_owners[hdf5_path] = logical_id
 
@@ -730,7 +730,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             return archive_path, archive_path
         head, sep, leaf = archive_path.rpartition("/")
         logical_id = f"{archive_path}_{version}"
-        versioned = f"{head}{sep}{shrink_versioned_component(leaf, version)}"
+        versioned = f"{head}{sep}{self._name_shrinker.shrink_versioned(leaf, version)}"
         return versioned, logical_id
 
     def _has_model_path(self, path: str) -> bool:
