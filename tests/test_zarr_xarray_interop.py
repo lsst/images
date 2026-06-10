@@ -109,6 +109,47 @@ class XarrayInteropTestCase(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_ZARR and HAVE_XARRAY, "xarray is not installed")
+class XarrayMultipleUnnamedArraysTestCase(unittest.TestCase):
+    """A group with several non-``(y, x)`` arrays still opens in xarray.
+
+    The ``CellCoadd`` layout puts the ``(y, x)`` ``image`` in the root
+    group alongside a 4-D ``psf`` and the 1-D ``lsst_json`` blob. Every
+    array a group writes must carry distinct dimension names; otherwise
+    xarray collapses the unnamed ones onto a single anonymous dimension
+    and rejects the group when their sizes differ.
+    """
+
+    def _build_document(self):
+        from lsst.images.zarr._model import ZarrArray, ZarrDocument, ZarrGroup
+
+        root = ZarrGroup()
+        image = ZarrArray(data=np.zeros((4, 5), dtype=np.float32))
+        image.attributes.extra["_ARRAY_DIMENSIONS"] = ["y", "x"]
+        root.arrays["image"] = image
+        # 4-D PSF and the JSON blob have no explicit dimension names and
+        # differing axis sizes (3 vs 128) — the colliding case.
+        root.arrays["psf"] = ZarrArray(data=np.zeros((2, 3, 6, 6), dtype=np.float64))
+        root.arrays["lsst_json"] = ZarrArray(data=np.zeros((128,), dtype=np.uint8))
+        return ZarrDocument(root=root)
+
+    def test_open_zarr_with_psf_and_json_blob(self) -> None:
+        from lsst.images.zarr._store import open_store_for_write
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "cell.zarr")
+            with open_store_for_write(target) as store:
+                self._build_document().to_zarr(store)
+            ds = xr.open_zarr(target, consolidated=False)
+            self.assertEqual(ds["image"].dims, ("y", "x"))
+            # psf / lsst_json each get their own distinct, non-anonymous
+            # dims rather than colliding on a single ``None`` dimension.
+            self.assertNotIn(None, ds["psf"].dims)
+            self.assertNotIn(None, ds["lsst_json"].dims)
+            self.assertEqual(len(set(ds["psf"].dims)), ds["psf"].ndim)
+            self.assertEqual(ds["psf"].shape, (2, 3, 6, 6))
+
+
+@unittest.skipUnless(HAVE_ZARR and HAVE_XARRAY, "xarray is not installed")
 class XarrayCfFlagDecodingTestCase(unittest.TestCase):
     """A standalone CF-aware reader can decode plane membership.
 

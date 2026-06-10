@@ -264,10 +264,13 @@ def _group_to_zarr(ir: ZarrGroup, zarr_group: zarr.Group) -> None:
         # native zarr v3 ``dimension_names`` metadata field; xarray's v3
         # backend reads from there, not from attributes, and refuses to
         # open the parent group if *any* array lacks the field. Arrays
-        # without explicit names fall back to ``[None] * ndim``.
+        # without explicit names get distinct names derived from the array
+        # name (``"<name>_<axis>"``): an anonymous ``None`` axis would be
+        # shared with every other unnamed array, so xarray collapses them
+        # onto one dimension and rejects the group when their sizes differ.
         dim_names = array.attributes.extra.get("_ARRAY_DIMENSIONS")
         if dim_names is None:
-            dim_names = [None] * array.data.ndim
+            dim_names = [f"{name}_{axis}" for axis in range(array.data.ndim)]
         else:
             dim_names = list(dim_names)
         zarr_array = zarr_group.create_array(
