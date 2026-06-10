@@ -45,6 +45,7 @@ from ..serialization import (
     TableModel,
     no_header_updates,
     parameterize_tree,
+    tree_class_for_info,
 )
 from ..serialization._common import _check_format_version
 from . import _hds
@@ -114,24 +115,27 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
     def open_tree(
         cls,
         path: ResourcePathExpression,
-        tree_cls: type[ArchiveTree],
         *,
         partial: bool = True,
         **backend_kwargs: Any,
-    ) -> Iterator[tuple[Self, ArchiveTree]]:
-        """Open the NDF file and yield ``(archive, tree)``.
+    ) -> Iterator[tuple[Self, ArchiveTree, ArchiveInfo]]:
+        """Open the NDF file and yield ``(archive, tree, info)``.
 
-        Requires the symmetric LSST JSON tree; ``partial`` is accepted but
-        not meaningful, since h5py reads lazily regardless.
+        The schema is read from the open document's ``DATA_MODEL`` rather than
+        a separate `get_basic_info` open.  Requires the symmetric LSST JSON
+        tree; ``partial`` is accepted but not meaningful, since h5py reads
+        lazily regardless.
         """
-        parameterized = parameterize_tree(tree_cls, NdfPointerModel)
         with cls.open(path) as archive:
             if archive._get_main_json_path() is None:
                 raise ArchiveReadError(
                     f"{path!r} has no LSST JSON tree; only the symmetric read path is supported."
                 )
+            info = archive.info
+            tree_cls = tree_class_for_info(info, path)
+            parameterized = parameterize_tree(tree_cls, NdfPointerModel)
             tree = archive.get_tree(parameterized)
-            yield archive, tree
+            yield archive, tree, info
 
     @classmethod
     @contextmanager
@@ -253,6 +257,24 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
 
     def get_opaque_metadata(self) -> FitsOpaqueMetadata:
         return self._opaque_metadata
+
+    @property
+    def info(self) -> ArchiveInfo:
+        """Schema/format info read from the open document's ``DATA_MODEL``."""
+        schema_url: str | None = None
+        format_version = 1
+        for prefix in ("/MORE/LSST", "/LSST"):
+            if self._has_model_path(f"{prefix}/DATA_MODEL"):
+                lines = self._get_primitive(f"{prefix}/DATA_MODEL").read_char_array()
+                schema_url = lines[0].strip() if lines else None
+                if self._has_model_path(f"{prefix}/FORMAT_VERSION"):
+                    format_version = int(self._get_primitive(f"{prefix}/FORMAT_VERSION").read_array().item())
+                break
+        if not schema_url:
+            raise ArchiveReadError(
+                "Could not read the schema from /MORE/LSST/DATA_MODEL or /LSST/DATA_MODEL."
+            )
+        return ArchiveInfo.from_schema_url(schema_url, format_version=format_version)
 
     def _get_main_json_path(self) -> str | None:
         """Return the path of the main LSST JSON tree, if present."""

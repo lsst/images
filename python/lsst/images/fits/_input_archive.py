@@ -42,6 +42,7 @@ from ..serialization import (
     TableModel,
     no_header_updates,
     parameterize_tree,
+    tree_class_for_info,
 )
 from ..serialization._common import _check_format_version
 from ._common import (
@@ -89,27 +90,37 @@ class FitsInputArchive(InputArchive[PointerModel]):
     def open_tree(
         cls,
         path: ResourcePathExpression,
-        tree_cls: type[ArchiveTree],
         *,
         partial: bool = True,
         **backend_kwargs: Any,
-    ) -> Iterator[tuple[Self, ArchiveTree]]:
-        """Open the FITS file and yield ``(archive, tree)``.
+    ) -> Iterator[tuple[Self, ArchiveTree, ArchiveInfo]]:
+        """Open the FITS file and yield ``(archive, tree, info)``.
 
-        Honors the ``page_size`` and ``partial`` open options.
+        The schema is read from the primary header that opening already
+        parses, so no separate `get_basic_info` open is needed.  Honors the
+        ``page_size`` and ``partial`` open options.
         """
         page_size = backend_kwargs.pop("page_size", 2880 * 50)
-        parameterized = parameterize_tree(tree_cls, PointerModel)
         with cls.open(path, page_size=page_size, partial=partial) as archive:
+            info = archive.info
+            tree_cls = tree_class_for_info(info, path)
+            parameterized = parameterize_tree(tree_cls, PointerModel)
             tree = archive.get_tree(parameterized)
-            yield archive, tree
+            yield archive, tree, info
 
     def __init__(self, stream: IO[bytes]):
         self._primary_hdu = astropy.io.fits.PrimaryHDU.readfrom(stream)
         on_disk_fmtver: int = self._primary_hdu.header.pop("FMTVER", 1)
         # DATAMODL is informational only on read; the JSON tree's
-        # schema_version / min_read_version drive data-model checks.
-        self._primary_hdu.header.pop("DATAMODL", None)
+        # schema_version / min_read_version drive data-model checks.  We
+        # capture it here as ArchiveInfo so callers (e.g. open_tree) can
+        # identify the schema from this open rather than reopening the file.
+        # A schema-less file can still be opened directly; only callers that
+        # need the schema (via the `info` property) require DATAMODL.
+        schema_url = self._primary_hdu.header.pop("DATAMODL", None)
+        self._info = (
+            ArchiveInfo.from_schema_url(schema_url, format_version=on_disk_fmtver) if schema_url else None
+        )
         _check_format_version("fits", on_disk_fmtver, _FITS_FORMAT_VERSION)
         # TODO: do some basic checks that the file format conforms to our
         # expectations (e.g. primary HDU should have no data).
@@ -180,6 +191,13 @@ class FitsInputArchive(InputArchive[PointerModel]):
             fs, fp = path.to_fsspec()
             with fs.open(fp, block_size=page_size) as stream:
                 yield cls(stream)
+
+    @property
+    def info(self) -> ArchiveInfo:
+        """Schema/format info read from the primary header on open."""
+        if self._info is None:
+            raise ArchiveReadError("This is not an lsst.images FITS archive (no DATAMODL card).")
+        return self._info
 
     def get_tree[T: ArchiveTree](self, model_type: type[T]) -> T:
         """Read the JSON tree from the archive.

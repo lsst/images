@@ -10,6 +10,8 @@
 # license that can be found in the LICENSE file.
 from __future__ import annotations
 
+import builtins
+import contextlib
 import os
 import tempfile
 import unittest
@@ -18,7 +20,30 @@ from lsst.images import fits as images_fits
 from lsst.images import json as images_json
 from lsst.images.fits import FitsInputArchive
 from lsst.images.json import JsonInputArchive
-from lsst.images.serialization import ArchiveTree, backend_for_path, class_for_schema, read
+from lsst.images.serialization import ArchiveTree, read
+
+
+@contextlib.contextmanager
+def count_opens(path: str):
+    """Count how many times ``path`` is physically opened for reading.
+
+    Yields a one-element list whose single entry is the running open count;
+    read it after the ``with`` block.
+    """
+    count = [0]
+    real_open = builtins.open
+
+    def counting_open(file, *args, **kwargs):
+        if isinstance(file, (str, bytes, os.PathLike)) and os.fspath(file) == path:
+            count[0] += 1
+        return real_open(file, *args, **kwargs)
+
+    builtins.open = counting_open
+    try:
+        yield count
+    finally:
+        builtins.open = real_open
+
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
 
@@ -37,12 +62,10 @@ class FitsOpenTreeTestCase(unittest.TestCase):
         self.path = os.path.join(tmp.name, "v.fits")
         images_fits.write(_visit_image(), self.path)
 
-    def test_open_tree_yields_archive_and_tree(self) -> None:
-        info = backend_for_path(self.path).input_archive.get_basic_info(self.path)
-        tree_cls = class_for_schema(info.schema_name)
-        assert tree_cls is not None
-        with FitsInputArchive.open_tree(self.path, tree_cls) as (archive, tree):
+    def test_open_tree_yields_archive_tree_and_info(self) -> None:
+        with FitsInputArchive.open_tree(self.path) as (archive, tree, info):
             self.assertIsInstance(tree, ArchiveTree)
+            self.assertEqual(info.schema_name, "visit_image")
             proj = tree.deserialize_component("sky_projection", archive)
             self.assertIsNotNone(proj)
 
@@ -73,12 +96,10 @@ class NdfOpenTreeTestCase(unittest.TestCase):
         self.path = os.path.join(tmp.name, "v.sdf")
         images_ndf.write(_visit_image(), self.path)
 
-    def test_open_tree_yields_archive_and_tree(self) -> None:
-        info = backend_for_path(self.path).input_archive.get_basic_info(self.path)
-        tree_cls = class_for_schema(info.schema_name)
-        assert tree_cls is not None
-        with NdfInputArchive.open_tree(self.path, tree_cls) as (archive, tree):
+    def test_open_tree_yields_archive_tree_and_info(self) -> None:
+        with NdfInputArchive.open_tree(self.path) as (archive, tree, info):
             self.assertIsInstance(tree, ArchiveTree)
+            self.assertEqual(info.schema_name, "visit_image")
             self.assertIsNotNone(tree.deserialize_component("obs_info", archive))
 
     def test_read_still_works(self) -> None:
@@ -94,12 +115,10 @@ class JsonOpenTreeTestCase(unittest.TestCase):
         self.path = os.path.join(tmp.name, "v.json")
         images_json.write(_visit_image(), self.path)
 
-    def test_open_tree_yields_archive_and_tree(self) -> None:
-        info = backend_for_path(self.path).input_archive.get_basic_info(self.path)
-        tree_cls = class_for_schema(info.schema_name)
-        assert tree_cls is not None
-        with JsonInputArchive.open_tree(self.path, tree_cls) as (archive, tree):
+    def test_open_tree_yields_archive_tree_and_info(self) -> None:
+        with JsonInputArchive.open_tree(self.path) as (archive, tree, info):
             self.assertIsInstance(tree, ArchiveTree)
+            self.assertEqual(info.schema_name, "visit_image")
             self.assertIsNotNone(tree.deserialize_component("sky_projection", archive))
 
     def test_read_still_works(self) -> None:
@@ -178,6 +197,18 @@ class ReaderApiTestCase(unittest.TestCase):
             pass
         with self.assertRaises(RuntimeError):
             reader.get_component("sky_projection")
+
+    def test_fits_open_reads_file_once(self) -> None:
+        # open() must not open the file a second time just to read the schema
+        # from the primary header: the archive it opens already parses that
+        # header, so the schema is identified from a single open.
+        import lsst.images.serialization as ser
+
+        with count_opens(self.fits) as count:
+            with ser.open(self.fits) as reader:
+                reader.get_component("sky_projection")
+                reader.get_component("obs_info")
+        self.assertEqual(count[0], 1)
 
 
 if __name__ == "__main__":

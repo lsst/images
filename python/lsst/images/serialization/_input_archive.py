@@ -116,19 +116,28 @@ class InputArchive[P: pydantic.BaseModel](ABC):
     def open_tree(
         cls,
         path: ResourcePathExpression,
-        tree_cls: type[ArchiveTree],
         *,
         partial: bool = True,
         **backend_kwargs: Any,
-    ) -> AbstractContextManager[tuple[InputArchive[P], ArchiveTree]]:
+    ) -> AbstractContextManager[tuple[InputArchive[P], ArchiveTree, ArchiveInfo]]:
         """Open ``path``, load and validate its top-level tree, and yield
-        ``(archive, tree)`` as a context manager.
+        ``(archive, tree, info)`` as a context manager.
 
-        ``tree_cls`` is the un-parameterized `ArchiveTree` subclass; each
-        backend parameterizes it with its own pointer model.  Backend-specific
+        The backend identifies the schema from the same open it uses to read
+        the tree (so opening does not also require a separate
+        `get_basic_info` round trip), resolves the registered `ArchiveTree`
+        subclass for that schema, parameterizes it with the backend's own
+        pointer model, and validates the tree against it.  Backend-specific
         open options (e.g. ``page_size`` for FITS) are accepted via
         ``**backend_kwargs``; ``partial`` is honoured where meaningful.
 
+        Raises
+        ------
+        ArchiveReadError
+            If the file's schema is not registered.
+
+        Notes
+        -----
         Each concrete backend implements this.
         """
         raise NotImplementedError(f"{cls.__name__} does not implement open_tree.")

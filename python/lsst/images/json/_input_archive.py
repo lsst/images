@@ -36,6 +36,7 @@ from ..serialization import (
     TableModel,
     no_header_updates,
     parameterize_tree,
+    tree_class_for_info,
 )
 
 if TYPE_CHECKING:
@@ -75,22 +76,27 @@ class JsonInputArchive(InputArchive[JsonRef]):
     def open_tree(
         cls,
         path: ResourcePathExpression,
-        tree_cls: type[ArchiveTree],
         *,
         partial: bool = True,
         **backend_kwargs: Any,
-    ) -> Iterator[tuple[Self, ArchiveTree]]:
-        """Parse the JSON tree and yield ``(archive, tree)``.
+    ) -> Iterator[tuple[Self, ArchiveTree, ArchiveInfo]]:
+        """Parse the JSON tree and yield ``(archive, tree, info)``.
 
         A no-resource context manager: JSON is fully in memory, so
         ``partial`` is a no-op.
         ``tree.indirect`` is released when the context exits.
         """
+        raw = ResourcePath(path).read()
+        parsed = from_json(raw)
+        if not isinstance(parsed, dict) or not parsed.get("schema_url"):
+            raise ArchiveReadError(f"{path!r} has no schema_url in its top-level JSON tree.")
+        info = ArchiveInfo.from_schema_url(parsed["schema_url"], format_version=None)
+        tree_cls = tree_class_for_info(info, path)
         parameterized = parameterize_tree(tree_cls, JsonRef)
-        tree = parameterized.model_validate_json(ResourcePath(path).read())
+        tree = parameterized.model_validate_json(raw)
         archive = cls(tree.indirect)
         try:
-            yield archive, tree
+            yield archive, tree, info
         finally:
             tree.indirect = []
 
