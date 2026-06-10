@@ -91,11 +91,8 @@ class OutputArchive[P](ABC):
         keyword without modifying the extension name, while hierarchical
         backends can append ``_{version}`` to the leaf component of the path.
         """
-        # Normalize so direct (``"data"``) and nested (``"/foo/data"``)
-        # callers agree on the dedupe key.
-        key = name if name.startswith("/") else f"/{name}"
-        version = self._name_versions.get(key, 0) + 1
-        self._name_versions[key] = version
+        version = self._name_versions.get(name, 0) + 1
+        self._name_versions[name] = version
         return name, version
 
     @abstractmethod
