@@ -36,6 +36,7 @@ from ..serialization import (
     TableModel,
     no_header_updates,
     parameterize_tree,
+    tree_class_for_info,
 )
 from ..serialization._common import _check_format_version
 from ._common import LSST_VERSION, ZarrPointerModel
@@ -89,20 +90,33 @@ class ZarrInputArchive(InputArchive[ZarrPointerModel]):
     def open_tree(
         cls,
         path: ResourcePathExpression,
-        tree_cls: type[ArchiveTree],
         *,
         partial: bool = True,
         **backend_kwargs: Any,
-    ) -> Iterator[tuple[Self, ArchiveTree]]:
-        """Open the zarr archive and yield ``(archive, tree)``.
+    ) -> Iterator[tuple[Self, ArchiveTree, ArchiveInfo]]:
+        """Open the zarr archive and yield ``(archive, tree, info)``.
 
-        Zarr reads are always lazy, so ``partial`` is accepted for
-        interface compatibility but has no effect.
+        The schema is read from the open document's root attributes rather
+        than a separate `get_basic_info` open.  Zarr reads are always lazy,
+        so ``partial`` is accepted for interface compatibility but has no
+        effect.
         """
-        parameterized = parameterize_tree(tree_cls, ZarrPointerModel)
         with cls.open(path) as archive:
+            info = archive.info
+            tree_cls = tree_class_for_info(info, path)
+            parameterized = parameterize_tree(tree_cls, ZarrPointerModel)
             tree = archive.get_tree(parameterized)
-            yield archive, tree
+            yield archive, tree, info
+
+    @property
+    def info(self) -> ArchiveInfo:
+        """Schema/format info read from the open document's root attributes."""
+        attrs = self._document.root.attributes.lsst
+        schema_url = attrs.get("data_model")
+        if not schema_url:
+            raise ArchiveReadError("This is not an lsst.images zarr archive (no lsst.data_model attribute).")
+        format_version = int(attrs.get("__version_remembered_at_load__", 1))
+        return ArchiveInfo.from_schema_url(schema_url, format_version=format_version)
 
     @property
     def document(self) -> ZarrDocument:
