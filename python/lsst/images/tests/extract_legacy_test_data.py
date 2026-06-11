@@ -111,12 +111,13 @@ def extract_visit_image_background(
     visit_image_background.writeFits(output_path)
 
 
-def extract_visit_summary(
+def extract_generic(
     butler: Butler,
     output_path: str,
     dataset_ref: DatasetRef,
 ) -> None:
-    """Load a visit_summary dataset and save it to testdata_images.
+    """Load a dataset and save it to testdata_images, assuming it has a
+    writeFits method.
 
     Parameters
     ----------
@@ -333,7 +334,7 @@ def extract_dp2(
             os.path.join(testdata_dir, "dp2", "legacy", "visit_image_background.fits"),
             find_dataset_or_raise(butler, "visit_image_background", **DP2_VISIT_DETECTOR_DATA_ID),
         )
-        extract_visit_summary(
+        extract_generic(
             butler,
             os.path.join(testdata_dir, "dp2", "legacy", "visit_summary.fits"),
             find_dataset_or_raise(butler, "visit_summary", **DP2_VISIT_DETECTOR_DATA_ID),
@@ -355,6 +356,17 @@ def extract_dp2(
             os.path.join(testdata_dir, "dp2", "legacy", "difference_image.fits"),
             find_dataset_or_raise(butler, "difference_image", **DP2_VISIT_DETECTOR_DATA_ID),
             shuffle=True,
+        )
+        extract_exposure(
+            butler,
+            os.path.join(testdata_dir, "dp2", "legacy", "template_detector.fits"),
+            find_dataset_or_raise(butler, "template_detector", **DP2_VISIT_DETECTOR_DATA_ID),
+            shuffle=True,
+        )
+        extract_generic(
+            butler,
+            os.path.join(testdata_dir, "dp2", "legacy", "difference_kernel.fits"),
+            find_dataset_or_raise(butler, "difference_kernel", **DP2_VISIT_DETECTOR_DATA_ID),
         )
     if coadds:
         extract_cell_coadd(
