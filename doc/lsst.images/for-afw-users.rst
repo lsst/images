@@ -28,8 +28,12 @@ Intervals, Boxes, and Polygons
 """"""""""""""""""""""""""""""
 
 `lsst.geom.IntervalI` corresponds directly to `Interval`.
+As in `lsst.geom.Interval`, `Interval.min` and `Interval.max` are the inclusive bounds, which are integers that correspond to the *centers* of the outermost pixels included in the interval; this means the interval size is actually ``1 + max - min``, and floating point coordinates between ``min - 0.5`` and ``max + 0.5`` are actually included in the interval.
+The half-exclusive bounds have been renamed from ``begin`` (inclusive) and ``end`` (exclusive) in `lsst.geom` to ``start`` and ``stop`` in `lsst.images` (``begin`` and ``end`` is the standard nomenclature in C++, while ``start`` and ``stop`` are the standard names in Python).
 
 `lsst.geom.Box2I` corresponds directly to `Box` (but the latter is immutable).
+As a `Box` is ultimately just a pair of ``y`` and ``x`` `Interval` objects, all of the `Interval` nomenclature changes and bounds definitions apply to `Box` as well.
+Note that `Box.min`, `Box.max`, `Box.start`, and `Box.stop` all return `YX` tuples, for consistency with `Box.shape`.
 
 `lsst.geom.IntervalD` and `lsst.geom.Box2D` do not have direct counterparts in `lsst.images`.
 2-d floating-point boxes are represented as `Polygon` objects; the expectation is that - unlike an integer-coordinate `Box` - there is nothing special about a floating-point rectangle that necessitates a dedicated class.
@@ -44,36 +48,38 @@ The `Bounds` system is not yet fully implemented in `lsst.images`, but the goal 
 Coordinate Systems and Transforms
 """""""""""""""""""""""""""""""""
 
-`lsst.afw.geom.SkyWcs` corresponds directly to `Projection`.
+`lsst.afw.geom.SkyWcs` corresponds directly to `SkyProjection`.
 Both types can be (but are not necessarily!) representable as FITS WCS, and are capable of carrying around their own FITS WCS approximation.
 
 `lsst.afw.geom.TransformPoint2ToPoint2` and other instantiations of the same underyling C++ template (which are used to represent camera geometry coordinate transforms, mostly) correspond directly to `Transform`.
 
-`Projection` and `Transform` differ from their `lsst.afw.geom` counterparts in that they can identify the frames they transform between (e.g. the pixels of a particular ``{visit, detector}`` and the ICRS sky), via an object that satisfies the `Frame` `~typing.Protocol`.
-This additional information needs to be provided when creating an `lsst.images` type from an `lsst.afw.geom` one (e.g. via `Projection.from_legacy`).
+`SkyProjection` and `Transform` differ from their `lsst.afw.geom` counterparts in that they can identify the frames they transform between (e.g. the pixels of a particular ``{visit, detector}`` and the ICRS sky), via an object that satisfies the `Frame` `~typing.Protocol`.
+This additional information needs to be provided when creating an `lsst.images` type from an `lsst.afw.geom` one (e.g. via `SkyProjection.from_legacy`).
 
 `lsst.afw.cameraGeom.TransformMap` corresponds directly to `CameraFrameSet`.
 
 General-Purpose Images
 ----------------------
 
-All image-like objects in `lsst.images` inherit from `GeneralizedImage`, which allows any number of image planes that correspond to a single (optional) `Projection` and bounding `Box`.
+All image-like objects in `lsst.images` inherit from `GeneralizedImage`, which allows any number of image planes that correspond to a single (optional) `SkyProjection` and bounding `Box`.
 
 Pixel indexing conventions in the two libraries are the same: the center of the lower-left pixel of most images is ``(0, 0)`` (and always a pair of integers).
 
-The offset often referred to as ``xy0`` in `lsst.afw` is generally called ``start`` in `lsst.images` arguments and attributes, and the `lsst.afw.image.PARENT` coordinate system that is aware of this offset is used by default on all `lsst.images` types, and can be used more explicitly via the `GeneralizedImage.absolute` slicing proxy.
+The offset often referred to as ``xy0`` in `lsst.afw` is generally called ``yx0`` on `GeneralizedImage` subclasses, since the order has been swapped.
+
+The `lsst.afw.image.PARENT` coordinate system that is aware of this offset is used by default on all `lsst.images` types, and can be used more explicitly via the `GeneralizedImage.absolute` slicing proxy.
 
 As in `lsst.afw.image`, underlying `numpy.ndarray` view attributes do not know about this offset, and instead operate in what is called the `lsst.afw.image.LOCAL` coordinate system in `lsst.afw`.
 The types in `lsst.image` can be sliced in this coordinate system via the `GeneralizedImage.local` slicing proxy.
 
-`lsst.images.Image` corresponds directly to `Image`, but the latter can also hold a `Projection`, flexible metadata, units (via `astropy.units`), and an `astro_metadata_translator.ObservationInfo`.
+`lsst.images.Image` corresponds directly to `Image`, but the latter can also hold a `SkyProjection`, flexible metadata, units (via `astropy.units`), and an `astro_metadata_translator.ObservationInfo`.
 
-`lsst.images.Mask` corresponds directly to `Mask`, but the latter can also hold a `Projection` and flexible metadata, and its backing array is 3-d `numpy.uint8` array with shape ``(height, width, N)``, where ``N`` can change depending on the number of mask planes (which is fully dynamic).
+`lsst.images.Mask` corresponds directly to `Mask`, but the latter can also hold a `SkyProjection` and flexible metadata, and its backing array is 3-d `numpy.uint8` array with shape ``(height, width, N)``, where ``N`` can change depending on the number of mask planes (which is fully dynamic).
 This means that a "mask pixel" is actually a shape ``(N,)`` `numpy.uint8` array, but (thanks to automatic broadcasting) the usual bitwise operations still work.
 The `Mask.get`, `Mask.set`, and `Mask.clear` convenience methods can be used instead of direct bitwise array operations in most cases.
 The planes of different `Mask` objects are not necessarily the same (as is enforced by global state in `lsst.afw.image.Mask`); instead, a separate `MaskSchema` object is used to manage shared mask plane definitions.
 
-`lsst.images.MaskedImage` corresponds directly to `MaskedImage`, but the latter can also hold a `Projection`, flexible metadata, and units.
+`lsst.images.MaskedImage` corresponds directly to `MaskedImage`, but the latter can also hold a `SkyProjection`, flexible metadata, and units.
 
 Single-Visit `lsst.afw.image.Exposure` Objects
 ----------------------------------------------
@@ -82,7 +88,7 @@ When used to represent a calibrated single-visit, single-detector image, `lsst.a
 
 Most `lsst.afw.image.Exposure` components have `VisitImage` counterparts:
 
-- ``wcs`` (`lsst.afw.geom.SkyWcs`) -> `VisitImage.projection` (`Projection`)
+- ``wcs`` (`lsst.afw.geom.SkyWcs`) -> `VisitImage.sky_projection` (`SkyProjection`)
 - ``psf`` (`lsst.afw.detection.Psf`) -> `VisitImage.psf` (`psfs.PointSpreadFunction`)
 - ``validPolygon`` (`lsst.afw.geom.Polygon`) -> `VisitImage.bounds` (any `Bounds` implementation)
 - ``visitInfo`` (`lsst.afw.image.VisitInfo`) -> `VisitImage.obs_info` (`astro_metadata_translator.ObservationInfo`)
@@ -111,7 +117,7 @@ This is roughly equivalent to a procedure that builds templates as "edgy" cell c
 
 The `~cells.CellCoadd` type has counterparts for only some of the components of `lsst.afw.image.Exposure`:
 
-- ``wcs`` (`lsst.afw.geom.SkyWcs`) -> `~cells.CellCoadd.projection` (`Projection`)
+- ``wcs`` (`lsst.afw.geom.SkyWcs`) -> `~cells.CellCoadd.sky_projection` (`SkyProjection`)
 - ``psf`` (`lsst.afw.detection.Psf`) -> `~cells.CellCoadd.psf` (`~cells.CellPointSpreadFunction`)
 
 Cell coadds also have a `~cells.CellCoadd.bounds` attribute (`~cells.CellGridBounds`) that plays a similar role to the `VisitImage.bounds` attribute in that it represents the area where pixels and other objects (e.g. PSFs are valid), by recording which cells do and do not have data.
