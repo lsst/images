@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 __all__ = (
+    "DEFAULT_PAGE_SIZE",
+    "READ_CACHE_MAX_BYTES",
     "FitsInputArchive",
     "FitsOpaqueMetadata",
 )
@@ -76,10 +78,6 @@ historical 144 KB default was several times slower for all but the tiniest
 cutout.  Raise it (e.g. ``2880 * 1600``) when whole-file or large-cutout reads
 dominate; lower it when many tiny cutouts across many files dominate.
 
-This name is deliberately public-style (no leading underscore) so developers
-can import and experiment with it, but it is intentionally omitted from
-``__all__`` because it is a tuning knob, not part of the supported API.
-
 Local filesystems ignore this (their opener does no buffering), so it only
 affects remote stores.
 """
@@ -103,9 +101,6 @@ fixed even when the block size is retuned.  Measured benefit saturates at two
 cached blocks for the access patterns we care about, so this budget is purely
 headroom plus a guard against unbounded growth; it is far below fsspec's
 implicit default of ``32 * block_size``.
-
-Like ``DEFAULT_PAGE_SIZE``, this is a public-style tuning knob kept out of
-``__all__``.
 """
 
 
@@ -221,7 +216,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
         page_size
             Size of the fsspec read block for partial (remote) reads, in
             bytes; a multiple of the FITS block size (2880) is recommended.
-            Defaults to ``DEFAULT_PAGE_SIZE``; see it for the tuning tradeoff.
+            Defaults to `DEFAULT_PAGE_SIZE`; see it for the tuning tradeoff.
         partial
             Whether we will be reading only some of the archive, or if memory
             pressure forces us to read it only a little at a time.  If `False`
