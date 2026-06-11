@@ -21,9 +21,9 @@ from typing import Any, TypeVar, overload
 from lsst.resources import ResourcePathExpression
 
 from ._backends import backend_for_path
-from ._common import ArchiveReadError, ArchiveTree, ButlerInfo, MetadataValue
+from ._common import ArchiveTree, ButlerInfo, MetadataValue
 from ._input_archive import ArchiveInfo, InputArchive
-from ._io import class_for_schema, public_type_for_schema
+from ._io import public_type_for_schema
 
 # This pre-python-3.12 declaration is needed so Sphinx (the
 # autodoc-typehints plugin) can resolve the ``T`` forward reference in the
@@ -149,21 +149,18 @@ def open(path: ResourcePathExpression, cls=None, *, partial=True, **backend_kwar
         incompatible type.
     """
     backend = backend_for_path(path)
-    info = backend.input_archive.get_basic_info(path)
-    tree_cls = class_for_schema(info.schema_name)
-    if tree_cls is None:
-        raise ArchiveReadError(f"No registered schema {info.schema_name!r}; cannot open {path!r}.")
-    if cls is not None:
-        resolved = public_type_for_schema(info.schema_name)
-        if resolved is not None and not issubclass(resolved, cls):
-            raise TypeError(
-                f"{path!r} has schema {info.schema_name!r} (type {resolved.__name__}), "
-                f"which is not a {cls.__name__}."
-            )
-    with backend.input_archive.open_tree(path, tree_cls, partial=partial, **backend_kwargs) as (
+    with backend.input_archive.open_tree(path, partial=partial, **backend_kwargs) as (
         archive,
         tree,
+        info,
     ):
+        if cls is not None:
+            resolved = public_type_for_schema(info.schema_name)
+            if resolved is not None and not issubclass(resolved, cls):
+                raise TypeError(
+                    f"{path!r} has schema {info.schema_name!r} (type {resolved.__name__}), "
+                    f"which is not a {cls.__name__}."
+                )
         reader: Reader[Any] = Reader(archive, tree, info, cls)
         try:
             yield reader

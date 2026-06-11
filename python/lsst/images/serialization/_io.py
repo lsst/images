@@ -18,17 +18,21 @@ __all__ = (
     "public_type_for_schema",
     "read",
     "register_schema_class",
+    "tree_class_for_info",
     "write",
 )
 
 import importlib
 import importlib.metadata
-from typing import Any, overload
+from typing import TYPE_CHECKING, Any, overload
 
 from lsst.resources import ResourcePathExpression
 
 from ._backends import backend_for_path
 from ._common import ArchiveReadError, ArchiveTree
+
+if TYPE_CHECKING:
+    from ._input_archive import ArchiveInfo
 
 _REGISTRY: dict[str, type[ArchiveTree]] = {}
 """Map of ``SCHEMA_NAME`` to the registered ``ArchiveTree`` subclass.
@@ -156,6 +160,27 @@ def _register_provider_object(obj: object) -> None:
     """Register ``obj`` if a provider returned an ``ArchiveTree`` subclass."""
     if isinstance(obj, type) and issubclass(obj, ArchiveTree):
         register_schema_class(obj)
+
+
+def tree_class_for_info(info: ArchiveInfo, path: ResourcePathExpression) -> type[ArchiveTree]:
+    """Return the registered `ArchiveTree` subclass for ``info``'s schema.
+
+    Parameters
+    ----------
+    info
+        Basic archive info whose ``schema_name`` selects the tree class.
+    path
+        Path being opened, used only for the error message.
+
+    Raises
+    ------
+    ArchiveReadError
+        If no class is registered for the schema.
+    """
+    tree_cls = class_for_schema(info.schema_name)
+    if tree_cls is None:
+        raise ArchiveReadError(f"No registered schema {info.schema_name!r}; cannot open {path!r}.")
+    return tree_cls
 
 
 def parameterize_tree(

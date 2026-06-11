@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 __all__ = (
+    "DEFAULT_PAGE_SIZE",
+    "READ_CACHE_MAX_BYTES",
     "FitsInputArchive",
     "FitsOpaqueMetadata",
 )
@@ -42,6 +44,7 @@ from ..serialization import (
     TableModel,
     no_header_updates,
     parameterize_tree,
+    tree_class_for_info,
 )
 from ..serialization._common import _check_format_version
 from ._common import (
@@ -56,6 +59,49 @@ from ._common import (
 
 _FITS_FORMAT_VERSION = 1
 """Container layout version this release of `FitsInputArchive` understands."""
+
+DEFAULT_PAGE_SIZE = 2880 * 800
+"""Default fsspec read-block size for partial (remote) reads, in bytes.
+
+This is the single place to tune the block size for remote-store performance.
+On a buffered remote filesystem (e.g. GCS) each cache miss is one range
+request, so the block size trades round trips against over-fetch: a component
+read that touches scattered compressed tiles pulls one block per cluster of
+nearby tiles, rounded up to this size.
+
+The optimum depends on the access pattern.  Larger blocks favor reads that
+touch most of the file (full planes, large cutouts); smaller blocks reduce
+wasted bytes for small scattered cutouts.  ``2880 * 800`` (~2.3 MB, and a
+multiple of the 2880-byte FITS block) is a robust middle: across cutout sizes
+and full reads it stays within ~1.5x of the per-pattern optimum, whereas the
+historical 144 KB default was several times slower for all but the tiniest
+cutout.  Raise it (e.g. ``2880 * 1600``) when whole-file or large-cutout reads
+dominate; lower it when many tiny cutouts across many files dominate.
+
+Local filesystems ignore this (their opener does no buffering), so it only
+affects remote stores.
+"""
+
+_READ_CACHE_TYPE = "blockcache"
+"""fsspec cache strategy for partial reads.
+
+``blockcache`` keeps a bounded set of fixed-size blocks (so memory stays
+capped) and reuses them across the multiple components of one file -- image,
+mask, variance and so on often share blocks -- unlike the default unbounded
+single-block ``readahead``.
+"""
+
+READ_CACHE_MAX_BYTES = 64 * 1024 * 1024
+"""Approximate memory budget for the partial-read block cache, per open file.
+
+The fsspec block cache evicts least-recently-used blocks once it holds more
+than ``maxblocks``; we derive ``maxblocks`` from this budget and the block
+size (`DEFAULT_PAGE_SIZE`) so the memory cap is expressed in bytes and stays
+fixed even when the block size is retuned.  Measured benefit saturates at two
+cached blocks for the access patterns we care about, so this budget is purely
+headroom plus a guard against unbounded growth; it is far below fsspec's
+implicit default of ``32 * block_size``.
+"""
 
 
 class FitsInputArchive(InputArchive[PointerModel]):
@@ -89,27 +135,45 @@ class FitsInputArchive(InputArchive[PointerModel]):
     def open_tree(
         cls,
         path: ResourcePathExpression,
-        tree_cls: type[ArchiveTree],
         *,
         partial: bool = True,
         **backend_kwargs: Any,
-    ) -> Iterator[tuple[Self, ArchiveTree]]:
-        """Open the FITS file and yield ``(archive, tree)``.
+    ) -> Iterator[tuple[Self, ArchiveTree, ArchiveInfo]]:
+        """Open the FITS file and yield ``(archive, tree, info)``.
 
-        Honors the ``page_size`` and ``partial`` open options.
+        Parameters
+        ----------
+        path
+            The file resource to open.
+        partial
+            If `True` the file is opened without reading it all into memory.
+        **backend_kwargs
+            Optional parameters for this backend. Currently supports
+            ``page_size`` which can be used to override the default
+            page size (which can be overridden globally by modifying
+            `DEFAULT_PAGE_SIZE`).
         """
-        page_size = backend_kwargs.pop("page_size", 2880 * 50)
-        parameterized = parameterize_tree(tree_cls, PointerModel)
+        page_size = backend_kwargs.pop("page_size", DEFAULT_PAGE_SIZE)
         with cls.open(path, page_size=page_size, partial=partial) as archive:
+            info = archive.info
+            tree_cls = tree_class_for_info(info, path)
+            parameterized = parameterize_tree(tree_cls, PointerModel)
             tree = archive.get_tree(parameterized)
-            yield archive, tree
+            yield archive, tree, info
 
     def __init__(self, stream: IO[bytes]):
         self._primary_hdu = astropy.io.fits.PrimaryHDU.readfrom(stream)
         on_disk_fmtver: int = self._primary_hdu.header.pop("FMTVER", 1)
         # DATAMODL is informational only on read; the JSON tree's
-        # schema_version / min_read_version drive data-model checks.
-        self._primary_hdu.header.pop("DATAMODL", None)
+        # schema_version / min_read_version drive data-model checks.  We
+        # capture it here as ArchiveInfo so callers (e.g. open_tree) can
+        # identify the schema from this open rather than reopening the file.
+        # A schema-less file can still be opened directly; only callers that
+        # need the schema (via the `info` property) require DATAMODL.
+        schema_url = self._primary_hdu.header.pop("DATAMODL", None)
+        self._info = (
+            ArchiveInfo.from_schema_url(schema_url, format_version=on_disk_fmtver) if schema_url else None
+        )
         _check_format_version("fits", on_disk_fmtver, _FITS_FORMAT_VERSION)
         # TODO: do some basic checks that the file format conforms to our
         # expectations (e.g. primary HDU should have no data).
@@ -148,7 +212,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
         cls,
         path: ResourcePathExpression,
         *,
-        page_size: int = 2880 * 50,
+        page_size: int = DEFAULT_PAGE_SIZE,
         partial: bool = False,
     ) -> Iterator[Self]:
         """Create an output archive that writes to the given file.
@@ -158,8 +222,9 @@ class FitsInputArchive(InputArchive[PointerModel]):
         path
             File to read; convertible to `lsst.resources.ResourcePath`.
         page_size
-            Minimum number of bytes to read at at once.  Making this a multiple
-            of the FITS block size (2880) is recommended.
+            Size of the fsspec read block for partial (remote) reads, in
+            bytes; a multiple of the FITS block size (2880) is recommended.
+            Defaults to `DEFAULT_PAGE_SIZE`; see it for the tuning tradeoff.
         partial
             Whether we will be reading only some of the archive, or if memory
             pressure forces us to read it only a little at a time.  If `False`
@@ -178,8 +243,26 @@ class FitsInputArchive(InputArchive[PointerModel]):
         else:
             fs: fsspec.AbstractFileSystem
             fs, fp = path.to_fsspec()
-            with fs.open(fp, block_size=page_size) as stream:
+            # Cap cached blocks from the byte budget so memory stays bounded as
+            # the block size is retuned; keep at least two so the shared
+            # header/index block survives between a file's components.
+            maxblocks = max(2, READ_CACHE_MAX_BYTES // page_size)
+            with fs.open(
+                fp,
+                block_size=page_size,
+                cache_type=_READ_CACHE_TYPE,
+                cache_options={"maxblocks": maxblocks},
+            ) as stream:
                 yield cls(stream)
+
+    @property
+    def info(self) -> ArchiveInfo:
+        """Schema/format info read from the primary header on open.
+        (`.serialization.ArchiveInfo`)
+        """
+        if self._info is None:
+            raise ArchiveReadError("This is not an lsst.images FITS archive (no DATAMODL card).")
+        return self._info
 
     def get_tree[T: ArchiveTree](self, model_type: type[T]) -> T:
         """Read the JSON tree from the archive.

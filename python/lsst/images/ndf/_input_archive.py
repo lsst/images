@@ -45,6 +45,7 @@ from ..serialization import (
     TableModel,
     no_header_updates,
     parameterize_tree,
+    tree_class_for_info,
 )
 from ..serialization._common import _check_format_version
 from . import _hds
@@ -55,6 +56,67 @@ _LOG = logging.getLogger(__name__)
 
 _NDF_FORMAT_VERSION = 1
 """Container layout version this release of `NdfInputArchive` understands."""
+
+_LSST_EXTENSION_PREFIXES = ("/MORE/LSST", "/LSST")
+"""Fixed locations of the LSST extension structure within an NDF.
+
+Only these top-level locations are searched; nested pointer trees can
+therefore never be mistaken for the main one.
+"""
+
+
+def _get_lsst_primitive(
+    get_primitive: Callable[[str], HdsPrimitive | None], name: str
+) -> HdsPrimitive | None:
+    """Find a named primitive in the LSST extension structure.
+
+    Parameters
+    ----------
+    get_primitive
+        Callable returning the primitive at an absolute path, or `None` if
+        there is no primitive there.
+    name
+        Component name within the LSST extension, e.g. ``DATA_MODEL``.
+    """
+    for prefix in _LSST_EXTENSION_PREFIXES:
+        if (primitive := get_primitive(f"{prefix}/{name}")) is not None:
+            return primitive
+    return None
+
+
+def _read_format_version(get_primitive: Callable[[str], HdsPrimitive | None]) -> int:
+    """Read the container-layout ``FORMAT_VERSION`` from the LSST extension.
+
+    Absence is treated as ``1`` (legacy default).
+    """
+    primitive = _get_lsst_primitive(get_primitive, "FORMAT_VERSION")
+    if primitive is None:
+        return 1
+    # The writer emits the version as a 0-d int32 numpy array; .item()
+    # unwraps to a Python int.
+    return int(primitive.read_array().item())
+
+
+def _read_archive_info(get_primitive: Callable[[str], HdsPrimitive | None], source: str) -> ArchiveInfo:
+    """Read the schema URL and format version from the LSST extension.
+
+    Parameters
+    ----------
+    get_primitive
+        Callable returning the primitive at an absolute path, or `None` if
+        there is no primitive there.
+    source
+        Description of the file being read, used in error messages.
+    """
+    schema_url: str | None = None
+    if (data_model := _get_lsst_primitive(get_primitive, "DATA_MODEL")) is not None:
+        lines = data_model.read_char_array()
+        schema_url = lines[0].strip() if lines else None
+    if not schema_url:
+        raise ArchiveReadError(
+            f"Could not read the schema of {source} from /MORE/LSST/DATA_MODEL or /LSST/DATA_MODEL."
+        )
+    return ArchiveInfo.from_schema_url(schema_url, format_version=_read_format_version(get_primitive))
 
 
 class NdfInputArchive(InputArchive[NdfPointerModel]):
@@ -84,54 +146,46 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         """Read the schema URL from the ``DATA_MODEL`` scalar and the
         ``FORMAT_VERSION`` primitive without deserializing pixel data.
 
-        Both live at the fixed location ``/MORE/LSST`` (or ``/LSST``); we read
-        only those and never search at arbitrary depth, so nested pointer
-        trees cannot be mistaken for the top level.  Reading ``DATA_MODEL``
-        directly avoids parsing the (potentially large) JSON tree.
+        Reading the datasets directly from the HDF5 file avoids building
+        the full internal model, which would eagerly read the
+        (potentially large) JSON tree.
         """
         ospath = ResourcePath(path).ospath
-        schema_url: str | None = None
-        format_version = 1
 
         with h5py.File(ospath, "r") as handle:
-            for prefix in ("MORE/LSST", "LSST"):
-                data_model = handle.get(f"{prefix}/DATA_MODEL")
-                if not isinstance(data_model, h5py.Dataset):
-                    continue
-                schema_url = np.asarray(data_model).tobytes().decode("ascii").rstrip("\x00").strip()
-                fmt_node = handle.get(f"{prefix}/FORMAT_VERSION")
-                if fmt_node is not None:
-                    format_version = int(np.asarray(fmt_node).item())
-                break
-        if not schema_url:
-            raise ArchiveReadError(
-                f"Could not read the schema of {path!r} from /MORE/LSST/DATA_MODEL or /LSST/DATA_MODEL."
-            )
-        return ArchiveInfo.from_schema_url(schema_url, format_version=format_version)
+
+            def get_primitive(component_path: str) -> HdsPrimitive | None:
+                node = handle.get(component_path)
+                return HdsPrimitive.from_hdf5(node) if isinstance(node, h5py.Dataset) else None
+
+            return _read_archive_info(get_primitive, repr(path))
 
     @classmethod
     @contextmanager
     def open_tree(
         cls,
         path: ResourcePathExpression,
-        tree_cls: type[ArchiveTree],
         *,
         partial: bool = True,
         **backend_kwargs: Any,
-    ) -> Iterator[tuple[Self, ArchiveTree]]:
-        """Open the NDF file and yield ``(archive, tree)``.
+    ) -> Iterator[tuple[Self, ArchiveTree, ArchiveInfo]]:
+        """Open the NDF file and yield ``(archive, tree, info)``.
 
-        Requires the symmetric LSST JSON tree; ``partial`` is accepted but
-        not meaningful, since h5py reads lazily regardless.
+        The schema is read from the open document's ``DATA_MODEL`` rather than
+        a separate `get_basic_info` open.  Requires the symmetric LSST JSON
+        tree; ``partial`` is accepted but not meaningful, since h5py reads
+        lazily regardless.
         """
-        parameterized = parameterize_tree(tree_cls, NdfPointerModel)
         with cls.open(path) as archive:
             if archive._get_main_json_path() is None:
                 raise ArchiveReadError(
                     f"{path!r} has no LSST JSON tree; only the symmetric read path is supported."
                 )
+            info = archive.info
+            tree_cls = tree_class_for_info(info, path)
+            parameterized = parameterize_tree(tree_cls, NdfPointerModel)
             tree = archive.get_tree(parameterized)
-            yield archive, tree
+            yield archive, tree, info
 
     @classmethod
     @contextmanager
@@ -254,9 +308,17 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
     def get_opaque_metadata(self) -> FitsOpaqueMetadata:
         return self._opaque_metadata
 
+    @property
+    def info(self) -> ArchiveInfo:
+        """Schema/format info read from the open document's ``DATA_MODEL``.
+        (`.serialization.ArchiveInfo`)
+        """
+        return _read_archive_info(self._get_optional_primitive, repr(self._file.filename))
+
     def _get_main_json_path(self) -> str | None:
         """Return the path of the main LSST JSON tree, if present."""
-        for path in ("/MORE/LSST/JSON", "/LSST/JSON"):
+        for prefix in _LSST_EXTENSION_PREFIXES:
+            path = f"{prefix}/JSON"
             if self._has_model_path(path):
                 return path
         return None
@@ -264,20 +326,11 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
     def _check_format_version(self) -> None:
         """Read FORMAT_VERSION from the NDF top-level structure and check it.
 
-        Absence is treated as ``1`` (legacy default). DATA_MODEL is
-        informational only on read; the JSON tree's ``schema_version`` /
-        ``min_read_version`` drive data-model compatibility.
+        DATA_MODEL is informational only on read; the JSON tree's
+        ``schema_version`` / ``min_read_version`` drive data-model
+        compatibility.
         """
-        on_disk = 1
-        for prefix in ("/MORE/LSST", "/LSST"):
-            path = f"{prefix}/FORMAT_VERSION"
-            if self._has_model_path(path):
-                primitive = self._get_primitive(path)
-                # We wrote the version as a 0-d int32 numpy array; .item()
-                # unwraps to a Python int.
-                on_disk = int(primitive.read_array().item())
-                break
-        _check_format_version("ndf", on_disk, _NDF_FORMAT_VERSION)
+        _check_format_version("ndf", _read_format_version(self._get_optional_primitive), _NDF_FORMAT_VERSION)
 
     def _has_model_path(self, path: str) -> bool:
         """Return `True` if a path exists in the NDF document model."""
@@ -293,6 +346,16 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         if not isinstance(node, HdsPrimitive):
             raise ArchiveReadError(f"NDF reference {path!r} is not a primitive dataset.")
         return node
+
+    def _get_optional_primitive(self, path: str) -> HdsPrimitive | None:
+        """Return a primitive from the document model, or `None` if there is
+        no primitive at ``path``.
+        """
+        try:
+            node = self._document.get(path)
+        except KeyError:
+            return None
+        return node if isinstance(node, HdsPrimitive) else None
 
 
 def read_starlink[T: Any](cls: type[T], path: ResourcePathExpression) -> T:
