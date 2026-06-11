@@ -139,6 +139,12 @@ Implementations include:
  - `lsst.afw.math.BackgroundMI` (interpolate) -> `fields.SplineField`
  - `lsst.afw.math.BackgroundMI` (approximate) -> `fields.ChebyshevField`
  - `lsst.afw.math.BackgroundList` -> `fields.SumField`.
+ - `lsst.cell_coadds.StitchedApertureCorrection` -> `cells.CellField`
+
+The last of these has some caveats:
+
+ - `~lsst.cell_coadds.StitchedApertureCorrection` is not a true `~lsst.afw.math.BoundedField` (it acts like one just enough to be used to apply aperture corrections);
+ - `cells.CellField` is a true `fields.BaseField`, but it is not directly serializable at present (instead, a `dict` with `~cells.CellField` values is serialized all at once), and is hence not a member of the ``fields.Field`` type-union.
 
 The `fields.field_from_legacy` and `fields.field_from_legacy_background` free functions can be used to convert from `lsst.afw` when the exact type is unknown.
 
