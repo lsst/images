@@ -88,6 +88,7 @@ class JsonOutputArchive(OutputArchive[JsonRef]):
     """
 
     def __init__(self) -> None:
+        super().__init__()
         self._pointers: dict[Hashable, JsonRef] = {}
         self._indirect: list[Any] = []
         self._frame_sets: list[tuple[FrameSet, JsonRef]] = []

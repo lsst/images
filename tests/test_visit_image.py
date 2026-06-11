@@ -40,7 +40,7 @@ from lsst.images import (
 )
 from lsst.images.aperture_corrections import ApertureCorrectionMap, aperture_corrections_to_legacy
 from lsst.images.cameras import Detector
-from lsst.images.fields import ChebyshevField, field_from_legacy_photo_calib
+from lsst.images.fields import ChebyshevField, SplineField, SumField, field_from_legacy_photo_calib
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
 from lsst.images.psfs import GaussianPointSpreadFunction, PointSpreadFunction
 from lsst.images.serialization import read
@@ -376,6 +376,80 @@ class VisitImageTestCase(unittest.TestCase):
         self.assertEqual(
             roundtrip.result.backgrounds.subtracted.description, "Background subtracted from the image."
         )
+
+    def _make_sum_background_visit_image(self) -> VisitImage:
+        """Return a VisitImage whose subtracted background is a SumField.
+
+        Each operand of the SumField calls ``add_array(name="data")`` from
+        the same nested archive, exercising the per-name disambiguation
+        the output archives perform via `_register_name`.
+        """
+        det_frame = self.visit_image.image.sky_projection.pixel_frame
+        bbox = det_frame.bbox
+        bin_y = bbox.y.linspace(6)
+        bin_x = bbox.x.linspace(7)
+        spline_a = SplineField(
+            bbox,
+            self.rng.standard_normal(size=(bin_y.size, bin_x.size)),
+            y=bin_y,
+            x=bin_x,
+        )
+        spline_b = SplineField(
+            bbox,
+            self.rng.standard_normal(size=(bin_y.size, bin_x.size)),
+            y=bin_y,
+            x=bin_x,
+        )
+        sum_field = SumField([spline_a, spline_b])
+        bg_map = BackgroundMap()
+        bg_map.add(
+            "stacked",
+            sum_field,
+            description="Two-operand SumField subtracted background.",
+            is_subtracted=True,
+        )
+        return VisitImage(
+            self.image,
+            variance=self.variance,
+            psf=self.gaussian_psf,
+            mask_schema=self.mask_schema,
+            sky_projection=self.sky_projection,
+            obs_info=self.obs_info,
+            summary_stats=self.summary_stats,
+            detector=self.detector,
+            band="r",
+            backgrounds=bg_map,
+        )
+
+    def test_sum_background_round_trip_fits(self) -> None:
+        """Two operands of a SumField background each call ``add_array``
+        with the same name; the FITS backend must keep them as distinct
+        EXTVERs rather than overwriting.
+        """
+        visit = self._make_sum_background_visit_image()
+        with RoundtripFits(self, visit) as roundtrip:
+            self._check_sum_background_round_trip(roundtrip.result, visit)
+
+    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
+    def test_sum_background_round_trip_ndf(self) -> None:
+        """NDF must disambiguate the repeated ``data`` leaf the same way."""
+        visit = self._make_sum_background_visit_image()
+        with RoundtripNdf(self, visit) as roundtrip:
+            self._check_sum_background_round_trip(roundtrip.result, visit)
+
+    def _check_sum_background_round_trip(self, result: VisitImage, original: VisitImage) -> None:
+        subtracted = result.backgrounds.subtracted
+        assert subtracted is not None
+        self.assertIsInstance(subtracted.field, SumField)
+        original_subtracted = original.backgrounds.subtracted
+        assert original_subtracted is not None
+        original_field = original_subtracted.field
+        assert isinstance(original_field, SumField)
+        round_field = subtracted.field
+        assert isinstance(round_field, SumField)
+        self.assertEqual(len(round_field.operands), len(original_field.operands))
+        for round_op, orig_op in zip(round_field.operands, original_field.operands, strict=True):
+            self.assertEqual(round_op, orig_op)
 
 
 class VisitImageLegacyTestMixin:

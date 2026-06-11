@@ -55,6 +55,46 @@ class OutputArchive[P](ABC):
     not part of the base class interface.
     """
 
+    def __init__(self) -> None:
+        self._name_versions: dict[str, int] = {}
+        """Per-name occurrence count, used by `_register_name` to disambiguate
+        repeated logical names within a single write (e.g. each operand of a
+        `SumField` calling ``add_array(name="data")`` from the same nested
+        archive).
+        """
+
+    def _register_name(self, name: str) -> tuple[str, int]:
+        """Return the input name and its 1-based occurrence count.
+
+        Parameters
+        ----------
+        name
+            The logical archive name being saved (typically the absolute
+            archive path of an array, table, or pointer target).
+
+        Returns
+        -------
+        name : `str`
+            The input name, returned unchanged so that the caller controls
+            how the version is rendered into the on-disk identifier.
+        version : `int`
+            ``1`` the first time a given name is registered, then ``2``,
+            ``3`` and so on for subsequent calls with the same name.
+
+        Notes
+        -----
+        Backends should call this from `add_array`, `add_table`,
+        `add_structured_array`, and `serialize_pointer` to detect repeated
+        names; the registry lives on the root archive so that nested
+        archives share a single namespace. Each backend chooses how to
+        encode ``version > 1`` on disk: FITS uses the FITS ``EXTVER``
+        keyword without modifying the extension name, while hierarchical
+        backends can append ``_{version}`` to the leaf component of the path.
+        """
+        version = self._name_versions.get(name, 0) + 1
+        self._name_versions[name] = version
+        return name, version
+
     @abstractmethod
     def serialize_direct[T: pydantic.BaseModel | None](
         self, name: str, serializer: Callable[[OutputArchive], T]
@@ -310,6 +350,7 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
     """
 
     def __init__(self, root: str, parent: OutputArchive):
+        super().__init__()
         self._root = root
         self._parent = parent
 

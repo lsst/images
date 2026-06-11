@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from unittest import mock
 
 import astropy.io.fits
 import astropy.table
@@ -38,6 +39,7 @@ try:
         _hds,
         write,
     )
+    from lsst.images.ndf._hds import DAT__SZNAM
 
     HAVE_H5PY = True
 except ImportError:
@@ -157,6 +159,52 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 self.assertEqual(origin.dtype, np.int64)
                 self.assertEqual(origin.shape, (3,))
 
+    def test_long_hoisted_component_is_shrunk(self):
+        # Regression for the cell_coadd failure: the /noise_realizations/0
+        # archive path contains an 18-character component.
+        data = np.array([[1.0, 2.0]], dtype=np.float32)
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                ref = arch.add_array(data, name="noise_realizations/0")
+                # The reported path is exactly what is stored in the JSON.
+                self.assertTrue(ref.source.startswith("ndf:/MORE/LSST/"))
+                self.assertTrue(ref.source.endswith("/DATA_ARRAY/DATA"))
+            with h5py.File(tmp.name, "r") as f:
+                # Every HDS component is within the limit.
+                hdf5_path = ref.source[len("ndf:") :]
+                for component in hdf5_path.strip("/").split("/"):
+                    self.assertLessEqual(len(component), DAT__SZNAM)
+                # The node the JSON points at actually exists.
+                self.assertIn(hdf5_path, f)
+
+    def test_long_name_round_trips_through_input_archive(self):
+        from lsst.images.ndf import NdfInputArchive
+
+        data = np.arange(6, dtype=np.float32).reshape(2, 3)
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                ref = arch.add_array(data, name="noise_realizations/0")
+            with NdfInputArchive.open(tmp.name) as inp:
+                read_back = inp.get_array(ref)
+        np.testing.assert_array_equal(read_back, data)
+
+    def test_repeated_long_name_gets_distinct_versioned_paths(self):
+        data = np.array([[1.0]], dtype=np.float32)
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                first = arch.add_array(data, name="noise_realizations_value")
+                second = arch.add_array(data, name="noise_realizations_value")
+                self.assertNotEqual(first.source, second.source)
+                # The second occurrence keeps a visible _2 version suffix.
+                second_leaf = second.source[len("ndf:") :].split("/")[-3]
+                self.assertTrue(second_leaf.endswith("_2"))
+            with h5py.File(tmp.name, "r") as f:
+                self.assertIn(first.source[len("ndf:") :], f)
+                self.assertIn(second.source[len("ndf:") :], f)
+
     def test_nested_array_hoists_as_sub_ndf(self):
         # Hoisted numeric arrays land under /MORE/LSST as hierarchical
         # sub-NDFs (CLASS="NDF" with DATA_ARRAY/DATA + ORIGIN inside) so
@@ -180,6 +228,21 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 origin = sub["DATA_ARRAY/ORIGIN"]
                 self.assertEqual(origin.dtype, np.int64)
                 self.assertEqual(origin.shape, (data.ndim,))
+
+    def test_colliding_shrunk_names_raise(self):
+        data = np.array([[1.0]], dtype=np.float32)
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                # Force both long names to shrink to the same HDS token.
+                with mock.patch.object(
+                    arch._name_shrinker,
+                    "shrink",
+                    side_effect=lambda name, *a, **k: name.upper() if len(name) <= DAT__SZNAM else "CLASH",
+                ):
+                    arch.add_array(data, name="long_component_name_one")
+                    with self.assertRaisesRegex(ValueError, "name collision"):
+                        arch.add_array(data, name="long_component_name_two")
 
 
 @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
@@ -351,6 +414,33 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
                     f["/MORE/LSST/PSF/PIFF/INTERP/SOLUTION/DATA_ARRAY/DATA"][()],
                     rec["solution"],
                 )
+
+    def test_structured_array_long_name_is_shrunk_and_versioned(self):
+        dtype = np.dtype([("alpha", "f8"), ("beta", "i4")])
+        arr = np.zeros(3, dtype=dtype)
+        with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
+            with h5py.File(tmp.name, "w") as f:
+                arch = NdfOutputArchive(f)
+                first = arch.add_structured_array(arr, name="catalog_of_long_named_sources")
+                second = arch.add_structured_array(arr, name="catalog_of_long_named_sources")
+                for model in (first, second):
+                    for column in model.columns:
+                        token = column.data.source[len("ndf:") :]
+                        for component in token.strip("/").split("/"):
+                            self.assertLessEqual(len(component), DAT__SZNAM)
+                # The two structured arrays land in distinct sub-trees.
+                self.assertNotEqual(
+                    first.columns[0].data.source,
+                    second.columns[0].data.source,
+                )
+                # The second structured array's parent token keeps a
+                # visible _2 version suffix.
+                second_parent = second.columns[0].data.source[len("ndf:") :].strip("/").split("/")[-4]
+                self.assertTrue(second_parent.endswith("_2"))
+            with h5py.File(tmp.name, "r") as f:
+                for model in (first, second):
+                    for column in model.columns:
+                        self.assertIn(column.data.source[len("ndf:") :], f)
 
 
 @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")

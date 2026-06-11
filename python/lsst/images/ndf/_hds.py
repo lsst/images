@@ -83,6 +83,13 @@ NUMPY_TO_HDS: dict[np.dtype, str] = {
 NDF_AST_DATA_WIDTH = 32
 NDF_AST_DATA_MIN_WIDTH = 16
 
+# HDS object-name length limit, from the Starlink DAT_PAR include
+# (``dat_par.h``): ``DAT__SZNAM 15`` ("Size of object name").
+# The sibling limits ``DAT__SZGRP`` (group name) and ``DAT__SZTYP`` (type
+# string) are also 15 today; only the object-name limit is enforced here,
+# because HDS type tags are derived from already-shrunk component names.
+DAT__SZNAM = 15
+
 
 def hds_type_for_dtype(dtype: np.dtype) -> str:
     """Return the HDS type string for a numpy dtype.
@@ -461,7 +468,7 @@ def create_structure(parent: h5py.Group, name: str, hds_type: str) -> h5py.Group
         Group to create the new structure under.
     name
         Component name (HDS rules apply: uppercase letters/digits/underscores,
-        max 15 characters; not enforced here).
+        max ``DAT__SZNAM`` characters; not enforced here).
     hds_type
         HDS type string for the new structure (e.g. ``"NDF"``, ``"WCS"``,
         ``"ARRAY"``, ``"EXT"``).

@@ -48,7 +48,12 @@ from ..serialization import (
     no_header_updates,
 )
 from . import _hds
-from ._common import NdfPointerModel, archive_path_to_hdf5_path, archive_path_to_hdf5_path_components
+from ._common import (
+    HdsNameShrinker,
+    NdfPointerModel,
+    archive_path_to_hdf5_path,
+    archive_path_to_hdf5_path_components,
+)
 from ._model import HdsPrimitive, HdsStructure, Ndf, NdfArray, NdfContainer, NdfDocument, NdfQuality, NdfWcs
 
 _NDF_FORMAT_VERSION = 1
@@ -285,6 +290,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         direct_ndf_array_paths: Mapping[str, str] | None = None,
         wcs_ndf_paths: Sequence[str] = ("/",),
     ) -> None:
+        super().__init__()
         self._file = file
         self._document = NdfDocument(root=root if root is not None else Ndf())
         self._lsst_path = lsst_path.rstrip("/") or "/LSST"
@@ -295,6 +301,8 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         self._opaque_metadata = opaque_metadata if opaque_metadata is not None else FitsOpaqueMetadata()
         self._frame_sets: list[tuple[FrameSet, NdfPointerModel]] = []
         self._pointers: dict[Hashable, NdfPointerModel] = {}
+        self._hdf5_path_owners: dict[str, str] = {}
+        self._name_shrinker = HdsNameShrinker()
         # Keep the open file in sync so existing direct-archive tests can
         # inspect it immediately, while all mutations go through the IR.
         self._flush()
@@ -428,6 +436,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             return pointer
         archive_path = name if name.startswith("/") else f"/{name}"
         target_path = self._archive_path_to_hdf5_path(archive_path)
+        self._register_hdf5_path(target_path, archive_path)
         # Run the serializer first so any nested add_array / serialize_pointer
         # calls write into the file before we dump this sub-tree to JSON.
         model = self.serialize_direct(name, serializer)
@@ -468,6 +477,9 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         tile_shape: tuple[int, ...] | None = None,
         options_name: str | None = None,
     ) -> ArrayReferenceModel:
+        if name is None:
+            raise ValueError("Anonymous arrays are not supported in the NDF archive.")
+        name, version = self._register_name(name)
         # Recognised top-level names go to standard NDF locations.
         # Anything else hoists under /MORE/LSST.
         if name == "image":
@@ -524,19 +536,17 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
             path = f"{sub_ndf_path}/DATA_ARRAY/DATA"
             self._bbox_array_struct_paths.add(f"{sub_ndf_path}/DATA_ARRAY")
         else:
-            if name is None:
-                raise ValueError("Anonymous arrays are not supported in the NDF archive.")
-            archive_path = name if name.startswith("/") else f"/{name}"
             # Hoisted numeric arrays are wrapped as sub-NDFs under
             # /MORE/LSST/<UPPER_PATH> so Starlink tools (KAPPA `display`,
-            # `hdstrace`, etc.) can inspect them just like the main
-            # image. The sub-NDF has the canonical layout: top-level
-            # group with CLASS="NDF" containing a DATA_ARRAY structure
-            # (CLASS="ARRAY") with DATA + ORIGIN primitives. Hoisted
-            # JSON sub-trees from serialize_pointer stay as bare
-            # _CHAR*N datasets at /MORE/LSST/<NAME> (no NDF wrapper) —
-            # they're JSON documents, not numeric arrays.
+            # `hdstrace`, etc.) can inspect them just like the main image.
+            # The sub-NDF has the canonical layout: top-level group with
+            # CLASS="NDF" containing a DATA_ARRAY structure (CLASS="ARRAY")
+            # with DATA + ORIGIN primitives.  Over-long components are shrunk
+            # to fit the HDS object-name limit (DAT__SZNAM); repeated names
+            # get a version suffix on their leaf so siblings stay distinct.
+            archive_path, logical_id = self._versioned_archive_path(name, version)
             sub_ndf_path = self._archive_path_to_hdf5_path(archive_path)
+            self._register_hdf5_path(sub_ndf_path, logical_id)
             sub_ndf = self._document.ensure_ndf(sub_ndf_path)
             sub_ndf.set_array_component(
                 "DATA_ARRAY",
@@ -684,11 +694,44 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
     def _archive_path_to_hdf5_path(self, archive_path: str) -> str:
         """Translate an archive path to this layout's HDF5 path."""
         if self._lsst_path == "/MORE/LSST":
-            return archive_path_to_hdf5_path(archive_path)
+            return archive_path_to_hdf5_path(archive_path, self._name_shrinker)
         if not archive_path:
             return f"{self._lsst_path}/JSON"
-        components = archive_path_to_hdf5_path_components(archive_path)
+        components = archive_path_to_hdf5_path_components(archive_path, self._name_shrinker)
         return f"{self._lsst_path}/{'/'.join(components)}"
+
+    def _register_hdf5_path(self, hdf5_path: str, logical_id: str) -> None:
+        """Record that ``logical_id`` owns ``hdf5_path``; raise on collision.
+
+        ``logical_id`` is the un-shrunk archive path (with any version suffix
+        applied), which is unique per logical write.
+        Two different archive entries shrinking to the same HDS path would
+        silently clobber one another, so this fails loudly instead.
+        """
+        previous = self._hdf5_path_owners.get(hdf5_path)
+        if previous is not None and previous != logical_id:
+            raise ValueError(
+                f"NDF/HDS name collision: archive entries {previous!r} and {logical_id!r} "
+                f"both map to {hdf5_path!r} after shrinking to the {_hds.DAT__SZNAM}-character "
+                f"HDS name limit; rename one of them."
+            )
+        self._hdf5_path_owners[hdf5_path] = logical_id
+
+    def _versioned_archive_path(self, name: str, version: int) -> tuple[str, str]:
+        """Return ``(archive_path, logical_id)`` for a hoisted name.
+
+        ``archive_path`` has any version suffix applied to its leaf through the
+        version-aware shrinker (so the suffix survives the later per-component
+        shrink); ``logical_id`` is the un-shrunk version-applied path used for
+        collision detection.
+        """
+        archive_path = name if name.startswith("/") else f"/{name}"
+        if version <= 1:
+            return archive_path, archive_path
+        head, sep, leaf = archive_path.rpartition("/")
+        logical_id = f"{archive_path}_{version}"
+        versioned = f"{head}{sep}{self._name_shrinker.shrink_versioned(leaf, version)}"
+        return versioned, logical_id
 
     def _has_model_path(self, path: str) -> bool:
         """Return `True` if a path exists in the NDF document model."""
@@ -737,11 +780,18 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
                 if descriptions and (description := descriptions.get(c.name)):
                     c.description = description
             return TableModel(columns=columns)
+        name, version = self._register_name(name)
+        base_path, base_logical = self._versioned_archive_path(name, version)
         columns = TableColumnModel.from_record_dtype(array.dtype)
         for c in columns:
-            column_path = name if len(columns) == 1 else f"{name}/{c.name}"
-            archive_path = column_path if column_path.startswith("/") else f"/{column_path}"
+            if len(columns) == 1:
+                archive_path = base_path
+                logical_id = base_logical
+            else:
+                archive_path = f"{base_path}/{c.name}"
+                logical_id = f"{base_logical}/{c.name}"
             sub_ndf_path = self._archive_path_to_hdf5_path(archive_path)
+            self._register_hdf5_path(sub_ndf_path, logical_id)
             column_array = np.asarray(array[c.name])
             sub_ndf = self._document.ensure_ndf(sub_ndf_path)
             sub_ndf.set_array_component(
