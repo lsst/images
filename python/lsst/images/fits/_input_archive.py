@@ -141,9 +141,17 @@ class FitsInputArchive(InputArchive[PointerModel]):
     ) -> Iterator[tuple[Self, ArchiveTree, ArchiveInfo]]:
         """Open the FITS file and yield ``(archive, tree, info)``.
 
-        The schema is read from the primary header that opening already
-        parses, so no separate `get_basic_info` open is needed.  Honors the
-        ``page_size`` and ``partial`` open options.
+        Parameters
+        ----------
+        path
+            The file resource to open.
+        partial
+            If `True` the file is opened without reading it all into memory.
+        **backend_kwargs
+            Optional parameters for this backend. Currently supports
+            ``page_size`` which can be used to override the default
+            page size (which can be overridden globally by modifying
+            `DEFAULT_PAGE_SIZE`).
         """
         page_size = backend_kwargs.pop("page_size", DEFAULT_PAGE_SIZE)
         with cls.open(path, page_size=page_size, partial=partial) as archive:
@@ -249,7 +257,9 @@ class FitsInputArchive(InputArchive[PointerModel]):
 
     @property
     def info(self) -> ArchiveInfo:
-        """Schema/format info read from the primary header on open."""
+        """Schema/format info read from the primary header on open.
+        (`.serialization.ArchiveInfo`)
+        """
         if self._info is None:
             raise ArchiveReadError("This is not an lsst.images FITS archive (no DATAMODL card).")
         return self._info

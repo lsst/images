@@ -310,7 +310,9 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
 
     @property
     def info(self) -> ArchiveInfo:
-        """Schema/format info read from the open document's ``DATA_MODEL``."""
+        """Schema/format info read from the open document's ``DATA_MODEL``.
+        (`.serialization.ArchiveInfo`)
+        """
         return _read_archive_info(self._get_optional_primitive, repr(self._file.filename))
 
     def _get_main_json_path(self) -> str | None:

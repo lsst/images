@@ -123,13 +123,16 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         """Open ``path``, load and validate its top-level tree, and yield
         ``(archive, tree, info)`` as a context manager.
 
-        The backend identifies the schema from the same open it uses to read
-        the tree (so opening does not also require a separate
-        `get_basic_info` round trip), resolves the registered `ArchiveTree`
-        subclass for that schema, parameterizes it with the backend's own
-        pointer model, and validates the tree against it.  Backend-specific
-        open options (e.g. ``page_size`` for FITS) are accepted via
-        ``**backend_kwargs``; ``partial`` is honoured where meaningful.
+        Parameters
+        ----------
+        path
+            File to be opened. Can be local or remote.
+        partial
+            Whether the file should be opened for incremental reads or not.
+            Can be ignored by a backend where not relevant.
+        **backend_kwargs
+            Any keyword parameters that should be forwarded to the backend
+            open.
 
         Raises
         ------

@@ -82,9 +82,14 @@ class JsonInputArchive(InputArchive[JsonRef]):
     ) -> Iterator[tuple[Self, ArchiveTree, ArchiveInfo]]:
         """Parse the JSON tree and yield ``(archive, tree, info)``.
 
-        A no-resource context manager: JSON is fully in memory, so
-        ``partial`` is a no-op.
-        ``tree.indirect`` is released when the context exits.
+        Parameters
+        ----------
+        path
+            File resource to open.
+        partial
+            Ignored. The entire JSON file is always read into memory.
+        **backend_kwargs
+            No keyword parameters are supported by this backend.
         """
         raw = ResourcePath(path).read()
         parsed = from_json(raw)
