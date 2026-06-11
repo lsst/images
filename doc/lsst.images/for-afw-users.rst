@@ -34,7 +34,7 @@ Intervals, Boxes, and Polygons
 `lsst.geom.IntervalD` and `lsst.geom.Box2D` do not have direct counterparts in `lsst.images`.
 2-d floating-point boxes are represented as `Polygon` objects; the expectation is that - unlike an integer-coordinate `Box` - there is nothing special about a floating-point rectangle that necessitates a dedicated class.
 
-`lsst.geom.Angle` and `lsst.geom.SpherePoint` do not have direct counterparts in `lsst.images` itself, but the `astropy.units.Quantity` and `astropy.coordinates.SkyCoord` types are generally used in the same roles.
+`lsst.geom.Angle`, `lsst.sphgeom.Angle`, `lsst.geom.SpherePoint`, and `lsst.sphgom.LonLat` do not have direct counterparts in `lsst.images` itself, but the `astropy.units.Quantity` and `astropy.coordinates.SkyCoord` types are generally used in the same roles.
 
 `lsst.afw.geom.Polygon` corresponds to `Polygon` and its more general `Region` base class, which can represent arbitrary sets of polygons (with holes) in a Euclidean (e.g. pixel) coordinate system.
 
@@ -47,7 +47,7 @@ Coordinate Systems and Transforms
 `lsst.afw.geom.SkyWcs` corresponds directly to `Projection`.
 Both types can be (but are not necessarily!) representable as FITS WCS, and are capable of carrying around their own FITS WCS approximation.
 
-`lsst.afw.geom.TransformPoint2ToPoint2` and other instantiations of the same underyling C++ template correspond directly to `Transform`.
+`lsst.afw.geom.TransformPoint2ToPoint2` and other instantiations of the same underyling C++ template (which are used to represent camera geometry coordinate transforms, mostly) correspond directly to `Transform`.
 
 `Projection` and `Transform` differ from their `lsst.afw.geom` counterparts in that they can identify the frames they transform between (e.g. the pixels of a particular ``{visit, detector}`` and the ICRS sky), via an object that satisfies the `Frame` `~typing.Protocol`.
 This additional information needs to be provided when creating an `lsst.images` type from an `lsst.afw.geom` one (e.g. via `Projection.from_legacy`).
@@ -69,6 +69,8 @@ The types in `lsst.image` can be sliced in this coordinate system via the `Gener
 `lsst.images.Image` corresponds directly to `Image`, but the latter can also hold a `Projection`, flexible metadata, units (via `astropy.units`), and an `astro_metadata_translator.ObservationInfo`.
 
 `lsst.images.Mask` corresponds directly to `Mask`, but the latter can also hold a `Projection` and flexible metadata, and its backing array is 3-d `numpy.uint8` array with shape ``(height, width, N)``, where ``N`` can change depending on the number of mask planes (which is fully dynamic).
+This means that a "mask pixel" is actually a shape ``(N,)`` `numpy.uint8` array, but (thanks to automatic broadcasting) the usual bitwise operations still work.
+The `Mask.get`, `Mask.set`, and `Mask.clear` convenience methods can be used instead of direct bitwise array operations in most cases.
 The planes of different `Mask` objects are not necessarily the same (as is enforced by global state in `lsst.afw.image.Mask`); instead, a separate `MaskSchema` object is used to manage shared mask plane definitions.
 
 `lsst.images.MaskedImage` corresponds directly to `MaskedImage`, but the latter can also hold a `Projection`, flexible metadata, and units.
@@ -95,16 +97,16 @@ Coadd Images
 
 Coadded images can be represented outside of `lsst.images` by any of the following three types:
 
-- `lsst.afw.image.Exposure`: traditional lazy-PSF coadds (including templates), as well as post-detection deep cell-based coadds (for compatibility with most coadd measurement tasks).
+- `lsst.afw.image.Exposure`: traditional coadds (including templates) with `lsst.meas.extensions.CoaddPsf` that are evaluated by warping coadding per-visit PSFs on-the-fly, as well as post-detection deep cell-based coadds (for compatibility with most coadd measurement tasks).
 
 - `lsst.cell_coadds.MultipleCellCoadd`: the immediate result of building a cell-based coadd.
 
 - `lsst.cell_coadds.StitchedCoadd`: an intermediate object that keeps all of the extra information in a cell-based coadd while having traditional full-patch arrays for the image planes and mask, but does not have any I/O support.
 
 The `cells.CellCoadd` most closely resembles `~lsst.cell_coadds.StitchedCoadd`; it inherits from `MaskedImage` and hence has full-array image and mask planes, but its PSF model, bounds, and provenance data structures are explicitly cell-based.
-It can fully represent any `~lsst.cell_coadds.MultipleCellCoadd` or `~lsst.cell_coadds.StitchedCoadd`, and will also typically hold the additional mask information (e.g. the ``DETECTED`` plane) and backround offset held by downstream `lsst.afw.image.Exposure` datasets.
+It can fully represent a `~lsst.cell_coadds.MultipleCellCoadd` or `~lsst.cell_coadds.StitchedCoadd` when the skymap has no cell overlap regions, and will also typically hold the additional mask information (e.g. the ``DETECTED`` plane) and background offset held by downstream `lsst.afw.image.Exposure` datasets.
 
-Because image subtraction templates are now Rubin's only traditional lazy-PSF coadd data product, but the spatial varation of those coadd PSFs is not used by the image subtraction pipeline, we plan to convert these to the `~cells.CellCoadd` data structure by approximating their PSFs as cell-based, i.e. evaluating the traditional lazy coadd PSF model at the centers of cells.
+Because image subtraction templates are now Rubin's only traditional coadd data product, but the spatial variation of those coadd PSFs is not used by the image subtraction pipeline (the difference kernel is fit directly to the pixels of both images), we plan to convert these to the `~cells.CellCoadd` data structure by approximating their PSFs as cell-based, i.e. evaluating the `~lsst.meas.algorithms.CoaddPsf` model at the centers of cells.
 This is roughly equivalent to a procedure that builds templates as "edgy" cell coadds, in which visit-cell combinations that do not wholly overlap a cell are nevertheless included in the coadd (which is what we may do in the future, when `lsst.images` types are used as direct pipeline outputs).
 
 The `~cells.CellCoadd` type has counterparts for only some of the components of `lsst.afw.image.Exposure`:
@@ -119,7 +121,7 @@ Aperture corrections and background models for cell coadds will be added in the 
 BoundedFields and Backgrounds
 -----------------------------
 
-`lsst.afw.math.BoundedField` corresponds directly to the `fields.BaseField` base class, whose subclasses are closed to the ``fields.Field`` type-union (i.e. no external implementations are permitted; this greatly simplifies serialization).
+`lsst.afw.math.BoundedField` (used directly for aperture corrections and indirectly by `lsst.afw.image.PhotoCalib`) corresponds directly to the `fields.BaseField` base class, whose subclasses are closed to the ``fields.Field`` type-union (i.e. no external implementations are permitted; this greatly simplifies serialization).
 All `fields.BaseField` objects can be associated with units (via `astropy.units`).
 
 The `lsst.afw.math.BackgroundMI` and `lsst.afw.math.BackgroundList` types are *also* mapped to the `fields.BaseField` hierarchy in `lsst.images`, since those are also essentially just calculated images.
