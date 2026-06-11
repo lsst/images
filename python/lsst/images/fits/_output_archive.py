@@ -239,6 +239,12 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
     ) -> PointerModel:
         if (pointer := self._pointers_by_key.get(key)) is not None:
             return pointer
+        # Rooting the nested archive at "" follows the NestedOutputArchive
+        # convention that root paths are absolute, but serialize_direct roots
+        # at the bare name, so an array written by a pointer target would get
+        # a "/"-prefixed EXTNAME (e.g. "/DATA").  No serializer currently
+        # writes arrays inside pointer targets; if one ever does, consider
+        # rooting at ``name`` instead, as the NDF backend does.
         model = self.serialize_direct("", serializer)
         json_bytes = model.model_dump_json().encode()
         self._pointer_targets.append(json_bytes)
