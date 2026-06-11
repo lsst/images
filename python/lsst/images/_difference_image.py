@@ -17,9 +17,7 @@ from collections.abc import Mapping
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
-import astropy.io.fits
 import astropy.units
-import astropy.wcs
 import pydantic
 from astro_metadata_translator import ObservationInfo
 
@@ -223,7 +221,7 @@ class DifferenceImage(VisitImage):
         """
         return self._from_visit_image(super().convert_unit(unit, copy=copy, copy_detector=copy_detector))
 
-    def serialize(self, archive: OutputArchive[Any]) -> DifferenceImageSerializationModel:
+    def serialize(self, archive: OutputArchive[Any]) -> DifferenceImageSerializationModel[Any]:
         return self._serialize_impl(DifferenceImageSerializationModel, archive)
 
     @staticmethod

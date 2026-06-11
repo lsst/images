@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 import astropy.io.fits
 import astropy.units
-import astropy.wcs
 import numpy as np
 import pydantic
 from astro_metadata_translator import ObservationInfo, VisitInfoTranslator
@@ -461,13 +460,13 @@ class VisitImage(MaskedImage):
             )
         )
 
-    def serialize(self, archive: OutputArchive[Any]) -> VisitImageSerializationModel:
+    def serialize(self, archive: OutputArchive[Any]) -> VisitImageSerializationModel[Any]:
         return self._serialize_impl(VisitImageSerializationModel, archive)
 
     # This is slightly bad Liskov substitution - we're demanding M be a
     # VisitImageSerializationModel, not just a MaskedImageSerializationModel,
     # but that's because we know only `serialize` will call it.
-    def _serialize_impl[M: VisitImageSerializationModel](  # type: ignore[override]
+    def _serialize_impl[M: VisitImageSerializationModel[Any]](  # type: ignore[override]
         self, model_type: type[M], archive: OutputArchive[Any]
     ) -> M:
         result = super()._serialize_impl(model_type, archive)
