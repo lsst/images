@@ -220,16 +220,6 @@ class Interval:
         return cls(start=start, stop=start + size)
 
     @property
-    def start(self) -> int:
-        """Inclusive minimum point in the interval (`int`)."""
-        return self._start
-
-    @property
-    def stop(self) -> int:
-        """One past the maximum point in the interval (`int`)."""
-        return self._stop
-
-    @property
     def min(self) -> int:
         """Inclusive minimum point in the interval (`int`)."""
         return self.start
@@ -238,6 +228,16 @@ class Interval:
     def max(self) -> int:
         """Inclusive maximum point in the interval (`int`)."""
         return self.stop - 1
+
+    @property
+    def start(self) -> int:
+        """Inclusive minimum point in the interval (`int`)."""
+        return self._start
+
+    @property
+    def stop(self) -> int:
+        """One past the maximum point in the interval (`int`)."""
+        return self._stop
 
     @property
     def size(self) -> int:
@@ -594,15 +594,42 @@ class Box:
         return Box(y=Interval.from_size(y_size, start=y_start), x=Interval.from_size(x_size, start=x_start))
 
     @property
-    def start(self) -> YX[int]:
-        """Tuple holding the starts of the intervals ordered ``(y, x)``
+    def min(self) -> YX[int]:
+        """The inclusive minimum bounds of the box, ordered ``(y, x)``
         (`YX` [`int`]).
+        """
+        return YX(y=self._intervals.y.min, x=self._intervals.x.min)
+
+    @property
+    def max(self) -> YX[int]:
+        """The inclusive maximum bounds of the box, ordered ``(y, x)``
+        (`YX` [`int`]).
+        """
+        return YX(y=self._intervals.y.max, x=self._intervals.x.max)
+
+    @property
+    def start(self) -> YX[int]:
+        """Tuple holding the inclusive `Interval.start` bvound, ordered
+        ``(y, x)`` (`YX` [`int`]).
+
+        This is an alias for `min`, typically paired with `stop` for
+        half-exclusive ranges.
         """
         return YX(self.y.start, self.x.start)
 
     @property
+    def stop(self) -> YX[int]:
+        """Tuple holding the exclusive `Interval.stop` bound, ordered
+        ``(y, x)`` (`YX` [`int`]).
+
+        The values in this tuple are one greater than those in `max`.  It is
+        typically paired with `start` for half-exclusive ranges.
+        """
+        return YX(self.y.stop, self.x.stop)
+
+    @property
     def shape(self) -> YX[int]:
-        """Tuple holding the sizes of the intervals ordered ``(y, x)``
+        """Tuple holding the sizes of the intervals, ordered ``(y, x)``
         (`YX` [`int`]).
         """
         return YX(self.y.size, self.x.size)
@@ -616,16 +643,6 @@ class Box:
     def y(self) -> Interval:
         """The y-dimension interval (`int`)."""
         return self._intervals[-2]
-
-    @property
-    def min_yx(self) -> YX[int]:
-        """The minimum bounds of the box as a `YX` tuple."""
-        return YX(y=self._intervals.y.min, x=self._intervals.x.min)
-
-    @property
-    def max_yx(self) -> YX[int]:
-        """The maximum bounds of the box as a `YX` tuple."""
-        return YX(y=self._intervals.y.max, x=self._intervals.x.max)
 
     @property
     def absolute(self) -> BoxSliceFactory:

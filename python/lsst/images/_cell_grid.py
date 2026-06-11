@@ -166,7 +166,7 @@ class CellGrid(pydantic.BaseModel, frozen=True):
         return LegacyUniformGrid(
             self.cell_shape.to_legacy_extent(),
             self.grid_size.to_legacy(),
-            min=self.bbox.min_yx.to_legacy_point(),
+            min=self.bbox.min.to_legacy_point(),
         )
 
 
