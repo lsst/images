@@ -25,7 +25,7 @@ from fsspec.spec import AbstractBufferedFile, AbstractFileSystem
 
 from lsst.images import Image
 from lsst.images.fits import FitsInputArchive
-from lsst.images.fits._input_archive import _DEFAULT_PAGE_SIZE
+from lsst.images.fits._input_archive import DEFAULT_PAGE_SIZE, READ_CACHE_MAX_BYTES
 from lsst.images.serialization import write
 
 
@@ -57,8 +57,8 @@ class _RecordingFS(AbstractFileSystem):
     def __init__(self, blob: bytes, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.blob = blob
-        # (cache class name, blocksize) recorded at open time, one per open.
-        self.opened: list[tuple[str, int]] = []
+        # Cache configuration recorded at open time, one entry per open.
+        self.opened: list[dict[str, Any]] = []
 
     def info(self, path: str, **kwargs: Any) -> dict[str, Any]:
         return {"name": path, "size": len(self.blob), "type": "file"}
@@ -76,7 +76,13 @@ class _RecordingFS(AbstractFileSystem):
         )
         # Record the cache configuration now: the archive closes the file at
         # context exit, which clears ``.cache``.
-        self.opened.append((type(handle.cache).__name__, handle.blocksize))
+        self.opened.append(
+            {
+                "cache": type(handle.cache).__name__,
+                "blocksize": handle.blocksize,
+                "maxblocks": getattr(handle.cache, "maxblocks", None),
+            }
+        )
         return handle
 
 
@@ -111,7 +117,7 @@ class FitsReadCacheTestCase(unittest.TestCase):
     def test_default_page_size_is_documented_constant(self) -> None:
         # The block size lives in one place and is a multiple of the FITS
         # block (2880 bytes).
-        self.assertEqual(_DEFAULT_PAGE_SIZE % 2880, 0)
+        self.assertEqual(DEFAULT_PAGE_SIZE % 2880, 0)
 
     def test_partial_open_uses_block_cache(self) -> None:
         fs = _RecordingFS(self.blob)
@@ -119,9 +125,29 @@ class FitsReadCacheTestCase(unittest.TestCase):
             with FitsInputArchive.open(self.path, partial=True):
                 pass
         self.assertEqual(len(fs.opened), 1)
-        cache_name, blocksize = fs.opened[0]
-        self.assertEqual(cache_name, "BlockCache")
-        self.assertEqual(blocksize, _DEFAULT_PAGE_SIZE)
+        self.assertEqual(fs.opened[0]["cache"], "BlockCache")
+        self.assertEqual(fs.opened[0]["blocksize"], DEFAULT_PAGE_SIZE)
+
+    def test_partial_open_bounds_cache_memory(self) -> None:
+        # The block cache is capped at maxblocks, derived from the documented
+        # memory budget so the cap holds even if the block size is retuned.
+        fs = _RecordingFS(self.blob)
+        with _route_through(fs):
+            with FitsInputArchive.open(self.path, partial=True):
+                pass
+        maxblocks = fs.opened[0]["maxblocks"]
+        self.assertEqual(maxblocks, max(2, READ_CACHE_MAX_BYTES // DEFAULT_PAGE_SIZE))
+        self.assertLessEqual(maxblocks * DEFAULT_PAGE_SIZE, READ_CACHE_MAX_BYTES)
+
+    def test_maxblocks_floored_at_two(self) -> None:
+        # Even with a block larger than the budget, at least two blocks are
+        # kept so the shared header/index block is not evicted between the
+        # components of one file.
+        fs = _RecordingFS(self.blob)
+        with _route_through(fs):
+            with FitsInputArchive.open(self.path, partial=True, page_size=READ_CACHE_MAX_BYTES * 4):
+                pass
+        self.assertEqual(fs.opened[0]["maxblocks"], 2)
 
 
 if __name__ == "__main__":

@@ -58,7 +58,7 @@ from ._common import (
 _FITS_FORMAT_VERSION = 1
 """Container layout version this release of `FitsInputArchive` understands."""
 
-_DEFAULT_PAGE_SIZE = 2880 * 800
+DEFAULT_PAGE_SIZE = 2880 * 800
 """Default fsspec read-block size for partial (remote) reads, in bytes.
 
 This is the single place to tune the block size for remote-store performance.
@@ -76,6 +76,10 @@ historical 144 KB default was several times slower for all but the tiniest
 cutout.  Raise it (e.g. ``2880 * 1600``) when whole-file or large-cutout reads
 dominate; lower it when many tiny cutouts across many files dominate.
 
+This name is deliberately public-style (no leading underscore) so developers
+can import and experiment with it, but it is intentionally omitted from
+``__all__`` because it is a tuning knob, not part of the supported API.
+
 Local filesystems ignore this (their opener does no buffering), so it only
 affects remote stores.
 """
@@ -87,6 +91,21 @@ _READ_CACHE_TYPE = "blockcache"
 capped) and reuses them across the multiple components of one file -- image,
 mask, variance and so on often share blocks -- unlike the default unbounded
 single-block ``readahead``.
+"""
+
+READ_CACHE_MAX_BYTES = 64 * 1024 * 1024
+"""Approximate memory budget for the partial-read block cache, per open file.
+
+The fsspec block cache evicts least-recently-used blocks once it holds more
+than ``maxblocks``; we derive ``maxblocks`` from this budget and the block
+size (`DEFAULT_PAGE_SIZE`) so the memory cap is expressed in bytes and stays
+fixed even when the block size is retuned.  Measured benefit saturates at two
+cached blocks for the access patterns we care about, so this budget is purely
+headroom plus a guard against unbounded growth; it is far below fsspec's
+implicit default of ``32 * block_size``.
+
+Like ``DEFAULT_PAGE_SIZE``, this is a public-style tuning knob kept out of
+``__all__``.
 """
 
 
@@ -131,7 +150,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
         parses, so no separate `get_basic_info` open is needed.  Honors the
         ``page_size`` and ``partial`` open options.
         """
-        page_size = backend_kwargs.pop("page_size", _DEFAULT_PAGE_SIZE)
+        page_size = backend_kwargs.pop("page_size", DEFAULT_PAGE_SIZE)
         with cls.open(path, page_size=page_size, partial=partial) as archive:
             info = archive.info
             tree_cls = tree_class_for_info(info, path)
@@ -190,7 +209,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
         cls,
         path: ResourcePathExpression,
         *,
-        page_size: int = _DEFAULT_PAGE_SIZE,
+        page_size: int = DEFAULT_PAGE_SIZE,
         partial: bool = False,
     ) -> Iterator[Self]:
         """Create an output archive that writes to the given file.
@@ -202,7 +221,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
         page_size
             Size of the fsspec read block for partial (remote) reads, in
             bytes; a multiple of the FITS block size (2880) is recommended.
-            Defaults to `_DEFAULT_PAGE_SIZE`; see it for the tuning tradeoff.
+            Defaults to ``DEFAULT_PAGE_SIZE``; see it for the tuning tradeoff.
         partial
             Whether we will be reading only some of the archive, or if memory
             pressure forces us to read it only a little at a time.  If `False`
@@ -221,7 +240,16 @@ class FitsInputArchive(InputArchive[PointerModel]):
         else:
             fs: fsspec.AbstractFileSystem
             fs, fp = path.to_fsspec()
-            with fs.open(fp, block_size=page_size, cache_type=_READ_CACHE_TYPE) as stream:
+            # Cap cached blocks from the byte budget so memory stays bounded as
+            # the block size is retuned; keep at least two so the shared
+            # header/index block survives between a file's components.
+            maxblocks = max(2, READ_CACHE_MAX_BYTES // page_size)
+            with fs.open(
+                fp,
+                block_size=page_size,
+                cache_type=_READ_CACHE_TYPE,
+                cache_options={"maxblocks": maxblocks},
+            ) as stream:
                 yield cls(stream)
 
     @property
