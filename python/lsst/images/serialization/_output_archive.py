@@ -64,7 +64,7 @@ class OutputArchive[P](ABC):
         """
 
     def _register_name(self, name: str) -> tuple[str, int]:
-        """Return the input name and its 0-based occurrence count.
+        """Return the input name and its 1-based occurrence count.
 
         Parameters
         ----------
@@ -78,8 +78,8 @@ class OutputArchive[P](ABC):
             The input name, returned unchanged so that the caller controls
             how the version is rendered into the on-disk identifier.
         version : `int`
-            ``0`` the first time a given name is registered, then ``1``,
-            ``2`` and so on for subsequent calls with the same name.
+            ``1`` the first time a given name is registered, then ``2``,
+            ``3`` and so on for subsequent calls with the same name.
 
         Notes
         -----
@@ -87,15 +87,14 @@ class OutputArchive[P](ABC):
         `add_structured_array`, and `serialize_pointer` to detect repeated
         names; the registry lives on the root archive so that nested
         archives share a single namespace. Each backend chooses how to
-        encode ``version > 0`` on disk: FITS adds one to produce the
-        1-based ``EXTVER`` keyword without modifying the extension name,
-        while hierarchical backends can append a 1-based ``_{version + 1}``
-        suffix to the leaf component of the path.
+        encode ``version > 1`` on disk: FITS uses the FITS ``EXTVER``
+        keyword without modifying the extension name, while hierarchical
+        backends can append ``_{version}`` to the leaf component of the path.
         """
         # Normalize so direct (``"data"``) and nested (``"/foo/data"``)
         # callers agree on the dedupe key.
         key = name if name.startswith("/") else f"/{name}"
-        version = self._name_versions.get(key, -1) + 1
+        version = self._name_versions.get(key, 0) + 1
         self._name_versions[key] = version
         return name, version
 

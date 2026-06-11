@@ -91,23 +91,22 @@ class ShrinkHdsNameTestCase(unittest.TestCase):
 class ShrinkVersionedComponentTestCase(unittest.TestCase):
     """Tests for version-aware HDS component shrinking."""
 
-    def test_version_zero_matches_plain_shrink(self):
+    def test_version_one_matches_plain_shrink(self):
         self.assertEqual(
-            shrink_versioned_component("noise_realizations", 0),
+            shrink_versioned_component("noise_realizations", 1),
             _shrink_hds_name("noise_realizations"),
         )
 
     def test_short_versioned_name_keeps_visible_suffix(self):
-        # The second occurrence (0-based version 1) gets a visible _2 suffix.
-        self.assertEqual(shrink_versioned_component("data", 1), "DATA_2")
+        self.assertEqual(shrink_versioned_component("data", 2), "DATA_2")
 
     def test_long_versioned_name_preserves_suffix_within_limit(self):
-        shrunk = shrink_versioned_component("noise_realizations", 98)
+        shrunk = shrink_versioned_component("noise_realizations", 99)
         self.assertEqual(len(shrunk), DAT__SZNAM)
         self.assertTrue(shrunk.endswith("_99"))
 
     def test_same_base_different_versions_are_distinct(self):
         self.assertNotEqual(
-            shrink_versioned_component("noise_realizations", 1),
             shrink_versioned_component("noise_realizations", 2),
+            shrink_versioned_component("noise_realizations", 3),
         )

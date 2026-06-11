@@ -726,10 +726,10 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         collision detection.
         """
         archive_path = name if name.startswith("/") else f"/{name}"
-        if version == 0:
+        if version <= 1:
             return archive_path, archive_path
         head, sep, leaf = archive_path.rpartition("/")
-        logical_id = f"{archive_path}_{version + 1}"
+        logical_id = f"{archive_path}_{version}"
         versioned = f"{head}{sep}{shrink_versioned_component(leaf, version)}"
         return versioned, logical_id
 
