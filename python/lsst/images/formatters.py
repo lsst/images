@@ -56,6 +56,7 @@ class GenericFormatter(FormatterV2):
     supported_extensions: ClassVar[frozenset[str]] = frozenset({".fits", ".sdf", ".json"})
     supported_write_parameters: ClassVar[frozenset[str]] = frozenset({"format", "recipe"})
     can_read_from_uri: ClassVar[bool] = True
+    can_read_from_local_file: ClassVar[bool] = True
 
     butler_provenance: DatasetProvenance | None = None
 
@@ -173,9 +174,36 @@ class GenericFormatter(FormatterV2):
         component: str | None = None,
         expected_size: int = -1,
     ) -> Any:
+        kwargs = dict(self.file_descriptor.parameters or {})
+        pytype: type[Any] = self.dataset_ref.datasetType.storageClass.pytype
+
+        # For full read, always use local file read since the entire file has
+        # to be read anyhow and we should allow it to be cached. Cutouts
+        # can use remote reads since that is generally less to be downloaded
+        # than the full file.
+        if not component and not kwargs:
+            return NotImplemented
+
+        with ser.open(uri, cls=pytype, partial=bool(kwargs or component)) as reader:
+            if component is None:
+                # Cutout read.
+                return reader.read(**kwargs)
+
+            # There are some components that are stored solely in the JSON
+            # Pydantic data model and so could be cached here in case someone
+            # does a butler get of a second component.
+            # - sky_projection
+            # - obs_info
+            # - summary_stats
+            # - detector
+
+            return reader.get_component(component, **kwargs)
+
+    def read_from_local_file(self, path: str, component: str | None = None, expected_size: int = -1) -> Any:
+        # Docstring inherited.
         kwargs = self.file_descriptor.parameters or {}
         pytype: type[Any] = self.dataset_ref.datasetType.storageClass.pytype
-        with ser.open(uri, cls=pytype, partial=bool(kwargs or component)) as reader:
+        with ser.open(path, cls=pytype, partial=bool(kwargs or component)) as reader:
             if component is None:
                 return reader.read(**kwargs)
             return reader.get_component(component, **kwargs)
