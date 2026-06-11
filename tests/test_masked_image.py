@@ -25,6 +25,7 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
     RoundtripNdf,
+    RoundtripZarr,
     assert_masked_images_equal,
     compare_masked_image_to_legacy,
 )
@@ -35,6 +36,13 @@ try:
     HAVE_H5PY = True
 except ImportError:
     HAVE_H5PY = False
+
+try:
+    import zarr  # noqa: F401
+
+    HAVE_ZARR = True
+except ImportError:
+    HAVE_ZARR = False
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -266,6 +274,17 @@ class MaskedImageTestCase(unittest.TestCase):
             assert_masked_images_equal(self, self.masked_image, fits_rt.result, expect_view=False)
             assert_masked_images_equal(self, self.masked_image, ndf_rt.result, expect_view=False)
             assert_masked_images_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
+
+    @unittest.skipUnless(HAVE_ZARR, "zarr is not installed")
+    def test_fits_zarr_consistency(self):
+        """FITS and zarr backends produce equal MaskedImages on round-trip."""
+        with (
+            RoundtripFits(self, self.masked_image) as fits_rt,
+            RoundtripZarr(self, self.masked_image) as zarr_rt,
+        ):
+            assert_masked_images_equal(self, self.masked_image, fits_rt.result, expect_view=False)
+            assert_masked_images_equal(self, self.masked_image, zarr_rt.result, expect_view=False)
+            assert_masked_images_equal(self, fits_rt.result, zarr_rt.result, expect_view=False)
 
     def test_fits_json_consistency(self):
         """FITS and JSON backends produce equal MaskedImages on round-trip."""

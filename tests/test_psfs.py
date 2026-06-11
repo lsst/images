@@ -29,6 +29,7 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
     RoundtripNdf,
+    RoundtripZarr,
     compare_psf_to_legacy,
 )
 
@@ -38,6 +39,13 @@ try:
     HAVE_H5PY = True
 except ImportError:
     HAVE_H5PY = False
+
+try:
+    import zarr  # noqa: F401
+
+    HAVE_ZARR = True
+except ImportError:
+    HAVE_ZARR = False
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -138,6 +146,12 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
             with RoundtripNdf(self, psf) as roundtrip3:
                 pass
             compare_psf_to_legacy(self, roundtrip3.result, legacy_psf)
+        with self.subTest("zarr round-trip"):
+            if not HAVE_ZARR:
+                raise unittest.SkipTest("zarr is not available.")
+            with RoundtripZarr(self, psf) as roundtrip4:
+                pass
+            compare_psf_to_legacy(self, roundtrip4.result, legacy_psf)
         legacy_psf_2 = roundtrip1.result.to_legacy()
         compare_psf_to_legacy(self, psf, legacy_psf_2)
         self.assertEqual(legacy_psf.getAveragePosition(), legacy_psf_2.getAveragePosition())

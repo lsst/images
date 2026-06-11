@@ -20,7 +20,7 @@ Versioning happens on two independent axes.
    The version bumps when the Pydantic shape of *that* subclass changes.
 
 **Container (file-format) version.**
-   The FITS and NDF backends each carry a single integer that bumps when the backend *layout* changes (HDU placement, ``NdfDocument`` shape), not when any data model changes.
+   The FITS, NDF, and zarr backends each carry a single integer that bumps when the backend *layout* changes (HDU placement, ``NdfDocument`` shape, zarr group and attribute layout), not when any data model changes.
    JSON has no container distinct from the root tree, so its data-model version covers everything.
 
 The axes evolve separately: changing the FITS HDU layout bumps the FITS container version without touching any data model, and bumping a model from ``1.0.0`` to ``1.1.0`` touches no container version.
@@ -61,7 +61,7 @@ URL scheme
    https://images.lsst.io/schemas/<schema-name>-<major>.<minor>.<patch>
 
 It is informational and need not resolve to a hosted document.
-The same URL appears in the FITS ``DATAMODL`` keyword and the NDF ``.MORE.LSST.DATA_MODEL`` component so the data model is visible to tooling without parsing the JSON tree.
+The same URL appears in the FITS ``DATAMODL`` keyword, the NDF ``.MORE.LSST.DATA_MODEL`` component, and the zarr root group's ``lsst.data_model`` attribute so the data model is visible to tooling without parsing the JSON tree.
 
 Why two fields per model
 ========================
