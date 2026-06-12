@@ -954,7 +954,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
             raise InvalidParameterError(
                 f"Unsupported parameters for VisitImage component {component}: {set(kwargs.keys())}."
             )
-        return super().deserialize_component(component, archive)
+        return super().deserialize_component(component, archive, **kwargs)
 
 
 def _obs_info_from_md(
