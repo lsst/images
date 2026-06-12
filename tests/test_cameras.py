@@ -14,7 +14,8 @@ from __future__ import annotations
 import os
 import unittest
 
-from lsst.images.cameras import AmplifierRawGeometry, Detector
+from lsst.images._geom import YX
+from lsst.images.cameras import AmplifierRawGeometry, Detector, ReadoutCorner
 from lsst.images.tests import DP2_VISIT_DETECTOR_DATA_ID, RoundtripFits, compare_detector_to_legacy
 
 try:
@@ -102,6 +103,29 @@ class CamerasTestCase(unittest.TestCase):
             pass
         compare_detector_to_legacy(self, roundtrip.result, legacy_camera_detector, is_raw_assembled=False)
         compare_detector_to_legacy(self, roundtrip.result, self.legacy_detector, is_raw_assembled=True)
+
+
+class ReadoutCornerTestCase(unittest.TestCase):
+    """Tests for `ReadoutCorner` flip logic."""
+
+    def test_as_flips(self) -> None:
+        self.assertEqual(ReadoutCorner.LL.as_flips(), YX(y=False, x=False))
+        self.assertEqual(ReadoutCorner.LR.as_flips(), YX(y=False, x=True))
+        self.assertEqual(ReadoutCorner.UL.as_flips(), YX(y=True, x=False))
+        self.assertEqual(ReadoutCorner.UR.as_flips(), YX(y=True, x=True))
+
+    def test_flips_roundtrip(self) -> None:
+        for corner in ReadoutCorner:
+            flips = corner.as_flips()
+            self.assertIs(ReadoutCorner.from_flips(y=flips.y, x=flips.x), corner)
+
+    def test_apply_flips(self) -> None:
+        for corner in ReadoutCorner:
+            self.assertIs(corner.apply_flips(y=False, x=False), corner)
+        self.assertIs(ReadoutCorner.LL.apply_flips(y=True, x=True), ReadoutCorner.UR)
+        self.assertIs(ReadoutCorner.LR.apply_flips(y=False, x=True), ReadoutCorner.LL)
+        self.assertIs(ReadoutCorner.UL.apply_flips(y=True, x=False), ReadoutCorner.LL)
+        self.assertIs(ReadoutCorner.UR.apply_flips(y=True, x=True), ReadoutCorner.LL)
 
 
 if __name__ == "__main__":
