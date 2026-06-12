@@ -186,8 +186,8 @@ class ReadoutCorner(enum.StrEnum):
         bring the readout corner to ``LL``.
         """
         return YX(
-            y=self is ReadoutCorner.LL or self is ReadoutCorner.LR,
-            x=self is ReadoutCorner.UR or self is ReadoutCorner.UR,
+            y=self is ReadoutCorner.UL or self is ReadoutCorner.UR,
+            x=self is ReadoutCorner.LR or self is ReadoutCorner.UR,
         )
 
     @classmethod
