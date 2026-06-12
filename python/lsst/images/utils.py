@@ -16,12 +16,16 @@ __all__ = ("is_none", "round_half_away_from_zero", "round_half_down", "round_hal
 import math
 import operator
 import sys
+from typing import TYPE_CHECKING
 
-if sys.version_info >= (3, 14, 0):
-    is_none = operator.is_none  # type: ignore[attr-defined]
+if TYPE_CHECKING:
+    from typing_extensions import TypeIs
+
+if sys.version_info >= (3, 14):
+    is_none = operator.is_none
 else:
 
-    def is_none(x: object) -> bool:
+    def is_none(x: object) -> TypeIs[None]:
         """Test whether an object is None."""
         return x is None
 
