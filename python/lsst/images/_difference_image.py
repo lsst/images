@@ -375,4 +375,4 @@ class DifferenceImageSerializationModel[P: pydantic.BaseModel](VisitImageSeriali
             raise InvalidParameterError(
                 f"Unsupported parameters for DifferenceImage component {component}: {set(kwargs.keys())}."
             )
-        return super().deserialize_component(component, archive)
+        return super().deserialize_component(component, archive, **kwargs)
