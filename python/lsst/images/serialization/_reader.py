@@ -103,7 +103,7 @@ class Reader[T]:
                 f"{self._info.schema_name!r} deserialized to {type(obj).__name__}, "
                 f"not the requested {self._expected_cls.__name__}."
             )
-        return obj  # type: ignore[return-value]
+        return obj
 
 
 @overload
@@ -115,7 +115,9 @@ def open(
     path: ResourcePathExpression, cls: None = ..., *, partial: bool = ..., **backend_kwargs: Any
 ) -> AbstractContextManager[Reader[Any]]: ...
 @contextmanager
-def open(path: ResourcePathExpression, cls=None, *, partial=True, **backend_kwargs: Any) -> Iterator[Reader]:
+def open(
+    path: ResourcePathExpression, cls: type[Any] | None = None, *, partial: bool = True, **backend_kwargs: Any
+) -> Iterator[Reader]:
     """Open an ``lsst.images`` file for incremental, component-wise reads.
 
     Dispatches to the appropriate backend by file extension, resolves the

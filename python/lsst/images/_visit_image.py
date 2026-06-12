@@ -257,7 +257,7 @@ class VisitImage(MaskedImage):
         return self._photometric_scaling
 
     @photometric_scaling.setter
-    def photometric_scaling(self, value: Field):
+    def photometric_scaling(self, value: Field) -> None:
         if value.unit is None:
             raise TypeError("The photometric_scaling for a VisitImage must have units.")
         self._photometric_scaling = value
@@ -830,7 +830,6 @@ class VisitImage(MaskedImage):
                 return sky_projection
             if plane_map is None:
                 plane_map = get_legacy_visit_image_mask_planes()
-            assert component != "psf", component  # for MyPy
             from_masked_image = MaskedImage._read_legacy_hdus(
                 hdu_list,
                 filename,
