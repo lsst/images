@@ -14,6 +14,9 @@ import os
 import unittest
 import unittest.mock
 
+import numpy as np
+
+from lsst.images import Box
 from lsst.images.serialization import open as real_ser_open
 from lsst.images.serialization import read
 from lsst.images.tests import TemporaryButler
@@ -50,7 +53,7 @@ class FormatterComponentCacheTestCase(unittest.TestCase):
 
     @staticmethod
     def _reset_cache() -> None:
-        GenericFormatter._tree_cache = _TreeCache()
+        GenericFormatter._tree_cache.value = _TreeCache()
 
     def test_free_component_reads_share_one_open(self) -> None:
         with TemporaryButler(visit_image="VisitImage") as helper:
@@ -65,6 +68,70 @@ class FormatterComponentCacheTestCase(unittest.TestCase):
             self.assertEqual(summary_stats, self.visit_image.summary_stats)
             self.assertEqual(obs_info, self.visit_image.obs_info)
             self.assertIsNotNone(sky_projection)
+
+    def test_cached_components_are_independent(self) -> None:
+        with TemporaryButler(visit_image="VisitImage") as helper:
+            helper.butler.put(self.visit_image, helper.visit_image)
+            self._reset_cache()
+            ref = helper.visit_image.makeComponentRef("summary_stats")
+            first = helper.butler.get(ref)
+            second = helper.butler.get(ref)
+            self.assertEqual(first, second)
+            self.assertIsNot(first, second)
+            # Mutating one result must not leak into later reads.
+            first.zeroPoint = -100.0
+            third = helper.butler.get(ref)
+            self.assertEqual(third, second)
+            self.assertNotEqual(third, first)
+
+    def test_pixel_component_falls_back_to_file(self) -> None:
+        with TemporaryButler(visit_image="VisitImage") as helper:
+            helper.butler.put(self.visit_image, helper.visit_image)
+            self._reset_cache()
+            with _count_ser_opens() as mocked:
+                helper.butler.get(helper.visit_image.makeComponentRef("summary_stats"))
+                self.assertEqual(mocked.call_count, 1)
+                image = helper.butler.get(helper.visit_image.makeComponentRef("image"))
+                self.assertEqual(mocked.call_count, 2)
+            np.testing.assert_array_equal(image.array, self.visit_image.image.array)
+
+    def test_parameterized_read_bypasses_cache(self) -> None:
+        with TemporaryButler(visit_image="VisitImage") as helper:
+            helper.butler.put(self.visit_image, helper.visit_image)
+            self._reset_cache()
+            bbox = self.visit_image.bbox
+            cutout_box = Box.factory[bbox.y.start : bbox.y.start + 2, bbox.x.start : bbox.x.start + 2]
+            with _count_ser_opens() as mocked:
+                helper.butler.get(helper.visit_image.makeComponentRef("summary_stats"))
+                self.assertEqual(mocked.call_count, 1)
+                cutout = helper.butler.get(
+                    helper.visit_image.makeComponentRef("image"), parameters={"bbox": cutout_box}
+                )
+                self.assertEqual(mocked.call_count, 2)
+            self.assertEqual(cutout.bbox, cutout_box)
+
+    def test_full_read_populates_cache(self) -> None:
+        with TemporaryButler(visit_image="VisitImage") as helper:
+            helper.butler.put(self.visit_image, helper.visit_image)
+            self._reset_cache()
+            helper.butler.get(helper.visit_image)
+            with _count_ser_opens() as mocked:
+                helper.butler.get(helper.visit_image.makeComponentRef("obs_info"))
+                self.assertEqual(mocked.call_count, 0)
+
+    def test_cache_invalidated_across_datasets(self) -> None:
+        with TemporaryButler(vi_a="VisitImage", vi_b="VisitImage") as helper:
+            helper.butler.put(self.visit_image, helper.vi_a)
+            helper.butler.put(self.visit_image, helper.vi_b)
+            self._reset_cache()
+            with _count_ser_opens() as mocked:
+                helper.butler.get(helper.vi_a.makeComponentRef("summary_stats"))
+                self.assertEqual(mocked.call_count, 1)
+                helper.butler.get(helper.vi_b.makeComponentRef("summary_stats"))
+                self.assertEqual(mocked.call_count, 2)
+                # vi_b evicted vi_a, so reading vi_a again reopens its file.
+                helper.butler.get(helper.vi_a.makeComponentRef("obs_info"))
+                self.assertEqual(mocked.call_count, 3)
 
 
 if __name__ == "__main__":
