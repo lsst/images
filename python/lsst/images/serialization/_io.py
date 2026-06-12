@@ -222,7 +222,7 @@ def public_type_for_schema(schema_name: str) -> type | None:
 def read[T](path: ResourcePathExpression, cls: type[T], **kwargs: Any) -> T: ...
 @overload
 def read(path: ResourcePathExpression, cls: None = ..., **kwargs: Any) -> Any: ...
-def read(path, cls=None, **kwargs):
+def read(path: ResourcePathExpression, cls: type[Any] | None = None, **kwargs: Any) -> Any:
     """Read an archive whose in-memory type is inferred from its schema.
 
     Dispatches to the appropriate backend based on ``path``'s extension,

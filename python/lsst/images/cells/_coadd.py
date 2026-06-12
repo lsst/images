@@ -491,7 +491,7 @@ class CellCoadd(MaskedImage):
             A mapping from legacy mask plane name to the new plane name and
             description.
         """
-        from frozendict import frozendict  # type: ignore[import-not-found]
+        from frozendict import frozendict
 
         from lsst.cell_coadds import CellIdentifiers as LegacyCellIdentifiers
         from lsst.cell_coadds import CoaddUnits as LegacyCoaddUnits
@@ -668,7 +668,7 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
         description="Background models associated with this image.",
     )
 
-    def deserialize(  # type: ignore[override]
+    def deserialize(
         self,
         archive: InputArchive[Any],
         *,

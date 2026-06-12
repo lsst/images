@@ -628,7 +628,7 @@ class Detector:
         """Return the serialization model type for this object for an archive
         type that uses the given pointer type.
         """
-        return DetectorSerializationModel  # type: ignore
+        return DetectorSerializationModel
 
     def to_legacy(self, *, is_raw_assembled: bool | None = None) -> LegacyDetector:
         """Convert to a legacy `lsst.afw.cameraGeom.Detector` instance.

@@ -162,9 +162,7 @@ class ProductField(BaseField):
 
         # Not all Field types have a to_legacy, since they don't all have an
         # afw analog.  But we just let that "no method" exception propagate.
-        return ProductBoundedField(
-            [operand.to_legacy() for operand in self._operands]  # type: ignore[union-attr]
-        )
+        return ProductBoundedField([operand.to_legacy() for operand in self._operands])
 
 
 class ProductFieldSerializationModel(ArchiveTree):
