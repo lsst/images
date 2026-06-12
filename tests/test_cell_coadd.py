@@ -28,6 +28,7 @@ from lsst.images.tests import (
     RoundtripJson,
     RoundtripNdf,
     assert_cell_coadds_equal,
+    assert_images_equal,
     assert_masked_images_equal,
     assert_psfs_equal,
     compare_cell_coadd_to_legacy,
@@ -150,8 +151,17 @@ class CellCoaddTestCase(unittest.TestCase):
                         "psf",
                         "aperture_corrections",
                         "provenance",
+                        "backgrounds",
+                        "bbox",
                     ]
                 }
+                # Read all the components at once.
+                all_components = roundtrip.get("components")
+                self.assertEqual(set(all_components), set(alternates) - {"masked_image"})
+                self.assertEqual(all_components["bbox"], alternates["bbox"])
+                assert_psfs_equal(self, all_components["psf"], alternates["psf"])
+                assert_images_equal(self, all_components["image"], alternates["image"])
+
                 with self.subTest():
                     backgrounds = roundtrip.get("backgrounds")
                     self.assertEqual(backgrounds.keys(), set())
