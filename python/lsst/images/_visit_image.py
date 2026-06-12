@@ -950,10 +950,12 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
         )._finish_deserialize(self)
 
     def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
-        if kwargs and component not in ("image", "mask", "variance"):
+        if kwargs and component not in ("image", "mask", "variance", "masked_image"):
             raise InvalidParameterError(
                 f"Unsupported parameters for VisitImage component {component}: {set(kwargs.keys())}."
             )
+        if component == "masked_image":
+            return super().deserialize(archive, **kwargs)
         return super().deserialize_component(component, archive, **kwargs)
 
 

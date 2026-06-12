@@ -331,6 +331,11 @@ class VisitImageTestCase(unittest.TestCase):
             subbox = Box.factory[8:13, 9:30]
             subimage = roundtrip.get(bbox=subbox)
             assert_masked_images_equal(self, subimage, self.visit_image[subbox], expect_view=False)
+
+            # Get an explicit masked image to compare with the subimage
+            subimage_masked = roundtrip.get("masked_image", bbox=subbox)
+            assert_masked_images_equal(self, subimage_masked, subimage, expect_view=False)
+
             with self.subTest():
                 self.assertEqual(roundtrip.get("bbox"), self.visit_image.bbox)
             with self.subTest():

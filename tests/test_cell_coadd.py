@@ -146,6 +146,7 @@ class CellCoaddTestCase(unittest.TestCase):
                         "image",
                         "mask",
                         "variance",
+                        "masked_image",
                         "psf",
                         "aperture_corrections",
                         "provenance",
