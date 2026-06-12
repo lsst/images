@@ -22,10 +22,13 @@ from __future__ import annotations
 
 __all__ = ("GenericFormatter",)
 
+import copy
 import hashlib
 import json as _stdlib_json  # disambiguates from .json subpackage
+import threading
+import uuid
 from collections.abc import Mapping
-from typing import Any, ClassVar
+from typing import Any, ClassVar, NamedTuple
 
 import astropy.io.fits
 
@@ -35,6 +38,18 @@ from lsst.resources import ResourcePath
 from . import fits as _fits
 from . import serialization as ser
 from .serialization import ButlerInfo, write
+
+
+class _TreeCache(NamedTuple):
+    """Single-slot cache pairing a dataset ID with its validated
+    serialization tree.
+    """
+
+    id_: uuid.UUID | None = None
+    tree: ser.ArchiveTree | None = None
+
+
+_DETACHED_ARCHIVE = ser.DetachedArchive()
 
 
 class GenericFormatter(FormatterV2):
@@ -59,6 +74,11 @@ class GenericFormatter(FormatterV2):
     can_read_from_local_file: ClassVar[bool] = True
 
     butler_provenance: DatasetProvenance | None = None
+
+    # Most recently read serialization tree, kept so that repeated component
+    # reads of the same dataset do not reopen the file.
+    _tree_cache_lock: ClassVar[threading.Lock] = threading.Lock()
+    _tree_cache: ClassVar[_TreeCache] = _TreeCache()
 
     # --- Write parameter handling -------------------------------------------
 
@@ -166,6 +186,60 @@ class GenericFormatter(FormatterV2):
             ).items():
                 header.set(key, value)
 
+    # --- Component tree cache -----------------------------------------------
+
+    def _component_from_cache(self, component: str) -> tuple[bool, Any]:
+        """Try to deserialize a component from the most recently read tree.
+
+        Parameters
+        ----------
+        component
+            Name of the component to read.
+
+        Returns
+        -------
+        hit : `bool`
+            Whether the component could be served from the cache.
+        value
+            The deserialized component; `None` on a cache miss.
+
+        Raises
+        ------
+        lsst.images.serialization.InvalidComponentError
+            Raised if the cached tree does not recognize ``component``.
+        """
+        with self._tree_cache_lock:
+            cache = type(self)._tree_cache
+        if cache.tree is None or cache.id_ != self.dataset_ref.id:
+            return False, None
+        try:
+            value = cache.tree.deserialize_component(component, _DETACHED_ARCHIVE)
+        except ser.ArchiveAccessRequiredError:
+            # The component points at data stored outside the JSON tree, so
+            # the file has to be opened and read.
+            return False, None
+        return True, self._detach_component(cache.tree, component, value)
+
+    def _cache_tree(self, tree: ser.ArchiveTree) -> None:
+        """Remember a validated tree so that later component reads of the
+        same dataset can be served without reopening the file.
+        """
+        with self._tree_cache_lock:
+            type(self)._tree_cache = _TreeCache(id_=self.dataset_ref.id, tree=tree)
+
+    @staticmethod
+    def _detach_component(tree: ser.ArchiveTree, component: str, value: Any) -> Any:
+        """Copy a component value if it is owned by the given tree.
+
+        `~lsst.images.serialization.ArchiveTree.deserialize_component`
+        returns plain (non-tree) models by reference from the tree, so
+        without a copy repeated reads of a mutable component would alias
+        each other through the cache.
+        """
+        if value is not None and value is getattr(tree, component, None):
+            return copy.deepcopy(value)
+        return value
+
     # --- Read path ---------------------------------------------------------
 
     def read_from_uri(
@@ -184,26 +258,32 @@ class GenericFormatter(FormatterV2):
         if not component and not kwargs:
             return NotImplemented
 
+        # Parameters imply pixel access, so only parameterless component
+        # reads can be served from the cached tree.
+        if component and not kwargs:
+            hit, value = self._component_from_cache(component)
+            if hit:
+                return value
+
         with ser.open(uri, cls=pytype, partial=bool(kwargs or component)) as reader:
+            tree = reader.get_tree()
+            self._cache_tree(tree)
             if component is None:
                 # Cutout read.
                 return reader.read(**kwargs)
-
-            # There are some components that are stored solely in the JSON
-            # Pydantic data model and so could be cached here in case someone
-            # does a butler get of a second component.
-            # - sky_projection
-            # - obs_info
-            # - summary_stats
-            # - detector
-
-            return reader.get_component(component, **kwargs)
+            return self._detach_component(tree, component, reader.get_component(component, **kwargs))
 
     def read_from_local_file(self, path: str, component: str | None = None, expected_size: int = -1) -> Any:
         # Docstring inherited.
         kwargs = self.file_descriptor.parameters or {}
         pytype: type[Any] = self.dataset_ref.datasetType.storageClass.pytype
+        if component and not kwargs:
+            hit, value = self._component_from_cache(component)
+            if hit:
+                return value
         with ser.open(path, cls=pytype, partial=bool(kwargs or component)) as reader:
+            tree = reader.get_tree()
+            self._cache_tree(tree)
             if component is None:
                 return reader.read(**kwargs)
-            return reader.get_component(component, **kwargs)
+            return self._detach_component(tree, component, reader.get_component(component, **kwargs))
