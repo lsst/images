@@ -12,7 +12,12 @@ from __future__ import annotations
 
 import unittest
 
-from lsst.images.serialization import ArchiveAccessRequiredError, ArchiveReadError
+from lsst.images.serialization import (
+    ArchiveAccessRequiredError,
+    ArchiveReadError,
+    ArchiveTree,
+    DetachedArchive,
+)
 
 
 class ArchiveAccessRequiredErrorTestCase(unittest.TestCase):
@@ -24,6 +29,37 @@ class ArchiveAccessRequiredErrorTestCase(unittest.TestCase):
         # must never be swallowed by 'except ArchiveReadError' handlers
         # (e.g. the deferred-PSF handling in VisitImage full reads).
         self.assertFalse(issubclass(ArchiveAccessRequiredError, ArchiveReadError))
+
+
+class DetachedArchiveTestCase(unittest.TestCase):
+    """Every data-access method of DetachedArchive raises."""
+
+    def setUp(self) -> None:
+        self.archive = DetachedArchive()
+
+    def test_deserialize_pointer_raises(self) -> None:
+        with self.assertRaises(ArchiveAccessRequiredError):
+            self.archive.deserialize_pointer(None, ArchiveTree, lambda model, archive: None)
+
+    def test_get_frame_set_raises(self) -> None:
+        with self.assertRaises(ArchiveAccessRequiredError):
+            self.archive.get_frame_set(None)
+
+    def test_get_array_raises(self) -> None:
+        with self.assertRaises(ArchiveAccessRequiredError):
+            self.archive.get_array(None)
+
+    def test_get_table_raises(self) -> None:
+        with self.assertRaises(ArchiveAccessRequiredError):
+            self.archive.get_table(None)
+
+    def test_get_structured_array_raises(self) -> None:
+        with self.assertRaises(ArchiveAccessRequiredError):
+            self.archive.get_structured_array(None)
+
+    def test_get_opaque_metadata_is_none(self) -> None:
+        # A detached probe has no file to take opaque metadata from.
+        self.assertIsNone(self.archive.get_opaque_metadata())
 
 
 if __name__ == "__main__":
