@@ -288,6 +288,13 @@ class RoundtripBase[T](ABC):
             # original are not messed up.
             for k in self._test_metadata:
                 result.metadata.pop(k, None)
+        if component == "components" and isinstance(result, dict):
+            # A special case component that returns a dict of components
+            # that each need to have their metadata potentially cleaned up.
+            for value in result.values():
+                if isinstance(value, GeneralizedImage):
+                    for k in self._test_metadata:
+                        value.metadata.pop(k, None)
         return result
 
     def _run_with_butler(self) -> None:
