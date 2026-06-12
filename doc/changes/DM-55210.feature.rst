@@ -1,0 +1,3 @@
+Butler component reads now cache the serialization tree of the most recently read dataset.
+Requesting several metadata components of the same dataset (for example ``sky_projection`` followed by ``obs_info``) therefore opens and reads the file only once.
+Components that need pixel, table, or archive-pointer data still fall back to reading the file, decided at runtime by probing the tree with the new ``lsst.images.serialization.DetachedArchive``.

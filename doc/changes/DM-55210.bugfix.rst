@@ -1,0 +1,1 @@
+Fixed read of bounding box cutouts for ``VisitImage`` and ``DifferenceImage``.
