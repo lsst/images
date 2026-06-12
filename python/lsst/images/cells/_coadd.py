@@ -735,4 +735,6 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
             case "aperture_corrections" if self.aperture_corrections is None:
                 # super() delegation handles the not-None case.
                 return {}
+            case "masked_image":
+                return super().deserialize(archive, **kwargs)
         return super().deserialize_component(component, archive, **kwargs)
