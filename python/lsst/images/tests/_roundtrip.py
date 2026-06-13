@@ -84,7 +84,7 @@ class TemporaryButler:
         format: str | None = None,
         recipe: str | None = None,
         **kwargs: str,
-    ):
+    ) -> None:
         self.run = run
         self._format = format
         self._recipe = recipe
@@ -186,7 +186,7 @@ class RoundtripBase[T](ABC):
         storage_class: str | None = None,
         recipe: str | None = None,
         **kwargs: Any,
-    ):
+    ) -> None:
         self._original = original
         self._storage_class = storage_class
         self._serialized: Any = None

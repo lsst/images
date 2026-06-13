@@ -58,7 +58,7 @@ class ColorImage(GeneralizedImage):
         yx0: Sequence[int] | None = None,
         sky_projection: SkyProjection[Any] | None = None,
         metadata: dict[str, MetadataValue] | None = None,
-    ):
+    ) -> None:
         super().__init__(metadata)
         if bbox is None:
             bbox = Box.from_shape(array.shape[:2], start=yx0)

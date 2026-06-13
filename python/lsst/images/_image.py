@@ -115,7 +115,7 @@ class Image(GeneralizedImage):
         unit: astropy.units.UnitBase | None = None,
         sky_projection: SkyProjection[Any] | None = None,
         metadata: dict[str, MetadataValue] | None = None,
-    ):
+    ) -> None:
         super().__init__(metadata)
         if isinstance(array_or_fill, np.ndarray):
             if dtype is not None:

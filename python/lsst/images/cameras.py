@@ -484,7 +484,7 @@ class Detector:
         amplifiers: Iterable[Amplifier],
         frames: CameraFrameSet,
         visit: int | None = None,
-    ):
+    ) -> None:
         self._attributes = attributes
         self._amplifiers = list(amplifiers)
         self._frames = frames

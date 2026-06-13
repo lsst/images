@@ -124,7 +124,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
         opaque_metadata: Any = None,
         compression_seed: int | None = None,
-    ):
+    ) -> None:
         super().__init__()
         # JSON blobs for objects we've saved as pointers:
         self._pointer_targets: list[bytes] = []

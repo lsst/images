@@ -54,7 +54,7 @@ class GeneralizedImage(ABC):
         Arbitrary flexible metadata to associate with the image.
     """
 
-    def __init__(self, metadata: dict[str, MetadataValue] | None = None):
+    def __init__(self, metadata: dict[str, MetadataValue] | None = None) -> None:
         self._metadata = metadata if metadata is not None else {}
         self._opaque_metadata: OpaqueArchiveMetadata | None = None
         self._butler_info: ButlerInfo | None = None
@@ -325,7 +325,7 @@ class LocalSliceProxy[T: GeneralizedImage]:
     See `~lsst.images.GeneralizedImage.local` for more information.
     """
 
-    def __init__(self, parent: T):
+    def __init__(self, parent: T) -> None:
         self._parent = parent
 
     def __getitem__(self, slices: tuple[slice, slice]) -> T:
@@ -344,7 +344,7 @@ class AbsoluteSliceProxy[T: GeneralizedImage]:
     See `~lsst.images.GeneralizedImage.absolute` for more information.
     """
 
-    def __init__(self, parent: T):
+    def __init__(self, parent: T) -> None:
         self._parent = parent
 
     def __getitem__(self, slices: tuple[slice, slice]) -> T:

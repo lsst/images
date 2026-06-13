@@ -125,7 +125,7 @@ class DifferenceImage(VisitImage):
         backgrounds: BackgroundMap | None = None,
         band: str,
         metadata: dict[str, MetadataValue] | None = None,
-    ):
+    ) -> None:
         super().__init__(
             image,
             mask=mask,

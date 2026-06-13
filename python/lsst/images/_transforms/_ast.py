@@ -78,7 +78,7 @@ if USING_STARLINK_PYAST:
         implement the `FitsChan` classes in this module
         """
 
-        def __init__(self, text: str = ""):
+        def __init__(self, text: str = "") -> None:
             if "\n" in text or "\r" in text:
                 self._lines = text.splitlines()
             elif text and len(text) % 80 == 0:
@@ -109,7 +109,7 @@ if USING_STARLINK_PYAST:
         being backed by an `astshim.Ast.Object`.
         """
 
-        def __init__(self, impl: starlink.Ast.Object):
+        def __init__(self, impl: starlink.Ast.Object) -> None:
             if not isinstance(impl, self._IMPL_TYPE):
                 raise TypeError(f"{type(self).__name__} cannot wrap {type(impl).__name__}.")
             self._impl = impl
@@ -216,31 +216,31 @@ if USING_STARLINK_PYAST:
             return np.asarray(coeffs, dtype=float).reshape(1 + nout, nin)
 
     class UnitMap(Mapping):
-        def __init__(self, n_coord: int):
+        def __init__(self, n_coord: int) -> None:
             super().__init__(starlink.Ast.UnitMap(n_coord))
 
         _IMPL_TYPE: ClassVar[type[starlink.Ast.UnitMap]] = starlink.Ast.UnitMap
 
     class ShiftMap(Mapping):
-        def __init__(self, shift: Iterable[float]):
+        def __init__(self, shift: Iterable[float]) -> None:
             super().__init__(starlink.Ast.ShiftMap(list(shift)))
 
         _IMPL_TYPE: ClassVar[type[starlink.Ast.ShiftMap]] = starlink.Ast.ShiftMap
 
     class CmpMap(Mapping):
-        def __init__(self, map_a: Mapping, map_b: Mapping, series: bool):
+        def __init__(self, map_a: Mapping, map_b: Mapping, series: bool) -> None:
             super().__init__(starlink.Ast.CmpMap(map_a._impl, map_b._impl, series))
 
         _IMPL_TYPE: ClassVar[type[starlink.Ast.CmpMap]] = starlink.Ast.CmpMap
 
     class ZoomMap(Mapping):
-        def __init__(self, n_coord: int, zoom: float):
+        def __init__(self, n_coord: int, zoom: float) -> None:
             super().__init__(starlink.Ast.ZoomMap(n_coord, zoom))
 
         _IMPL_TYPE: ClassVar[type[starlink.Ast.ZoomMap]] = starlink.Ast.ZoomMap
 
     class PolyMap(Mapping):
-        def __init__(self, coeff_f: Any, coeff_i_or_nout: Any, options: str = ""):
+        def __init__(self, coeff_f: Any, coeff_i_or_nout: Any, options: str = "") -> None:
             # astshim's PolyMap takes ``nout`` as the second positional;
             # starlink.Ast.PolyMap requires an explicit inverse-coefficient
             # array. Adapt to both by synthesizing an empty inverse when
@@ -256,7 +256,7 @@ if USING_STARLINK_PYAST:
         _IMPL_TYPE: ClassVar[type[starlink.Ast.PolyMap]] = starlink.Ast.PolyMap
 
     class Frame(Mapping):
-        def __init__(self, n_axes: int, options: str = ""):
+        def __init__(self, n_axes: int, options: str = "") -> None:
             super().__init__(starlink.Ast.Frame(n_axes, options))
 
         _IMPL_TYPE: ClassVar[type[starlink.Ast.Frame]] = starlink.Ast.Frame
@@ -289,19 +289,19 @@ if USING_STARLINK_PYAST:
             return getattr(self._impl, f"Top_{axis}")
 
     class SkyFrame(Frame):
-        def __init__(self, options: str = ""):
+        def __init__(self, options: str = "") -> None:
             Object.__init__(self, starlink.Ast.SkyFrame(options))
 
         _IMPL_TYPE: ClassVar[type[starlink.Ast.SkyFrame]] = starlink.Ast.SkyFrame
 
     class CmpFrame(Frame):
-        def __init__(self, frame_a: Frame, frame_b: Frame):
+        def __init__(self, frame_a: Frame, frame_b: Frame) -> None:
             Object.__init__(self, starlink.Ast.CmpFrame(frame_a._impl, frame_b._impl, ""))
 
         _IMPL_TYPE: ClassVar[type[starlink.Ast.CmpFrame]] = starlink.Ast.CmpFrame
 
     class FrameSet(Frame):
-        def __init__(self, base_frame: Frame):
+        def __init__(self, base_frame: Frame) -> None:
             Object.__init__(self, starlink.Ast.FrameSet(base_frame._impl))
 
         BASE: ClassVar[int] = 1
@@ -344,11 +344,11 @@ if USING_STARLINK_PYAST:
             return Mapping._wrap(self._impl.getmapping(iframe1, iframe2))
 
     class FrameDict(FrameSet):
-        def __init__(self, obj: Object):
+        def __init__(self, obj: Object) -> None:
             Object.__init__(self, obj._impl)
 
     class FitsChan(Object):
-        def __init__(self, stream: StringStream | None = None, options: str = ""):
+        def __init__(self, stream: StringStream | None = None, options: str = "") -> None:
             source = stream if stream is not None else None
             sink = stream if stream is not None else None
             super().__init__(starlink.Ast.FitsChan(source, sink, options))
@@ -368,7 +368,7 @@ if USING_STARLINK_PYAST:
             return iter(self._impl)
 
     class Channel(Object):
-        def __init__(self, stream: StringStream, options: str = ""):
+        def __init__(self, stream: StringStream, options: str = "") -> None:
             super().__init__(starlink.Ast.Channel(None, stream, options))
 
         _IMPL_TYPE: ClassVar[type[starlink.Ast.Channel]] = starlink.Ast.Channel
