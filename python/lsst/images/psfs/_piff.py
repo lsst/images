@@ -56,7 +56,7 @@ class PiffWrapper(PointSpreadFunction):
         The pixel-coordinate region where the model can safely be evaluated.
     """
 
-    def __init__(self, impl: piff.PSF, bounds: Bounds, stamp_size: int):
+    def __init__(self, impl: piff.PSF, bounds: Bounds, stamp_size: int) -> None:
         self._impl = impl
         self._bounds = bounds
         self._stamp_size = stamp_size
@@ -307,7 +307,7 @@ class _ArchivePiffWriter:
     than ABCs or protocols for interface definition).
     """
 
-    def __init__(self, base_name: str = ""):
+    def __init__(self, base_name: str = "") -> None:
         self._base_name = base_name
         self.structs: dict[str, PiffDict] = {}
         self.tables: dict[str, tuple[np.ndarray, PiffDict]] = {}
@@ -392,7 +392,7 @@ class _ArchivePiffReader:
 
     def __init__(
         self, object_model: PiffObjectModel, archive: serialization.InputArchive[Any], base_name: str = ""
-    ):
+    ) -> None:
         self._model = object_model
         self._archive = archive
         self._base_name = base_name

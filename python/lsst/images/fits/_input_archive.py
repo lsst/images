@@ -161,7 +161,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
             tree = archive.get_tree(parameterized)
             yield archive, tree, info
 
-    def __init__(self, stream: IO[bytes]):
+    def __init__(self, stream: IO[bytes]) -> None:
         self._primary_hdu = astropy.io.fits.PrimaryHDU.readfrom(stream)
         on_disk_fmtver: int = self._primary_hdu.header.pop("FMTVER", 1)
         # DATAMODL is informational only on read; the JSON tree's
@@ -416,7 +416,7 @@ class _ExtensionReader:
         The file-like object to read from.
     """
 
-    def __init__(self, hdu_cls: type[ExtensionHDU], stream: IO[bytes]):
+    def __init__(self, hdu_cls: type[ExtensionHDU], stream: IO[bytes]) -> None:
         self._hdu_cls = hdu_cls
         self._stream = stream
 
@@ -537,7 +537,7 @@ class _RangeStreamProxy(IO[bytes]):
     the HDU.
     """
 
-    def __init__(self, base: IO[bytes], start: int):
+    def __init__(self, base: IO[bytes], start: int) -> None:
         self._base = base
         self._start = start
 

@@ -74,7 +74,7 @@ class SkyProjection[F: Frame]:
 
     def __init__(
         self, pixel_to_sky: Transform[F, SkyFrame], fits_approximation: Transform[F, SkyFrame] | None = None
-    ):
+    ) -> None:
         self._pixel_to_sky = pixel_to_sky
         if pixel_to_sky.in_frame.unit != u.pix:
             raise ValueError("Transform is not a mapping from pixel coordinates.")
@@ -392,7 +392,7 @@ class SkyProjectionAstropyView(BaseLowLevelWCS, HighLevelWCSMixin):
     only supports FITS WCS representations (see `SkyProjection.as_fits_wcs`).
     """
 
-    def __init__(self, ast_pixel_to_sky: astshim.Mapping, bbox: Box | None):
+    def __init__(self, ast_pixel_to_sky: astshim.Mapping, bbox: Box | None) -> None:
         self._bbox = bbox
         if bbox is not None:
             ast_pixel_to_sky = astshim.ShiftMap(list(bbox.start.xy)).then(ast_pixel_to_sky)

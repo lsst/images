@@ -149,7 +149,7 @@ class MaskSchema:
     added.
     """
 
-    def __init__(self, planes: Iterable[MaskPlane | None], dtype: npt.DTypeLike = np.uint8):
+    def __init__(self, planes: Iterable[MaskPlane | None], dtype: npt.DTypeLike = np.uint8) -> None:
         self._planes: tuple[MaskPlane | None, ...] = tuple(planes) or (None,)
         self._dtype = cast(np.dtype[np.integer], np.dtype(dtype))
         stride = self.bits_per_element(self._dtype)
@@ -359,7 +359,7 @@ class Mask(GeneralizedImage):
         shape: Sequence[int] | None = None,
         sky_projection: SkyProjection | None = None,
         metadata: dict[str, MetadataValue] | None = None,
-    ):
+    ) -> None:
         super().__init__(metadata)
         if shape is not None:
             shape = tuple(shape)

@@ -71,7 +71,7 @@ class CellPointSpreadFunction(PointSpreadFunction):
         array: np.ndarray,
         bounds: CellGridBounds,
         resampling_kernel: Literal["lanczos3", "lanczos5"] = "lanczos5",
-    ):
+    ) -> None:
         self._array = array
         self._bounds: CellGridBounds = bounds
         self._resampling_kernel = resampling_kernel

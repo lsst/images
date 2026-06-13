@@ -40,7 +40,7 @@ class Region:
         A polygon or multi-polygon from the Shapely library.
     """
 
-    def __init__(self, geometry: shapely.Polygon | shapely.MultiPolygon):
+    def __init__(self, geometry: shapely.Polygon | shapely.MultiPolygon) -> None:
         self._impl = geometry
 
     @property
@@ -209,7 +209,7 @@ class Polygon(Region):
         The y coordinate of the vertices of the polygon.
     """
 
-    def __init__(self, *, x_vertices: npt.ArrayLike, y_vertices: npt.ArrayLike):
+    def __init__(self, *, x_vertices: npt.ArrayLike, y_vertices: npt.ArrayLike) -> None:
         self._vertices = np.stack(
             [np.asarray(x_vertices).flat, np.asarray(y_vertices).flat], dtype=np.float64
         ).transpose()

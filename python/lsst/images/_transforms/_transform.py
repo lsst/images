@@ -82,7 +82,7 @@ class Transform[I: Frame, O: Frame]:
         in_bounds: Bounds | None = None,
         out_bounds: Bounds | None = None,
         components: Iterable[Transform[Any, Any]] = (),
-    ):
+    ) -> None:
         self._in_frame = in_frame
         self._out_frame = out_frame
         self._ast_mapping = ast_mapping

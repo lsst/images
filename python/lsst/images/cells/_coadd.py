@@ -113,7 +113,7 @@ class CellCoadd(MaskedImage):
         patch: PatchDefinition | None = None,
         provenance: CoaddProvenance | None = None,
         backgrounds: BackgroundMap | None = None,
-    ):
+    ) -> None:
         super().__init__(
             image,
             mask=mask,
