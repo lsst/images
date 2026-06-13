@@ -226,7 +226,6 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["lsst.images.*"]
 ignore_missing_imports = false
-ignore_errors = false
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 strict_equality = true
