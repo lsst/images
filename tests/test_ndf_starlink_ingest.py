@@ -36,13 +36,13 @@ class StarlinkIngestTestCase(unittest.TestCase):
     auto-detect ``ndf.read_starlink()`` path.
     """
 
-    def test_round_trips_to_image(self):
+    def test_round_trips_to_image(self) -> None:
         """Auto-detect path returns an Image with the correct array shape."""
         result = read_starlink(Image, EXAMPLE)
         self.assertIsInstance(result, Image)
         self.assertEqual(result.array.shape, (611, 609))
 
-    def test_wcs_produces_projection(self):
+    def test_wcs_produces_projection(self) -> None:
         """Auto-detect path builds a Projection from the NDF WCS component."""
         image = read_starlink(Image, EXAMPLE)
         self.assertIsNotNone(image.sky_projection)
@@ -56,7 +56,7 @@ class StarlinkIngestTestCase(unittest.TestCase):
         self.assertAlmostEqual(ra_deg, 283.4, delta=0.5)
         self.assertAlmostEqual(dec_deg, 33.0, delta=0.5)
 
-    def test_opaque_fits_metadata_recovered(self):
+    def test_opaque_fits_metadata_recovered(self) -> None:
         """MORE/FITS cards are surfaced in ``_opaque_metadata``."""
         image = read_starlink(Image, EXAMPLE)
         opaque = image._opaque_metadata

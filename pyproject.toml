@@ -220,13 +220,11 @@ warn_redundant_casts = true
 plugins = "pydantic.mypy"
 
 [[tool.mypy.overrides]]
-module = ["fsspec.*", "astropy.*", "galsim.*", "h5py.*", "piff.*", "lsst.*", "starlink.*"]
+module = ["fsspec.*", "astropy.*", "frozendict.*", "galsim.*", "h5py.*", "piff.*", "lsst.*", "starlink.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["lsst.images"]
-ignore_missing_imports = false
-ignore_errors = false
+module = ["lsst.images.*"]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 strict_equality = true

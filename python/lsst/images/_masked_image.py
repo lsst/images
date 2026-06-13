@@ -85,7 +85,7 @@ class MaskedImage(GeneralizedImage):
         mask_schema: MaskSchema | None = None,
         sky_projection: SkyProjection | None = None,
         metadata: dict[str, MetadataValue] | None = None,
-    ):
+    ) -> None:
         super().__init__(metadata)
         if sky_projection is None:
             sky_projection = image.sky_projection

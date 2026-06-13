@@ -51,7 +51,7 @@ def aperture_corrections_to_legacy(aperture_corrections: ApertureCorrectionMap) 
         # Not all Field types have a to_legacy, but the ones we care about do;
         # if we're wrong about that, the AttributeError is probably the best
         # we can do.
-        result[name] = field.to_legacy()  # type: ignore[union-attr]
+        result[name] = field.to_legacy()
     return result
 
 

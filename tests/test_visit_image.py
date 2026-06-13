@@ -292,20 +292,20 @@ class VisitImageTestCase(unittest.TestCase):
         )
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
-    def test_round_trip_ndf(self):
+    def test_round_trip_ndf(self) -> None:
         """NDF round-trip for VisitImage."""
         with RoundtripNdf(self, self.visit_image, "VisitImage") as roundtrip:
             assert_visit_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
-    def test_fits_ndf_consistency(self):
+    def test_fits_ndf_consistency(self) -> None:
         """FITS and NDF backends produce equal VisitImages on round-trip."""
         with RoundtripFits(self, self.visit_image) as fits_rt, RoundtripNdf(self, self.visit_image) as ndf_rt:
             assert_visit_images_equal(self, self.visit_image, fits_rt.result, expect_view=False)
             assert_visit_images_equal(self, self.visit_image, ndf_rt.result, expect_view=False)
             assert_visit_images_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
 
-    def test_fits_json_consistency(self):
+    def test_fits_json_consistency(self) -> None:
         """FITS and JSON backends produce equal VisitImages on round-trip."""
         with (
             RoundtripFits(self, self.visit_image) as fits_rt,
@@ -331,6 +331,20 @@ class VisitImageTestCase(unittest.TestCase):
             subbox = Box.factory[8:13, 9:30]
             subimage = roundtrip.get(bbox=subbox)
             assert_masked_images_equal(self, subimage, self.visit_image[subbox], expect_view=False)
+
+            # Get an explicit masked image to compare with the subimage
+            with self.subTest():
+                subimage_masked = roundtrip.get("masked_image", bbox=subbox)
+                assert_masked_images_equal(self, subimage_masked, subimage, expect_view=False)
+
+                # Get the same masked image in a multi-component get and ensure
+                # it is the same thing.
+                components = roundtrip.get("components", components=["masked_image", "psf"], bbox=subbox)
+                self.assertEqual(set(components), {"masked_image", "psf"})
+                assert_masked_images_equal(
+                    self, components["masked_image"], subimage_masked, expect_view=False
+                )
+
             with self.subTest():
                 self.assertEqual(roundtrip.get("bbox"), self.visit_image.bbox)
             with self.subTest():
@@ -355,6 +369,44 @@ class VisitImageTestCase(unittest.TestCase):
                     roundtrip.result.backgrounds.subtracted.description,
                     "Background subtracted from the image.",
                 )
+
+            with self.subTest(components="components edge cases"):
+                # Test some components get edge cases.
+                components = roundtrip.get("components", components="image")
+                self.assertIsInstance(components["image"], Image)
+
+                components = roundtrip.get("components")
+                self.assertEqual(
+                    set(components),
+                    {
+                        "image",
+                        "variance",
+                        "psf",
+                        "bbox",
+                        "mask",
+                        "obs_info",
+                        "backgrounds",
+                        "detector",
+                        "aperture_corrections",
+                        "sky_projection",
+                        "summary_stats",
+                        "photometric_scaling",
+                    },
+                )
+
+                # Butler morphs RuntimeError to ValueError.
+                with self.assertRaises(ValueError):
+                    roundtrip.get("components", components=["image", "nonexistent"])
+
+                with self.assertRaises(ValueError):
+                    roundtrip.get("components", components=["image", "components"])
+
+                with self.assertRaises(ValueError):
+                    roundtrip.get("components", components=[])
+
+                with self.assertRaises(ValueError):
+                    # PSF does not know how to use bbox so this fails.
+                    roundtrip.get("components", components="psf", bbox=subbox)
 
         assert_visit_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
         # Check that the round-tripped headers are the same (up to card order).

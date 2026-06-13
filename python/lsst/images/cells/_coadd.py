@@ -113,7 +113,7 @@ class CellCoadd(MaskedImage):
         patch: PatchDefinition | None = None,
         provenance: CoaddProvenance | None = None,
         backgrounds: BackgroundMap | None = None,
-    ):
+    ) -> None:
         super().__init__(
             image,
             mask=mask,
@@ -491,7 +491,7 @@ class CellCoadd(MaskedImage):
             A mapping from legacy mask plane name to the new plane name and
             description.
         """
-        from frozendict import frozendict  # type: ignore[import-not-found]
+        from frozendict import frozendict
 
         from lsst.cell_coadds import CellIdentifiers as LegacyCellIdentifiers
         from lsst.cell_coadds import CoaddUnits as LegacyCoaddUnits
@@ -668,7 +668,7 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
         description="Background models associated with this image.",
     )
 
-    def deserialize(  # type: ignore[override]
+    def deserialize(
         self,
         archive: InputArchive[Any],
         *,
@@ -735,4 +735,6 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
             case "aperture_corrections" if self.aperture_corrections is None:
                 # super() delegation handles the not-None case.
                 return {}
+            case "masked_image":
+                return super().deserialize(archive, **kwargs)
         return super().deserialize_component(component, archive, **kwargs)

@@ -47,7 +47,7 @@ class BackgroundMap(Mapping[str, Background]):
     than one with an image.
     """
 
-    def __init__(self, backgrounds: Iterable[Background] = (), subtracted: str | None = None):
+    def __init__(self, backgrounds: Iterable[Background] = (), subtracted: str | None = None) -> None:
         self._backgrounds = {b.name: b for b in backgrounds}
         self._subtracted = subtracted
         if isinstance(self._subtracted, str) and self._subtracted not in self._backgrounds:

@@ -77,7 +77,7 @@ class SplineField(BaseField):
         y: np.ndarray,
         x: np.ndarray,
         unit: astropy.units.UnitBase | None = None,
-    ):
+    ) -> None:
         if isinstance(data, astropy.units.Quantity):
             if unit is not None:
                 raise TypeError("If 'data' is a Quantity, 'unit' cannot be provided separately.")

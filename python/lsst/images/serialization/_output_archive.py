@@ -349,7 +349,7 @@ class NestedOutputArchive[P: pydantic.BaseModel](OutputArchive[P]):
         Parent output archive to delegate to.
     """
 
-    def __init__(self, root: str, parent: OutputArchive):
+    def __init__(self, root: str, parent: OutputArchive) -> None:
         super().__init__()
         self._root = root
         self._parent = parent

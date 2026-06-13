@@ -60,7 +60,7 @@ class CoaddProvenance:
     ordered the same way!).
     """
 
-    def __init__(self, inputs: astropy.table.Table, contributions: astropy.table.Table):
+    def __init__(self, inputs: astropy.table.Table, contributions: astropy.table.Table) -> None:
         self._inputs = inputs
         self._contributions = contributions
 

@@ -33,7 +33,7 @@ class LegacyConversionTestCase(unittest.TestCase):
     legacy types.
     """
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.maxDiff = None
         self.rng = np.random.default_rng(500)
 

@@ -178,7 +178,7 @@ class Interval:
     Pydantic model itself.
     """
 
-    def __init__(self, start: int, stop: int):
+    def __init__(self, start: int, stop: int) -> None:
         # Coerce to be defensive against numpy int scalars.
         self._start = int(start)
         self._stop = int(stop)
@@ -494,7 +494,7 @@ class IntervalSliceFactory:
     `~collections.abc.Sequence` indexing).
     """
 
-    def __init__(self, parent: Interval | None = None, is_local: bool = False):
+    def __init__(self, parent: Interval | None = None, is_local: bool = False) -> None:
         self._parent = parent
         self._is_local = is_local
 
@@ -551,7 +551,7 @@ class Box:
     Pydantic model itself.
     """
 
-    def __init__(self, y: Interval, x: Interval):
+    def __init__(self, y: Interval, x: Interval) -> None:
         self._intervals = YX(y, x)
 
     __slots__ = ("_intervals",)
@@ -927,7 +927,7 @@ class BoxSliceFactory:
 
     def __init__(
         self, y: IntervalSliceFactory = Interval.factory, x: IntervalSliceFactory = Interval.factory
-    ):
+    ) -> None:
         self._y = y
         self._x = x
 

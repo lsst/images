@@ -1,0 +1,20 @@
+name: Mypy coverage
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  mypy-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: mfisherlevine/mypy_coverage@v0.2.3
+        with:
+          python-version: "3.12"
+          paths: python tests
+          threshold: 100
+          threshold-metric: fully-typed
+          format: github

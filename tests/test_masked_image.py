@@ -210,13 +210,13 @@ class MaskedImageTestCase(unittest.TestCase):
         assert_masked_images_equal(self, subimage, roundtripped[subbox], expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
-    def test_round_trip_ndf_compatible_mask(self):
+    def test_round_trip_ndf_compatible_mask(self) -> None:
         """NDF round-trip for the default-setup MaskedImage (2 planes ≤ 8)."""
         with RoundtripNdf(self, self.masked_image, "MaskedImageV2") as roundtrip:
             assert_masked_images_equal(self, roundtrip.result, self.masked_image, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
-    def test_round_trip_ndf_incompatible_mask(self):
+    def test_round_trip_ndf_incompatible_mask(self) -> None:
         """NDF round-trip for a >8-plane mask (uses native 3D mask array,
         to MORE/LSST/MASK).
         """
@@ -236,7 +236,7 @@ class MaskedImageTestCase(unittest.TestCase):
             assert_masked_images_equal(self, roundtrip.result, wide, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
-    def test_round_trip_ndf_many_plane_mask(self):
+    def test_round_trip_ndf_many_plane_mask(self) -> None:
         """NDF round-trip for a mask that needs more than one int32 chunk."""
         rng = np.random.default_rng(11)
         planes = [MaskPlane(f"P{i}", f"plane {i}") for i in range(40)]
@@ -257,7 +257,7 @@ class MaskedImageTestCase(unittest.TestCase):
             assert_masked_images_equal(self, roundtrip.result, wide, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
-    def test_fits_ndf_consistency(self):
+    def test_fits_ndf_consistency(self) -> None:
         """FITS and NDF backends produce equal MaskedImages on round-trip."""
         with (
             RoundtripFits(self, self.masked_image) as fits_rt,
@@ -267,7 +267,7 @@ class MaskedImageTestCase(unittest.TestCase):
             assert_masked_images_equal(self, self.masked_image, ndf_rt.result, expect_view=False)
             assert_masked_images_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
 
-    def test_fits_json_consistency(self):
+    def test_fits_json_consistency(self) -> None:
         """FITS and JSON backends produce equal MaskedImages on round-trip."""
         with (
             RoundtripFits(self, self.masked_image) as fits_rt,

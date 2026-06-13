@@ -31,7 +31,7 @@ def _write_simple_image_fits(path: str) -> None:
 class FitsFormatVersionTestCase(unittest.TestCase):
     """Tests for the FITS FMTVER and DATAMODL primary-header keywords."""
 
-    def test_write_emits_fmtver_and_datamodl(self):
+    def test_write_emits_fmtver_and_datamodl(self) -> None:
         """A freshly-written FITS carries FMTVER=1 and the root DATAMODL."""
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "x.fits")
@@ -43,7 +43,7 @@ class FitsFormatVersionTestCase(unittest.TestCase):
                     "https://images.lsst.io/schemas/image-1.0.0",
                 )
 
-    def test_read_succeeds_when_fmtver_matches(self):
+    def test_read_succeeds_when_fmtver_matches(self) -> None:
         """Round-trip read of a freshly-written file succeeds without error."""
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "x.fits")
@@ -51,7 +51,7 @@ class FitsFormatVersionTestCase(unittest.TestCase):
             with FitsInputArchive.open(path):
                 pass
 
-    def test_read_fails_when_fmtver_too_high(self):
+    def test_read_fails_when_fmtver_too_high(self) -> None:
         """A file whose FMTVER is newer than this release raises."""
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "x.fits")
@@ -63,7 +63,7 @@ class FitsFormatVersionTestCase(unittest.TestCase):
                 with FitsInputArchive.open(path):
                     pass
 
-    def test_read_succeeds_when_fmtver_absent(self):
+    def test_read_succeeds_when_fmtver_absent(self) -> None:
         """A legacy file lacking FMTVER reads successfully (defaults to 1)."""
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "x.fits")

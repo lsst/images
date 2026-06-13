@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 __all__ = (
+    "ArchiveAccessRequiredError",
     "ArchiveReadError",
     "ArchiveTree",
     "ButlerInfo",
@@ -277,6 +278,21 @@ class InvalidParameterError(ArchiveReadError):
 class InvalidComponentError(ArchiveReadError):
     """Exception `ArchiveTree.deserialize_component` when passed an invalid
     component name.
+    """
+
+
+class ArchiveAccessRequiredError(RuntimeError):
+    """Exception raised when a deserialization needs data from the file.
+
+    Raised by all data-access methods of
+    `~lsst.images.serialization.DetachedArchive`, signaling that the
+    requested object cannot be deserialized from the JSON tree alone.
+
+    Notes
+    -----
+    This deliberately does not inherit from `ArchiveReadError`: it signals
+    that a live archive is required rather than that an archive is corrupt,
+    and it must not be swallowed by ``except ArchiveReadError`` handlers.
     """
 
 

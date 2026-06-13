@@ -47,7 +47,7 @@ except ImportError:
 class LegacyFixtureReadBackTestCase(unittest.TestCase):
     """Read each legacy-derived fixture back in and check its structure."""
 
-    def test_cell_coadd(self):
+    def test_cell_coadd(self) -> None:
         """The CellCoadd fixture reads back as a multi-cell coadd and can be
         subset down to a single cell.
         """
@@ -74,7 +74,7 @@ class LegacyFixtureReadBackTestCase(unittest.TestCase):
         single = coadd[cell_bbox]
         self.assertEqual(list(single.bounds.cell_indices()), [present[0]])
 
-    def test_visit_images(self):
+    def test_visit_images(self) -> None:
         """Each VisitImage fixture reads back with its real detector and a
         deferred PSF (raised only on access when piff is unavailable).
         """

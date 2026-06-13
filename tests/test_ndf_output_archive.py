@@ -66,14 +66,14 @@ class TinyTree(pydantic.BaseModel):
 class NdfOutputArchiveBasicsTestCase(unittest.TestCase):
     """Tests for `NdfOutputArchive` constructor and `serialize_direct`."""
 
-    def test_serialize_direct_calls_serializer_with_nested_archive(self):
+    def test_serialize_direct_calls_serializer_with_nested_archive(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 arch = NdfOutputArchive(f)
                 tree = arch.serialize_direct("top", lambda nested: TinyTree(name="hello"))
                 self.assertEqual(tree.name, "hello")
 
-    def test_constructor_marks_root_as_ndf(self):
+    def test_constructor_marks_root_as_ndf(self) -> None:
         """The constructor should set CLASS=NDF on the root group so that
         Starlink tools recognise the file as an NDF.
         """
@@ -88,7 +88,7 @@ class NdfOutputArchiveBasicsTestCase(unittest.TestCase):
 class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
     """Tests for `NdfOutputArchive.add_array` routing."""
 
-    def test_top_level_image_routes_to_data_array(self):
+    def test_top_level_image_routes_to_data_array(self) -> None:
         data = np.arange(20, dtype=np.float32).reshape(4, 5)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
@@ -104,7 +104,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 self.assertEqual(origin.dtype, np.int64)
                 self.assertEqual(origin.shape, (2,))
 
-    def test_top_level_variance_routes_to_variance(self):
+    def test_top_level_variance_routes_to_variance(self) -> None:
         data = np.full((3, 3), 0.5, dtype=np.float64)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
@@ -115,7 +115,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 self.assertEqual(f["/VARIANCE"].attrs["CLASS"], b"ARRAY")
                 self.assertEqual(f["/VARIANCE/DATA"].dtype, np.float64)
 
-    def test_top_level_compatible_mask_routes_to_quality(self):
+    def test_top_level_compatible_mask_routes_to_quality(self) -> None:
         data = np.array([[0, 1, 2], [3, 4, 5]], dtype=np.uint8)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
@@ -133,7 +133,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 self.assertFalse(_hds.read_array(f["/QUALITY/QUALITY/BAD_PIXEL"]))
                 self.assertEqual(f["/QUALITY/BADBITS"][()], 255)
 
-    def test_top_level_incompatible_mask_routes_to_more_lsst(self):
+    def test_top_level_incompatible_mask_routes_to_more_lsst(self) -> None:
         # 3D mask array in NDF storage order (mask-byte, y, x) is hoisted
         # as a sub-NDF inside /MORE/LSST/MASK, with a compressed 2D view
         # exposed as /QUALITY/QUALITY for standard NDF applications.
@@ -159,7 +159,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 self.assertEqual(origin.dtype, np.int64)
                 self.assertEqual(origin.shape, (3,))
 
-    def test_long_hoisted_component_is_shrunk(self):
+    def test_long_hoisted_component_is_shrunk(self) -> None:
         # Regression for the cell_coadd failure: the /noise_realizations/0
         # archive path contains an 18-character component.
         data = np.array([[1.0, 2.0]], dtype=np.float32)
@@ -178,7 +178,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 # The node the JSON points at actually exists.
                 self.assertIn(hdf5_path, f)
 
-    def test_long_name_round_trips_through_input_archive(self):
+    def test_long_name_round_trips_through_input_archive(self) -> None:
         from lsst.images.ndf import NdfInputArchive
 
         data = np.arange(6, dtype=np.float32).reshape(2, 3)
@@ -190,7 +190,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 read_back = inp.get_array(ref)
         np.testing.assert_array_equal(read_back, data)
 
-    def test_repeated_long_name_gets_distinct_versioned_paths(self):
+    def test_repeated_long_name_gets_distinct_versioned_paths(self) -> None:
         data = np.array([[1.0]], dtype=np.float32)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
@@ -205,7 +205,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 self.assertIn(first.source[len("ndf:") :], f)
                 self.assertIn(second.source[len("ndf:") :], f)
 
-    def test_nested_array_hoists_as_sub_ndf(self):
+    def test_nested_array_hoists_as_sub_ndf(self) -> None:
         # Hoisted numeric arrays land under /MORE/LSST as hierarchical
         # sub-NDFs (CLASS="NDF" with DATA_ARRAY/DATA + ORIGIN inside) so
         # Starlink tools can inspect them as ordinary NDFs while each HDS
@@ -229,7 +229,7 @@ class NdfOutputArchiveAddArrayTestCase(unittest.TestCase):
                 self.assertEqual(origin.dtype, np.int64)
                 self.assertEqual(origin.shape, (data.ndim,))
 
-    def test_colliding_shrunk_names_raise(self):
+    def test_colliding_shrunk_names_raise(self) -> None:
         data = np.array([[1.0]], dtype=np.float32)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
@@ -251,7 +251,7 @@ class NdfOutputArchivePointerTestCase(unittest.TestCase):
     `serialize_frame_set`.
     """
 
-    def test_serialize_pointer_writes_subtree_and_returns_pointer(self):
+    def test_serialize_pointer_writes_subtree_and_returns_pointer(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 arch = NdfOutputArchive(f)
@@ -268,7 +268,7 @@ class NdfOutputArchivePointerTestCase(unittest.TestCase):
                 joined = b"".join(raw).decode("ascii").rstrip(" ")
                 self.assertIn('"name":"gaussian"', joined.replace(" ", ""))
 
-    def test_serialize_pointer_caches_by_key(self):
+    def test_serialize_pointer_caches_by_key(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 arch = NdfOutputArchive(f)
@@ -291,7 +291,7 @@ class NdfOutputArchivePointerTestCase(unittest.TestCase):
                 self.assertIn("first", joined)
                 self.assertNotIn("second", joined)
 
-    def test_serialize_pointer_preserves_nested_arrays(self):
+    def test_serialize_pointer_preserves_nested_arrays(self) -> None:
         # Regression test: a pointer target that writes a nested array via
         # the nested archive must round-trip with that array still in the
         # file. Previously the pointer JSON was written at the target path
@@ -324,7 +324,7 @@ class NdfOutputArchivePointerTestCase(unittest.TestCase):
                 self.assertEqual(f["/MORE/LSST/PSF"].attrs["CLASS"], b"PSF")
                 self.assertEqual(f["/MORE/LSST"].attrs["CLASS"], b"LSST")
 
-    def test_serialize_frame_set_records_for_iter(self):
+    def test_serialize_frame_set_records_for_iter(self) -> None:
         # serialize_frame_set is delegated to serialize_pointer plus
         # recording the (FrameSet, pointer) pair for iter_frame_sets,
         # mirroring how FITS and JSON archives behave.
@@ -349,7 +349,7 @@ class NdfOutputArchivePointerTestCase(unittest.TestCase):
 class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
     """Tests for `NdfOutputArchive.add_table` and `add_structured_array`."""
 
-    def test_add_table_returns_inline_table_model(self):
+    def test_add_table_returns_inline_table_model(self) -> None:
         t = astropy.table.Table({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
@@ -359,7 +359,7 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
                 # v1 stores tables inline in the JSON tree.
                 self.assertIsInstance(model.columns[0].data, InlineArrayModel)
 
-    def test_add_structured_array_writes_column_ndfs_with_units(self):
+    def test_add_structured_array_writes_column_ndfs_with_units(self) -> None:
         rec = np.zeros(3, dtype=[("x", np.float64), ("y", np.int32)])
         rec["x"] = [1.0, 2.0, 3.0]
         rec["y"] = [10, 20, 30]
@@ -390,7 +390,7 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
                 recovered = archive.get_structured_array(model)
                 np.testing.assert_array_equal(recovered, rec)
 
-    def test_add_single_column_structured_array_uses_table_name(self):
+    def test_add_single_column_structured_array_uses_table_name(self) -> None:
         rec = np.zeros(1, dtype=[("solution", np.float64, (4,))])
         rec["solution"] = [[1.0, 2.0, 3.0, 4.0]]
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
@@ -415,7 +415,7 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
                     rec["solution"],
                 )
 
-    def test_structured_array_long_name_is_shrunk_and_versioned(self):
+    def test_structured_array_long_name_is_shrunk_and_versioned(self) -> None:
         dtype = np.dtype([("alpha", "f8"), ("beta", "i4")])
         arr = np.zeros(3, dtype=dtype)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
@@ -447,7 +447,7 @@ class NdfOutputArchiveAddTableTestCase(unittest.TestCase):
 class NdfWriteWcsTestCase(unittest.TestCase):
     """Tests for /WCS/DATA serialization in ndf.write()."""
 
-    def test_write_with_projection_creates_wcs_component(self):
+    def test_write_with_projection_creates_wcs_component(self) -> None:
         rng = np.random.default_rng(42)
         det_frame = DetectorFrame(instrument="TestInst", detector=4, bbox=Box.factory[1:4096, 1:4096])
         bbox = Box.factory[10:14, 20:25]
@@ -477,7 +477,7 @@ class NdfWriteWcsTestCase(unittest.TestCase):
                 self.assertIn("Sft1 = -19", stripped)
                 self.assertIn("Sft2 = -9", stripped)
 
-    def test_write_without_projection_omits_wcs_component(self):
+    def test_write_without_projection_omits_wcs_component(self) -> None:
         # Image with no sky_projection -> no /WCS in the file.
         image = Image(np.zeros((2, 2), dtype=np.float32))
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
@@ -486,7 +486,7 @@ class NdfWriteWcsTestCase(unittest.TestCase):
             with h5py.File(tmp.name, "r") as f:
                 self.assertNotIn("WCS", f)
 
-    def test_mask_sub_ndf_gets_3d_wcs(self):
+    def test_mask_sub_ndf_gets_3d_wcs(self) -> None:
         # When an incompatible mask is hoisted to /MORE/LSST/MASK as a
         # sub-NDF, it should carry its own 3D /WCS.  The first two axes
         # retain the parent image sky_projection while the third axis is
@@ -529,7 +529,7 @@ class NdfWriteWcsTestCase(unittest.TestCase):
                 self.assertIn("Begin CmpMap", stripped)
                 self.assertIn("Series = 0", stripped)
 
-    def test_mask_sub_ndf_no_wcs_when_image_has_no_projection(self):
+    def test_mask_sub_ndf_no_wcs_when_image_has_no_projection(self) -> None:
         planes = [MaskPlane(f"P{i}", f"Plane {i}") for i in range(12)]
         masked = MaskedImage(
             Image(np.zeros((4, 5), dtype=np.float32)),
@@ -548,7 +548,7 @@ class NdfWriteWcsTestCase(unittest.TestCase):
 class NdfWriteFunctionTestCase(unittest.TestCase):
     """End-to-end tests for the module-level `write()` function."""
 
-    def test_write_image_produces_valid_layout(self):
+    def test_write_image_produces_valid_layout(self) -> None:
         image = Image(
             np.arange(20, dtype=np.float32).reshape(4, 5),
             bbox=Box.factory[10:14, 20:25],
@@ -576,7 +576,7 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
                 self.assertIn("LSST", f["/MORE"])
                 self.assertIn("JSON", f["/MORE/LSST"])
 
-    def test_write_image_preserves_opaque_fits_metadata(self):
+    def test_write_image_preserves_opaque_fits_metadata(self) -> None:
         image = Image(np.zeros((2, 2), dtype=np.float32))
         # Attach an opaque-metadata primary header to the image.
         primary = astropy.io.fits.Header()
@@ -599,7 +599,7 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
             recovered = result._opaque_metadata.headers[ExtensionKey()]
             self.assertEqual(recovered["LONGSTR"], long_value)
 
-    def test_write_image_main_json_round_trips_back(self):
+    def test_write_image_main_json_round_trips_back(self) -> None:
         # Sanity: the main JSON tree at /MORE/LSST/JSON should parse as the
         # in-memory ArchiveTree and contain the array reference for DATA_ARRAY.
         image = Image(np.arange(6, dtype=np.float32).reshape(2, 3))
@@ -615,7 +615,7 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
             # write() function returned dumps to the same JSON.
             self.assertEqual(json.loads(tree.model_dump_json()), recovered)
 
-    def test_write_image_with_unit_creates_units_component(self):
+    def test_write_image_with_unit_creates_units_component(self) -> None:
         image = Image(np.arange(6, dtype=np.float32).reshape(2, 3), unit=u.ct)
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
@@ -627,7 +627,7 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
             result = read(tmp.name, Image)
             self.assertEqual(result.unit, u.ct)
 
-    def test_write_propagates_metadata(self):
+    def test_write_propagates_metadata(self) -> None:
         image = Image(np.arange(6, dtype=np.float32).reshape(2, 3))
         extra = {"test_key": 42, "another": "hello"}
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:

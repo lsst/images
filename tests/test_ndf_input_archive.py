@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from typing import Any
 
 import astropy.io.fits
 import astropy.units as u
@@ -21,12 +22,13 @@ import numpy as np
 import pydantic
 
 from lsst.images import Box, Image, ImageSerializationModel, Mask, MaskedImage
-from lsst.images._transforms import FrameSet
+from lsst.images._transforms import Frame, FrameSet, Transform
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
 from lsst.images.serialization import (
     ArchiveReadError,
     ArrayReferenceModel,
     InlineArrayModel,
+    InputArchive,
     NumberType,
     read,
 )
@@ -52,7 +54,7 @@ except ImportError:
 class NdfInputArchiveOpenTestCase(unittest.TestCase):
     """Tests for `NdfInputArchive.open` and `get_tree`."""
 
-    def test_open_round_trips_image_tree(self):
+    def test_open_round_trips_image_tree(self) -> None:
         image = Image(
             np.arange(20, dtype=np.float32).reshape(4, 5),
             bbox=Box.factory[10:14, 20:25],
@@ -64,7 +66,7 @@ class NdfInputArchiveOpenTestCase(unittest.TestCase):
                 tree = archive.get_tree(type(written_tree))
                 self.assertEqual(tree.model_dump_json(), written_tree.model_dump_json())
 
-    def test_get_tree_raises_when_main_json_missing(self):
+    def test_get_tree_raises_when_main_json_missing(self) -> None:
         # A file with no /MORE/LSST/JSON should raise ArchiveReadError.
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
@@ -80,7 +82,7 @@ class NdfInputArchiveOpenTestCase(unittest.TestCase):
 class NdfInputArchiveDataTestCase(unittest.TestCase):
     """Tests for `get_array`, `deserialize_pointer`, and `get_frame_set`."""
 
-    def test_get_array_reads_image_array(self):
+    def test_get_array_reads_image_array(self) -> None:
         image = Image(np.arange(20, dtype=np.float32).reshape(4, 5))
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
@@ -91,7 +93,7 @@ class NdfInputArchiveDataTestCase(unittest.TestCase):
                 arr = archive.get_array(tree.data)
                 np.testing.assert_array_equal(arr, image.array)
 
-    def test_get_array_supports_slicing(self):
+    def test_get_array_supports_slicing(self) -> None:
         image = Image(np.arange(20, dtype=np.float32).reshape(4, 5))
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
@@ -100,7 +102,7 @@ class NdfInputArchiveDataTestCase(unittest.TestCase):
                 arr = archive.get_array(tree.data, slices=(slice(0, 2), slice(1, 4)))
                 np.testing.assert_array_equal(arr, image.array[:2, 1:4])
 
-    def test_get_array_handles_inline_array(self):
+    def test_get_array_handles_inline_array(self) -> None:
         inline = InlineArrayModel(data=[1.0, 2.0, 3.0], datatype=NumberType.float64)
         image = Image(np.zeros((2, 2), dtype=np.float32))
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
@@ -110,7 +112,7 @@ class NdfInputArchiveDataTestCase(unittest.TestCase):
                 arr = archive.get_array(inline)
                 np.testing.assert_array_equal(arr, np.array([1.0, 2.0, 3.0]))
 
-    def test_get_array_unrecognised_source_raises(self):
+    def test_get_array_unrecognised_source_raises(self) -> None:
         image = Image(np.zeros((2, 2), dtype=np.float32))
         bogus = ArrayReferenceModel(source="fits:NOTUS", shape=[2, 2], datatype=NumberType.float32)
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
@@ -120,7 +122,7 @@ class NdfInputArchiveDataTestCase(unittest.TestCase):
                 with self.assertRaises(ArchiveReadError):
                     archive.get_array(bogus)
 
-    def test_deserialize_pointer_round_trips_subtree(self):
+    def test_deserialize_pointer_round_trips_subtree(self) -> None:
         # Build a file with a hoisted sub-tree we can read back. Use the
         # output archive directly to avoid pulling in the full Image stack.
         class TinyTree(pydantic.BaseModel):
@@ -136,13 +138,13 @@ class NdfInputArchiveDataTestCase(unittest.TestCase):
                 result = archive.deserialize_pointer(ptr, TinyTree, lambda m, _a: m)
                 self.assertEqual(result.name, "hello")
 
-    def test_deserialize_pointer_caches_by_ref(self):
+    def test_deserialize_pointer_caches_by_ref(self) -> None:
         class TinyTree(pydantic.BaseModel):
             name: str
 
         calls = []
 
-        def deserializer(model, _archive):
+        def deserializer(model: TinyTree, _archive: InputArchive[Any]) -> TinyTree:
             calls.append(model)
             return model
 
@@ -157,15 +159,15 @@ class NdfInputArchiveDataTestCase(unittest.TestCase):
                 self.assertIs(first, second)
                 self.assertEqual(len(calls), 1)
 
-    def test_deserialize_pointer_caches_frame_set_for_get_frame_set(self):
+    def test_deserialize_pointer_caches_frame_set_for_get_frame_set(self) -> None:
         class TinyTree(pydantic.BaseModel):
             name: str
 
         class DummyFrameSet(FrameSet):
-            def __contains__(self, frame):
+            def __contains__(self, frame: Frame) -> bool:
                 return False
 
-            def __getitem__(self, key):
+            def __getitem__(self, key: tuple[Frame, Frame]) -> Transform[Frame, Frame]:
                 raise AssertionError("DummyFrameSet should not be indexed in this test.")
 
         sentinel = DummyFrameSet()
@@ -185,7 +187,7 @@ class NdfInputArchiveDataTestCase(unittest.TestCase):
                 self.assertIs(result, sentinel)
                 self.assertIs(archive.get_frame_set(ptr), sentinel)
 
-    def test_get_frame_set_returns_cached_value(self):
+    def test_get_frame_set_returns_cached_value(self) -> None:
         # Exercise the cache mechanism with a sentinel object pretending
         # to be a FrameSet. Real FrameSet plumbing comes when the AST
         # text dump for /WCS/DATA lands in a follow-up task.
@@ -200,7 +202,7 @@ class NdfInputArchiveDataTestCase(unittest.TestCase):
                 pointer = NdfPointerModel(path="/MORE/LSST/PIXEL_TO_SKY")
                 self.assertIs(archive.get_frame_set(pointer), sentinel)
 
-    def test_get_frame_set_raises_if_not_cached(self):
+    def test_get_frame_set_raises_if_not_cached(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
             write(Image(np.zeros((2, 2), dtype=np.float32)), tmp.name)
@@ -214,7 +216,7 @@ class NdfInputArchiveDataTestCase(unittest.TestCase):
 class NdfInputArchiveOpaqueMetadataTestCase(unittest.TestCase):
     """Tests for `NdfInputArchive.get_opaque_metadata`."""
 
-    def test_more_fits_round_trips_via_opaque_metadata(self):
+    def test_more_fits_round_trips_via_opaque_metadata(self) -> None:
         image = Image(np.zeros((2, 2), dtype=np.float32))
         primary = astropy.io.fits.Header()
         primary["FOO"] = ("bar", "test card")
@@ -229,7 +231,7 @@ class NdfInputArchiveOpaqueMetadataTestCase(unittest.TestCase):
                 self.assertIn(ExtensionKey(), recovered.headers)
                 self.assertEqual(recovered.headers[ExtensionKey()]["FOO"], "bar")
 
-    def test_get_opaque_metadata_empty_when_no_more_fits(self):
+    def test_get_opaque_metadata_empty_when_no_more_fits(self) -> None:
         # Image with no opaque metadata -> /MORE/FITS is absent in the file.
         image = Image(np.zeros((2, 2), dtype=np.float32))
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
@@ -249,7 +251,7 @@ class NdfReadFunctionTestCase(unittest.TestCase):
     NDF-specific ``ndf.read_starlink`` (schema-less auto-detect).
     """
 
-    def test_read_round_trips_image(self):
+    def test_read_round_trips_image(self) -> None:
         image = Image(
             np.arange(20, dtype=np.float32).reshape(4, 5),
             bbox=Box.factory[10:14, 20:25],
@@ -262,7 +264,7 @@ class NdfReadFunctionTestCase(unittest.TestCase):
             np.testing.assert_array_equal(result.array, image.array)
             self.assertEqual(result.bbox, image.bbox)
 
-    def test_read_starlink_file_auto_detects_image(self):
+    def test_read_starlink_file_auto_detects_image(self) -> None:
         # The canonical fixture has no /MORE/LSST/JSON, no QUALITY,
         # no VARIANCE -- auto-detect should return an Image whose array
         # shape matches the file (611x609 int16).
@@ -273,7 +275,7 @@ class NdfReadFunctionTestCase(unittest.TestCase):
         self.assertEqual(result.array.dtype, np.int16)
         self.assertIsNotNone(result.sky_projection)
 
-    def test_read_starlink_file_recovers_opaque_fits_metadata(self):
+    def test_read_starlink_file_recovers_opaque_fits_metadata(self) -> None:
         example_path = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
         result = read_starlink(Image, example_path)
         opaque = result._opaque_metadata
@@ -283,7 +285,7 @@ class NdfReadFunctionTestCase(unittest.TestCase):
         primary = opaque.headers[ExtensionKey()]
         self.assertIn("NAXIS", primary)
 
-    def test_read_auto_detects_nested_quality_array(self):
+    def test_read_auto_detects_nested_quality_array(self) -> None:
         image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
         quality_array = np.array([[0, 1, 0], [1, 0, 1]], dtype=np.uint8)
 
@@ -307,7 +309,7 @@ class NdfReadFunctionTestCase(unittest.TestCase):
             self.assertIsInstance(image_result, Image)
             np.testing.assert_array_equal(image_result.array, image_array)
 
-    def test_read_auto_detect_preserves_quality_bits(self):
+    def test_read_auto_detect_preserves_quality_bits(self) -> None:
         image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
         quality_array = np.array([[0, 2, 4], [2, 0, 6]], dtype=np.uint8)
         expected_mask1 = np.array([[0, 1, 0], [1, 0, 1]], dtype=bool)
@@ -334,7 +336,7 @@ class NdfReadFunctionTestCase(unittest.TestCase):
             self.assertIn("Selected by BADBITS", mask.schema.descriptions["MASK1"])
             self.assertNotIn("Selected by BADBITS", mask.schema.descriptions["MASK2"])
 
-    def test_read_auto_detected_data_only_as_masked_image_uses_defaults(self):
+    def test_read_auto_detected_data_only_as_masked_image_uses_defaults(self) -> None:
         image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
 
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
@@ -357,7 +359,7 @@ class NdfReadFunctionTestCase(unittest.TestCase):
                 np.ones((2, 3), dtype=np.float32),
             )
 
-    def test_read_auto_detected_variance_as_masked_image_keeps_variance(self):
+    def test_read_auto_detected_variance_as_masked_image_keeps_variance(self) -> None:
         image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
         variance_array = np.full((2, 3), 2.5, dtype=np.float32)
 
@@ -379,7 +381,7 @@ class NdfReadFunctionTestCase(unittest.TestCase):
                 np.zeros((2, 3, 1), dtype=np.uint8),
             )
 
-    def test_read_auto_detected_units_component(self):
+    def test_read_auto_detected_units_component(self) -> None:
         image_array = np.arange(6, dtype=np.float32).reshape(2, 3)
 
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
@@ -392,7 +394,7 @@ class NdfReadFunctionTestCase(unittest.TestCase):
             result = read_starlink(Image, tmp.name)
             self.assertEqual(result.unit, u.ct)
 
-    def test_read_missing_data_array_raises(self):
+    def test_read_missing_data_array_raises(self) -> None:
         # A file with only /MORE/LSST/JSON is fine for the symmetric
         # path. A file with NEITHER /MORE/LSST/JSON NOR DATA_ARRAY is a
         # malformed NDF -- auto-detect must fail clearly.
@@ -404,7 +406,7 @@ class NdfReadFunctionTestCase(unittest.TestCase):
             with self.assertRaises(ArchiveReadError):
                 read_starlink(Image, tmp.name)
 
-    def test_read_auto_detect_wrong_target_type_raises(self):
+    def test_read_auto_detect_wrong_target_type_raises(self) -> None:
         # Auto-detect only knows how to produce Image-like objects from NDF
         # components; unrelated target classes should fail clearly.
         example_path = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")

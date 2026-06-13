@@ -1,0 +1,7 @@
+* Butler component reads now cache the serialization tree of the most recently read dataset.
+  Requesting several metadata components of the same dataset (for example ``sky_projection`` followed by ``obs_info``) therefore opens and reads the file only once.
+  Components that need pixel, table, or archive-pointer data still fall back to reading the file, decided at runtime by probing the tree with the new ``lsst.images.serialization.DetachedArchive``.
+* Modified butler formatter to understand a special "components" component that allows you to return multiple components in a single call.
+  The results are returned in a `dict` with keys corresponding to the component names.
+  You can specify specific components by passing a list to a ``components`` parameter to the ``get``.
+  If no parameter is given all parameters will be returned.

@@ -13,11 +13,11 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import pydantic
 
-from lsst.images.serialization import ArchiveReadError, ArchiveTree
+from lsst.images.serialization import ArchiveReadError, ArchiveTree, InputArchive
 from lsst.images.serialization._common import _check_compat, _check_format_version
 from lsst.images.tests import check_archive_tree_class_invariants, iter_concrete_archive_tree_subclasses
 
@@ -32,38 +32,38 @@ class _DummyArchiveTree(ArchiveTree):
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = object
 
-    def deserialize(self, archive, **kwargs):  # pragma: no cover - never invoked
+    def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> Any:  # pragma: no cover
         raise NotImplementedError()
 
 
 class CheckCompatTestCase(unittest.TestCase):
     """Tests for the _check_compat and _check_format_version helpers."""
 
-    def test_silent_when_min_read_satisfied(self):
+    def test_silent_when_min_read_satisfied(self) -> None:
         # min_read_version equals reader major: silent.
         _check_compat("foo", "1.0.0", 1, "1.0.0")
 
-    def test_silent_when_on_disk_major_is_lower(self):
+    def test_silent_when_on_disk_major_is_lower(self) -> None:
         # 1.0.0 file with min_read_version=1 read by 2.0.0 code: silent.
         _check_compat("foo", "1.0.0", 1, "2.0.0")
 
-    def test_silent_when_on_disk_major_is_higher_but_min_read_low(self):
+    def test_silent_when_on_disk_major_is_higher_but_min_read_low(self) -> None:
         # 2.0.0 file declares it is safe for major-1 readers: silent.
         _check_compat("foo", "2.0.0", 1, "1.0.0")
 
-    def test_raises_when_min_read_exceeds_reader_major(self):
+    def test_raises_when_min_read_exceeds_reader_major(self) -> None:
         with self.assertRaises(ArchiveReadError) as ctx:
             _check_compat("foo", "2.0.0", 2, "1.0.0")
         self.assertIn("foo", str(ctx.exception))
         self.assertIn(">= 2", str(ctx.exception))
 
-    def test_format_version_silent_when_equal(self):
+    def test_format_version_silent_when_equal(self) -> None:
         _check_format_version("fits", 1, 1)
 
-    def test_format_version_silent_when_on_disk_lower(self):
+    def test_format_version_silent_when_on_disk_lower(self) -> None:
         _check_format_version("fits", 1, 2)
 
-    def test_format_version_raises_when_on_disk_higher(self):
+    def test_format_version_raises_when_on_disk_higher(self) -> None:
         with self.assertRaises(ArchiveReadError):
             _check_format_version("fits", 2, 1)
 
@@ -71,41 +71,41 @@ class CheckCompatTestCase(unittest.TestCase):
 class ArchiveTreeVersionFieldsTestCase(unittest.TestCase):
     """Tests for the schema_version / min_read_version / schema_url fields."""
 
-    def test_default_values_filled_from_classvars(self):
+    def test_default_values_filled_from_classvars(self) -> None:
         instance = _DummyArchiveTree()
         self.assertEqual(instance.schema_version, "1.0.0")
         self.assertEqual(instance.min_read_version, 1)
 
-    def test_schema_url_is_computed(self):
+    def test_schema_url_is_computed(self) -> None:
         instance = _DummyArchiveTree()
         self.assertEqual(instance.schema_url, "https://images.lsst.io/schemas/dummy-1.0.0")
 
-    def test_schema_url_appears_in_dump(self):
+    def test_schema_url_appears_in_dump(self) -> None:
         instance = _DummyArchiveTree()
         dumped = instance.model_dump()
         self.assertEqual(dumped["schema_url"], "https://images.lsst.io/schemas/dummy-1.0.0")
         self.assertEqual(dumped["schema_version"], "1.0.0")
         self.assertEqual(dumped["min_read_version"], 1)
 
-    def test_schema_url_ignored_in_input(self):
+    def test_schema_url_ignored_in_input(self) -> None:
         # Pydantic's default extra='ignore' drops it from inputs.
         instance = _DummyArchiveTree.model_validate(
             {"schema_url": "https://example.com/wrong", "schema_version": "1.0.0", "min_read_version": 1}
         )
         self.assertEqual(instance.schema_url, "https://images.lsst.io/schemas/dummy-1.0.0")
 
-    def test_normalises_to_in_code_values(self):
+    def test_normalises_to_in_code_values(self) -> None:
         # An older file's values are normalised on load.
         instance = _DummyArchiveTree.model_validate({"schema_version": "0.9.0", "min_read_version": 1})
         self.assertEqual(instance.schema_version, "1.0.0")
         self.assertEqual(instance.min_read_version, 1)
 
-    def test_absent_fields_default_to_legacy(self):
+    def test_absent_fields_default_to_legacy(self) -> None:
         instance = _DummyArchiveTree.model_validate({})
         self.assertEqual(instance.schema_version, "1.0.0")
         self.assertEqual(instance.min_read_version, 1)
 
-    def test_min_read_version_too_high_rejected(self):
+    def test_min_read_version_too_high_rejected(self) -> None:
         # Pydantic mode='after' re-raises ArchiveReadError without
         # wrapping it in ValidationError.
         with self.assertRaises((ArchiveReadError, pydantic.ValidationError)):
@@ -115,7 +115,7 @@ class ArchiveTreeVersionFieldsTestCase(unittest.TestCase):
 class JsonSchemaInjectionTestCase(unittest.TestCase):
     """ArchiveTree injects $id and title into each subclass's JSON Schema."""
 
-    def test_image_schema_has_id_and_title(self):
+    def test_image_schema_has_id_and_title(self) -> None:
         """Image's serialization-mode schema has ``$id`` / ``title`` set."""
         from lsst.images._image import ImageSerializationModel
 
@@ -133,7 +133,7 @@ class ArchiveTreeClassInvariantsTestCase(unittest.TestCase):
     manually on a single ``ArchiveTree`` independent of the metaprogramming.
     """
 
-    def test_constants_are_declared(self):
+    def test_constants_are_declared(self) -> None:
         """All three ClassVars are declared and well-formed everywhere."""
         found = list(iter_concrete_archive_tree_subclasses())
         self.assertGreater(len(found), 0)
@@ -141,7 +141,7 @@ class ArchiveTreeClassInvariantsTestCase(unittest.TestCase):
             with self.subTest(cls=sub.__name__):
                 check_archive_tree_class_invariants(self, sub)
 
-    def test_schema_names_unique(self):
+    def test_schema_names_unique(self) -> None:
         """All SCHEMA_NAME values across concrete subclasses are unique."""
         names: dict[str, type] = {}
         for sub in iter_concrete_archive_tree_subclasses():
@@ -167,11 +167,11 @@ class ArchiveTreeClassInvariantsTestCase(unittest.TestCase):
 class FixtureMutationTestCase(unittest.TestCase):
     """Mutate a fixture in-memory and verify the read behavior."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.fixture_path = SCHEMA_DIR / "image.json"
         self.assertTrue(self.fixture_path.exists())
 
-    def test_min_read_too_high_raises(self):
+    def test_min_read_too_high_raises(self) -> None:
         """Setting min_read_version above reader major rejects the read."""
         import json as json_module
 
@@ -182,7 +182,7 @@ class FixtureMutationTestCase(unittest.TestCase):
         with self.assertRaises((ArchiveReadError, pydantic.ValidationError)):
             ImageSerializationModel.model_validate(tree)
 
-    def test_higher_major_with_low_min_read_succeeds(self):
+    def test_higher_major_with_low_min_read_succeeds(self) -> None:
         """A higher schema_version with low min_read_version reads silently."""
         import json as json_module
 
@@ -198,7 +198,7 @@ class FixtureMutationTestCase(unittest.TestCase):
         self.assertEqual(instance.schema_version, "1.0.0")
         self.assertEqual(instance.min_read_version, 1)
 
-    def test_absent_fields_default_to_legacy(self):
+    def test_absent_fields_default_to_legacy(self) -> None:
         """Stripping the version fields entirely reads with v1 defaults."""
         import json as json_module
 

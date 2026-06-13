@@ -22,19 +22,35 @@ from __future__ import annotations
 
 __all__ = ("GenericFormatter",)
 
+import copy
 import hashlib
 import json as _stdlib_json  # disambiguates from .json subpackage
+import threading
+import uuid
 from collections.abc import Mapping
-from typing import Any, ClassVar
+from typing import Any, ClassVar, NamedTuple
 
 import astropy.io.fits
 
 from lsst.daf.butler import DatasetProvenance, FormatterV2
-from lsst.resources import ResourcePath
+from lsst.resources import ResourcePath, ResourcePathExpression
+from lsst.utils.iteration import ensure_iterable
 
 from . import fits as _fits
 from . import serialization as ser
 from .serialization import ButlerInfo, write
+
+
+class _TreeCache(NamedTuple):
+    """Single-slot cache pairing a dataset ID with its validated
+    serialization tree.
+    """
+
+    id_: uuid.UUID | None = None
+    tree: ser.ArchiveTree | None = None
+
+
+_DETACHED_ARCHIVE = ser.DetachedArchive()
 
 
 class GenericFormatter(FormatterV2):
@@ -56,8 +72,14 @@ class GenericFormatter(FormatterV2):
     supported_extensions: ClassVar[frozenset[str]] = frozenset({".fits", ".sdf", ".json"})
     supported_write_parameters: ClassVar[frozenset[str]] = frozenset({"format", "recipe"})
     can_read_from_uri: ClassVar[bool] = True
+    can_read_from_local_file: ClassVar[bool] = True
 
     butler_provenance: DatasetProvenance | None = None
+
+    # Most recently read serialization tree, kept so that repeated component
+    # reads of the same dataset do not reopen the file.
+    _tree_cache_lock: ClassVar[threading.Lock] = threading.Lock()
+    _tree_cache: ClassVar[_TreeCache] = _TreeCache()
 
     # --- Write parameter handling -------------------------------------------
 
@@ -165,6 +187,60 @@ class GenericFormatter(FormatterV2):
             ).items():
                 header.set(key, value)
 
+    # --- Component tree cache -----------------------------------------------
+
+    def _component_from_cache(self, component: str) -> tuple[bool, Any]:
+        """Try to deserialize a component from the most recently read tree.
+
+        Parameters
+        ----------
+        component
+            Name of the component to read.
+
+        Returns
+        -------
+        hit : `bool`
+            Whether the component could be served from the cache.
+        value
+            The deserialized component; `None` on a cache miss.
+
+        Raises
+        ------
+        lsst.images.serialization.InvalidComponentError
+            Raised if the cached tree does not recognize ``component``.
+        """
+        with self._tree_cache_lock:
+            cache = type(self)._tree_cache
+        if cache.tree is None or cache.id_ != self.dataset_ref.id:
+            return False, None
+        try:
+            value = cache.tree.deserialize_component(component, _DETACHED_ARCHIVE)
+        except ser.ArchiveAccessRequiredError:
+            # The component points at data stored outside the JSON tree, so
+            # the file has to be opened and read.
+            return False, None
+        return True, self._detach_component(cache.tree, component, value)
+
+    def _cache_tree(self, tree: ser.ArchiveTree) -> None:
+        """Remember a validated tree so that later component reads of the
+        same dataset can be served without reopening the file.
+        """
+        with self._tree_cache_lock:
+            type(self)._tree_cache = _TreeCache(id_=self.dataset_ref.id, tree=tree)
+
+    @staticmethod
+    def _detach_component(tree: ser.ArchiveTree, component: str, value: Any) -> Any:
+        """Copy a component value if it is owned by the given tree.
+
+        `~lsst.images.serialization.ArchiveTree.deserialize_component`
+        returns plain (non-tree) models by reference from the tree, so
+        without a copy repeated reads of a mutable component would alias
+        each other through the cache.
+        """
+        if value is not None and value is getattr(tree, component, None):
+            return copy.deepcopy(value)
+        return value
+
     # --- Read path ---------------------------------------------------------
 
     def read_from_uri(
@@ -173,9 +249,138 @@ class GenericFormatter(FormatterV2):
         component: str | None = None,
         expected_size: int = -1,
     ) -> Any:
-        kwargs = self.file_descriptor.parameters or {}
+        # For full read, always use local file read since the entire file has
+        # to be read anyhow and we should allow it to be cached. Cutouts
+        # can use remote reads since that is generally less to be downloaded
+        # than the full file.
+        if not component and not self.file_descriptor.parameters:
+            return NotImplemented
+
+        # Now call the generalized reader.
+        return self._read_from_resource_path(uri, component)
+
+    def _read_from_resource_path(self, uri: ResourcePathExpression, component: str | None = None) -> Any:
+        # General purpose reader that can be called with both local and remote
+        # file. The URI and local file readers are distinct to allow decisions
+        # to be made regarding caching.
+        kwargs = dict(self.file_descriptor.parameters or {})
         pytype: type[Any] = self.dataset_ref.datasetType.storageClass.pytype
-        with ser.open(uri, cls=pytype, partial=bool(kwargs or component)) as reader:
-            if component is None:
+        all_components = self.dataset_ref.datasetType.storageClass.allComponents()
+
+        # The components parameter is special in that it's not modifying
+        # a particular component in any way. It requires the "component"
+        # component to be specified so that the butler knows to expect a dict
+        # to be returned. Use a set to ensure we do not get asked for the same
+        # component multiple times.
+        components = set()
+        want_component_dict = False
+        if component == "components":
+            # Read the list of components from the parameter of the same name.
+            want_component_dict = True
+
+            # Try to distinguish no parameter specified (which we take to
+            # imply all components) vs explicit empty list (which we take
+            # to be an error).
+            requested_components = kwargs.pop("components", None)
+
+            if requested_components is None:
+                # No explicit request so fill with all components.
+
+                # If there are no kwargs then this is effectively a full
+                # read of the entire file. We should trigger a cache write
+                # if this is a remote file.
+                if not kwargs and isinstance(uri, ResourcePath) and not uri.isLocal:
+                    return NotImplemented
+
+                # Make sure that we drop the "components" component.
+                # Do not return masked_image since that will likely already
+                # be included in separate masked image components.
+                # Hard-coding this knowledge is not great so we have to be
+                # aware of similar issues in the future.
+                components = {c for c in all_components if c not in {"components", "masked_image"}}
+            elif not requested_components:
+                raise RuntimeError("Requesting multiple components but received empty request.")
+            else:
+                # Force to a list in case someone has tried doing
+                # "components=x".
+                components = set(ensure_iterable(requested_components))
+
+                if "components" in components:
+                    raise RuntimeError(
+                        "The 'components' component should not be specified in the 'components' parameter. "
+                        "To request all components, do not specify any value for the 'components' parameter."
+                    )
+
+        elif component:
+            # Simplify logic below so we only deal with a list.
+            components = {component}
+
+        if "components" in kwargs:
+            raise RuntimeError(
+                "Multiple component requests can only be specified if you use the 'components' component."
+            )
+
+        # If this is not a component read but a full read with parameters,
+        # do that now before we focus on the component logic.
+        if component is None:
+            with ser.open(uri, cls=pytype, partial=bool(kwargs)) as reader:
+                tree = reader.get_tree()
+                self._cache_tree(tree)
+                # Cutout read.
                 return reader.read(**kwargs)
-            return reader.get_component(component, **kwargs)
+
+        # Associate remaining parameters with the component that understands
+        # it. This should allow you to ask for image cutout along with a PSF.
+        used_parameter_keys = set()
+        component_kwargs: dict[str, Any] = {}
+        for comp in components:
+            if comp not in all_components:
+                raise RuntimeError(
+                    f"Requested data for component {comp} but that component is not understood "
+                    f"by storage class {self.dataset_ref.datasetType.storageClass.name}."
+                )
+            if comp not in component_kwargs:
+                # Make sure we have an entry even if no params.
+                component_kwargs[comp] = {}
+            for param, value in kwargs.items():
+                if param in all_components[comp].parameters:
+                    component_kwargs[comp][param] = value
+                    used_parameter_keys.add(param)
+
+        if kwargs and (unused := (set(kwargs) - used_parameter_keys)):
+            raise RuntimeError(
+                f"Specified parameters ({unused}) that are not known to any of the "
+                f"requested components ({components})."
+            )
+
+        # See if we can get some of the components from the cache.
+        components_to_return = {}
+        for comp, params in component_kwargs.items():
+            if not params:
+                hit, value = self._component_from_cache(comp)
+                if hit:
+                    components_to_return[comp] = value
+
+        if len(components_to_return) != len(components):
+            # Some components were not available in the cache. At this point
+            # we have to open the file to read the remaining components.
+            with ser.open(uri, cls=pytype, partial=True) as reader:
+                tree = reader.get_tree()
+                self._cache_tree(tree)
+
+                for comp, params in component_kwargs.items():
+                    if comp not in components_to_return:
+                        components_to_return[comp] = self._detach_component(
+                            tree, comp, reader.get_component(comp, **params)
+                        )
+
+        if want_component_dict:
+            return components_to_return
+        return components_to_return.popitem()[1]
+
+    def read_from_local_file(self, path: str, component: str | None = None, expected_size: int = -1) -> Any:
+        # Docstring inherited.
+        # Call the generalized reader that does not care whether this is
+        # a local or remote file. The distinction exists here to ensure we
+        # can trigger a cache load.
+        return self._read_from_resource_path(path, component)

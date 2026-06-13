@@ -43,7 +43,7 @@ def _write_simple_image_ndf(path: str) -> None:
 class NdfFormatVersionTestCase(unittest.TestCase):
     """Tests for the NDF DATA_MODEL and FORMAT_VERSION components."""
 
-    def test_write_emits_data_model_and_format_version(self):
+    def test_write_emits_data_model_and_format_version(self) -> None:
         """A freshly-written NDF carries DATA_MODEL and FORMAT_VERSION."""
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "x.sdf")
@@ -52,7 +52,7 @@ class NdfFormatVersionTestCase(unittest.TestCase):
                 self.assertIn("FORMAT_VERSION", f["/MORE/LSST"])
                 self.assertIn("DATA_MODEL", f["/MORE/LSST"])
 
-    def test_read_succeeds_when_format_version_matches(self):
+    def test_read_succeeds_when_format_version_matches(self) -> None:
         """A freshly-written NDF reads successfully."""
         from lsst.images.ndf import NdfInputArchive
 
@@ -62,7 +62,7 @@ class NdfFormatVersionTestCase(unittest.TestCase):
             with NdfInputArchive.open(path):
                 pass
 
-    def test_read_fails_when_format_version_too_high(self):
+    def test_read_fails_when_format_version_too_high(self) -> None:
         """A file with a newer FORMAT_VERSION raises ArchiveReadError."""
         from lsst.images.ndf import NdfInputArchive
 
@@ -77,7 +77,7 @@ class NdfFormatVersionTestCase(unittest.TestCase):
                 with NdfInputArchive.open(path):
                     pass
 
-    def test_read_succeeds_when_format_version_absent(self):
+    def test_read_succeeds_when_format_version_absent(self) -> None:
         """A legacy file lacking FORMAT_VERSION reads (defaults to 1)."""
         from lsst.images.ndf import NdfInputArchive
 

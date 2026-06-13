@@ -84,7 +84,7 @@ class TemporaryButler:
         format: str | None = None,
         recipe: str | None = None,
         **kwargs: str,
-    ):
+    ) -> None:
         self.run = run
         self._format = format
         self._recipe = recipe
@@ -186,7 +186,7 @@ class RoundtripBase[T](ABC):
         storage_class: str | None = None,
         recipe: str | None = None,
         **kwargs: Any,
-    ):
+    ) -> None:
         self._original = original
         self._storage_class = storage_class
         self._serialized: Any = None
@@ -288,6 +288,13 @@ class RoundtripBase[T](ABC):
             # original are not messed up.
             for k in self._test_metadata:
                 result.metadata.pop(k, None)
+        if component == "components" and isinstance(result, dict):
+            # A special case component that returns a dict of components
+            # that each need to have their metadata potentially cleaned up.
+            for value in result.values():
+                if isinstance(value, GeneralizedImage):
+                    for k in self._test_metadata:
+                        value.metadata.pop(k, None)
         return result
 
     def _run_with_butler(self) -> None:
