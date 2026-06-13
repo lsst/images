@@ -14,7 +14,7 @@ jobs:
       - uses: mfisherlevine/mypy_coverage@v0.2.3
         with:
           python-version: "3.12"
-          paths: python
+          paths: python tests
           threshold: 100
           threshold-metric: fully-typed
           format: github
