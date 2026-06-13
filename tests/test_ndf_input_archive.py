@@ -167,7 +167,7 @@ class NdfInputArchiveDataTestCase(unittest.TestCase):
             def __contains__(self, frame: Frame) -> bool:
                 return False
 
-            def __getitem__[I: Frame, O: Frame](self, key: tuple[I, O]) -> Transform[I, O]:
+            def __getitem__(self, key: tuple[Frame, Frame]) -> Transform[Frame, Frame]:
                 raise AssertionError("DummyFrameSet should not be indexed in this test.")
 
         sentinel = DummyFrameSet()
