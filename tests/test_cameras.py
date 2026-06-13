@@ -36,7 +36,7 @@ class CamerasTestCase(unittest.TestCase):
     """Tests for the 'cameras' module."""
 
     @classmethod
-    def setUpClass(cls):
+    def setUpClass(cls) -> None:
         cls.legacy_camera = LegacyCamera.readFits(os.path.join(DATA_DIR, "dp2", "legacy", "camera.fits"))
         cls.legacy_detector = ExposureFitsReader(
             os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")

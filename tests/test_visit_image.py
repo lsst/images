@@ -292,20 +292,20 @@ class VisitImageTestCase(unittest.TestCase):
         )
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
-    def test_round_trip_ndf(self):
+    def test_round_trip_ndf(self) -> None:
         """NDF round-trip for VisitImage."""
         with RoundtripNdf(self, self.visit_image, "VisitImage") as roundtrip:
             assert_visit_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
-    def test_fits_ndf_consistency(self):
+    def test_fits_ndf_consistency(self) -> None:
         """FITS and NDF backends produce equal VisitImages on round-trip."""
         with RoundtripFits(self, self.visit_image) as fits_rt, RoundtripNdf(self, self.visit_image) as ndf_rt:
             assert_visit_images_equal(self, self.visit_image, fits_rt.result, expect_view=False)
             assert_visit_images_equal(self, self.visit_image, ndf_rt.result, expect_view=False)
             assert_visit_images_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
 
-    def test_fits_json_consistency(self):
+    def test_fits_json_consistency(self) -> None:
         """FITS and JSON backends produce equal VisitImages on round-trip."""
         with (
             RoundtripFits(self, self.visit_image) as fits_rt,
