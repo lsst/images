@@ -44,7 +44,7 @@ DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 class ImageTestCase(unittest.TestCase):
     """Tests for the Image class."""
 
-    def test_basics(self):
+    def test_basics(self) -> None:
         """Test basic constructor patterns."""
         image = Image(42, shape=(5, 5), metadata={"three": 3})
         assert_close(self, image.array, np.zeros([5, 5], dtype=np.int64) + 42)
@@ -123,7 +123,7 @@ class ImageTestCase(unittest.TestCase):
         assert_images_equal(self, image, roundtrip.result)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
-    def test_fits_ndf_consistency(self):
+    def test_fits_ndf_consistency(self) -> None:
         """Writing via FITS and via NDF, then reading back, produces equal
         Images.
         """
@@ -139,7 +139,7 @@ class ImageTestCase(unittest.TestCase):
             assert_images_equal(self, image, ndf_rt.result)
             assert_images_equal(self, fits_rt.result, ndf_rt.result)
 
-    def test_fits_json_consistency(self):
+    def test_fits_json_consistency(self) -> None:
         """Writing via FITS and via JSON, then reading back, produces equal
         Images.
         """
@@ -155,7 +155,7 @@ class ImageTestCase(unittest.TestCase):
             assert_images_equal(self, image, json_rt.result)
             assert_images_equal(self, fits_rt.result, json_rt.result)
 
-    def test_quantity(self):
+    def test_quantity(self) -> None:
         """Test quantities."""
         data = np.array([[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]])
         data2 = data.copy() * 2.0
@@ -175,7 +175,7 @@ class ImageTestCase(unittest.TestCase):
             np.array([[0.01, 0.02, 0.03, 0.04], [0.05, 0.06, 14000.0, 16000.0], [0.09, 0.1, 0.11, 0.12]]),
         )
 
-    def test_read_write(self):
+    def test_read_write(self) -> None:
         """Round trip through file.
 
         This uses the `GeneralizedImage.write` / `GeneralizedImage.read`

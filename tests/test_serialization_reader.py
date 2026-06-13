@@ -15,6 +15,8 @@ import contextlib
 import os
 import tempfile
 import unittest
+from collections.abc import Iterator
+from typing import Any
 
 from lsst.images import fits as images_fits
 from lsst.images import json as images_json
@@ -24,7 +26,7 @@ from lsst.images.serialization import ArchiveTree, read
 
 
 @contextlib.contextmanager
-def count_opens(path: str):
+def count_opens(path: str) -> Iterator[list[int]]:
     """Count how many times ``path`` is physically opened for reading.
 
     Yields a one-element list whose single entry is the running open count;
@@ -33,7 +35,7 @@ def count_opens(path: str):
     count = [0]
     real_open = builtins.open
 
-    def counting_open(file, *args, **kwargs):
+    def counting_open(file: Any, *args: Any, **kwargs: Any) -> Any:
         if isinstance(file, (str, bytes, os.PathLike)) and os.fspath(file) == path:
             count[0] += 1
         return real_open(file, *args, **kwargs)
@@ -48,7 +50,7 @@ def count_opens(path: str):
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
 
 
-def _visit_image():
+def _visit_image() -> Any:
     """Load a VisitImage from the committed JSON fixture."""
     return read(os.path.join(DATA_DIR, "visit_image.json"))
 

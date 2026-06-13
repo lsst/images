@@ -40,7 +40,7 @@ def _attr_str(value: object) -> str | None:
 class HdsPrimitiveTestCase(unittest.TestCase):
     """Primitives are bare HDF5 datasets with no HDS-specific attributes."""
 
-    def test_real_array_round_trip(self):
+    def test_real_array_round_trip(self) -> None:
         data = np.arange(12, dtype=np.float32).reshape(3, 4)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
@@ -52,7 +52,7 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 self.assertEqual(dict(ds.attrs), {})
                 np.testing.assert_array_equal(_hds.read_array(ds), data)
 
-    def test_double_array_round_trip(self):
+    def test_double_array_round_trip(self) -> None:
         data = np.linspace(0, 1, 6, dtype=np.float64).reshape(2, 3)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
@@ -61,7 +61,7 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 self.assertEqual(f["DATA"].dtype, np.float64)
                 np.testing.assert_array_equal(_hds.read_array(f["DATA"]), data)
 
-    def test_ubyte_and_integer(self):
+    def test_ubyte_and_integer(self) -> None:
         data_u = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.uint8)
         data_i = np.array([10, 20, 30], dtype=np.int32)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
@@ -74,7 +74,7 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 np.testing.assert_array_equal(_hds.read_array(f["Q"]), data_u)
                 np.testing.assert_array_equal(_hds.read_array(f["I"]), data_i)
 
-    def test_logical_uses_hdf5_bitfield(self):
+    def test_logical_uses_hdf5_bitfield(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 _hds.write_array(f, "SCALAR", np.array(False, dtype=np.bool_))
@@ -87,13 +87,13 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 self.assertEqual(f["ARRAY"].id.get_type().get_size(), 1)
                 np.testing.assert_array_equal(_hds.read_array(f["ARRAY"]), np.array([True, False]))
 
-    def test_unsupported_dtype_raises_on_write(self):
+    def test_unsupported_dtype_raises_on_write(self) -> None:
         data = np.array([1.0], dtype=np.complex128)
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp, h5py.File(tmp.name, "w") as f:
             with self.assertRaises(NotImplementedError):
                 _hds.write_array(f, "X", data)
 
-    def test_unsupported_dtype_raises_on_read(self):
+    def test_unsupported_dtype_raises_on_read(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 # Write directly with h5py, bypassing write_array's check.
@@ -102,7 +102,7 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 with self.assertRaises(NotImplementedError):
                     _hds.read_array(f["X"])
 
-    def test_read_array_rejects_char_dataset(self):
+    def test_read_array_rejects_char_dataset(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 _hds.write_char_array(f, "WCS", ["hello", "world"], width=16)
@@ -110,7 +110,7 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     _hds.read_array(f["WCS"])
 
-    def test_char_array_round_trip(self):
+    def test_char_array_round_trip(self) -> None:
         lines = ["Begin FrameSet", "Nframe = 5", "End FrameSet"]
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
@@ -122,7 +122,7 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 self.assertEqual(dict(ds.attrs), {})
                 self.assertEqual(_hds.read_char_array(ds), lines)
 
-    def test_char_array_pads_and_strips(self):
+    def test_char_array_pads_and_strips(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 _hds.write_char_array(f, "X", ["short"], width=80)
@@ -132,17 +132,17 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 # read_char_array strips trailing spaces.
                 self.assertEqual(_hds.read_char_array(f["X"]), ["short"])
 
-    def test_char_array_rejects_long_lines(self):
+    def test_char_array_rejects_long_lines(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp, h5py.File(tmp.name, "w") as f:
             with self.assertRaises(ValueError):
                 _hds.write_char_array(f, "X", ["too long"], width=3)
 
-    def test_char_array_rejects_non_ascii(self):
+    def test_char_array_rejects_non_ascii(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp, h5py.File(tmp.name, "w") as f:
             with self.assertRaises(ValueError):
                 _hds.write_char_array(f, "X", ["not ascii: \N{LATIN SMALL LETTER E WITH ACUTE}"], width=80)
 
-    def test_ndf_ast_data_encoding_uses_flagged_fixed_width_records(self):
+    def test_ndf_ast_data_encoding_uses_flagged_fixed_width_records(self) -> None:
         text = (
             " Begin FrameSet\n"
             '#   Title = "demo"\n'
@@ -161,7 +161,7 @@ class HdsPrimitiveTestCase(unittest.TestCase):
         self.assertTrue(any(record.startswith("+") for record in records))
         self.assertEqual(_hds.decode_ndf_ast_data(records), expected)
 
-    def test_read_char_array_rejects_numeric_dataset(self):
+    def test_read_char_array_rejects_numeric_dataset(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 _hds.write_array(f, "DATA", np.zeros((2,), dtype=np.float32))
@@ -169,7 +169,7 @@ class HdsPrimitiveTestCase(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     _hds.read_char_array(f["DATA"])
 
-    def test_hds_type_for_dtype(self):
+    def test_hds_type_for_dtype(self) -> None:
         self.assertEqual(_hds.hds_type_for_dtype(np.dtype(np.bool_)), "_LOGICAL")
         self.assertEqual(_hds.hds_type_for_dtype(np.dtype(np.float32)), "_REAL")
         self.assertEqual(_hds.hds_type_for_dtype(np.dtype(np.float64)), "_DOUBLE")
@@ -184,7 +184,7 @@ class HdsPrimitiveTestCase(unittest.TestCase):
 class HdsStructureTestCase(unittest.TestCase):
     """Structures are HDF5 groups with a CLASS attribute."""
 
-    def test_create_open_structure(self):
+    def test_create_open_structure(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 ndf = _hds.create_structure(f, "ROOT", "NDF")
@@ -199,7 +199,7 @@ class HdsStructureTestCase(unittest.TestCase):
                 _, child_type = _hds.open_structure(root, "DATA_ARRAY")
                 self.assertEqual(child_type, "ARRAY")
 
-    def test_open_structure_missing_class_raises(self):
+    def test_open_structure_missing_class_raises(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 f.create_group("BAD")
@@ -207,7 +207,7 @@ class HdsStructureTestCase(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     _hds.open_structure(f, "BAD")
 
-    def test_open_structure_accepts_legacy_hdstype(self):
+    def test_open_structure_accepts_legacy_hdstype(self) -> None:
         """Files from older HDS variants used HDSTYPE rather than CLASS."""
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
@@ -217,7 +217,7 @@ class HdsStructureTestCase(unittest.TestCase):
                 _, t = _hds.open_structure(f, "LEGACY")
                 self.assertEqual(t, "NDF")
 
-    def test_set_root_name(self):
+    def test_set_root_name(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".sdf") as tmp:
             with h5py.File(tmp.name, "w") as f:
                 _hds.set_root_name(f, "MYNDF", "NDF")
@@ -239,12 +239,12 @@ class HdsCanonicalExampleTestCase(unittest.TestCase):
 
     EXAMPLE = os.path.join(os.path.dirname(__file__), "data", "example-ndf.sdf")
 
-    def test_root_is_ndf_with_root_name(self):
+    def test_root_is_ndf_with_root_name(self) -> None:
         with h5py.File(self.EXAMPLE, "r") as f:
             self.assertEqual(_attr_str(f["/"].attrs["CLASS"]), "NDF")
             self.assertEqual(_attr_str(f["/"].attrs["HDS_ROOT_NAME"]), "M57")
 
-    def test_data_array_is_array_structure(self):
+    def test_data_array_is_array_structure(self) -> None:
         with h5py.File(self.EXAMPLE, "r") as f:
             data_array, hds_type = _hds.open_structure(f, "DATA_ARRAY")
             self.assertEqual(hds_type, "ARRAY")
@@ -258,7 +258,7 @@ class HdsCanonicalExampleTestCase(unittest.TestCase):
             self.assertEqual(origin.dtype, np.int64)
             self.assertEqual(origin.shape, (2,))
 
-    def test_wcs_is_structure_with_ast_text(self):
+    def test_wcs_is_structure_with_ast_text(self) -> None:
         with h5py.File(self.EXAMPLE, "r") as f:
             wcs, hds_type = _hds.open_structure(f, "WCS")
             self.assertEqual(hds_type, "WCS")
@@ -268,7 +268,7 @@ class HdsCanonicalExampleTestCase(unittest.TestCase):
             self.assertTrue(any(s.startswith("Begin FrameSet") for s in stripped))
             self.assertTrue(any(s.startswith("End FrameSet") for s in stripped))
 
-    def test_more_fits_present(self):
+    def test_more_fits_present(self) -> None:
         with h5py.File(self.EXAMPLE, "r") as f:
             more, hds_type = _hds.open_structure(f, "MORE")
             self.assertEqual(hds_type, "EXT")

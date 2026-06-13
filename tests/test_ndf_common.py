@@ -30,23 +30,23 @@ except ImportError:
 class NdfPointerModelTestCase(unittest.TestCase):
     """Tests for `NdfPointerModel` and `archive_path_to_hdf5_path`."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.shrinker = HdsNameShrinker()
 
-    def test_round_trips_through_json(self):
+    def test_round_trips_through_json(self) -> None:
         original = NdfPointerModel(path="/MORE/LSST/PSF")
         json_bytes = original.model_dump_json().encode()
         recovered = NdfPointerModel.model_validate_json(json_bytes)
         self.assertEqual(recovered, original)
 
-    def test_archive_path_to_hdf5_path(self):
+    def test_archive_path_to_hdf5_path(self) -> None:
         self.assertEqual(archive_path_to_hdf5_path("", self.shrinker), "/MORE/LSST/JSON")
         self.assertEqual(archive_path_to_hdf5_path("/psf", self.shrinker), "/MORE/LSST/PSF")
         self.assertEqual(
             archive_path_to_hdf5_path("/psf/coefficients", self.shrinker), "/MORE/LSST/PSF/COEFFICIENTS"
         )
 
-    def test_archive_path_shrinks_long_components(self):
+    def test_archive_path_shrinks_long_components(self) -> None:
         result = archive_path_to_hdf5_path("/psf/this_component_is_too_long", self.shrinker)
         self.assertTrue(result.startswith("/MORE/LSST/PSF/"))
         leaf = result.rsplit("/", 1)[-1]
@@ -54,7 +54,7 @@ class NdfPointerModelTestCase(unittest.TestCase):
         # The short parent component is untouched; only the long leaf shrinks.
         self.assertEqual(result.split("/")[3], "PSF")
 
-    def test_archive_path_shrink_round_trips_to_same_value(self):
+    def test_archive_path_shrink_round_trips_to_same_value(self) -> None:
         self.assertEqual(
             archive_path_to_hdf5_path("/noise_realizations/0", self.shrinker),
             archive_path_to_hdf5_path("/noise_realizations/0", self.shrinker),
@@ -65,52 +65,52 @@ class NdfPointerModelTestCase(unittest.TestCase):
 class HdsNameShrinkerTestCase(unittest.TestCase):
     """Tests for the stateful HDS component shrinker."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         self.shrinker = HdsNameShrinker()
 
-    def test_short_names_pass_through_uppercased(self):
+    def test_short_names_pass_through_uppercased(self) -> None:
         self.assertEqual(self.shrinker.shrink("psf"), "PSF")
         # A name exactly at the limit passes through unchanged (uppercased).
         self.assertEqual(self.shrinker.shrink("a" * DAT__SZNAM), "A" * DAT__SZNAM)
         # One character over the limit is shrunk to the limit.
         self.assertEqual(len(self.shrinker.shrink("a" * (DAT__SZNAM + 1))), DAT__SZNAM)
 
-    def test_long_names_keep_prefix_and_get_counter_token(self):
+    def test_long_names_keep_prefix_and_get_counter_token(self) -> None:
         shrunk = self.shrinker.shrink("noise_realizations")
         self.assertEqual(len(shrunk), DAT__SZNAM)
         self.assertEqual(shrunk, "NOISE_REALI_001")
 
-    def test_shrink_is_deterministic_per_instance(self):
+    def test_shrink_is_deterministic_per_instance(self) -> None:
         self.assertEqual(
             self.shrinker.shrink("noise_realizations"),
             self.shrinker.shrink("noise_realizations"),
         )
 
-    def test_distinct_long_names_get_distinct_tokens(self):
+    def test_distinct_long_names_get_distinct_tokens(self) -> None:
         # Identical truncated prefixes cannot collide because the counter
         # increments for each newly assigned name.
         self.assertEqual(self.shrinker.shrink("noise_realization_field"), "NOISE_REALI_001")
         self.assertEqual(self.shrinker.shrink("noise_realization_other"), "NOISE_REALI_002")
 
-    def test_reserve_shortens_the_budget(self):
+    def test_reserve_shortens_the_budget(self) -> None:
         shrunk = self.shrinker.shrink("noise_realizations", reserve=2)
         self.assertEqual(len(shrunk), DAT__SZNAM - 2)
 
-    def test_version_one_matches_plain_shrink(self):
+    def test_version_one_matches_plain_shrink(self) -> None:
         self.assertEqual(
             self.shrinker.shrink_versioned("noise_realizations", 1),
             self.shrinker.shrink("noise_realizations"),
         )
 
-    def test_short_versioned_name_keeps_visible_suffix(self):
+    def test_short_versioned_name_keeps_visible_suffix(self) -> None:
         self.assertEqual(self.shrinker.shrink_versioned("data", 2), "DATA_2")
 
-    def test_long_versioned_name_preserves_suffix_within_limit(self):
+    def test_long_versioned_name_preserves_suffix_within_limit(self) -> None:
         shrunk = self.shrinker.shrink_versioned("noise_realizations", 99)
         self.assertEqual(len(shrunk), DAT__SZNAM)
         self.assertTrue(shrunk.endswith("_99"))
 
-    def test_same_base_different_versions_are_distinct(self):
+    def test_same_base_different_versions_are_distinct(self) -> None:
         self.assertNotEqual(
             self.shrinker.shrink_versioned("noise_realizations", 2),
             self.shrinker.shrink_versioned("noise_realizations", 3),

@@ -14,14 +14,15 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
-from typing import ClassVar
+from collections.abc import Callable
+from typing import Any, ClassVar
 
 import astropy.io.fits
 import numpy as np
 import pydantic
 
-from lsst.images.fits import FitsOutputArchive
-from lsst.images.serialization import ArchiveTree
+from lsst.images.fits import FitsOutputArchive, PointerModel
+from lsst.images.serialization import ArchiveTree, InputArchive, OutputArchive
 
 
 class _TinyTree(ArchiveTree):
@@ -32,7 +33,7 @@ class _TinyTree(ArchiveTree):
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = object
 
-    def deserialize(self, archive, **kwargs):  # pragma: no cover - never invoked
+    def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> Any:  # pragma: no cover
         raise NotImplementedError()
 
 
@@ -45,7 +46,7 @@ class _PointerTarget(pydantic.BaseModel):
 class FitsOutputArchiveNameRegistryTestCase(unittest.TestCase):
     """Tests for repeated-name disambiguation in `FitsOutputArchive`."""
 
-    def _write_archive(self, body) -> list[tuple[str, int | None]]:
+    def _write_archive(self, body: Callable[[FitsOutputArchive], None]) -> list[tuple[str, int | None]]:
         """Write an archive, applying ``body`` to it, and return the
         ``(EXTNAME, EXTVER)`` pairs of the resulting extension HDUs.
         """
@@ -61,11 +62,11 @@ class FitsOutputArchiveNameRegistryTestCase(unittest.TestCase):
                     if hdu.header.get("EXTNAME") not in ("JSON", "INDEX")
                 ]
 
-    def test_repeated_direct_names_get_increasing_extver(self):
+    def test_repeated_direct_names_get_increasing_extver(self) -> None:
         array = np.zeros((2, 2), dtype=np.float32)
         sources = []
 
-        def body(archive):
+        def body(archive: FitsOutputArchive) -> None:
             sources.append(archive.add_array(array, name="data").source)
             sources.append(archive.add_array(array, name="data").source)
 
@@ -73,7 +74,7 @@ class FitsOutputArchiveNameRegistryTestCase(unittest.TestCase):
         self.assertEqual(sources, ["fits:DATA", "fits:DATA,2"])
         self.assertEqual(keys, [("DATA", None), ("DATA", 2)])
 
-    def test_direct_and_pointer_target_names_do_not_collide(self):
+    def test_direct_and_pointer_target_names_do_not_collide(self) -> None:
         # A direct name and a pointer target's nested name (registered with
         # a leading slash because the pointer's nested archive is rooted at
         # "") already produce distinct EXTNAMEs, so neither needs EXTVER
@@ -81,12 +82,12 @@ class FitsOutputArchiveNameRegistryTestCase(unittest.TestCase):
         array = np.zeros((2, 2), dtype=np.float32)
         sources = []
 
-        def serializer(nested):
+        def serializer(nested: OutputArchive[PointerModel]) -> _PointerTarget:
             ref = nested.add_array(array, name="data")
             sources.append(ref.source)
             return _PointerTarget(data=ref.model_dump())
 
-        def body(archive):
+        def body(archive: FitsOutputArchive) -> None:
             sources.append(archive.add_array(array, name="data").source)
             archive.serialize_pointer("psf", serializer, key="psf-key")
 

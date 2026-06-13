@@ -1,2 +1,2 @@
 Added a ``mypy-coverage`` GitHub Actions workflow that enforces 100% mypy type-annotation coverage for the ``python`` source tree.
-Added ``-> None`` return annotations to all class ``__init__`` methods and removed redundant default settings from the mypy configuration.
+Added missing type annotations across the source and test suites (notably ``-> None`` on ``__init__`` and test methods) and removed redundant default settings from the mypy configuration.

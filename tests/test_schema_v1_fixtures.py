@@ -25,11 +25,11 @@ _FIXTURES = sorted(SCHEMA_DIR.glob("*.json"))
 class SchemaV1FixturesTestCase(unittest.TestCase):
     """Tests over the bundled v1 reference JSON fixtures."""
 
-    def test_fixtures_present(self):
+    def test_fixtures_present(self) -> None:
         """The fixture directory is populated."""
         self.assertTrue(_FIXTURES, f"no fixtures found in {SCHEMA_DIR}")
 
-    def test_fixture_has_top_level_stamps(self):
+    def test_fixture_has_top_level_stamps(self) -> None:
         """Every fixture has schema_url, schema_version, min_read_version."""
         for path in _FIXTURES:
             with self.subTest(name=path.stem):
@@ -38,7 +38,7 @@ class SchemaV1FixturesTestCase(unittest.TestCase):
                 self.assertIn("schema_version", tree)
                 self.assertIn("min_read_version", tree)
 
-    def test_fixture_url_matches_name_and_version(self):
+    def test_fixture_url_matches_name_and_version(self) -> None:
         """schema_url matches the ``<name>-<version>`` pattern, where the name
         is the fixture file's stem.
         """
