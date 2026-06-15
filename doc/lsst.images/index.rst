@@ -52,6 +52,7 @@ API Reference
    psfs.rst
    fields.rst
    cameras.rst
+   convolution_kernels.rst
    aperture_corrections.rst
    serialization.rst
    fits.rst
