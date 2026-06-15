@@ -10,11 +10,18 @@
 # license that can be found in the LICENSE file.
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
 
+import astropy.units as u
 import numpy as np
+from click.testing import CliRunner
 
+from lsst.images import Image, MaskedImage, MaskPlane, MaskSchema
+from lsst.images.cli import main
 from lsst.images.cli._fuzz import shuffle_blocks
+from lsst.images.serialization import read
 
 
 class ShuffleBlocksTestCase(unittest.TestCase):
@@ -55,6 +62,67 @@ class ShuffleBlocksTestCase(unittest.TestCase):
         np.testing.assert_array_equal(image, variance)
         np.testing.assert_array_equal(image.astype(np.uint8), mask[..., 0])
         np.testing.assert_array_equal(np.sort(image, axis=None), np.sort(codes, axis=None))
+
+
+def _make_masked_image() -> MaskedImage:
+    """Build a small MaskedImage with noisy pixels and some mask bits set."""
+    rng = np.random.default_rng(500)
+    mi = MaskedImage(
+        Image(rng.normal(100.0, 8.0, size=(64, 64)), dtype=np.float32, unit=u.nJy),
+        mask_schema=MaskSchema([MaskPlane("BAD", "Bad pixel.")]),
+        metadata={"hello": "world"},
+    )
+    mi.mask.array |= np.multiply.outer(mi.image.array < 100.0, mi.mask.schema.bitmask("BAD"))
+    mi.variance.array = rng.normal(64.0, 0.5, size=mi.bbox.shape).astype(np.float32)
+    return mi
+
+
+class FuzzMaskedImageCommandTestCase(unittest.TestCase):
+    """Tests for the fuzz-masked-image CLI command."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+
+    def test_help(self) -> None:
+        result = CliRunner().invoke(main, ["fuzz-masked-image", "--help"])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+    def test_no_files_errors(self) -> None:
+        result = CliRunner().invoke(main, ["fuzz-masked-image"])
+        self.assertNotEqual(result.exit_code, 0)
+
+    def test_round_trip_fits(self) -> None:
+        src = os.path.join(self.tmp, "mi.fits")
+        mi = _make_masked_image()
+        mi.write(src)
+        original_image = mi.image.array.copy()
+        original_mask = mi.mask.array.copy()
+
+        result = CliRunner().invoke(main, ["fuzz-masked-image", src])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+        out = os.path.join(self.tmp, "mi.fuzzed.fits")
+        self.assertTrue(os.path.exists(out))
+        check = read(out)
+        finite = np.isfinite(original_image)
+        changed = float(np.mean(check.image.array[finite] != original_image[finite]))
+        self.assertGreaterEqual(changed, 0.5)
+        self.assertFalse(np.array_equal(check.mask.array, original_mask))
+        # An untouched part of the object survives the round trip.
+        self.assertEqual(check.metadata.get("hello"), "world")
+
+    def test_skips_existing_without_overwrite(self) -> None:
+        src = os.path.join(self.tmp, "mi.fits")
+        _make_masked_image().write(src)
+        out = os.path.join(self.tmp, "mi.fuzzed.fits")
+        with open(out, "w") as stream:
+            stream.write("EXISTING")
+        result = CliRunner().invoke(main, ["fuzz-masked-image", src])
+        self.assertEqual(result.exit_code, 0, result.output)
+        with open(out) as stream:
+            self.assertEqual(stream.read(), "EXISTING")
 
 
 if __name__ == "__main__":
