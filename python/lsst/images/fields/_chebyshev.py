@@ -29,10 +29,12 @@ from ._base import BaseField
 if TYPE_CHECKING:
     try:
         from lsst.afw.math import BackgroundMI as LegacyBackground
+        from lsst.afw.math import Chebyshev1Function2D as LegacyChebyshev1Function2D
         from lsst.afw.math import ChebyshevBoundedField as LegacyChebyshevBoundedField
     except ImportError:
         type LegacyBackground = Any  # type: ignore[no-redef]
         type LegacyChebyshevBoundedField = Any  # type: ignore[no-redef]
+        type LegacyChebyshev1Function2D = Any  # type: ignore[no-redef]
 
 
 @final
@@ -356,6 +358,69 @@ class ChebyshevField(BaseField):
             unit=unit,
         )
 
+    @staticmethod
+    def from_legacy_function2(
+        legacy_function2: LegacyChebyshev1Function2D,
+        bounds: Bounds | None = None,
+        unit: astropy.units.Unit | None = None,
+    ) -> ChebyshevField:
+        """Convert from a legacy `lsst.afw.math.Chebyshev1Function2D`.
+
+        Parameters
+        ----------
+        legacy_function2
+            Legacy function object to convert.
+        bounds
+            The bounds of the returned field, if they should be different from
+            the bounding box of ``legacy_background``.
+        unit
+            The units of the returned field.
+        """
+        xy_range = legacy_function2.getXYRange()
+        bbox = Box.factory[
+            _require_int(xy_range.y.min + 0.5) : _require_int(xy_range.y.max + 0.5),
+            _require_int(xy_range.x.min + 0.5) : _require_int(xy_range.x.max + 0.5),
+        ]
+        if bounds is not None:
+            if bounds.bbox != bbox:
+                raise ValueError(
+                    "Custom bounds when converting a Chebyshev background must not change the bbox."
+                )
+        else:
+            bounds = bbox
+        order = legacy_function2.getOrder()
+        coefficients = np.zeros((order + 1, order + 1), dtype=np.float64)
+        for i, pq in ChebyshevField._legacy_function2_indices(order):
+            coefficients[pq.y, pq.x] = legacy_function2.getParameter(i)
+        return ChebyshevField(bbox, coefficients, unit=unit)
+
+    def to_legacy_function2(self) -> LegacyChebyshev1Function2D:
+        """Convert to a legacy `lsst.afw.math.Chebyshev1Function2D`."""
+        from lsst.afw.math import Chebyshev1Function2D as LegacyChebyshev1Function2D
+        from lsst.geom import Box2D as LegacyBox2D
+
+        order = max(self.y_order, self.x_order)
+        result = LegacyChebyshev1Function2D(order, LegacyBox2D(self.bounds.bbox.to_legacy()))
+        for i, pq in self._legacy_function2_indices(order):
+            result.setParameter(
+                i,
+                (
+                    self._coefficients[pq.y, pq.x]
+                    if pq.y < self._coefficients.shape[0] and pq.x < self._coefficients.shape[1]
+                    else 0.0
+                ),
+            )
+        return result
+
+    @staticmethod
+    def _legacy_function2_indices(order: int) -> Iterator[tuple[int, YX[int]]]:
+        i = 0
+        for n in range(order + 1):
+            for p in range(0, n + 1):
+                q = n - p
+                yield i, YX(y=p, x=q)
+                i += 1
+
     def _remap(self, *, x: np.ndarray, y: np.ndarray) -> YX[np.ndarray]:
         x -= self._xt
         x *= self._xs
@@ -440,3 +505,9 @@ class ChebyshevFieldSerializationModel(ArchiveTree):
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for ChebyshevField: {set(kwargs.keys())}.")
         return ChebyshevField(self.bounds.deserialize(), self.coefficients, unit=self.unit)
+
+
+def _require_int(v: float) -> int:
+    if (z := int(v)) == v:
+        return z
+    raise ValueError("Legacy Chebyshev1Function2 XY range must be at half-integer positions.")
