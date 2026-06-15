@@ -5,3 +5,5 @@
   The results are returned in a `dict` with keys corresponding to the component names.
   You can specify specific components by passing a list to a ``components`` parameter to the ``get``.
   If no parameter is given all parameters will be returned.
+* Added a ``lsst-images-admin fuzz-masked-image`` subcommand that shuffles the image, mask, and variance pixels of any ``MaskedImage`` file within tiles so the file can be released as public test data.
+  It reads any supported format, writes back in the format chosen by the output extension, and applies lossy RICE compression to the science planes for FITS output.
