@@ -14,6 +14,7 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
+import pydantic
 
 from lsst.images import Box, NoOverlapError, Polygon, Region, RegionSerializationModel
 
@@ -87,6 +88,17 @@ class SimplePolygonTestCase(unittest.TestCase):
         self.assertEqual(Polygon.from_wkt(self.polygon.wkt), self.polygon)
         self.assertEqual(Polygon.from_wkt(str(self.polygon)), self.polygon)
         self.assertEqual(eval(repr(self.polygon), {"array": np.array, "Polygon": Polygon}), self.polygon)
+
+    def test_model_field(self) -> None:
+        """Test that we can use a Polygon directly as a Pydantic model
+        field.
+        """
+        holder = _PolygonHolder(polygon=self.polygon)
+        self.assertEqual(self.polygon, holder.model_validate_json(holder.model_dump_json()).polygon)
+        self.assertEqual(
+            _PolygonHolder.model_json_schema()["properties"]["polygon"],
+            RegionSerializationModel.model_json_schema(),
+        )
 
     @unittest.skipUnless(have_legacy, "lsst legacy packages could not be imported.")
     def test_legacy(self) -> None:
@@ -175,6 +187,24 @@ class RegionTestCase(unittest.TestCase):
         self.assertEqual(Region.from_wkt(region.wkt), region)
         self.assertEqual(Region.from_wkt(str(region)), region)
         self.assertEqual(eval(repr(region), {"Region": Region}), region)
+
+    def test_model_field(self) -> None:
+        """Test that we can use a Region directly as a Pydantic model field."""
+        region = self.a.union(self.c).difference(self.d)
+        holder = _RegionHolder(region=region)
+        self.assertEqual(region, holder.model_validate_json(holder.model_dump_json()).region)
+        self.assertEqual(
+            _RegionHolder.model_json_schema()["properties"]["region"],
+            RegionSerializationModel.model_json_schema(),
+        )
+
+
+class _PolygonHolder(pydantic.BaseModel):
+    polygon: Polygon
+
+
+class _RegionHolder(pydantic.BaseModel):
+    region: Region
 
 
 if __name__ == "__main__":

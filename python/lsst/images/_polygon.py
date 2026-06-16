@@ -18,7 +18,9 @@ from typing import TYPE_CHECKING, Any, Literal, overload
 import numpy as np
 import numpy.typing as npt
 import pydantic
+import pydantic_core.core_schema as pcs
 import shapely
+from pydantic.json_schema import JsonSchemaValue
 
 from ._geom import Bounds, Box
 from .utils import round_half_down, round_half_up
@@ -219,6 +221,28 @@ class Region:
         RFC 7946).
         """
         return RegionSerializationModel.model_validate_json(shapely.to_geojson(self._impl))
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: pydantic.GetCoreSchemaHandler
+    ) -> pcs.CoreSchema:
+        from_model_schema = pcs.chain_schema(
+            [
+                handler(RegionSerializationModel),
+                pcs.no_info_plain_validator_function(RegionSerializationModel.deserialize),
+            ]
+        )
+        return pcs.json_or_python_schema(
+            json_schema=from_model_schema,
+            python_schema=pcs.union_schema([pcs.is_instance_schema(cls), from_model_schema]),
+            serialization=pcs.plain_serializer_function_ser_schema(cls.serialize),
+        )
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, schema: pcs.CoreSchema, handler: pydantic.GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        return handler(RegionSerializationModel.__pydantic_core_schema__)
 
 
 class Polygon(Region):
