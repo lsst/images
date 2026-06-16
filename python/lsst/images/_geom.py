@@ -40,7 +40,7 @@ from typing import (
 import numpy as np
 import pydantic
 import pydantic_core.core_schema as pcs
-from pydantic.json_schema import GetJsonSchemaHandler, JsonSchemaValue
+from pydantic.json_schema import JsonSchemaValue
 
 from .utils import round_half_down, round_half_up
 
@@ -504,7 +504,7 @@ class Interval:
 
     @classmethod
     def __get_pydantic_json_schema__(
-        cls, schema: pcs.CoreSchema, handler: GetJsonSchemaHandler
+        cls, schema: pcs.CoreSchema, handler: pydantic.GetJsonSchemaHandler
     ) -> JsonSchemaValue:
         return handler(pydantic.TypeAdapter(_SerializedInterval).core_schema)
 
@@ -986,7 +986,7 @@ class Box:
 
     @classmethod
     def __get_pydantic_json_schema__(
-        cls, schema: pcs.CoreSchema, handler: GetJsonSchemaHandler
+        cls, schema: pcs.CoreSchema, handler: pydantic.GetJsonSchemaHandler
     ) -> JsonSchemaValue:
         return handler(pydantic.TypeAdapter(_SerializedBox).core_schema)
 
