@@ -14,8 +14,9 @@ from __future__ import annotations
 import os
 import unittest
 
+from lsst.images import DifferenceImage
 from lsst.images.convolution_kernels import ConvolutionKernel, ImageBasisConvolutionKernel
-from lsst.images.tests import assert_close
+from lsst.images.tests import RoundtripFits, assert_close
 
 try:
     from lsst.afw.image import ImageD as LegacyImageD
@@ -40,14 +41,27 @@ class DifferenceImageExtraLegacyTestCase(unittest.TestCase):
     def setUpClass(cls) -> None:
         assert EXTERNAL_DATA_DIR is not None, "Guaranteed by decorator."
         cls.kernel_filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "difference_kernel.fits")
+        cls.exposure_filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "difference_image.fits")
         try:
+            from lsst.afw.image import ExposureFitsReader
             from lsst.afw.math import Kernel
 
             cls.legacy_kernel = Kernel.readFits(cls.kernel_filename)
+            cls.legacy_exposure = ExposureFitsReader(cls.exposure_filename).read()
         except ImportError:
             raise unittest.SkipTest(
-                "afw not available; cannot read legacy difference image components"
+                "afw not available; cannot read legacy difference image or components"
             ) from None
+
+    def test_roundtrip(self) -> None:
+        """Test round-tripping the difference image through FITs with the
+        extra components attached.
+        """
+        difference_image = DifferenceImage.from_legacy(self.legacy_exposure)
+        difference_image.kernel = ImageBasisConvolutionKernel.from_legacy(self.legacy_kernel)
+        with RoundtripFits(self, difference_image, storage_class="DifferenceImage") as roundtrip:
+            self.compare_kernel_to_legacy(roundtrip.get("kernel"), self.legacy_kernel)
+        self.compare_kernel_to_legacy(roundtrip.result.kernel, self.legacy_kernel)
 
     def test_difference_kernel(self) -> None:
         """Test that we can convert to and from legacy difference kernels."""

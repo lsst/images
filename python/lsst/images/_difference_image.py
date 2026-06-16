@@ -32,6 +32,7 @@ from .aperture_corrections import (
     ApertureCorrectionMap,
 )
 from .cameras import Detector
+from .convolution_kernels import ConvolutionKernel, ConvolutionKernelSerializationModel
 from .fields import Field
 from .psfs import (
     PointSpreadFunction,
@@ -101,6 +102,9 @@ class DifferenceImage(VisitImage):
     band
         Name of the passband the image was observed with (this is a shorter,
         less specific version of ``obs_info.physical_filter``).
+    kernel
+        The convolution kernel used to match the (warped) template to the
+        science image.
     metadata
         Arbitrary flexible metadata to associate with the image.
     """
@@ -122,6 +126,7 @@ class DifferenceImage(VisitImage):
         aperture_corrections: ApertureCorrectionMap | None = None,
         backgrounds: BackgroundMap | None = None,
         band: str,
+        kernel: ConvolutionKernel | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ) -> None:
         super().__init__(
@@ -141,9 +146,10 @@ class DifferenceImage(VisitImage):
             band=band,
             metadata=metadata,
         )
+        self._kernel = kernel
 
     @staticmethod
-    def _from_visit_image(visit_image: VisitImage) -> DifferenceImage:
+    def _from_visit_image(visit_image: VisitImage, kernel: ConvolutionKernel | None) -> DifferenceImage:
         return visit_image._transfer_metadata(
             DifferenceImage(
                 visit_image.image,
@@ -158,14 +164,32 @@ class DifferenceImage(VisitImage):
                 detector=visit_image.detector,
                 aperture_corrections=visit_image.aperture_corrections,
                 backgrounds=visit_image.backgrounds,
+                kernel=kernel,
                 band=visit_image.band,
             ),
         )
 
+    @property
+    def kernel(self) -> ConvolutionKernel:
+        """The convolution kernel used to match the (warped) template
+        to the science image (`.convolution_kernels.ConvolutionKernel`).
+        """
+        if self._kernel is None:
+            raise AttributeError("This difference image does not have a kernel attached.")
+        return self._kernel
+
+    @kernel.setter
+    def kernel(self, kernel: ConvolutionKernel) -> None:
+        self._kernel = kernel
+
+    @kernel.deleter
+    def kernel(self) -> None:
+        self._kernel = None
+
     def __getitem__(self, bbox: Box | EllipsisType) -> DifferenceImage:
         if bbox is ...:
             return self
-        return self._from_visit_image(super().__getitem__(bbox))
+        return self._from_visit_image(super().__getitem__(bbox), kernel=self._kernel)
 
     def __str__(self) -> str:
         return f"DifferenceImage({self.image!s}, {list(self.mask.schema.names)})"
@@ -181,7 +205,7 @@ class DifferenceImage(VisitImage):
         copy_detector
             Whether to deep-copy the `detector` attribute.
         """
-        return self._from_visit_image(super().copy(copy_detector=copy_detector))
+        return self._from_visit_image(super().copy(copy_detector=copy_detector), kernel=self._kernel)
 
     def convert_unit(
         self,
@@ -219,10 +243,17 @@ class DifferenceImage(VisitImage):
         `DifferenceImage`
             An image with the given units.
         """
-        return self._from_visit_image(super().convert_unit(unit, copy=copy, copy_detector=copy_detector))
+        return self._from_visit_image(
+            super().convert_unit(unit, copy=copy, copy_detector=copy_detector), kernel=self._kernel
+        )
 
     def serialize(self, archive: OutputArchive[Any]) -> DifferenceImageSerializationModel[Any]:
-        return self._serialize_impl(DifferenceImageSerializationModel, archive)
+        result = self._serialize_impl(DifferenceImageSerializationModel, archive)
+        if self._kernel is not None:
+            result.kernel = archive.serialize_direct("kernel", self._kernel.serialize)
+        else:
+            result.kernel = None
+        return result
 
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
@@ -265,7 +296,10 @@ class DifferenceImage(VisitImage):
         if plane_map is None:
             plane_map = get_legacy_difference_image_mask_planes()
         return DifferenceImage._from_visit_image(
-            VisitImage.from_legacy(legacy, unit=unit, plane_map=plane_map, instrument=instrument, visit=visit)
+            VisitImage.from_legacy(
+                legacy, unit=unit, plane_map=plane_map, instrument=instrument, visit=visit
+            ),
+            kernel=None,
         )
 
     def to_legacy(
@@ -349,7 +383,7 @@ class DifferenceImage(VisitImage):
             component=component,
         )
         if component is None:
-            return DifferenceImage._from_visit_image(result)
+            return DifferenceImage._from_visit_image(result, kernel=None)
         return result
 
 
@@ -361,12 +395,17 @@ class DifferenceImageSerializationModel[P: pydantic.BaseModel](VisitImageSeriali
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = DifferenceImage
 
+    kernel: ConvolutionKernelSerializationModel | None = pydantic.Field(
+        description="The convolution kernel used to match the (warped) template to the science image."
+    )
+
     def deserialize(
         self, archive: InputArchive[Any], *, bbox: Box | None = None, **kwargs: Any
     ) -> DifferenceImage:
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for DifferenceImage: {set(kwargs.keys())}.")
-        return DifferenceImage._from_visit_image(super().deserialize(archive, bbox=bbox))
+        kernel = self.kernel.deserialize(archive) if self.kernel is not None else None
+        return DifferenceImage._from_visit_image(super().deserialize(archive, bbox=bbox), kernel=kernel)
 
     def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
         if kwargs and component not in ("image", "mask", "variance", "masked_image"):
