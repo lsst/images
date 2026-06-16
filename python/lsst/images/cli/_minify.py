@@ -23,7 +23,7 @@ import click
 @click.option("--schema-name", default=None, help="Top-level schema name; auto-detected if omitted.")
 @click.option("--overwrite", is_flag=True, default=False, help="Overwrite OUTPUT if it exists.")
 def minify(input: str, output: str, schema_name: str | None, overwrite: bool) -> None:
-    """Subset a real archive into a small JSON test fixture."""
+    """Subset a real data file into a small test fixture."""
     from ..tests._minify_for_fixtures import minify as _minify
 
     if os.path.exists(output) and not overwrite:

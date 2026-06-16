@@ -71,7 +71,6 @@ from __future__ import annotations
 
 __all__ = ("minify",)
 
-import json
 import os
 from collections.abc import Callable
 from typing import Any
@@ -79,7 +78,6 @@ from typing import Any
 import numpy as np
 
 from .. import DifferenceImage, VisitImage
-from .. import json as images_json
 from .._cell_grid import CellGrid, CellGridBounds, CellIJ, PatchDefinition
 from .._geom import YX, Box
 from .._image import Image
@@ -88,7 +86,7 @@ from .._transforms import SkyProjection, TractFrame, Transform
 from .._transforms._ast import PolyMap
 from ..cells import CellCoadd, CellField, CellPointSpreadFunction, CoaddProvenance
 from ..psfs import PiffWrapper
-from ..serialization import backend_for_path, read
+from ..serialization import read
 from ._creation import make_random_sky_projection
 
 # Default morph parameters for CellCoadd.  ``CELL_SIZE`` should divide the
@@ -127,8 +125,9 @@ def minify(in_path: str, out_path: str, *, schema_name: str | None = None) -> No
         Path to a FITS (``.fits`` / ``.fits.gz``) or NDF (``.sdf`` / ``.ndf``)
         file to read.
     out_path
-        Path to the JSON fixture to write. The parent directory is
-        created if it does not exist.
+        Path to the outpit file to write. The parent directory is
+        created if it does not exist. Can be any supported file format.
+        File extension controls the output format.
     schema_name
         Top-level schema name (e.g. ``"visit_image"`` or ``"cell_coadd"``).
         If `None`, it is auto-detected from the file.
@@ -140,35 +139,24 @@ def minify(in_path: str, out_path: str, *, schema_name: str | None = None) -> No
     NotImplementedError
         If the top-level type is not one this helper knows how to subset.
     """
-    backend = backend_for_path(in_path)
-    if schema_name is None:
-        schema_name = backend.input_archive.get_basic_info(in_path).schema_name
-
-    cls, subsetter = _dispatch(schema_name)
-
-    obj: Any = read(in_path, cls)
+    obj = read(in_path)
+    subsetter = _dispatch(obj)
     subset = subsetter(obj)
 
-    tree = images_json.write(subset)
-    dumped = tree.model_dump(mode="json")
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
-    with open(out_path, "w") as stream:
-        stream.write(json.dumps(dumped, indent=2, sort_keys=False) + "\n")
+    subset.write(out_path)
 
 
-def _dispatch(schema_name: str) -> tuple[type, Callable[[Any], Any]]:
+def _dispatch(image: Any) -> Callable[[Any], Any]:
+    """Return the relevant subsetter for this image object."""
     """Return the ``(class, subsetter)`` pair for a top-level schema name."""
-    registry: dict[str, tuple[type, Callable[[Any], Any]]] = {
-        "visit_image": (VisitImage, _subset_visit_image),
-        "difference_image": (DifferenceImage, _subset_visit_image),
-        "cell_coadd": (CellCoadd, _subset_cell_coadd),
-    }
-    try:
-        return registry[schema_name]
-    except KeyError:
-        raise NotImplementedError(
-            f"No minify rule for schema {schema_name!r}; supported: {sorted(registry)}."
-        ) from None
+    match image:
+        case VisitImage() | DifferenceImage():
+            return _subset_visit_image
+        case CellCoadd():
+            return _subset_cell_coadd
+        case _:
+            raise NotImplementedError(f"No minify rule for image of type {type(image)}.") from None
 
 
 # -- VisitImage ------------------------------------------------------------
