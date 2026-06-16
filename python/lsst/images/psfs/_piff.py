@@ -25,7 +25,7 @@ import numpy as np
 import pydantic
 
 from .. import serialization
-from .._concrete_bounds import SerializableBounds
+from .._concrete_bounds import BoundsSerializationModel
 from .._geom import XY, YX, Bounds, Box
 from .._image import Image
 from ..utils import round_half_up
@@ -270,7 +270,7 @@ class PiffSerializationModel(serialization.ArchiveTree):
         description="Width of the (square) images returned by this PSF's methods."
     )
 
-    bounds: SerializableBounds = pydantic.Field(
+    bounds: BoundsSerializationModel = pydantic.Field(
         description="The bounds object that represents the PSF's validity region."
     )
 

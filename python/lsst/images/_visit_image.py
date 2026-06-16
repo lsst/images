@@ -27,7 +27,7 @@ import pydantic
 from astro_metadata_translator import ObservationInfo, VisitInfoTranslator
 
 from ._backgrounds import BackgroundMap, BackgroundMapSerializationModel
-from ._concrete_bounds import SerializableBounds
+from ._concrete_bounds import BoundsSerializationModel
 from ._geom import Bounds, Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_legacy_visit_image_mask_planes
@@ -904,7 +904,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
         default_factory=ApertureCorrectionMapSerializationModel,
         description="Aperture corrections, keyed by flux algorithm.",
     )
-    bounds: SerializableBounds | None = pydantic.Field(
+    bounds: BoundsSerializationModel | None = pydantic.Field(
         default=None,
         description="Pixel validity region, if different from the image bounding box.",
         exclude_if=is_none,

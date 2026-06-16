@@ -26,7 +26,7 @@ import astropy.units as u
 import numpy as np
 import pydantic
 
-from .._concrete_bounds import SerializableBounds
+from .._concrete_bounds import BoundsSerializationModel
 from .._geom import XY, Bounds, Box
 from ..serialization import ArchiveReadError, ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 from . import _ast as astshim
@@ -571,7 +571,7 @@ class TransformSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         ),
     )
 
-    bounds: list[SerializableBounds | None] = pydantic.Field(
+    bounds: list[BoundsSerializationModel | None] = pydantic.Field(
         default_factory=list,
         description=textwrap.dedent(
             """

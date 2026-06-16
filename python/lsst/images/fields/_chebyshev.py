@@ -20,7 +20,7 @@ import astropy.units
 import numpy as np
 import pydantic
 
-from .._concrete_bounds import SerializableBounds
+from .._concrete_bounds import BoundsSerializationModel
 from .._geom import YX, Bounds, Box
 from .._image import Image
 from ..serialization import ArchiveTree, InlineArray, InputArchive, InvalidParameterError, OutputArchive, Unit
@@ -471,7 +471,7 @@ class ChebyshevFieldSerializationModel(ArchiveTree):
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = ChebyshevField
 
-    bounds: SerializableBounds = pydantic.Field(
+    bounds: BoundsSerializationModel = pydantic.Field(
         description=(
             "The region where this field can be evaluated. "
             "The bbox of this region is grown by half a pixel on all sides and then used to remap "

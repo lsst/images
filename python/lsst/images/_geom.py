@@ -45,7 +45,7 @@ from pydantic.json_schema import GetJsonSchemaHandler, JsonSchemaValue
 from .utils import round_half_down, round_half_up
 
 if TYPE_CHECKING:
-    from ._concrete_bounds import SerializableBounds
+    from ._concrete_bounds import BoundsSerializationModel
 
     try:
         from lsst.geom import Extent2I as LegacyExtent2I
@@ -1129,7 +1129,7 @@ class Bounds(Protocol):
         """
         ...
 
-    def serialize(self) -> SerializableBounds:
+    def serialize(self) -> BoundsSerializationModel:
         """Convert a bounds instance into a serializable object.
 
         Notes

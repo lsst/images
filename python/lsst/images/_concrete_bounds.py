@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("SerializableBounds",)
+__all__ = ("BoundsSerializationModel",)
 
 import pydantic
 import shapely
@@ -26,15 +26,15 @@ from ._polygon import Polygon, Region, RegionSerializationModel
 class IntersectionBoundsSerializationModel(pydantic.BaseModel):
     """Serialization model for `IntersectionBounds`."""
 
-    a: SerializableBounds
-    b: SerializableBounds
+    a: BoundsSerializationModel
+    b: BoundsSerializationModel
 
     def deserialize(self) -> IntersectionBounds:
         """Deserialize into an `IntersectionBounds` instance."""
         return IntersectionBounds(self.a.deserialize(), self.b.deserialize())
 
 
-type SerializableBounds = (
+type BoundsSerializationModel = (
     Box | CellGridBounds | RegionSerializationModel | IntersectionBoundsSerializationModel
 )
 
