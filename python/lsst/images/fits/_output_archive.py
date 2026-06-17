@@ -21,6 +21,7 @@ from typing import Any, Self
 
 import astropy.io.fits
 import astropy.table
+import astropy.time
 import numpy as np
 import pydantic
 
@@ -53,6 +54,24 @@ _FITS_FORMAT_VERSION = 1
 Bumps when the on-disk FITS layout (HDU placement, INDX/JSON keyword schema)
 changes. Independent of any data-model ``SCHEMA_VERSION``.
 """
+
+
+def _set_creation_date(header: astropy.io.fits.Header) -> None:
+    """Record the current UTC time in the ``DATE`` card of a FITS header.
+
+    Parameters
+    ----------
+    header
+        Header to modify in place.
+
+    Notes
+    -----
+    The FITS standard requires every HDU to record the UTC date and time its
+    header was created via a ``DATE`` card in ``YYYY-MM-DDThh:mm:ss[.sss]``
+    form.  Any pre-existing ``DATE`` card (such as one preserved from an input
+    archive) is overwritten in place so the value reflects this write.
+    """
+    header.set("DATE", astropy.time.Time.now().fits, "UTC date this HDU was written.")
 
 
 def write(
@@ -145,6 +164,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         )
         if (opaque_primary_header := self._opaque_metadata.headers.get(ExtensionKey())) is not None:
             self._primary_hdu.header.extend(opaque_primary_header)
+        _set_creation_date(self._primary_hdu.header)
         self._hdu_list.append(self._primary_hdu)
         self._json_hdu_added: bool = False
         self._frame_sets: list[tuple[FrameSet, PointerModel]] = []
@@ -366,6 +386,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         update_header(hdu.header)
         if (opaque_headers := self._opaque_metadata.headers.get(key)) is not None:
             hdu.header.extend(opaque_headers)
+        _set_creation_date(hdu.header)
         self._hdu_list.append(hdu)
         return key
 
@@ -389,6 +410,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         json_hdu.data[0][JSON_COLUMN] = np.frombuffer(tree.model_dump_json().encode(), dtype=np.byte)
         for n, json_target_data in enumerate(self._pointer_targets):
             json_hdu.data[n + 1][JSON_COLUMN] = np.frombuffer(json_target_data, dtype=np.byte)
+        _set_creation_date(json_hdu.header)
         self._hdu_list.append(json_hdu)
         self._json_hdu_added = True
 
@@ -445,6 +467,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
             index_hdu.data[n]["ZIMAGE"] = hdu.header.get("ZIMAGE", False)
             bytes = _HDUBytes.from_read_hdu(hdu)
             bytes.update_index_row(index_hdu.data[n])
+        _set_creation_date(index_hdu.header)
         return index_hdu
 
 

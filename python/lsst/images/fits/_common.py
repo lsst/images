@@ -316,7 +316,7 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         key: ExtensionKey | None = None,
     ) -> None:
         """Add a header to the opaque metadata if it is not already present,
-        and strip EXTNAME and EXTVER if present.
+        and strip EXTNAME, EXTVER, and DATE if present.
 
         Parameters
         ----------
@@ -342,6 +342,9 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         if key not in self.headers:
             header.remove("EXTNAME", ignore_missing=True)
             header.remove("EXTVER", ignore_missing=True)
+            # DATE is written fresh on every HDU, so it is regenerated on write
+            # rather than propagated as opaque metadata.
+            header.remove("DATE", ignore_missing=True)
             self.headers[key] = header
 
     def maybe_use_precompressed(self, name: str) -> astropy.io.fits.BinTableHDU | None:
@@ -374,6 +377,7 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         # FITS files, but we'll strip them here:
         primary_header.remove("A_ORDER", ignore_missing=True)
         primary_header.remove("B_ORDER", ignore_missing=True)
+        primary_header.remove("DATE", ignore_missing=True)
         strip_legacy_exposure_cards(primary_header)
         strip_butler_cards(primary_header)
         metadata: dict[str, Any] = {}
