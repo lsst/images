@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
 
 class DifferenceImage(VisitImage):
-    """A calibrated single-visit image.
+    """An image that is the PSF-matched difference of two other images.
 
     Parameters
     ----------
@@ -107,6 +107,18 @@ class DifferenceImage(VisitImage):
         science image.
     metadata
         Arbitrary flexible metadata to associate with the image.
+
+    Notes
+    -----
+    This class assumes that the difference has been performed on the pixel
+    grid of the 'science image' (i.e. a single observation, like `VisitImage`),
+    and most of the attributes of `DifferenceImage` correspond to the science
+    image.  The 'template image' is assumed to be comprised of one or more
+    resampled coadd images stitched together.
+
+    The `DifferenceImage` class can also be used to represent the stitched
+    template itself; while this makes the naming a bit confusing, the type has
+    the right state to play this role.
     """
 
     def __init__(
