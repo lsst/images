@@ -48,11 +48,15 @@ if TYPE_CHECKING:
     from ._concrete_bounds import BoundsSerializationModel
 
     try:
+        from lsst.geom import Extent2D as LegacyExtent2D
         from lsst.geom import Extent2I as LegacyExtent2I
+        from lsst.geom import Point2D as LegacyPoint2D
         from lsst.geom import Point2I as LegacyPoint2I
     except ImportError:
         type LegacyExtent2I = Any  # type: ignore[no-redef]
         type LegacyPoint2I = Any  # type: ignore[no-redef]
+        type LegacyExtent2D = Any  # type: ignore[no-redef]
+        type LegacyPoint2D = Any  # type: ignore[no-redef]
 
 # This pre-python-3.12 declaration is needed by Sphinx (probably the
 # autodoc-typehints plugin.
@@ -105,17 +109,29 @@ class YX[T](NamedTuple):
         """
         return YX(y=func(self.y), x=func(self.x))
 
-    def to_legacy_extent(self) -> LegacyExtent2I:
+    def to_legacy_int_extent(self) -> LegacyExtent2I:
         """Convert to a legacy `lsst.geom.Extent2I` object."""
         from lsst.geom import Extent2I as LegacyExtent2I
 
         return LegacyExtent2I(self.x, self.y)
 
-    def to_legacy_point(self) -> LegacyPoint2I:
+    def to_legacy_int_point(self) -> LegacyPoint2I:
         """Convert to a legacy `lsst.geom.Point2I` object."""
         from lsst.geom import Point2I as LegacyPoint2I
 
         return LegacyPoint2I(self.x, self.y)
+
+    def to_legacy_float_extent(self) -> LegacyExtent2D:
+        """Convert to a legacy `lsst.geom.Extent2D` object."""
+        from lsst.geom import Extent2D as LegacyExtent2D
+
+        return LegacyExtent2D(self.x, self.y)
+
+    def to_legacy_float_point(self) -> LegacyPoint2D:
+        """Convert to a legacy `lsst.geom.Point2D` object."""
+        from lsst.geom import Point2D as LegacyPoint2D
+
+        return LegacyPoint2D(self.x, self.y)
 
 
 class XY[T](NamedTuple):
@@ -154,17 +170,29 @@ class XY[T](NamedTuple):
         """
         return XY(x=func(self.x), y=func(self.y))
 
-    def to_legacy_extent(self) -> LegacyExtent2I:
+    def to_legacy_int_extent(self) -> LegacyExtent2I:
         """Convert to a legacy `lsst.geom.Extent2I` object."""
         from lsst.geom import Extent2I as LegacyExtent2I
 
         return LegacyExtent2I(self.x, self.y)
 
-    def to_legacy_point(self) -> LegacyPoint2I:
+    def to_legacy_int_point(self) -> LegacyPoint2I:
         """Convert to a legacy `lsst.geom.Point2I` object."""
         from lsst.geom import Point2I as LegacyPoint2I
 
         return LegacyPoint2I(self.x, self.y)
+
+    def to_legacy_float_extent(self) -> LegacyExtent2D:
+        """Convert to a legacy `lsst.geom.Extent2D` object."""
+        from lsst.geom import Extent2D as LegacyExtent2D
+
+        return LegacyExtent2D(self.x, self.y)
+
+    def to_legacy_float_point(self) -> LegacyPoint2D:
+        """Convert to a legacy `lsst.geom.Point2D` object."""
+        from lsst.geom import Point2D as LegacyPoint2D
+
+        return LegacyPoint2D(self.x, self.y)
 
 
 class _SerializedInterval(TypedDict):
