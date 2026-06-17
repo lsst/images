@@ -766,6 +766,11 @@ class Box:
         return self._intervals[-2]
 
     @property
+    def area(self) -> int:
+        """The number of pixels in the box (`int`)."""
+        return self.x.size * self.y.size
+
+    @property
     def absolute(self) -> BoxSliceFactory:
         """A factory for constructing a contained `Box` using slice
         syntax and absolute coordinates.

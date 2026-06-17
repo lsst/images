@@ -255,6 +255,7 @@ class BoxTestCase(unittest.TestCase):
 
         self.assertEqual(box.start, YX(-5, 32))
         self.assertEqual(box.shape, YX(10, 32))
+        self.assertEqual(box.area, 320)
         self.assertEqual(box.x, x)
         self.assertEqual(box.y, y)
         self.assertNotEqual(box, [])
