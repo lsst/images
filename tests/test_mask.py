@@ -176,6 +176,176 @@ class MaskTestCase(unittest.TestCase):
                     n += 1
         assert_masks_equal(self, mask, roundtrip.result)
 
+    def test_add_plane_returns_new_mask(self) -> None:
+        """Adding a plane returns a new mask, leaves the original (and any
+        views of it) untouched, and always reallocates the backing array.
+        """
+        planes = self.make_mask_planes(3, n_placeholders=0)
+        schema = MaskSchema(planes, dtype=np.uint8)
+        bbox = Box.factory[5:50, 6:60]
+        mask = Mask(0, schema=schema, bbox=bbox)
+        m0 = self.rng.random(bbox.shape) > 0.5
+        mask.set("M0", m0)
+        view = mask[bbox]  # shares the array and old schema with mask
+        original_array = mask.array
+
+        new_mask = mask.add_plane("OUTSIDE_STENCIL", "Pixel lies outside the stencil.")
+
+        # The original mask and any views keep the old schema and array.
+        self.assertNotIn("OUTSIDE_STENCIL", mask.schema.names)
+        self.assertNotIn("OUTSIDE_STENCIL", view.schema.names)
+        self.assertIs(mask.array, original_array)
+        # The new mask reallocated a fresh array and carries the new plane.
+        self.assertIsNot(new_mask.array, original_array)
+        self.assertIn("OUTSIDE_STENCIL", new_mask.schema.names)
+        self.assertEqual(new_mask.schema.descriptions["OUTSIDE_STENCIL"], "Pixel lies outside the stencil.")
+        # The new plane is the fourth (overall index 3) so it lives in byte 0.
+        bit = new_mask.schema.bit("OUTSIDE_STENCIL")
+        self.assertEqual(bit.index, 0)
+        self.assertEqual(bit.mask, 1 << 3)
+        self.assertEqual(new_mask.schema.mask_size, 1)
+        # Existing plane data is preserved and the new plane starts all-False.
+        np.testing.assert_array_equal(new_mask.get("M0"), m0)
+        self.assertFalse(new_mask.get("OUTSIDE_STENCIL").any())
+
+    def test_add_plane_grows_byte(self) -> None:
+        """Adding a ninth plane (crossing the 8-plane boundary) gives the new
+        mask an extra byte while preserving existing plane data.
+        """
+        planes = self.make_mask_planes(8, n_placeholders=0)
+        schema = MaskSchema(planes, dtype=np.uint8)
+        bbox = Box.factory[5:50, 6:60]
+        mask = Mask(0, schema=schema, bbox=bbox)
+        set_planes = {}
+        for plane in planes:
+            assert plane is not None
+            boolean_mask = self.rng.random(bbox.shape) > 0.5
+            mask.set(plane.name, boolean_mask)
+            set_planes[plane.name] = boolean_mask
+
+        new_mask = mask.add_plane("OUTSIDE_STENCIL", "Pixel lies outside the stencil.")
+
+        # The original is unchanged; the new mask spills into a second byte.
+        self.assertEqual(mask.schema.mask_size, 1)
+        bit = new_mask.schema.bit("OUTSIDE_STENCIL")
+        self.assertEqual(bit.index, 1)
+        self.assertEqual(bit.mask, 1 << 0)
+        self.assertEqual(new_mask.schema.mask_size, 2)
+        self.assertEqual(new_mask.array.shape, bbox.shape + (2,))
+        self.assertFalse(new_mask.get("OUTSIDE_STENCIL").any())
+        # Every pre-existing plane keeps its data.
+        for name, boolean_mask in set_planes.items():
+            np.testing.assert_array_equal(new_mask.get(name), boolean_mask)
+
+    def test_add_planes_multiple(self) -> None:
+        """Several planes can be added in a single call."""
+        planes = self.make_mask_planes(3, n_placeholders=0)
+        bbox = Box.factory[0:4, 0:5]
+        mask = Mask(0, schema=MaskSchema(planes, dtype=np.uint8), bbox=bbox)
+        m0 = self.rng.random(bbox.shape) > 0.5
+        mask.set("M0", m0)
+
+        new_mask = mask.add_planes([MaskPlane("A", "plane a"), MaskPlane("B", "plane b")])
+
+        self.assertEqual(set(mask.schema.names), {"M0", "M1", "M2"})  # original unchanged
+        self.assertEqual(set(new_mask.schema.names), {"M0", "M1", "M2", "A", "B"})
+        np.testing.assert_array_equal(new_mask.get("M0"), m0)
+        self.assertFalse(new_mask.get("A").any())
+        self.assertFalse(new_mask.get("B").any())
+
+    def test_add_planes_drop_reassigns_bits(self) -> None:
+        """Dropping a plane compacts the schema, reassigns the planes after it
+        to lower bits, and repacks the retained pixel values by name.
+        """
+        bbox = Box.factory[0:4, 0:5]
+        schema = MaskSchema([MaskPlane("A", "a"), MaskPlane("B", "b"), MaskPlane("C", "c")], dtype=np.uint8)
+        mask = Mask(0, schema=schema, bbox=bbox)
+        a = self.rng.random(bbox.shape) > 0.5
+        c = self.rng.random(bbox.shape) > 0.5
+        mask.set("A", a)
+        mask.set("B", self.rng.random(bbox.shape) > 0.5)
+        mask.set("C", c)
+
+        new_mask = mask.add_planes([MaskPlane("D", "d")], drop=["B"])
+
+        # B is gone; D is appended after the retained planes.
+        self.assertEqual(list(new_mask.schema.names), ["A", "C", "D"])
+        self.assertNotIn("B", new_mask.schema.names)
+        # C moved down from bit 2 to bit 1; D takes bit 2.
+        self.assertEqual(new_mask.schema.bit("A").mask, 1 << 0)
+        self.assertEqual(new_mask.schema.bit("C").mask, 1 << 1)
+        self.assertEqual(new_mask.schema.bit("D").mask, 1 << 2)
+        # Retained pixel values follow their planes; the new plane is cleared.
+        np.testing.assert_array_equal(new_mask.get("A"), a)
+        np.testing.assert_array_equal(new_mask.get("C"), c)
+        self.assertFalse(new_mask.get("D").any())
+
+    def test_add_planes_with_placeholder(self) -> None:
+        """``None`` placeholders reserve bits.  A pre-existing placeholder
+        keeps its position, and a ``None`` interleaved in the added planes
+        stays where it is placed rather than moving to the end; both survive
+        a round-trip.
+        """
+        bbox = Box.factory[0:4, 0:5]
+        # Schema with a pre-existing placeholder reserving bit 1.
+        schema = MaskSchema([MaskPlane("A", "a"), None, MaskPlane("B", "b")], dtype=np.uint8)
+        mask = Mask(0, schema=schema, bbox=bbox)
+        a = self.rng.random(bbox.shape) > 0.5
+        b = self.rng.random(bbox.shape) > 0.5
+        mask.set("A", a)
+        mask.set("B", b)
+
+        # Append a block that itself contains an interior placeholder.
+        new_mask = mask.add_planes([MaskPlane("C", "c"), None, MaskPlane("D", "d")])
+
+        # The pre-existing placeholder stays at bit 1; the added placeholder
+        # stays between C and D (bit 4), not at the end.
+        self.assertEqual(
+            list(new_mask.schema),
+            [MaskPlane("A", "a"), None, MaskPlane("B", "b"), MaskPlane("C", "c"), None, MaskPlane("D", "d")],
+        )
+        self.assertEqual(new_mask.schema.bit("A").mask, 1 << 0)
+        self.assertEqual(new_mask.schema.bit("B").mask, 1 << 2)
+        self.assertEqual(new_mask.schema.bit("C").mask, 1 << 3)
+        self.assertEqual(new_mask.schema.bit("D").mask, 1 << 5)
+        # Retained pixel values follow their planes; new planes start cleared.
+        np.testing.assert_array_equal(new_mask.get("A"), a)
+        np.testing.assert_array_equal(new_mask.get("B"), b)
+        self.assertFalse(new_mask.get("C").any())
+        self.assertFalse(new_mask.get("D").any())
+
+        with RoundtripFits(self, new_mask) as roundtrip:
+            assert_masks_equal(self, new_mask, roundtrip.result)
+
+    def test_add_planes_drop_unknown_raises(self) -> None:
+        """Dropping a plane that does not exist is an error."""
+        mask = Mask(0, schema=MaskSchema([MaskPlane("A", "a")], dtype=np.uint8), bbox=Box.factory[0:2, 0:2])
+        with self.assertRaises(ValueError):
+            mask.add_planes([], drop=["NOPE"])
+
+    def test_add_plane_duplicate_raises(self) -> None:
+        """Adding a plane whose name already exists is an error."""
+        planes = self.make_mask_planes(3, n_placeholders=0)
+        schema = MaskSchema(planes, dtype=np.uint8)
+        mask = Mask(0, schema=schema, bbox=Box.factory[0:4, 0:4])
+        with self.assertRaises(ValueError):
+            mask.add_plane("M0", "Duplicate of an existing plane.")
+
+    def test_add_plane_roundtrip(self) -> None:
+        """A runtime-added plane and its data survive a FITS round trip."""
+        planes = self.make_mask_planes(8, n_placeholders=0)
+        schema = MaskSchema(planes, dtype=np.uint8)
+        bbox = Box.factory[5:50, 6:60]
+        mask = Mask(0, schema=schema, bbox=bbox)
+        mask = mask.add_plane("OUTSIDE_STENCIL", "Pixel lies outside the stencil.")
+        mask.set("OUTSIDE_STENCIL", self.rng.random(bbox.shape) > 0.5)
+        with lsst.utils.tests.getTempFilePath(".fits") as tmpFile:
+            mask.write(tmpFile)
+            new = Mask.read(tmpFile)
+        self.assertEqual(new, mask)
+        self.assertEqual(new.schema.descriptions["OUTSIDE_STENCIL"], "Pixel lies outside the stencil.")
+        assert_masks_equal(self, new, mask)
+
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_legacy(self) -> None:
         """Test Mask.read_legacy, Mask.to_legacy, and Mask.from_legacy."""

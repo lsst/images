@@ -579,6 +579,87 @@ class Mask(GeneralizedImage):
             bit = self.schema.bit(plane)
             self._array[boolean_mask, bit.index] &= ~bit.mask
 
+    def add_plane(self, name: str, description: str) -> Mask:
+        """Return a new mask with one additional mask plane.
+
+        This is a convenience wrapper around `add_planes` for the common case
+        of adding a single plane.
+
+        Parameters
+        ----------
+        name
+            Unique name for the new mask plane.
+        description
+            Human-readable documentation for the new mask plane.
+
+        Returns
+        -------
+        `Mask`
+            A new mask whose schema includes the new plane; see `add_planes`
+            for the reallocation and view semantics.
+
+        Raises
+        ------
+        ValueError
+            Raised if a plane named ``name`` already exists.
+        """
+        return self.add_planes([MaskPlane(name, description)])
+
+    def add_planes(self, planes: Iterable[MaskPlane | None], *, drop: Iterable[str] = ()) -> Mask:
+        """Return a new mask with planes added and/or dropped.
+
+        Parameters
+        ----------
+        planes
+            New mask planes to append, in order, after the planes retained
+            from this mask.  `None` entries reserve unused bits (placeholders),
+            exactly as in `MaskSchema`.
+        drop
+            Names of existing planes to remove from the schema.
+
+        Returns
+        -------
+        `Mask`
+            A new mask with the updated schema.  Retained planes keep their
+            pixel values (copied by name); newly added planes start cleared.
+
+        Raises
+        ------
+        ValueError
+            Raised if a name in ``drop`` is not an existing plane, or if a
+            plane in ``planes`` collides with a retained plane name.
+
+        Notes
+        -----
+        Adding or dropping planes always reallocates the backing array and
+        returns a new `Mask`; this mask is left unchanged and any views or
+        subimages of it continue to refer to the original array with the
+        original schema.  This is deliberate: there is no way to update the
+        schema of an existing view, and a stale view must never set bits that
+        its now-outdated schema regards as unused.  Dropping a plane compacts
+        the schema, so planes after it are reassigned to lower bits and the
+        pixel values are repacked by plane name to match.
+        """
+        drop_set = set(drop)
+        if unknown := drop_set - set(self._schema.names):
+            raise ValueError(f"Cannot drop mask planes that do not exist: {sorted(unknown)}.")
+        retained = [plane for plane in self._schema if plane is None or plane.name not in drop_set]
+        names = {plane.name for plane in retained if plane is not None}
+        new_planes = list(planes)
+        for plane in new_planes:
+            if plane is None:
+                continue
+            if plane.name in names:
+                raise ValueError(f"Mask plane {plane.name!r} already exists.")
+            names.add(plane.name)
+        new_schema = MaskSchema([*retained, *new_planes], dtype=self._schema.dtype)
+        result = Mask(0, schema=new_schema, bbox=self._bbox, sky_projection=self._sky_projection)
+        # The retained planes are exactly the names common to both schemas, and
+        # ``result`` starts cleared and shares this mask's bbox, so ``update``
+        # transfers their pixel values (and nothing else) by name.
+        result.update(self)
+        return self._transfer_metadata(result, copy=True)
+
     def serialize[P: pydantic.BaseModel](
         self,
         archive: OutputArchive[P],

@@ -151,6 +151,19 @@ class MaskedImageTestCase(unittest.TestCase):
         self.assertEqual(copy.image.array[0, 20], 42.0)
         self.assertEqual(copy.image.array[0, 0], self.masked_image.image.array[0, 0])
 
+    def test_mask_setter(self) -> None:
+        """The mask plane can be replaced, e.g. with one grown by add_plane."""
+        masked_image = self.masked_image.copy()
+        bad = masked_image.mask.get("BAD")
+        masked_image.mask = masked_image.mask.add_plane("OUTSIDE_STENCIL", "Pixel lies outside the stencil.")
+        self.assertIn("OUTSIDE_STENCIL", masked_image.mask.schema.names)
+        self.assertEqual(masked_image.mask.bbox, masked_image.image.bbox)
+        np.testing.assert_array_equal(masked_image.mask.get("BAD"), bad)
+        self.assertFalse(masked_image.mask.get("OUTSIDE_STENCIL").any())
+        # A mask whose bounding box disagrees with the image is rejected.
+        with self.assertRaises(ValueError):
+            masked_image.mask = masked_image.mask[Box.factory[10:20, 12:22]]
+
     def test_fits_roundtrip(self) -> None:
         """Test that we can round-trip the MaskedImage through FITS, including
         subimage reads.

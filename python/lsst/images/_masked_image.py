@@ -133,8 +133,24 @@ class MaskedImage(GeneralizedImage):
 
     @property
     def mask(self) -> Mask:
-        """The mask plane (`~lsst.images.Mask`)."""
+        """The mask plane (`~lsst.images.Mask`).
+
+        Assigning a new `~lsst.images.Mask` (for example one returned by
+        `~lsst.images.Mask.add_planes`) replaces the mask plane.  The new mask
+        must share this image's bounding box; its sky projection is replaced
+        with the image's.
+        """
         return self._mask
+
+    @mask.setter
+    def mask(self, value: Mask) -> None:
+        if value.bbox != self._image.bbox:
+            raise ValueError(f"Image ({self._image.bbox}) and mask ({value.bbox}) bboxes do not agree.")
+        if self._image.sky_projection != value.sky_projection:
+            raise ValueError("Image sky projection and new mask sky projection do not agree")
+        # Use a view to ensure that the WCS instances across the masked image
+        # are the same projections.
+        self._mask = value.view(sky_projection=self._image.sky_projection)
 
     @property
     def variance(self) -> Image:

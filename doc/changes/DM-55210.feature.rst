@@ -7,3 +7,5 @@
   If no parameter is given all parameters will be returned.
 * Added a ``lsst-images-admin fuzz-masked-image`` subcommand that shuffles the image, mask, and variance pixels of any ``MaskedImage`` file within tiles so the file can be released as public test data.
   It reads any supported format, writes back in the format chosen by the output extension, and applies lossy RICE compression to the science planes for FITS output.
+* Added ``lsst.images.Mask.add_plane`` to allocate a new mask plane (with a name and description) on an existing mask in place.
+  The backing array gains an additional element per pixel when the new plane crosses an element boundary of the mask data type (every eight planes for the default ``uint8``).
