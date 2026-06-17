@@ -694,9 +694,10 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
             raise InvalidParameterError(f"Unrecognized parameters for CellCoadd: {set(kwargs.keys())}.")
         masked_image = super().deserialize(archive, bbox=bbox)
         mask_fractions = {
-            k.removeprefix("mask_fractions/"): v.deserialize(archive) for k, v in self.mask_fractions.items()
+            k.removeprefix("mask_fractions/"): v.deserialize(archive, bbox=bbox)
+            for k, v in self.mask_fractions.items()
         }
-        noise_realizations = [v.deserialize(archive) for v in self.noise_realizations]
+        noise_realizations = [v.deserialize(archive, bbox=bbox) for v in self.noise_realizations]
         sky_projection = self.sky_projection.deserialize(archive)
         psf = self.psf.deserialize(archive, bbox=bbox)
         aperture_corrections = (
