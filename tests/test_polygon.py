@@ -13,10 +13,20 @@ from __future__ import annotations
 
 import unittest
 
+import astropy.units as u
 import numpy as np
 import pydantic
 
-from lsst.images import Box, NoOverlapError, Polygon, Region, RegionSerializationModel
+from lsst.images import (
+    Box,
+    GeneralFrame,
+    NoOverlapError,
+    Polygon,
+    Region,
+    RegionSerializationModel,
+    Transform,
+)
+from lsst.images.tests import assert_close
 
 try:
     import lsst.afw.geom  # noqa: F401
@@ -66,6 +76,19 @@ class SimplePolygonTestCase(unittest.TestCase):
         self.assertFalse(self.polygon.contains(medium))
         self.assertFalse(medium.contains(self.polygon))
         self.assertTrue(self.polygon.contains(self.polygon))
+
+    def test_transform(self) -> None:
+        """Test applying a coordinate transform to a polygon."""
+        matrix = np.array([[0.4, 0.25], [-0.20, 0.6]])
+        t = Transform.affine(GeneralFrame(unit=u.pix), GeneralFrame(unit=u.pix), matrix)
+        tp = self.polygon.transform(t)
+        self.assertIsInstance(tp, Polygon)
+        assert_close(self, tp.area, self.polygon.area * np.linalg.det(matrix))
+        xyt = t.apply_forward(x=self.polygon.x_vertices, y=self.polygon.y_vertices)
+        # Slicing below is because shapely sometimes adds a duplicate closing
+        # vertex.
+        assert_close(self, tp.x_vertices[: len(xyt.x)], xyt.x)
+        assert_close(self, tp.y_vertices[: len(xyt.y)], xyt.y)
 
     def test_contains_points(self) -> None:
         """Test the 'contains' method with points."""

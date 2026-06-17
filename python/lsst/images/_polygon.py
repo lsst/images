@@ -22,10 +22,12 @@ import pydantic_core.core_schema as pcs
 import shapely
 from pydantic.json_schema import JsonSchemaValue
 
-from ._geom import Bounds, Box
+from ._geom import XY, Bounds, Box
 from .utils import round_half_down, round_half_up
 
 if TYPE_CHECKING:
+    from ._transforms import Transform
+
     try:
         from lsst.afw.geom import Polygon as LegacyPolygon
     except ImportError:
@@ -213,6 +215,29 @@ class Region:
     def to_shapely(self) -> shapely.Polygon | shapely.MultiPolygon:
         """Convert to a `shapely.Polygon` or `shapely.MultiPolygon` object."""
         return self._impl
+
+    def transform(self, transform: Transform[Any, Any]) -> Region:
+        """Transform the coordinates of the region, returning a new one.
+
+        Parameters
+        ----------
+        transform
+            Coordinate transform to apply (in the forward direction).
+
+        Notes
+        -----
+        This applies the transform to all vertices, assuming that the
+        transform is close enough to affine that the topology of the geometry
+        does not change and straight-line edges do not need to be subsampled.
+        """
+
+        def wrapper(x: np.ndarray, y: np.ndarray) -> XY[np.ndarray]:
+            return transform.apply_forward(x=x, y=y)
+
+        return Region(
+            # Shapely overloads don't seem to have been annotated rigorously
+            shapely.transform(self._impl, wrapper, interleaved=False)  # type: ignore[arg-type]
+        ).try_to_polygon()
 
     def serialize(self) -> RegionSerializationModel:
         """Serialize the region to a Pydantic model.
