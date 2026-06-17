@@ -141,6 +141,15 @@ class Region:
             # Quibbles about bool vs numpy.bool_ as the return type.
             return shapely.contains_xy(self._impl, x=x, y=y)  # type: ignore[return-value]
 
+    @overload
+    def intersection(self, other: Region) -> Region: ...
+
+    @overload
+    def intersection(self, other: Box) -> Region | Box: ...
+
+    @overload
+    def intersection(self, other: Bounds) -> Bounds: ...
+
     def intersection(self, other: Bounds) -> Bounds:
         """Compute the intersection of this region with a `Bounds` object.
 
@@ -337,6 +346,12 @@ class Polygon(Region):
 
     def __repr__(self) -> str:
         return f"Polygon(x_vertices={self.x_vertices!r}, y_vertices={self.y_vertices!r})"
+
+    def transform(self, transform: Transform[Any, Any]) -> Polygon:
+        # Docstring inherited.
+        result = super().transform(transform)
+        assert isinstance(result, Polygon), "Transforming a polygon should not change its topology."
+        return result
 
     @staticmethod
     def from_legacy(legacy: LegacyPolygon) -> Polygon:

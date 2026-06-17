@@ -46,6 +46,8 @@ from .utils import round_half_down, round_half_up
 
 if TYPE_CHECKING:
     from ._concrete_bounds import BoundsSerializationModel
+    from ._polygon import Polygon, Region
+    from ._transforms import Transform
 
     try:
         from lsst.geom import Extent2D as LegacyExtent2D
@@ -912,6 +914,9 @@ class Box:
     def intersection(self, other: Box) -> Box: ...
 
     @overload
+    def intersection(self, other: Region) -> Region | Box: ...
+
+    @overload
     def intersection(self, other: Bounds) -> Bounds: ...
 
     def intersection(self, other: Bounds) -> Bounds:
@@ -975,6 +980,35 @@ class Box:
         yield YX(self.y.min, self.x.max)
         yield YX(self.y.max, self.x.max)
         yield YX(self.y.max, self.x.min)
+
+    def to_polygon(self) -> Polygon:
+        """Convert the box to a polygon with floating-point vertices.
+
+        Notes
+        -----
+        Because the integer min and max coordinates of a box are
+        interpreted as pixel centers, these are expanded by 0.5 on all sides
+        before using them to form the polygon vertices.
+        """
+        from ._polygon import Polygon
+
+        return Polygon.from_box(self)
+
+    def transform(self, transform: Transform[Any, Any]) -> Polygon:
+        """Apply a coordinate transform to the box, returning a polygon.
+
+        Parameters
+        ----------
+        transform
+            Coordinate transform to apply (in the forward direction).
+
+        Notes
+        -----
+        This transforms the polygon representation of the box (see
+        `to_polygon`), which expands its vertices by 0.5 on all sides to cover
+        full pixels before transforming them.
+        """
+        return self.to_polygon().transform(transform)
 
     def __reduce__(self) -> tuple[type[Box], tuple[Interval, ...]]:
         return (Box, self._intervals)
