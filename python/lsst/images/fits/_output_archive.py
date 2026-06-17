@@ -448,12 +448,21 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         # EXTNAMEs get super long, which is not likely (but maybe something to
         # guard against).
         max_name_size = max(len(hdu.header.get("EXTNAME", "")) for hdu in hdu_list)
+        # Attach the ZIMAGE values as a boolean array on the Column itself.
+        # Astropy only fills a logical column's raw bytes with 'F' as the
+        # default (rather than NULL, 0x00) when the bool array is present at
+        # construction; assigning False element-wise after construction leaves
+        # the byte as NULL under Astropy 8.0.0, which warns on every read.
+        # Should be fixed in v8.0.1.
+        # See https://github.com/astropy/astropy/pull/19939
+        # but pre-allocating the entire column works in v7 and v8.
+        zimage = np.array([hdu.header.get("ZIMAGE", False) for hdu in hdu_list], dtype=bool)
         index_hdu = astropy.io.fits.BinTableHDU.from_columns(
             [
                 astropy.io.fits.Column("EXTNAME", f"A{max_name_size}"),
                 astropy.io.fits.Column("EXTVER", "J"),
                 astropy.io.fits.Column("XTENSION", "A8"),
-                astropy.io.fits.Column("ZIMAGE", "L"),
+                astropy.io.fits.Column("ZIMAGE", "L", array=zimage),
             ]
             + _HDUBytes.get_index_hdu_columns(),
             nrows=len(hdu_list),
@@ -464,7 +473,6 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
             index_hdu.data[n]["EXTNAME"] = hdu.header.get("EXTNAME", "")
             index_hdu.data[n]["EXTVER"] = hdu.header.get("EXTVER", 1)
             index_hdu.data[n]["XTENSION"] = hdu.header.get("XTENSION", "IMAGE")
-            index_hdu.data[n]["ZIMAGE"] = hdu.header.get("ZIMAGE", False)
             bytes = _HDUBytes.from_read_hdu(hdu)
             bytes.update_index_row(index_hdu.data[n])
         _set_creation_date(index_hdu.header)
