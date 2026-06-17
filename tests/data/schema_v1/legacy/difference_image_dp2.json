@@ -1999,5 +1999,6 @@
   },
   "band": "r",
   "kernel": null,
+  "templates": null,
   "schema_url": "https://images.lsst.io/schemas/difference_image-1.0.0"
 }
