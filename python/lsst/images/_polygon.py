@@ -329,6 +329,12 @@ class Polygon(Region):
         """
         return self._vertices[:, 1]
 
+    @property
+    def centroid(self) -> XY[float]:
+        """The centroid of the polygon (`XY` [`float`])."""
+        c = self._impl.centroid
+        return XY(x=c.x, y=c.y)
+
     def __repr__(self) -> str:
         return f"Polygon(x_vertices={self.x_vertices!r}, y_vertices={self.y_vertices!r})"
 

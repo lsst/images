@@ -18,6 +18,7 @@ import numpy as np
 import pydantic
 
 from lsst.images import (
+    XY,
     Box,
     GeneralFrame,
     NoOverlapError,
@@ -67,6 +68,7 @@ class SimplePolygonTestCase(unittest.TestCase):
         self.assertEqual(small.bbox, Box.factory[-3:3, 40:45])
         self.assertTrue(self.polygon.contains(small))
         self.assertFalse(small.contains(self.polygon))
+        self.assertEqual(small.centroid, XY(x=42.0, y=-0.5))
         big = Polygon.from_box(Box.factory[-10:10, 20:60])
         self.assertEqual(big.area, 800.0)
         self.assertFalse(self.polygon.contains(big))
