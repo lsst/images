@@ -307,6 +307,43 @@ class MaskSchema:
                 header.remove(f"MSKM{n:04d}", ignore_missing=True)
                 header.remove(f"MSKD{n:04d}", ignore_missing=True)
 
+    @classmethod
+    def from_fits_header(cls, header: astropy.io.fits.Header, dtype: npt.DTypeLike = np.uint8) -> MaskSchema:
+        """Reconstruct a schema from the ``MSKN``/``MSKD`` cards written by
+        `update_header`.
+
+        Parameters
+        ----------
+        header
+            FITS header containing ``MSKN{n:04d}`` plane-name cards and
+            ``MSKD{n:04d}`` description cards.
+        dtype
+            Data type of the mask arrays that will use this schema.  The cards
+            describe a ``mask_size==1`` serialized form and do not record the
+            in-memory dtype, so the caller must supply it; it defaults to the
+            same ``uint8`` used by the `Mask` constructor.
+
+        Returns
+        -------
+        `MaskSchema`
+            Schema whose planes are ordered by their ``MSKN`` index, with
+            `None` placeholders inserted for any gaps in that numbering.
+
+        Raises
+        ------
+        ValueError
+            Raised if the header contains no ``MSKN`` cards.
+        """
+        planes_by_index: dict[int, MaskPlane] = {}
+        for card in header.cards:
+            if card.keyword.startswith("MSKN"):
+                n = int(card.keyword.removeprefix("MSKN"))
+                planes_by_index[n] = MaskPlane(card.value, header.get(f"MSKD{n:04d}", ""))
+        if not planes_by_index:
+            raise ValueError("Header has no MSKN cards describing a mask schema.")
+        planes = [planes_by_index.get(n) for n in range(max(planes_by_index) + 1)]
+        return cls(planes, dtype=dtype)
+
 
 class Mask(GeneralizedImage):
     """A 2-d bitmask image backed by a 3-d byte array.
@@ -915,10 +952,9 @@ class Mask(GeneralizedImage):
     ) -> Mask:
         if isinstance(hdu, astropy.io.fits.BinTableHDU):
             hdu = astropy.io.fits.CompImageHDU(bintable=hdu)
-        dx: int = hdu.header.pop("LTV1")
-        dy: int = hdu.header.pop("LTV2")
-        yx0 = YX(y=-dy, x=-dx)
-        old_planes = MaskPlane.read_legacy(hdu.header)
+        yx0 = fits.read_yx0(hdu.header)
+        hdu.header.remove("LTV1", ignore_missing=True)
+        hdu.header.remove("LTV2", ignore_missing=True)
         sky_projection: SkyProjection | None = None
         if fits_wcs_frame is not None:
             try:
@@ -929,9 +965,24 @@ class Mask(GeneralizedImage):
                 sky_projection = SkyProjection.from_fits_wcs(
                     fits_wcs, pixel_frame=fits_wcs_frame, x0=yx0.x, y0=yx0.y
                 )
-        mask = Mask._from_legacy_array(
-            hdu.data, old_planes, yx0=yx0, plane_map=plane_map, sky_projection=sky_projection
-        )
+        if any(card.keyword.startswith("MSKN") for card in hdu.header.cards):
+            # New ``lsst.images`` form: plane definitions are self-describing
+            # via MSKN/MSKM/MSKD cards, so no plane_map is needed.  The on-disk
+            # array packs every plane into one element; ``set`` repacks each
+            # plane into the (default uint8) in-memory layout by name.
+            schema = MaskSchema.from_fits_header(hdu.header)
+            mask = Mask(0, schema=schema, yx0=yx0, shape=hdu.data.shape, sky_projection=sky_projection)
+            for n, plane in enumerate(schema):
+                if plane is not None:
+                    mask.set(plane.name, hdu.data & hdu.header.get(f"MSKM{n:04d}", 1 << n))
+            schema.strip_header(hdu.header)
+        else:
+            # Legacy ``lsst.afw.image`` form: bit indices in MP_* cards are
+            # mapped to new planes via ``plane_map``.
+            old_planes = MaskPlane.read_legacy(hdu.header)
+            mask = Mask._from_legacy_array(
+                hdu.data, old_planes, yx0=yx0, plane_map=plane_map, sky_projection=sky_projection
+            )
         fits.strip_wcs_cards(hdu.header)
         hdu.header.strip()
         hdu.header.remove("EXTTYPE", ignore_missing=True)

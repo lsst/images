@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import unittest
 
+import astropy.io.fits
 import numpy as np
 
 import lsst.utils.tests
@@ -76,6 +77,37 @@ class MaskTestCase(unittest.TestCase):
         self.assertEqual(list(splits[0]) + list(splits[1]), [p for p in planes if p is not None])
         self.assertEqual(len(splits[0]), 15)
         self.assertEqual(len(splits[1]), 2)
+
+    def test_schema_from_fits_header(self) -> None:
+        """MaskSchema.from_fits_header inverts update_header, assuming the
+        default uint8 dtype.
+        """
+        planes = [
+            MaskPlane("NO_DATA", "No data was available for this pixel."),
+            MaskPlane("COSMIC_RAY", "A cosmic ray affected this pixel."),
+            MaskPlane("DETECTED", "Pixel was part of a detected source."),
+        ]
+        schema = MaskSchema(planes, dtype=np.uint8)
+        header = astropy.io.fits.Header()
+        schema.update_header(header)
+        result = MaskSchema.from_fits_header(header)
+        self.assertEqual(result.dtype, np.dtype(np.uint8))
+        self.assertEqual(list(result), planes)
+        self.assertEqual(result, schema)
+
+    def test_schema_from_fits_header_preserves_gaps(self) -> None:
+        """A None placeholder between planes is reconstructed from the gap in
+        the MSKN card numbering.
+        """
+        planes: list[MaskPlane | None] = [MaskPlane("A", "a"), None, MaskPlane("B", "b")]
+        header = astropy.io.fits.Header()
+        MaskSchema(planes, dtype=np.uint8).update_header(header)
+        self.assertEqual(list(MaskSchema.from_fits_header(header)), planes)
+
+    def test_schema_from_fits_header_requires_cards(self) -> None:
+        """A header with no MSKN cards cannot describe a schema."""
+        with self.assertRaises(ValueError):
+            MaskSchema.from_fits_header(astropy.io.fits.Header())
 
     def test_basics(self) -> None:
         """Test some basic Mask functionality."""

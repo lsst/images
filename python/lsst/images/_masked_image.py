@@ -30,7 +30,7 @@ from lsst.resources import ResourcePath, ResourcePathExpression
 from . import fits
 from ._generalized_image import GeneralizedImage
 from ._geom import Box
-from ._image import Image, ImageSerializationModel
+from ._image import DEFAULT_PIXEL_FRAME, Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._transforms import Frame, SkyProjection, SkyProjectionSerializationModel
 from .serialization import (
@@ -312,6 +312,70 @@ class MaskedImage(GeneralizedImage):
             variance=self.variance.to_legacy(copy=copy),
             dtype=self.image.array.dtype,
         )
+
+    @classmethod
+    def from_hdu_list(
+        cls,
+        hdu_list: astropy.io.fits.HDUList,
+        *,
+        fits_wcs_frame: Frame | None = DEFAULT_PIXEL_FRAME,
+    ) -> MaskedImage:
+        """Reconstruct a `~lsst.images.MaskedImage` from a cut-down
+        ``lsst.images`` FITS HDU list.
+
+        This assumes the ``PRIMARY``, ``IMAGE``, ``MASK``, and ``VARIANCE``
+        HDUs written for the masked-image cut-outs produced by
+        ``dax_images_cutout``: a real ``lsst.images`` file with its JSON-tree,
+        index, and any nested-archive HDUs dropped.  The reconstructed object
+        can be re-serialized as a normal ``lsst.images`` file (with schema and
+        index) so it can be read with the full ``lsst.images`` infrastructure.
+
+        Parameters
+        ----------
+        hdu_list
+            HDU list with ``IMAGE``, ``MASK``, and ``VARIANCE`` extensions and
+            a primary HDU.
+        fits_wcs_frame
+            Pixel-grid `~lsst.images.Frame` for the
+            `~lsst.images.SkyProjection` reconstructed from the FITS WCS.
+            Defaults to a plain pixel frame; pass `None` to skip attaching a
+            projection.
+
+        Returns
+        -------
+        `~lsst.images.MaskedImage`
+            The reconstructed masked image.
+
+        Raises
+        ------
+        ValueError
+            Raised if the ``MASK`` HDU has no ``MSKN`` mask-plane cards, since
+            the mask schema cannot then be reconstructed.
+
+        Notes
+        -----
+        Only files whose mask plane definitions are recorded in ``MSKN``/
+        ``MSKM``/``MSKD`` cards are supported for now; the legacy
+        `lsst.afw.image` ``MP_*`` form is handled by `read_legacy` instead.
+
+        The headers of the consumed HDUs are modified in place (WCS, mask
+        schema, and other interpreted cards are stripped), as in `read_legacy`.
+        """
+        mask_hdu = hdu_list["MASK"]
+        if not any(card.keyword.startswith("MSKN") for card in mask_hdu.header.cards):
+            raise ValueError("MASK HDU has no MSKN cards; cannot reconstruct the mask schema.")
+        opaque_metadata = fits.FitsOpaqueMetadata()
+        opaque_metadata.add_cutdown_primary_header(hdu_list[0].header)
+        image = Image._read_legacy_hdu(
+            hdu_list["IMAGE"], opaque_metadata, preserve_bintable=None, fits_wcs_frame=fits_wcs_frame
+        )
+        mask = Mask._read_legacy_hdu(mask_hdu, opaque_metadata, fits_wcs_frame=None)
+        variance = Image._read_legacy_hdu(
+            hdu_list["VARIANCE"], opaque_metadata, preserve_bintable=None, fits_wcs_frame=None
+        )
+        result = cls(image, mask=mask, variance=variance)
+        result._opaque_metadata = opaque_metadata
+        return result
 
     @staticmethod
     def read_legacy(

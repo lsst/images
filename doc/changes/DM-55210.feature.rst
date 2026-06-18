@@ -9,3 +9,5 @@
   It reads any supported format, writes back in the format chosen by the output extension, and applies lossy RICE compression to the science planes for FITS output.
 * Added ``lsst.images.Mask.add_plane`` to allocate a new mask plane (with a name and description) on an existing mask in place.
   The backing array gains an additional element per pixel when the new plane crosses an element boundary of the mask data type (every eight planes for the default ``uint8``).
+* Added ``lsst.images.Image.from_hdu_list`` and ``lsst.images.MaskedImage.from_hdu_list`` to reconstruct an ``Image`` or ``MaskedImage`` from the cut-down FITS HDU lists written by ``dax_images_cutout`` (an ``lsst.images`` file with its JSON-tree and index HDUs dropped), so they can be re-serialized as normal ``lsst.images`` files.
+  Supporting this, ``MaskSchema.from_fits_header`` reconstructs a schema from ``MSKN``/``MSKD`` cards, and ``lsst.images.fits.read_offset_wcs`` and ``read_yx0`` recover the logical pixel origin from the FITS header.
