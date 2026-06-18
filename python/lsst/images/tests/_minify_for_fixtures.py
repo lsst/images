@@ -73,7 +73,7 @@ __all__ = ("minify",)
 
 import os
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -85,6 +85,7 @@ from .._mask import Mask
 from .._transforms import SkyProjection, TractFrame, Transform
 from .._transforms._ast import PolyMap
 from ..cells import CellCoadd, CellField, CellPointSpreadFunction, CoaddProvenance
+from ..convolution_kernels import ImageBasisConvolutionKernel
 from ..psfs import PiffWrapper
 from ..serialization import read
 from ._creation import make_random_sky_projection
@@ -147,7 +148,9 @@ def minify(in_path: str, out_path: str) -> None:
 def _dispatch(image: Any) -> Callable[[Any], Any]:
     """Return the relevant subsetter for this image object."""
     match image:
-        case VisitImage() | DifferenceImage():
+        case DifferenceImage():  # this branch needs to go first, as DifferenceImage subclasses VisitImage
+            return _subset_difference_image
+        case VisitImage():
             return _subset_visit_image
         case CellCoadd():
             return _subset_cell_coadd
@@ -158,8 +161,8 @@ def _dispatch(image: Any) -> Callable[[Any], Any]:
 # -- VisitImage ------------------------------------------------------------
 
 
-def _subset_visit_image(
-    visit_like_image: VisitImage | DifferenceImage,
+def _subset_visit_image[T: VisitImage](
+    visit_like_image: T,
     *,
     size: int = 16,
     max_amplifiers: int = _MAX_AMPLIFIERS,
@@ -167,7 +170,7 @@ def _subset_visit_image(
     linearize_projection: bool = True,
     projection_tol: float = _PROJECTION_LINEAR_APPROX_TOL,
     psf_interp_order: int | None = _PSF_INTERP_ORDER,
-) -> VisitImage | DifferenceImage:
+) -> T:
     """Crop a VisitImage's pixel planes to a small corner and trim its
     homogeneous collections.
 
@@ -185,7 +188,7 @@ def _subset_visit_image(
     x0 = bbox.x.start
     y1 = min(y0 + size, bbox.y.stop)
     x1 = min(x0 + size, bbox.x.stop)
-    subset = visit_like_image[Box.factory[y0:y1, x0:x1]]
+    subset = cast(T, visit_like_image[Box.factory[y0:y1, x0:x1]])
 
     # ``subset`` is a fresh throwaway object whose detector amplifier list,
     # aperture-correction map and PSF are live, mutable components.  Trim them
@@ -329,6 +332,59 @@ def _simplify_piff_psf(psf: PiffWrapper, *, order: int) -> None:
     column_of = {term: index for index, term in enumerate(old_terms)}
     truncated.q = np.ascontiguousarray(interp.q[:, [column_of[term] for term in new_terms]])
     psf.piff_psf.interp = truncated
+
+
+# -- DifferenceImage -------------------------------------------------------
+
+
+def _subset_difference_image(
+    difference_image: DifferenceImage,
+    *,
+    size: int = 16,
+    max_amplifiers: int = _MAX_AMPLIFIERS,
+    max_aperture_corrections: int = _MAX_APERTURE_CORRECTIONS,
+    linearize_projection: bool = True,
+    projection_tol: float = _PROJECTION_LINEAR_APPROX_TOL,
+    psf_interp_order: int | None = _PSF_INTERP_ORDER,
+) -> DifferenceImage:
+    """Shrink a difference image.
+
+    Most of the shrinking is delegated to `_subset_visit_image`.
+
+    Template provenance is shrunk to the first few entries.
+
+    Difference kernel basis images are sliced to the innermost pixels and the
+    number of basis functions is shrunk to the first few.
+    """
+    result = _subset_visit_image(
+        difference_image,
+        size=size,
+        max_amplifiers=max_amplifiers,
+        max_aperture_corrections=max_aperture_corrections,
+        linearize_projection=linearize_projection,
+        projection_tol=projection_tol,
+        psf_interp_order=psf_interp_order,
+    )
+    if difference_image._kernel is not None:
+        result.kernel = _subset_difference_kernel(cast(ImageBasisConvolutionKernel, difference_image._kernel))
+    result.templates = difference_image.templates[:2] if difference_image.templates is not None else None
+    return result
+
+
+def _subset_difference_kernel(
+    kernel: ImageBasisConvolutionKernel,
+    *,
+    n_basis_images: int = 2,
+    basis_radius: int = 1,
+) -> ImageBasisConvolutionKernel:
+    kernel_bbox = kernel.kernel_bbox.absolute[
+        -basis_radius : basis_radius + 1, -basis_radius : basis_radius + 1
+    ]
+    slices = kernel_bbox.slice_within(kernel.kernel_bbox)
+    return ImageBasisConvolutionKernel(
+        kernel.basis[:n_basis_images, *slices],
+        kernel.spatial[:n_basis_images],
+    )
 
 
 # -- CellCoadd -------------------------------------------------------------
