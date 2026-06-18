@@ -1236,7 +1236,9 @@ def get_legacy_difference_image_mask_planes() -> dict[str, MaskPlane]:
         "DETECTED_NEGATIVE", "Pixel was part of a detected source with negative flux."
     )
     result["SAT_TEMPLATE"] = MaskPlane("SAT_TEMPLATE", "Template pixel was saturated.")
-    result["HIGH_VARIANCE"] = MaskPlane("HIGH_VARIANCE", "TODO[DM-55036]")
+    result["HIGH_VARIANCE"] = MaskPlane(
+        "HIGH_VARIANCE", "Template pixel had fewer-than-usual input epochs and hence high noise."
+    )
     result["STREAK"] = MaskPlane(
         "STREAK", "An extended streak (probably an artificial satellite) affected this pixel."
     )
