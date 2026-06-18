@@ -114,12 +114,58 @@ class FromHduListTestCase(unittest.TestCase):
                     )
                 return astropy.io.fits.HDUList(hdus)
 
+    def _legacy_masked_image_hdu_list(
+        self,
+        planes: dict[str, int],
+        set_pixels: dict[str, tuple[int, int]],
+        *,
+        shape: tuple[int, int] = (6, 7),
+        yx0: tuple[int, int] = (5, 8),
+    ) -> astropy.io.fits.HDUList:
+        """Build an afw-style legacy cut-down HDU list (PRIMARY + IMAGE + MASK
+        + VARIANCE) whose MASK HDU carries ``MP_`` cards instead of ``MSKN``,
+        mimicking a ``dax_images_cutout`` file made from an afw-written image.
+
+        ``planes`` maps legacy plane name to bit index; ``set_pixels`` maps
+        legacy plane name to a single ``(y, x)`` pixel to set for that plane.
+        """
+        mask_data = np.zeros(shape, dtype=np.int32)
+        for name, (y, x) in set_pixels.items():
+            mask_data[y, x] |= 1 << planes[name]
+        hdus: list[astropy.io.fits.hdu.base._BaseHDU] = [astropy.io.fits.PrimaryHDU()]
+        for name, data in [
+            ("IMAGE", self.rng.normal(0.0, 1.0, shape).astype("float32")),
+            ("MASK", mask_data),
+            ("VARIANCE", self.rng.normal(1.0, 0.1, shape).astype("float32")),
+        ]:
+            hdu = astropy.io.fits.ImageHDU(data=data, name=name)
+            hdu.header["LTV1"] = -yx0[1]
+            hdu.header["LTV2"] = -yx0[0]
+            hdus.append(hdu)
+        for name, bit in planes.items():
+            hdus[2].header[f"MP_{name}"] = bit
+        return astropy.io.fits.HDUList(hdus)
+
     def test_masked_image_round_trip(self) -> None:
         """A cut-down MaskedImage reconstructs to an equal MaskedImage."""
         masked_image = self._build_masked_image()
         cutdown = self._cutdown(masked_image, ["IMAGE", "MASK", "VARIANCE"])
         result = MaskedImage.from_hdu_list(cutdown)
         assert_masked_images_equal(self, result, masked_image)
+
+    def test_legacy_non_cell_coadd_from_hdu_list(self) -> None:
+        """A cut-down afw-style non-cell coadd (``MP_`` cards, ``SENSOR_EDGE``
+        set) is reconstructed, mapping ``SENSOR_EDGE`` to its own plane.
+        """
+        planes = {"BAD": 0, "DETECTED": 5, "INEXACT_PSF": 11, "SENSOR_EDGE": 14}
+        set_pixels = {"DETECTED": (1, 2), "INEXACT_PSF": (3, 4), "SENSOR_EDGE": (5, 6)}
+        hdul = self._legacy_masked_image_hdu_list(planes, set_pixels)
+        result = MaskedImage.from_hdu_list(hdul)
+        self.assertIn("SENSOR_EDGE", result.mask.schema.names)
+        self.assertTrue(result.mask.get("SENSOR_EDGE")[5, 6])
+        self.assertTrue(result.mask.get("INEXACT_PSF")[3, 4])
+        self.assertEqual(result.mask.bbox.y.start, 5)
+        self.assertEqual(result.mask.bbox.x.start, 8)
 
     def test_masked_image_round_trip_with_projection(self) -> None:
         """The sky projection is recovered from the FITS WCS."""

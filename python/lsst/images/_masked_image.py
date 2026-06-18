@@ -349,21 +349,24 @@ class MaskedImage(GeneralizedImage):
         Raises
         ------
         ValueError
-            Raised if the ``MASK`` HDU has no ``MSKN`` mask-plane cards, since
-            the mask schema cannot then be reconstructed.
+            Raised if the ``MASK`` HDU has neither ``MSKN`` nor ``MP_`` mask-
+            plane cards, since the mask schema cannot then be reconstructed.
 
         Notes
         -----
-        Only files whose mask plane definitions are recorded in ``MSKN``/
-        ``MSKM``/``MSKD`` cards are supported for now; the legacy
-        `lsst.afw.image` ``MP_*`` form is handled by `read_legacy` instead.
+        Both mask-plane conventions are supported: the self-describing
+        ``MSKN``/``MSKM``/``MSKD`` cards written by ``lsst.images``, and the
+        legacy `lsst.afw.image` ``MP_*`` cards (as produced by
+        ``dax_images_cutout`` from afw-written images).  Legacy masks are
+        mapped to a new schema with the same plane-guessing used by
+        `read_legacy`.
 
         The headers of the consumed HDUs are modified in place (WCS, mask
         schema, and other interpreted cards are stripped), as in `read_legacy`.
         """
         mask_hdu = hdu_list["MASK"]
-        if not any(card.keyword.startswith("MSKN") for card in mask_hdu.header.cards):
-            raise ValueError("MASK HDU has no MSKN cards; cannot reconstruct the mask schema.")
+        if not any(card.keyword.startswith(("MSKN", "MP_")) for card in mask_hdu.header.cards):
+            raise ValueError("MASK HDU has no MSKN or MP_ cards; cannot reconstruct the mask schema.")
         opaque_metadata = fits.FitsOpaqueMetadata()
         opaque_metadata.add_cutdown_primary_header(hdu_list[0].header)
         image = Image._read_legacy_hdu(

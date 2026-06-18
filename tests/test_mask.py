@@ -18,7 +18,15 @@ import astropy.io.fits
 import numpy as np
 
 import lsst.utils.tests
-from lsst.images import Box, Mask, MaskPlane, MaskSchema, get_legacy_visit_image_mask_planes
+from lsst.images import (
+    Box,
+    Mask,
+    MaskPlane,
+    MaskSchema,
+    get_legacy_non_cell_coadd_mask_planes,
+    get_legacy_visit_image_mask_planes,
+)
+from lsst.images._mask import _guess_legacy_plane_map
 from lsst.images.tests import RoundtripFits, assert_masks_equal, compare_mask_to_legacy
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
@@ -377,6 +385,21 @@ class MaskTestCase(unittest.TestCase):
         self.assertEqual(new, mask)
         self.assertEqual(new.schema.descriptions["OUTSIDE_STENCIL"], "Pixel lies outside the stencil.")
         assert_masks_equal(self, new, mask)
+
+    def test_legacy_non_cell_coadd_plane_map(self) -> None:
+        """The non-cell coadd map defines a distinct ``SENSOR_EDGE`` plane."""
+        plane_map = get_legacy_non_cell_coadd_mask_planes()
+        self.assertIn("SENSOR_EDGE", plane_map)
+        self.assertEqual(plane_map["SENSOR_EDGE"].name, "SENSOR_EDGE")
+
+    def test_guess_legacy_plane_map_coadd_discriminator(self) -> None:
+        """``INEXACT_PSF`` routes to a coadd map; ``SENSOR_EDGE`` distinguishes
+        non-cell coadds (which use it) from cell coadds (which use CELL_EDGE).
+        """
+        non_cell = _guess_legacy_plane_map({"INEXACT_PSF": 11, "SENSOR_EDGE": 14})
+        self.assertIn("SENSOR_EDGE", non_cell)
+        cell = _guess_legacy_plane_map({"INEXACT_PSF": 11})
+        self.assertNotIn("SENSOR_EDGE", cell)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_legacy(self) -> None:

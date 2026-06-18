@@ -19,6 +19,7 @@ __all__ = (
     "MaskSerializationModel",
     "get_legacy_deep_coadd_mask_planes",
     "get_legacy_difference_image_mask_planes",
+    "get_legacy_non_cell_coadd_mask_planes",
     "get_legacy_visit_image_mask_planes",
 )
 
@@ -1206,6 +1207,34 @@ def get_legacy_deep_coadd_mask_planes() -> dict[str, MaskPlane]:
     }
 
 
+def get_legacy_non_cell_coadd_mask_planes() -> dict[str, MaskPlane]:
+    """Return a mapping from legacy mask plane name to `MaskPlane` instance
+    for LSST non-cell coadds such as ``template_coadd`` in DP2, and all
+    DP1 coadds.
+
+    These coadds carry the visit-level planes propagated from their input
+    warps in addition to the coadd-specific planes, and flag chip edges with
+    ``SENSOR_EDGE`` (cell coadds use ``CELL_EDGE`` instead).
+    """
+    result = get_legacy_deep_coadd_mask_planes()
+    result["BAD"] = MaskPlane("BAD", "Bad pixel in the instrument, including bad amplifiers.")
+    result["SUSPECT"] = MaskPlane("SUSPECT", "Pixel was close to the saturation level.")
+    result["CROSSTALK"] = MaskPlane("CROSSTALK", "Pixel was affected by crosstalk and corrected accordingly.")
+    result["DETECTED_NEGATIVE"] = MaskPlane(
+        "DETECTED_NEGATIVE", "Pixel was part of a detected source with negative flux."
+    )
+    result["NOT_DEBLENDED"] = MaskPlane(
+        "NOT_DEBLENDED",
+        "Pixel belonged to a detection that was not deblended, usually due to size limits.",
+    )
+    result["UNMASKEDNAN"] = MaskPlane("UNMASKED_NAN", "Pixel was found to be NaN unexpectedly.")
+    result["SENSOR_EDGE"] = MaskPlane(
+        "SENSOR_EDGE",
+        "Pixel is near the edge of a contributing sensor/chip, so the coadd PSF is discontinuous there.",
+    )
+    return result
+
+
 def _guess_legacy_plane_map(old_planes: Mapping[str, int]) -> dict[str, MaskPlane]:
     """Guess which of the ``get_legacy_*_plane_map`` created the given mask
     plane dictionary and call it.
@@ -1213,5 +1242,10 @@ def _guess_legacy_plane_map(old_planes: Mapping[str, int]) -> dict[str, MaskPlan
     if "SAT_TEMPLATE" in old_planes:
         return get_legacy_difference_image_mask_planes()
     if "INEXACT_PSF" in old_planes:
+        # Both cell and non-cell coadds have INEXACT_PSF, but only non-cell
+        # (assemble_coadd) coadds flag chip edges with SENSOR_EDGE; cell coadds
+        # use CELL_EDGE.
+        if "SENSOR_EDGE" in old_planes:
+            return get_legacy_non_cell_coadd_mask_planes()
         return get_legacy_deep_coadd_mask_planes()
     return get_legacy_visit_image_mask_planes()
