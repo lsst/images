@@ -258,5 +258,141 @@ class LegacyMaskBranchTestCase(unittest.TestCase):
         self.assertFalse(mask.get("BAD")[3, 4])
 
 
+class LegacyPlaneRetentionTestCase(unittest.TestCase):
+    """The legacy-compatibility reconstruction path keeps the ``MP_``
+    mask-plane cards, re-indexed to the reshuffled schema, instead of stripping
+    them.
+    """
+
+    # A sample set of ``MP_`` bit assignments used purely as a test fixture.
+    # This is not an externally stable layout: the bits afw actually writes
+    # depend on every Mask created in the process, not just an image's own
+    # planes.  ``DETECTED_NEGATIVE`` is not part of the visit-image schema, so
+    # it is dropped on reconstruction and every plane after it (``SUSPECT``,
+    # ``NO_DATA``) shifts down by one.
+    AFW_VISIT_BITS = {
+        "BAD": 0,
+        "SAT": 1,
+        "INTRP": 2,
+        "CR": 3,
+        "EDGE": 4,
+        "DETECTED": 5,
+        "DETECTED_NEGATIVE": 6,
+        "SUSPECT": 7,
+        "NO_DATA": 8,
+    }
+
+    def test_read_legacy_strip_false_keeps_cards(self) -> None:
+        """``MaskPlane.read_legacy(strip=False)`` reads the plane bits but
+        leaves the ``MP_`` cards in the header.
+        """
+        header = astropy.io.fits.Header()
+        header["MP_BAD"] = 0
+        header["MP_SAT"] = 1
+        planes = MaskPlane.read_legacy(header, strip=False)
+        self.assertEqual(planes, {"BAD": 0, "SAT": 1})
+        self.assertIn("MP_BAD", header)
+        self.assertIn("MP_SAT", header)
+
+    def test_read_legacy_default_strips_cards(self) -> None:
+        """The default still strips the ``MP_`` cards (behavior for code that
+        declares a new-schema-only mask).
+        """
+        header = astropy.io.fits.Header()
+        header["MP_BAD"] = 0
+        header["MP_SAT"] = 1
+        planes = MaskPlane.read_legacy(header)
+        self.assertEqual(planes, {"BAD": 0, "SAT": 1})
+        self.assertNotIn("MP_BAD", header)
+        self.assertNotIn("MP_SAT", header)
+
+    def _legacy_mask_hdu(
+        self, set_pixels: dict[str, tuple[int, int]], *, shape: tuple[int, int] = (6, 7)
+    ) -> astropy.io.fits.ImageHDU:
+        """Build a standalone afw-style ``MASK`` HDU."""
+        data = np.zeros(shape, dtype=np.int32)
+        for name, (y, x) in set_pixels.items():
+            data[y, x] |= 1 << self.AFW_VISIT_BITS[name]
+        hdu = astropy.io.fits.ImageHDU(data=data, name="MASK")
+        hdu.header["LTV1"] = -8
+        hdu.header["LTV2"] = -5
+        for name, bit in self.AFW_VISIT_BITS.items():
+            hdu.header[f"MP_{name}"] = bit
+        return hdu
+
+    def _schema_index(self, mask: Mask, name: str) -> int:
+        return next(n for n, plane in enumerate(mask.schema) if plane is not None and plane.name == name)
+
+    def test_read_legacy_hdu_reindexes_retained_cards(self) -> None:
+        """With ``strip_legacy_planes=False`` the surviving ``MP_`` cards are
+        rewritten to the bit positions of the reshuffled schema.
+        """
+        hdu = self._legacy_mask_hdu({"SUSPECT": (1, 2), "NO_DATA": (3, 4), "BAD": (0, 0)})
+        mask = Mask._read_legacy_hdu(hdu, FitsOpaqueMetadata(), strip_legacy_planes=False)
+        # The plane pixels are repacked into the canonical visit-image schema.
+        self.assertTrue(mask.get("SUSPECT")[1, 2])
+        self.assertTrue(mask.get("NO_DATA")[3, 4])
+        # SUSPECT/NO_DATA shifted down by one relative to the input layout.
+        self.assertEqual(self._schema_index(mask, "SUSPECT"), 6)
+        self.assertEqual(self._schema_index(mask, "NO_DATA"), 7)
+        # Retained MP_ cards now record the new positions, not the input's.
+        self.assertEqual(hdu.header["MP_SUSPECT"], 6)
+        self.assertEqual(hdu.header["MP_NO_DATA"], 7)
+        # Planes whose positions did not move are unchanged.
+        self.assertEqual(hdu.header["MP_BAD"], 0)
+        self.assertEqual(hdu.header["MP_DETECTED"], 5)
+        # The plane that is not in the new schema is dropped entirely.
+        self.assertNotIn("MP_DETECTED_NEGATIVE", hdu.header)
+
+    def test_read_legacy_hdu_default_strips(self) -> None:
+        """The default ``_read_legacy_hdu`` behavior still strips ``MP_``."""
+        hdu = self._legacy_mask_hdu({"BAD": (0, 0)})
+        Mask._read_legacy_hdu(hdu, FitsOpaqueMetadata())
+        self.assertFalse([k for k in hdu.header if k.startswith("MP_")])
+
+    def _legacy_full_hdu_list(
+        self, set_pixels: dict[str, tuple[int, int]], *, shape: tuple[int, int] = (6, 7)
+    ) -> astropy.io.fits.HDUList:
+        hdus: list[astropy.io.fits.hdu.base._BaseHDU] = [astropy.io.fits.PrimaryHDU()]
+        for name, data in [
+            ("IMAGE", np.zeros(shape, dtype=np.float32)),
+            ("MASK", None),
+            ("VARIANCE", np.ones(shape, dtype=np.float32)),
+        ]:
+            if name == "MASK":
+                hdus.append(self._legacy_mask_hdu(set_pixels, shape=shape))
+            else:
+                hdu = astropy.io.fits.ImageHDU(data=data, name=name)
+                hdu.header["LTV1"] = -8
+                hdu.header["LTV2"] = -5
+                hdus.append(hdu)
+        return astropy.io.fits.HDUList(hdus)
+
+    def test_from_hdu_list_round_trips_reindexed_mp_cards(self) -> None:
+        """A reconstructed legacy MaskedImage re-serializes with ``MP_`` cards
+        whose bit indices match the written ``MSKN`` layout and select the
+        correct pixels, so a legacy reader stays correct.
+        """
+        hdul = self._legacy_full_hdu_list({"SUSPECT": (1, 2), "NO_DATA": (3, 4), "BAD": (0, 0)})
+        masked_image = MaskedImage.from_hdu_list(hdul)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "out.fits")
+            masked_image.write(path)
+            with astropy.io.fits.open(path) as out:
+                header = out["MASK"].header
+                array = np.asarray(out["MASK"].data)
+        # New-schema MSKN index for each plane name.
+        mskn = {header[k]: int(k.removeprefix("MSKN")) for k in header if k.startswith("MSKN")}
+        # Retained MP_ cards agree with the MSKN layout.
+        self.assertEqual(header["MP_SUSPECT"], mskn["SUSPECT"])
+        self.assertEqual(header["MP_NO_DATA"], mskn["NO_DATA"])
+        self.assertEqual(header["MP_SUSPECT"], 6)
+        self.assertNotIn("MP_DETECTED_NEGATIVE", header)
+        # The MP_ bit index selects the right pixel in the on-disk array.
+        self.assertTrue(array[1, 2] & (1 << header["MP_SUSPECT"]))
+        self.assertTrue(array[3, 4] & (1 << header["MP_NO_DATA"]))
+        self.assertTrue(array[0, 0] & (1 << header["MP_BAD"]))
+
+
 if __name__ == "__main__":
     unittest.main()

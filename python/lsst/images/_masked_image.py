@@ -361,8 +361,15 @@ class MaskedImage(GeneralizedImage):
         mapped to a new schema with the same plane-guessing used by
         `read_legacy`.
 
-        The headers of the consumed HDUs are modified in place (WCS, mask
-        schema, and other interpreted cards are stripped), as in `read_legacy`.
+        Unlike `read_legacy`, the legacy ``MP_*`` mask-plane cards are kept
+        (not stripped) for backwards compatibility, since this path
+        reconstructs a file that may still be read by legacy tooling.  They are
+        re-indexed to the reshuffled schema so each ``MP_`` bit matches the
+        plane's position in the written ``MSKN`` layout.
+
+        The headers of the HDUs in ``hdu_list`` are modified in place: the WCS
+        and mask-schema cards interpreted here are stripped from the caller's
+        headers.
         """
         mask_hdu = hdu_list["MASK"]
         if not any(card.keyword.startswith(("MSKN", "MP_")) for card in mask_hdu.header.cards):
@@ -372,7 +379,9 @@ class MaskedImage(GeneralizedImage):
         image = Image._read_legacy_hdu(
             hdu_list["IMAGE"], opaque_metadata, preserve_bintable=None, fits_wcs_frame=fits_wcs_frame
         )
-        mask = Mask._read_legacy_hdu(mask_hdu, opaque_metadata, fits_wcs_frame=None)
+        mask = Mask._read_legacy_hdu(
+            mask_hdu, opaque_metadata, fits_wcs_frame=None, strip_legacy_planes=False
+        )
         variance = Image._read_legacy_hdu(
             hdu_list["VARIANCE"], opaque_metadata, preserve_bintable=None, fits_wcs_frame=None
         )

@@ -75,7 +75,7 @@ class MaskPlane:
     """Human-readable documentation for the mask plane (`str`)."""
 
     @classmethod
-    def read_legacy(cls, header: astropy.io.fits.Header) -> dict[str, int]:
+    def read_legacy(cls, header: astropy.io.fits.Header, *, strip: bool = True) -> dict[str, int]:
         """Read mask plane descriptions written by
         `lsst.afw.image.Mask.writeFits`.
 
@@ -83,6 +83,12 @@ class MaskPlane:
         ----------
         header
             FITS header.
+        strip
+            If `True` (default), delete the ``MP_`` cards from the header after
+            reading them, as appropriate when the mask is being reinterpreted
+            for new code only.  If `False`, leave them in place so they can be
+            propagated for backwards compatibility (re-indexed to the new
+            schema by the caller).
 
         Returns
         -------
@@ -93,7 +99,8 @@ class MaskPlane:
         for card in list(header.cards):
             if card.keyword.startswith("MP_"):
                 result[card.keyword.removeprefix("MP_")] = card.value
-                del header[card.keyword]
+                if strip:
+                    del header[card.keyword]
         return result
 
 
@@ -950,6 +957,7 @@ class Mask(GeneralizedImage):
         opaque_metadata: fits.FitsOpaqueMetadata,
         plane_map: Mapping[str, MaskPlane] | None = None,
         fits_wcs_frame: Frame | None = None,
+        strip_legacy_planes: bool = True,
     ) -> Mask:
         if isinstance(hdu, astropy.io.fits.BinTableHDU):
             hdu = astropy.io.fits.CompImageHDU(bintable=hdu)
@@ -980,10 +988,17 @@ class Mask(GeneralizedImage):
         else:
             # Legacy ``lsst.afw.image`` form: bit indices in MP_* cards are
             # mapped to new planes via ``plane_map``.
-            old_planes = MaskPlane.read_legacy(hdu.header)
+            old_planes = MaskPlane.read_legacy(hdu.header, strip=strip_legacy_planes)
+            resolved_map = plane_map if plane_map is not None else _guess_legacy_plane_map(old_planes)
             mask = Mask._from_legacy_array(
-                hdu.data, old_planes, yx0=yx0, plane_map=plane_map, sky_projection=sky_projection
+                hdu.data, old_planes, yx0=yx0, plane_map=resolved_map, sky_projection=sky_projection
             )
+            if not strip_legacy_planes:
+                # Keep the MP_ cards for backwards compatibility, but re-index
+                # them to the (reshuffled) positions of the new schema so a
+                # legacy reader sees each plane at the bit it is actually
+                # packed into on disk.
+                _reindex_legacy_plane_cards(hdu.header, old_planes, resolved_map, mask.schema)
         fits.strip_wcs_cards(hdu.header)
         hdu.header.strip()
         hdu.header.remove("EXTTYPE", ignore_missing=True)
@@ -1249,3 +1264,44 @@ def _guess_legacy_plane_map(old_planes: Mapping[str, int]) -> dict[str, MaskPlan
             return get_legacy_non_cell_coadd_mask_planes()
         return get_legacy_deep_coadd_mask_planes()
     return get_legacy_visit_image_mask_planes()
+
+
+def _reindex_legacy_plane_cards(
+    header: astropy.io.fits.Header,
+    old_planes: Mapping[str, int],
+    plane_map: Mapping[str, MaskPlane],
+    schema: MaskSchema,
+) -> None:
+    """Rewrite retained legacy ``MP_`` cards in place to match a reshuffled
+    schema.
+
+    Parameters
+    ----------
+    header
+        Header whose ``MP_`` cards are updated in place.
+    old_planes
+        Mapping from legacy mask plane name to its original (on-disk) bit
+        index, as returned by `MaskPlane.read_legacy`.
+    plane_map
+        Mapping from legacy mask plane name to the `MaskPlane` it was remapped
+        to in ``schema``.
+    schema
+        The reconstructed schema that defines the new bit positions.
+
+    Notes
+    -----
+    Each ``MP_<legacy name>`` card is set to the index that its remapped plane
+    occupies in ``schema`` (equivalently, the ``MSKN`` index written on
+    serialization).  Cards for legacy planes that are not represented in the
+    new schema are removed, since they no longer correspond to any stored bit.
+    Legacy masks have at most 31 planes, so every plane maps to a single bit in
+    one on-disk element and the index is unambiguous.
+    """
+    new_index = {plane.name: n for n, plane in enumerate(schema) if plane is not None}
+    for old_name in old_planes:
+        keyword = f"MP_{old_name}"
+        new_plane = plane_map.get(old_name)
+        if new_plane is not None and (index := new_index.get(new_plane.name)) is not None:
+            header[keyword] = index
+        else:
+            del header[keyword]
