@@ -20,13 +20,12 @@ import click
 @click.command(name="minify")
 @click.argument("input", type=click.Path(exists=True, dir_okay=False))
 @click.argument("output", type=click.Path(dir_okay=False))
-@click.option("--schema-name", default=None, help="Top-level schema name; auto-detected if omitted.")
 @click.option("--overwrite", is_flag=True, default=False, help="Overwrite OUTPUT if it exists.")
-def minify(input: str, output: str, schema_name: str | None, overwrite: bool) -> None:
+def minify(input: str, output: str, overwrite: bool) -> None:
     """Subset a real data file into a small test fixture."""
     from ..tests._minify_for_fixtures import minify as _minify
 
     if os.path.exists(output) and not overwrite:
         raise click.ClickException(f"{output!r} already exists; pass --overwrite to replace it.")
-    _minify(input, output, schema_name=schema_name)
+    _minify(input, output)
     click.echo(f"Wrote {output}.")

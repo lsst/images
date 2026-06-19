@@ -116,7 +116,7 @@ _PSF_INTERP_ORDER = 0
 _PROJECTION_LINEAR_APPROX_TOL = 1e-8
 
 
-def minify(in_path: str, out_path: str, *, schema_name: str | None = None) -> None:
+def minify(in_path: str, out_path: str) -> None:
     """Read a real archive at ``in_path``, take a small subset, and write JSON.
 
     Parameters
@@ -128,9 +128,6 @@ def minify(in_path: str, out_path: str, *, schema_name: str | None = None) -> No
         Path to the outpit file to write. The parent directory is
         created if it does not exist. Can be any supported file format.
         File extension controls the output format.
-    schema_name
-        Top-level schema name (e.g. ``"visit_image"`` or ``"cell_coadd"``).
-        If `None`, it is auto-detected from the file.
 
     Raises
     ------
@@ -149,7 +146,6 @@ def minify(in_path: str, out_path: str, *, schema_name: str | None = None) -> No
 
 def _dispatch(image: Any) -> Callable[[Any], Any]:
     """Return the relevant subsetter for this image object."""
-    """Return the ``(class, subsetter)`` pair for a top-level schema name."""
     match image:
         case VisitImage() | DifferenceImage():
             return _subset_visit_image
