@@ -1066,6 +1066,15 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         """
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for Mask: {set(kwargs.keys())}.")
+
+        def strip_header_and_legacy_planes(header: astropy.io.fits.Header) -> None:
+            # The authoritative schema comes from the serialized tree, so drop
+            # any legacy MP_* cards (written only for afw compatibility in the
+            # legacy-cutout scenario) rather than carrying them as opaque
+            # metadata, where they could drift out of sync or be re-propagated.
+            strip_header(header)
+            _strip_legacy_plane_cards(header)
+
         slices: tuple[slice, ...] | EllipsisType = ...
         if bbox is not None:
             slices = bbox.slice_within(self.bbox)
@@ -1077,7 +1086,9 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         sky_projection = self.sky_projection.deserialize(archive) if self.sky_projection is not None else None
         if len(self.data) == 1 and tuple(self.data[0].shape) == tuple(self.bbox.shape) + (schema.mask_size,):
             storage_slices = slices if slices is ... else (slice(None),) + slices
-            array = archive.get_array(self.data[0], strip_header=strip_header, slices=storage_slices)
+            array = archive.get_array(
+                self.data[0], strip_header=strip_header_and_legacy_planes, slices=storage_slices
+            )
             array = np.moveaxis(array, 0, -1)
             return Mask(array, schema=schema, bbox=bbox, sky_projection=sky_projection)._finish_deserialize(
                 self
@@ -1090,7 +1101,12 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
             )
         for array_model, schema_2d in zip(self.data, schemas_2d):
             mask_2d = self._deserialize_2d(
-                array_model, schema_2d, bbox.start, archive, strip_header=strip_header, slices=slices
+                array_model,
+                schema_2d,
+                bbox.start,
+                archive,
+                strip_header=strip_header_and_legacy_planes,
+                slices=slices,
             )
             result.update(mask_2d)
         return result._finish_deserialize(self)
@@ -1305,3 +1321,14 @@ def _reindex_legacy_plane_cards(
             header[keyword] = index
         else:
             del header[keyword]
+
+
+def _strip_legacy_plane_cards(header: astropy.io.fits.Header) -> None:
+    """Remove all legacy ``MP_*`` mask-plane cards from a FITS header.
+
+    These are written only so that legacy tooling can read masks reconstructed
+    from legacy cutouts; the ``lsst.images`` reader uses the serialized schema
+    instead, so it strips them rather than carrying them as opaque metadata.
+    """
+    for keyword in [card.keyword for card in header.cards if card.keyword.startswith("MP_")]:
+        del header[keyword]

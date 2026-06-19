@@ -393,6 +393,26 @@ class LegacyPlaneRetentionTestCase(unittest.TestCase):
         self.assertTrue(array[3, 4] & (1 << header["MP_NO_DATA"]))
         self.assertTrue(array[0, 0] & (1 << header["MP_BAD"]))
 
+    def test_normal_read_strips_mp_cards(self) -> None:
+        """The normal ``lsst.images`` reader drops any ``MP_`` cards, so they
+        cannot drift out of sync with the authoritative ``MSKN`` schema or be
+        re-propagated on rewrite.  They are written only for the legacy-cutout
+        afw-compatibility scenario.
+        """
+        hdul = self._legacy_full_hdu_list({"SUSPECT": (1, 2), "NO_DATA": (3, 4), "BAD": (0, 0)})
+        masked_image = MaskedImage.from_hdu_list(hdul)
+        with tempfile.TemporaryDirectory() as tmp:
+            legacy_cutout = os.path.join(tmp, "legacy_cutout.fits")
+            masked_image.write(legacy_cutout)
+            # The legacy-cutout file carries MP_ cards for afw.
+            with astropy.io.fits.open(legacy_cutout) as out:
+                self.assertTrue([k for k in out["MASK"].header if k.startswith("MP_")])
+            # A normal read + rewrite must not retain them.
+            rewritten = os.path.join(tmp, "rewritten.fits")
+            MaskedImage.read(legacy_cutout).write(rewritten)
+            with astropy.io.fits.open(rewritten) as out:
+                self.assertFalse([k for k in out["MASK"].header if k.startswith("MP_")])
+
 
 if __name__ == "__main__":
     unittest.main()
