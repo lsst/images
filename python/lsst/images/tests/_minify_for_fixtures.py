@@ -125,7 +125,7 @@ def minify(in_path: str, out_path: str) -> None:
         Path to a FITS (``.fits`` / ``.fits.gz``) or NDF (``.sdf`` / ``.ndf``)
         file to read.
     out_path
-        Path to the outpit file to write. The parent directory is
+        Path to the output file to write. The parent directory is
         created if it does not exist. Can be any supported file format.
         File extension controls the output format.
 
@@ -152,7 +152,7 @@ def _dispatch(image: Any) -> Callable[[Any], Any]:
         case CellCoadd():
             return _subset_cell_coadd
         case _:
-            raise NotImplementedError(f"No minify rule for image of type {type(image)}.") from None
+            raise NotImplementedError(f"No minify rule for image of type {type(image)}.")
 
 
 # -- VisitImage ------------------------------------------------------------
