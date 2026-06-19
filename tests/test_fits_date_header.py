@@ -50,6 +50,20 @@ class FitsDateHeaderTestCase(unittest.TestCase):
                         self.assertGreaterEqual(date.jd, before.jd)
                         self.assertLessEqual(date.jd, after.jd)
 
+    def test_update_header_cannot_set_a_stale_primary_date(self) -> None:
+        """An ``update_header`` callback must not be able to leave a stale DATE
+        in the primary header; the card always records this write.
+        """
+        before = astropy.time.Time.now()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "x.fits")
+            self.image.write(path, update_header=lambda h: h.set("DATE", "1999-01-01T00:00:00"))
+            after = astropy.time.Time.now()
+            with astropy.io.fits.open(path) as hdul:
+                date = astropy.time.Time(hdul[0].header["DATE"], format="fits")
+                self.assertGreaterEqual(date.jd, before.jd)
+                self.assertLessEqual(date.jd, after.jd)
+
     def test_date_is_not_captured_as_opaque_metadata(self) -> None:
         """DATE is regenerated on every write, so the value read back must not
         be carried in opaque metadata (which would propagate a stale date to

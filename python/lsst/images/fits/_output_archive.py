@@ -164,7 +164,6 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         )
         if (opaque_primary_header := self._opaque_metadata.headers.get(ExtensionKey())) is not None:
             self._primary_hdu.header.extend(opaque_primary_header)
-        _set_creation_date(self._primary_hdu.header)
         self._hdu_list.append(self._primary_hdu)
         self._json_hdu_added: bool = False
         self._frame_sets: list[tuple[FrameSet, PointerModel]] = []
@@ -210,6 +209,10 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
                 raise OSError(f"File {filename!r} already exists.")
             archive = cls(hdu_list, compression_options, opaque_metadata, compression_seed=compression_seed)
             update_header(hdu_list[0].header)
+            # Set the creation date after update_header so a caller's callback
+            # cannot leave a stale DATE in the primary header; this card must
+            # always record the time of this write.
+            _set_creation_date(hdu_list[0].header)
             yield archive
             if not archive._json_hdu_added:
                 raise RuntimeError("Write context exited without 'add_tree' being called.")
