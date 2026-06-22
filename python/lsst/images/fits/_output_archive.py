@@ -14,7 +14,6 @@ from __future__ import annotations
 __all__ = ("FitsOutputArchive", "write")
 
 import dataclasses
-import warnings
 from collections.abc import Callable, Hashable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, Self
@@ -46,6 +45,7 @@ from ._common import (
     FitsCompressionOptions,
     FitsOpaqueMetadata,
     PointerModel,
+    suppress_fits_card_warnings,
 )
 
 _FITS_FORMAT_VERSION = 1
@@ -204,7 +204,11 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         `contextlib.AbstractContextManager` [`FitsOutputArchive`]
             A context manager that returns a `FitsOutputArchive` when entered.
         """
-        with astropy.io.fits.open(filename, mode="append") as hdu_list:
+        # Astropy auto-fixes over-long keywords (HIERARCH) and comments
+        # (truncation) as cards are created and written, but doesn't honor its
+        # own output_verify option for these warnings, so we filter them out
+        # across the write of the main HDUs.
+        with suppress_fits_card_warnings(), astropy.io.fits.open(filename, mode="append") as hdu_list:
             if hdu_list:
                 raise OSError(f"File {filename!r} already exists.")
             archive = cls(hdu_list, compression_options, opaque_metadata, compression_seed=compression_seed)
@@ -216,20 +220,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
             yield archive
             if not archive._json_hdu_added:
                 raise RuntimeError("Write context exited without 'add_tree' being called.")
-            # If a header card has a long string that required CONTINUE,
-            # Astropy will truncate the comment and warn without reporting
-            # what the offending card is.  But it doesn't look at its own
-            # output_verify kwarg when doing that, and it doesn't actually
-            # trigger if you try to format the header cards one at a time!
-            # So we have no choice but to silence the warnings manually, until
-            # we can get Astropy fixed.
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    "ignore",
-                    message="comment will be truncated",
-                    category=astropy.io.fits.verify.VerifyWarning,
-                )
-                hdu_list.flush()
+            hdu_list.flush()
         # This multi-open dance is necessary to get Astropy to tell us the
         # byte addresses of the HDUs.  Hopefully we can get an upstream change
         # make this unnecessary at some point.

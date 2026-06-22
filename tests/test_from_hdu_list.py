@@ -142,8 +142,9 @@ class FromHduListTestCase(unittest.TestCase):
             hdu.header["LTV1"] = -yx0[1]
             hdu.header["LTV2"] = -yx0[0]
             hdus.append(hdu)
-        for name, bit in planes.items():
-            hdus[2].header[f"MP_{name}"] = bit
+        with images_fits.suppress_fits_card_warnings():
+            for name, bit in planes.items():
+                hdus[2].header[f"MP_{name}"] = bit
         return astropy.io.fits.HDUList(hdus)
 
     def test_masked_image_round_trip(self) -> None:
@@ -316,8 +317,9 @@ class LegacyPlaneRetentionTestCase(unittest.TestCase):
         hdu = astropy.io.fits.ImageHDU(data=data, name="MASK")
         hdu.header["LTV1"] = -8
         hdu.header["LTV2"] = -5
-        for name, bit in self.AFW_VISIT_BITS.items():
-            hdu.header[f"MP_{name}"] = bit
+        with images_fits.suppress_fits_card_warnings():
+            for name, bit in self.AFW_VISIT_BITS.items():
+                hdu.header[f"MP_{name}"] = bit
         return hdu
 
     def _schema_index(self, mask: Mask, name: str) -> int:

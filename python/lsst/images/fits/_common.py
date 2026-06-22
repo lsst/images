@@ -32,16 +32,21 @@ __all__ = (
     "strip_butler_cards",
     "strip_legacy_exposure_cards",
     "strip_wcs_cards",
+    "suppress_fits_card_warnings",
 )
 
+import contextlib
 import dataclasses
 import enum
 import itertools
 import re
 import string
+import warnings
+from collections.abc import Iterator
 from typing import Any, ClassVar, Self, final
 
 import astropy.io.fits
+import astropy.io.fits.verify
 import numpy as np
 import pydantic
 
@@ -54,6 +59,30 @@ FITS_SOURCE_REGEX = re.compile(r"fits:(?P<extname>[\w/\-]+)(,(?P<extver>\d+))?(\
 
 JSON_EXTNAME: str = "JSON"
 JSON_COLUMN: str = "JSON"
+
+
+@contextlib.contextmanager
+def suppress_fits_card_warnings() -> Iterator[None]:
+    """Silence Astropy warnings for FITS cards it fixes up automatically.
+
+    When a header is written, Astropy converts keywords longer than eight
+    characters into ``HIERARCH`` cards and truncates comments that overflow a
+    card.  Both emit a `~astropy.io.fits.verify.VerifyWarning` that carries no
+    actionable information, so they are silenced around the code that writes
+    these headers.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Keyword name .* is greater than 8 characters",
+            category=astropy.io.fits.verify.VerifyWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message=".*comment will be truncated",
+            category=astropy.io.fits.verify.VerifyWarning,
+        )
+        yield
 
 
 @dataclasses.dataclass(frozen=True)
