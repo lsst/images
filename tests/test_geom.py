@@ -417,6 +417,11 @@ class BoxTestCase(unittest.TestCase):
         copy = pickle.loads(d)
         self.assertEqual(copy, box)
 
+    def test_bix_from_float_bounds(self) -> None:
+        # x in [4.6, 9.4], y in [2.6, 5.4] -> box [3:6, 5:10] in [y, x].
+        box = Box.from_float_bounds(x_min=4.6, x_max=9.4, y_min=2.6, y_max=5.4)
+        self.assertEqual(box, Box.factory[3:6, 5:10])
+
 
 if __name__ == "__main__":
     unittest.main()
