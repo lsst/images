@@ -126,6 +126,9 @@ if USING_STARLINK_PYAST:
         def __eq__(self, other: object) -> bool:
             if not isinstance(other, Object) or type(self) is not type(other):
                 return NotImplemented
+            if self is other:
+                # Bypass stringification if they are the same object.
+                return True
             # ``astshim.Object`` ships a structural ``__eq__``; mirror that on
             # the starlink-pyast wrapper by comparing the AST channel
             # serialisation, which is the canonical content-faithful

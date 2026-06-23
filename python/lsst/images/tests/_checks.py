@@ -1086,11 +1086,7 @@ def assert_sky_projections_equal(
             tc.assertIsNot(a, b)
         case None if a is b:
             return
-    tc.assertEqual(a.pixel_frame, b.pixel_frame)
-    tc.assertEqual(a.show(simplified=True), b.show(simplified=True))
-    assert_sky_projections_equal(
-        tc, a.fits_approximation, cast(SkyProjection[Any], b.fits_approximation), expect_identity=False
-    )
+    tc.assertEqual(a, b)
 
 
 def check_astropy_wcs_interface(

@@ -90,6 +90,27 @@ class Transform[I: Frame, O: Frame]:
         self._out_bounds = out_bounds or getattr(out_frame, "bbox", None)
         self._components = list(components)
 
+    def __eq__(self, other: Any) -> bool:
+        if self is other:
+            # Short circuit for case where you are quickly checking
+            # that the image WCS and variance WCS are the same object.
+            return True
+        if not isinstance(other, Transform):
+            return NotImplemented
+        if self._ast_mapping != other._ast_mapping:
+            return False
+        if self._in_bounds != other._in_bounds:
+            return False
+        if self._out_bounds != other._out_bounds:
+            return False
+        if self._in_frame != other._in_frame:
+            return False
+        if self._out_frame != other._out_frame:
+            return False
+        if self._components != other._components:
+            return False
+        return True
+
     @staticmethod
     def from_fits_wcs(
         fits_wcs: astropy.wcs.WCS,

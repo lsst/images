@@ -17,10 +17,12 @@ import os
 import unittest
 from typing import Any, ClassVar
 
+import astropy.units as u
 import numpy as np
 import pydantic
 
 from lsst.images import (
+    ICRS,
     Box,
     CameraFrameSet,
     CameraFrameSetSerializationModel,
@@ -30,6 +32,7 @@ from lsst.images import (
     Transform,
     TransformSerializationModel,
 )
+from lsst.images._transforms import _ast as astshim
 from lsst.images.fits import PointerModel
 from lsst.images.serialization import ArchiveTree, InputArchive, JsonRef, OutputArchive
 from lsst.images.tests import (
@@ -57,6 +60,110 @@ class TransformTestCase(unittest.TestCase):
         with RoundtripJson(self, identity) as roundtrip:
             pass
         check_transform(self, roundtrip.result, xy, xy, frame, frame)
+
+    def test_transform_equality(self) -> None:
+        """Test ``Transform.__eq__`` across all of its comparison branches."""
+        pixel_frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=Box.factory[:5, :4])
+        focal_plane = FocalPlaneFrame(instrument="LSSTCam", visit=1, unit=u.mm)
+        # A distinct frame for the in-frame and out-frame branches.
+        alt_frame = DetectorFrame(instrument="LSSTCam", visit=1, detector=12, bbox=Box.factory[:5, :4])
+        in_bounds = Box.factory[:5, :4]
+        out_bounds = Box.factory[:10, :8]
+
+        def make(
+            *,
+            in_frame: Any = pixel_frame,
+            out_frame: Any = focal_plane,
+            ast_mapping: astshim.Mapping | None = None,
+            in_bounds_: Box | None = in_bounds,
+            out_bounds_: Box | None = out_bounds,
+            components: Any = (),
+        ) -> Transform[Any, Any]:
+            return Transform(
+                in_frame,
+                out_frame,
+                ast_mapping if ast_mapping is not None else astshim.UnitMap(2),
+                in_bounds=in_bounds_,
+                out_bounds=out_bounds_,
+                components=components,
+            )
+
+        base = make()
+
+        # Identity short-circuit: an object is always equal to itself.
+        self.assertEqual(base, base)
+
+        # Two independently constructed but equivalent transforms are equal,
+        # and equality is symmetric.
+        self.assertEqual(base, make())
+        self.assertEqual(make(), base)
+
+        # Comparison against a non-Transform yields NotImplemented, so Python
+        # falls back to identity: the objects are unequal and ``!=`` is True.
+        self.assertFalse(base == "not a transform")
+        self.assertTrue(base != "not a transform")
+        self.assertNotEqual(base, None)
+        self.assertNotEqual(base, 42)
+
+        # Each remaining branch differs from ``base`` in exactly one attribute.
+        self.assertNotEqual(base, make(ast_mapping=astshim.ShiftMap([1.0, 2.0])))
+        self.assertNotEqual(base, make(in_bounds_=out_bounds))
+        self.assertNotEqual(base, make(out_bounds_=in_bounds))
+        self.assertNotEqual(base, make(in_frame=alt_frame))
+        self.assertNotEqual(base, make(out_frame=alt_frame))
+        self.assertNotEqual(base, make(components=[Transform.identity(alt_frame)]))
+
+    def test_sky_projection_equality(self) -> None:
+        """Test ``SkyProjection.__eq__`` across all of its comparison
+        branches.
+        """
+        pixel_frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=Box.factory[:5, :4])
+
+        # Check the two failure modes.
+        with self.assertRaises(ValueError):
+            SkyProjection(Transform(ICRS, ICRS, astshim.UnitMap(2)))
+
+        with self.assertRaises(ValueError):
+            SkyProjection(Transform(pixel_frame, pixel_frame, astshim.UnitMap(2)))
+
+        def make_pixel_to_sky(ast_mapping: astshim.Mapping | None = None) -> Transform[Any, Any]:
+            mapping = ast_mapping if ast_mapping is not None else astshim.UnitMap(2)
+            return Transform(pixel_frame, ICRS, mapping)
+
+        base = SkyProjection(make_pixel_to_sky())
+
+        # Identity short-circuit: an object is always equal to itself.
+        self.assertEqual(base, base)
+
+        # Two independently constructed but equivalent projections are equal.
+        self.assertEqual(base, SkyProjection(make_pixel_to_sky()))
+
+        # Comparison against a non-SkyProjection yields NotImplemented, so
+        # Python falls back to identity.
+        self.assertFalse(base == "not a projection")
+        self.assertTrue(base != "not a projection")
+        self.assertNotEqual(base, None)
+
+        # Differ only in the pixel-to-sky transform.
+        self.assertNotEqual(base, SkyProjection(make_pixel_to_sky(astshim.ShiftMap([1.0, 2.0]))))
+
+        # The fits_approximation branch: absent on ``base`` but present here.
+        with_approx = SkyProjection(
+            make_pixel_to_sky(), fits_approximation=make_pixel_to_sky(astshim.ShiftMap([0.1, 0.2]))
+        )
+        self.assertNotEqual(base, with_approx)
+
+        # Equal pixel-to-sky and equal fits_approximations are equal.
+        with_approx_again = SkyProjection(
+            make_pixel_to_sky(), fits_approximation=make_pixel_to_sky(astshim.ShiftMap([0.1, 0.2]))
+        )
+        self.assertEqual(with_approx, with_approx_again)
+
+        # Same pixel-to-sky transform but a different fits_approximation.
+        other_approx = SkyProjection(
+            make_pixel_to_sky(), fits_approximation=make_pixel_to_sky(astshim.ShiftMap([0.3, 0.4]))
+        )
+        self.assertNotEqual(with_approx, other_approx)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_camera(self) -> None:

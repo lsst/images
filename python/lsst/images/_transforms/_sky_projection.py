@@ -82,6 +82,19 @@ class SkyProjection[F: Frame]:
             raise ValueError("Transform is not a mapping to ICRS.")
         self._fits_approximation = fits_approximation
 
+    def __eq__(self, other: Any) -> bool:
+        if self is other:
+            return True
+        if not isinstance(other, SkyProjection):
+            return NotImplemented
+        # Even though two approximations could be different and yet consistent
+        # with the primary mapping (for example using different tolerances
+        # on construction) we require them to be equal to declare that the
+        # two objects are equal.
+        if self._fits_approximation != other._fits_approximation:
+            return False
+        return self._pixel_to_sky == other._pixel_to_sky
+
     @staticmethod
     def from_fits_wcs(
         fits_wcs: astropy.wcs.WCS,
