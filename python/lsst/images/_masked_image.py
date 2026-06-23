@@ -350,7 +350,10 @@ class MaskedImage(GeneralizedImage):
         ------
         ValueError
             Raised if the ``MASK`` HDU has neither ``MSKN`` nor ``MP_`` mask-
-            plane cards, since the mask schema cannot then be reconstructed.
+            plane cards, since the mask schema cannot then be reconstructed, or
+            if ``hdu_list`` contains more than one ``MASK`` HDU (multiple
+            ``MASK`` extensions, distinguished by ``EXTVER``, are not handled
+            here and would otherwise be silently dropped).
 
         Notes
         -----
@@ -371,6 +374,12 @@ class MaskedImage(GeneralizedImage):
         and mask-schema cards interpreted here are stripped from the caller's
         headers.
         """
+        n_mask_hdus = sum(1 for hdu in hdu_list if hdu.name == "MASK")
+        if n_mask_hdus > 1:
+            raise ValueError(
+                f"Found {n_mask_hdus} MASK HDUs; from_hdu_list supports only a single MASK "
+                "extension and would otherwise silently drop mask information from the others."
+            )
         mask_hdu = hdu_list["MASK"]
         if not any(card.keyword.startswith(("MSKN", "MP_")) for card in mask_hdu.header.cards):
             raise ValueError("MASK HDU has no MSKN or MP_ cards; cannot reconstruct the mask schema.")

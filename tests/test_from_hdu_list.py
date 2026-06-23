@@ -213,6 +213,20 @@ class FromHduListTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             MaskedImage.from_hdu_list(cutdown)
 
+    def test_multiple_mask_hdus_raises(self) -> None:
+        """Two MASK HDUs (e.g. EXTVER 1 and 2) are rejected rather than
+        silently dropping the mask information from all but the first.
+        """
+        masked_image = self._build_masked_image()
+        cutdown = self._cutdown(masked_image, ["IMAGE", "MASK", "VARIANCE"])
+        extra_mask = astropy.io.fits.ImageHDU(
+            data=np.asarray(cutdown["MASK"].data), header=cutdown["MASK"].header.copy(), name="MASK"
+        )
+        extra_mask.header["EXTVER"] = 2
+        cutdown.append(extra_mask)
+        with self.assertRaises(ValueError):
+            MaskedImage.from_hdu_list(cutdown)
+
     def test_primary_header_preserved(self) -> None:
         """Confusing container cards are dropped; other primary cards survive
         as opaque metadata.
