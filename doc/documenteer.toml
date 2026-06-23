@@ -26,6 +26,7 @@ nitpick_ignore = [
   ["py:class", "MetadataValue"],  # type aliases don't resolve
   ["py:class", "h5py._hl.files.File"],
   ["py:data", "types.EllipsisType"],  # not in the Python intersphinx inventory
+  ["py:obj", "astropy.io.fits.verify.VerifyWarning"],
 ]
 nitpick_ignore_regex = [
   ['py:.*', 'lsst\..*'],  # Ignore warnings from links to other lsst packages.

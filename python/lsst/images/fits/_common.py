@@ -27,23 +27,30 @@ __all__ = (
     "PointerModel",
     "PrecompressedImage",
     "add_offset_wcs",
+    "read_offset_wcs",
+    "read_yx0",
     "strip_butler_cards",
     "strip_legacy_exposure_cards",
     "strip_wcs_cards",
+    "suppress_fits_card_warnings",
 )
 
+import contextlib
 import dataclasses
 import enum
 import itertools
 import re
 import string
+import warnings
+from collections.abc import Iterator
 from typing import Any, ClassVar, Self, final
 
 import astropy.io.fits
+import astropy.io.fits.verify
 import numpy as np
 import pydantic
 
-from .._geom import Box
+from .._geom import YX, Box
 from ..serialization import ArchiveReadError, OpaqueArchiveMetadata, TableColumnModel
 
 type ExtensionHDU = astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU
@@ -52,6 +59,30 @@ FITS_SOURCE_REGEX = re.compile(r"fits:(?P<extname>[\w/\-]+)(,(?P<extver>\d+))?(\
 
 JSON_EXTNAME: str = "JSON"
 JSON_COLUMN: str = "JSON"
+
+
+@contextlib.contextmanager
+def suppress_fits_card_warnings() -> Iterator[None]:
+    """Silence Astropy warnings for FITS cards it fixes up automatically.
+
+    When a header is written, Astropy converts keywords longer than eight
+    characters into ``HIERARCH`` cards and truncates comments that overflow a
+    card.  Both emit a `~astropy.io.fits.verify.VerifyWarning` that carries no
+    actionable information, so they are silenced around the code that writes
+    these headers.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Keyword name .* is greater than 8 characters",
+            category=astropy.io.fits.verify.VerifyWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message=".*comment will be truncated",
+            category=astropy.io.fits.verify.VerifyWarning,
+        )
+        yield
 
 
 @dataclasses.dataclass(frozen=True)
@@ -316,7 +347,7 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         key: ExtensionKey | None = None,
     ) -> None:
         """Add a header to the opaque metadata if it is not already present,
-        and strip EXTNAME and EXTVER if present.
+        and strip EXTNAME, EXTVER, and DATE if present.
 
         Parameters
         ----------
@@ -342,6 +373,9 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         if key not in self.headers:
             header.remove("EXTNAME", ignore_missing=True)
             header.remove("EXTVER", ignore_missing=True)
+            # DATE is written fresh on every HDU, so it is regenerated on write
+            # rather than propagated as opaque metadata.
+            header.remove("DATE", ignore_missing=True)
             self.headers[key] = header
 
     def maybe_use_precompressed(self, name: str) -> astropy.io.fits.BinTableHDU | None:
@@ -374,6 +408,7 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         # FITS files, but we'll strip them here:
         primary_header.remove("A_ORDER", ignore_missing=True)
         primary_header.remove("B_ORDER", ignore_missing=True)
+        primary_header.remove("DATE", ignore_missing=True)
         strip_legacy_exposure_cards(primary_header)
         strip_butler_cards(primary_header)
         metadata: dict[str, Any] = {}
@@ -384,6 +419,27 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
             metadata[key] = value
         self.headers[ExtensionKey()] = primary_header
         return metadata
+
+    def add_cutdown_primary_header(self, header: astropy.io.fits.Header) -> None:
+        """Add the primary header of a cut-down ``lsst.images`` FITS file as
+        opaque metadata.
+
+        A cut-down file is one whose JSON-tree, index, and nested-archive HDUs
+        have been dropped, leaving only the primary, image, mask, and variance
+        HDUs (e.g. as written by ``dax_images_cutout``).  Only the
+        container-layout cards that would be misleading after re-serialization
+        are stripped; all other cards are retained so they survive the round
+        trip.
+
+        Parameters
+        ----------
+        header
+            Primary header to read.  Not modified.
+        """
+        primary_header = header.copy(strip=True)
+        for keyword in ("FMTVER", "INDXADDR", "INDXSIZE", "JSONADDR", "JSONSIZE", "DATAMODL"):
+            primary_header.remove(keyword, ignore_missing=True)
+        self.add_header(primary_header, name="", ver=1)
 
     def copy(self) -> FitsOpaqueMetadata:
         # Docstring inherited.
@@ -426,6 +482,62 @@ def add_offset_wcs(header: astropy.io.fits.Header, *, x: int | float, y: int | f
     header.set(f"CRVAL2{key}", float(y))
     header.set(f"CUNIT1{key}", "PIXEL")
     header.set(f"CUNIT2{key}", "PIXEL")
+
+
+def read_offset_wcs(header: astropy.io.fits.Header, *, key: str = "A") -> tuple[int, int] | None:
+    """Recover the logical pixel origin from a linear offset WCS written by
+    `add_offset_wcs`.
+
+    Parameters
+    ----------
+    header
+        Header to read from.
+    key
+        Single-character suffix for the WCS to read.
+
+    Returns
+    -------
+    `tuple` [`int`, `int`] | `None`
+        The ``(x, y)`` logical coordinates of the first column and row, or
+        `None` if the header has no ``LINEAR`` WCS with this suffix.
+    """
+    if header.get(f"CTYPE1{key}") != "LINEAR":
+        return None
+    x = header[f"CRVAL1{key}"] - (header.get(f"CRPIX1{key}", 1.0) - 1.0)
+    y = header[f"CRVAL2{key}"] - (header.get(f"CRPIX2{key}", 1.0) - 1.0)
+    return (round(x), round(y))
+
+
+def read_yx0(header: astropy.io.fits.Header) -> YX[int]:
+    """Recover the logical origin of an array from its FITS header.
+
+    Parameters
+    ----------
+    header
+        Header to read from.  Not modified.
+
+    Returns
+    -------
+    `~lsst.images.YX` [`int`]
+        Logical coordinate of the first pixel, ordered ``(y, x)``.
+
+    Raises
+    ------
+    ValueError
+        Raised if the header records no origin via either the ``LTV1``/``LTV2``
+        cards (written by `lsst.afw.image`) or a linear offset WCS (written by
+        `add_offset_wcs`).
+
+    Notes
+    -----
+    The ``LTV1``/``LTV2`` convention is preferred when present, falling back to
+    the ``A`` offset WCS otherwise.
+    """
+    if "LTV1" in header:
+        return YX(y=-round(header["LTV2"]), x=-round(header["LTV1"]))
+    if (xy0 := read_offset_wcs(header)) is not None:
+        return YX(y=xy0[1], x=xy0[0])
+    raise ValueError("Header records no LTV1/LTV2 cards or linear offset WCS.")
 
 
 _WCS_VECTOR_KEYS = ("CUNIT", "CRPIX", "CRPIX", "CRVAL", "CRDELT", "CROTA", "CRDER", "CSYER", "CDELT")

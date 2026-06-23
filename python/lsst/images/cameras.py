@@ -186,8 +186,8 @@ class ReadoutCorner(enum.StrEnum):
         bring the readout corner to ``LL``.
         """
         return YX(
-            y=self is ReadoutCorner.LL or self is ReadoutCorner.LR,
-            x=self is ReadoutCorner.UR or self is ReadoutCorner.UR,
+            y=self is ReadoutCorner.UL or self is ReadoutCorner.UR,
+            x=self is ReadoutCorner.LR or self is ReadoutCorner.UR,
         )
 
     @classmethod
@@ -484,7 +484,7 @@ class Detector:
         amplifiers: Iterable[Amplifier],
         frames: CameraFrameSet,
         visit: int | None = None,
-    ):
+    ) -> None:
         self._attributes = attributes
         self._amplifiers = list(amplifiers)
         self._frames = frames
@@ -628,7 +628,7 @@ class Detector:
         """Return the serialization model type for this object for an archive
         type that uses the given pointer type.
         """
-        return DetectorSerializationModel  # type: ignore
+        return DetectorSerializationModel
 
     def to_legacy(self, *, is_raw_assembled: bool | None = None) -> LegacyDetector:
         """Convert to a legacy `lsst.afw.cameraGeom.Detector` instance.

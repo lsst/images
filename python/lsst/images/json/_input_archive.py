@@ -105,7 +105,7 @@ class JsonInputArchive(InputArchive[JsonRef]):
         finally:
             tree.indirect = []
 
-    def __init__(self, indirect: list[Any] | None = None):
+    def __init__(self, indirect: list[Any] | None = None) -> None:
         self._indirect = indirect if indirect is not None else []
         self._deserialized_pointer_cache: dict[int, Any] = {}
 

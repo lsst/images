@@ -74,13 +74,26 @@ class SkyProjection[F: Frame]:
 
     def __init__(
         self, pixel_to_sky: Transform[F, SkyFrame], fits_approximation: Transform[F, SkyFrame] | None = None
-    ):
+    ) -> None:
         self._pixel_to_sky = pixel_to_sky
         if pixel_to_sky.in_frame.unit != u.pix:
             raise ValueError("Transform is not a mapping from pixel coordinates.")
         if pixel_to_sky.out_frame != SkyFrame.ICRS:
             raise ValueError("Transform is not a mapping to ICRS.")
         self._fits_approximation = fits_approximation
+
+    def __eq__(self, other: Any) -> bool:
+        if self is other:
+            return True
+        if not isinstance(other, SkyProjection):
+            return NotImplemented
+        # Even though two approximations could be different and yet consistent
+        # with the primary mapping (for example using different tolerances
+        # on construction) we require them to be equal to declare that the
+        # two objects are equal.
+        if self._fits_approximation != other._fits_approximation:
+            return False
+        return self._pixel_to_sky == other._pixel_to_sky
 
     @staticmethod
     def from_fits_wcs(
@@ -392,7 +405,7 @@ class SkyProjectionAstropyView(BaseLowLevelWCS, HighLevelWCSMixin):
     only supports FITS WCS representations (see `SkyProjection.as_fits_wcs`).
     """
 
-    def __init__(self, ast_pixel_to_sky: astshim.Mapping, bbox: Box | None):
+    def __init__(self, ast_pixel_to_sky: astshim.Mapping, bbox: Box | None) -> None:
         self._bbox = bbox
         if bbox is not None:
             ast_pixel_to_sky = astshim.ShiftMap(list(bbox.start.xy)).then(ast_pixel_to_sky)

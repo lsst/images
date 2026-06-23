@@ -56,7 +56,7 @@ class ChebyshevField(BaseField):
 
     def __init__(
         self, bounds: Bounds, coefficients: np.ndarray, *, unit: astropy.units.UnitBase | None = None
-    ):
+    ) -> None:
         self._bounds = bounds
         self._coefficients = coefficients
         self._coefficients.flags.writeable = False

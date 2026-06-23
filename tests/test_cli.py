@@ -171,9 +171,10 @@ class ConvertDetectTestCase(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         path = os.path.join(tmp, "x.fits")
         hdu = astropy.io.fits.PrimaryHDU()
-        if dataset_type is not None:
-            hdu.header["LSST BUTLER DATASETTYPE"] = dataset_type
-        hdu.writeto(path)
+        with images_fits.suppress_fits_card_warnings():
+            if dataset_type is not None:
+                hdu.header["LSST BUTLER DATASETTYPE"] = dataset_type
+            hdu.writeto(path)
         return path
 
     def test_detect_visit_image(self) -> None:
@@ -325,6 +326,7 @@ class CliRegistrationTestCase(unittest.TestCase):
         self.assertIn("reformat", result.output)
         self.assertIn("extract-test-data", result.output)
         self.assertIn("verify-rewrite", result.output)
+        self.assertIn("fuzz-masked-image", result.output)
 
     def test_minify_help(self) -> None:
         result = CliRunner().invoke(main, ["minify", "--help"])
@@ -356,6 +358,7 @@ class CliRegistrationTestCase(unittest.TestCase):
             ["extract-test-data", "dp2", "-h"],
             ["verify-rewrite", "-h"],
             ["verify-rewrite", "stage4", "-h"],
+            ["fuzz-masked-image", "-h"],
         ):
             with self.subTest(args=args):
                 result = CliRunner().invoke(main, args)

@@ -113,7 +113,7 @@ class CellCoadd(MaskedImage):
         patch: PatchDefinition | None = None,
         provenance: CoaddProvenance | None = None,
         backgrounds: BackgroundMap | None = None,
-    ):
+    ) -> None:
         super().__init__(
             image,
             mask=mask,
@@ -491,7 +491,7 @@ class CellCoadd(MaskedImage):
             A mapping from legacy mask plane name to the new plane name and
             description.
         """
-        from frozendict import frozendict  # type: ignore[import-not-found]
+        from frozendict import frozendict
 
         from lsst.cell_coadds import CellIdentifiers as LegacyCellIdentifiers
         from lsst.cell_coadds import CoaddUnits as LegacyCoaddUnits
@@ -668,7 +668,7 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
         description="Background models associated with this image.",
     )
 
-    def deserialize(  # type: ignore[override]
+    def deserialize(
         self,
         archive: InputArchive[Any],
         *,
@@ -694,9 +694,10 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
             raise InvalidParameterError(f"Unrecognized parameters for CellCoadd: {set(kwargs.keys())}.")
         masked_image = super().deserialize(archive, bbox=bbox)
         mask_fractions = {
-            k.removeprefix("mask_fractions/"): v.deserialize(archive) for k, v in self.mask_fractions.items()
+            k.removeprefix("mask_fractions/"): v.deserialize(archive, bbox=bbox)
+            for k, v in self.mask_fractions.items()
         }
-        noise_realizations = [v.deserialize(archive) for v in self.noise_realizations]
+        noise_realizations = [v.deserialize(archive, bbox=bbox) for v in self.noise_realizations]
         sky_projection = self.sky_projection.deserialize(archive)
         psf = self.psf.deserialize(archive, bbox=bbox)
         aperture_corrections = (
@@ -735,4 +736,6 @@ class CellCoaddSerializationModel[P: pydantic.BaseModel](MaskedImageSerializatio
             case "aperture_corrections" if self.aperture_corrections is None:
                 # super() delegation handles the not-None case.
                 return {}
+            case "masked_image":
+                return super().deserialize(archive, **kwargs)
         return super().deserialize_component(component, archive, **kwargs)

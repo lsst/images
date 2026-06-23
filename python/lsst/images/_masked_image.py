@@ -30,7 +30,7 @@ from lsst.resources import ResourcePath, ResourcePathExpression
 from . import fits
 from ._generalized_image import GeneralizedImage
 from ._geom import Box
-from ._image import Image, ImageSerializationModel
+from ._image import DEFAULT_PIXEL_FRAME, Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._transforms import Frame, SkyProjection, SkyProjectionSerializationModel
 from .serialization import (
@@ -85,7 +85,7 @@ class MaskedImage(GeneralizedImage):
         mask_schema: MaskSchema | None = None,
         sky_projection: SkyProjection | None = None,
         metadata: dict[str, MetadataValue] | None = None,
-    ):
+    ) -> None:
         super().__init__(metadata)
         if sky_projection is None:
             sky_projection = image.sky_projection
@@ -133,8 +133,24 @@ class MaskedImage(GeneralizedImage):
 
     @property
     def mask(self) -> Mask:
-        """The mask plane (`~lsst.images.Mask`)."""
+        """The mask plane (`~lsst.images.Mask`).
+
+        Assigning a new `~lsst.images.Mask` (for example one returned by
+        `~lsst.images.Mask.add_planes`) replaces the mask plane.  The new mask
+        must share this image's bounding box; its sky projection is replaced
+        with the image's.
+        """
         return self._mask
+
+    @mask.setter
+    def mask(self, value: Mask) -> None:
+        if value.bbox != self._image.bbox:
+            raise ValueError(f"Image ({self._image.bbox}) and mask ({value.bbox}) bboxes do not agree.")
+        if self._image.sky_projection != value.sky_projection:
+            raise ValueError("Image sky projection and new mask sky projection do not agree")
+        # Use a view to ensure that the WCS instances across the masked image
+        # are the same projections.
+        self._mask = value.view(sky_projection=self._image.sky_projection)
 
     @property
     def variance(self) -> Image:
@@ -296,6 +312,91 @@ class MaskedImage(GeneralizedImage):
             variance=self.variance.to_legacy(copy=copy),
             dtype=self.image.array.dtype,
         )
+
+    @classmethod
+    def from_hdu_list(
+        cls,
+        hdu_list: astropy.io.fits.HDUList,
+        *,
+        fits_wcs_frame: Frame | None = DEFAULT_PIXEL_FRAME,
+    ) -> MaskedImage:
+        """Reconstruct a `~lsst.images.MaskedImage` from a cut-down
+        ``lsst.images`` FITS HDU list.
+
+        This assumes the ``PRIMARY``, ``IMAGE``, ``MASK``, and ``VARIANCE``
+        HDUs written for the masked-image cut-outs produced by
+        ``dax_images_cutout``: a real ``lsst.images`` file with its JSON-tree,
+        index, and any nested-archive HDUs dropped.  The reconstructed object
+        can be re-serialized as a normal ``lsst.images`` file (with schema and
+        index) so it can be read with the full ``lsst.images`` infrastructure.
+
+        Parameters
+        ----------
+        hdu_list
+            HDU list with ``IMAGE``, ``MASK``, and ``VARIANCE`` extensions and
+            a primary HDU.
+        fits_wcs_frame
+            Pixel-grid `~lsst.images.Frame` for the
+            `~lsst.images.SkyProjection` reconstructed from the FITS WCS.
+            Defaults to a plain pixel frame; pass `None` to skip attaching a
+            projection.
+
+        Returns
+        -------
+        `~lsst.images.MaskedImage`
+            The reconstructed masked image.
+
+        Raises
+        ------
+        ValueError
+            Raised if the ``MASK`` HDU has neither ``MSKN`` nor ``MP_`` mask-
+            plane cards, since the mask schema cannot then be reconstructed, or
+            if ``hdu_list`` contains more than one ``MASK`` HDU (multiple
+            ``MASK`` extensions, distinguished by ``EXTVER``, are not handled
+            here and would otherwise be silently dropped).
+
+        Notes
+        -----
+        Both mask-plane conventions are supported: the self-describing
+        ``MSKN``/``MSKM``/``MSKD`` cards written by ``lsst.images``, and the
+        legacy `lsst.afw.image` ``MP_*`` cards (as produced by
+        ``dax_images_cutout`` from afw-written images).  Legacy masks are
+        mapped to a new schema with the same plane-guessing used by
+        `read_legacy`.
+
+        Unlike `read_legacy`, the legacy ``MP_*`` mask-plane cards are kept
+        (not stripped) for backwards compatibility, since this path
+        reconstructs a file that may still be read by legacy tooling.  They are
+        re-indexed to the reshuffled schema so each ``MP_`` bit matches the
+        plane's position in the written ``MSKN`` layout.
+
+        The headers of the HDUs in ``hdu_list`` are modified in place: the WCS
+        and mask-schema cards interpreted here are stripped from the caller's
+        headers.
+        """
+        n_mask_hdus = sum(1 for hdu in hdu_list if hdu.name == "MASK")
+        if n_mask_hdus > 1:
+            raise ValueError(
+                f"Found {n_mask_hdus} MASK HDUs; from_hdu_list supports only a single MASK "
+                "extension and would otherwise silently drop mask information from the others."
+            )
+        mask_hdu = hdu_list["MASK"]
+        if not any(card.keyword.startswith(("MSKN", "MP_")) for card in mask_hdu.header.cards):
+            raise ValueError("MASK HDU has no MSKN or MP_ cards; cannot reconstruct the mask schema.")
+        opaque_metadata = fits.FitsOpaqueMetadata()
+        opaque_metadata.add_cutdown_primary_header(hdu_list[0].header)
+        image = Image._read_legacy_hdu(
+            hdu_list["IMAGE"], opaque_metadata, preserve_bintable=None, fits_wcs_frame=fits_wcs_frame
+        )
+        mask = Mask._read_legacy_hdu(
+            mask_hdu, opaque_metadata, fits_wcs_frame=None, strip_legacy_planes=False
+        )
+        variance = Image._read_legacy_hdu(
+            hdu_list["VARIANCE"], opaque_metadata, preserve_bintable=None, fits_wcs_frame=None
+        )
+        result = cls(image, mask=mask, variance=variance)
+        result._opaque_metadata = opaque_metadata
+        return result
 
     @staticmethod
     def read_legacy(

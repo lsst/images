@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("ArchiveInfo", "InputArchive")
+__all__ = ("ArchiveInfo", "DetachedArchive", "InputArchive")
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -28,7 +28,13 @@ import pydantic
 from lsst.resources import ResourcePath, ResourcePathExpression
 
 from ._asdf_utils import ArrayReferenceModel, InlineArrayModel
-from ._common import SCHEMA_URL_HOST, ArchiveTree, OpaqueArchiveMetadata, no_header_updates
+from ._common import (
+    SCHEMA_URL_HOST,
+    ArchiveAccessRequiredError,
+    ArchiveTree,
+    OpaqueArchiveMetadata,
+    no_header_updates,
+)
 from ._tables import TableModel
 
 if TYPE_CHECKING:
@@ -278,3 +284,55 @@ class InputArchive[P: pydantic.BaseModel](ABC):
             round-tripped if it is saved in the same format.
         """
         return None
+
+
+class DetachedArchive(InputArchive[Any]):
+    """An input archive that is not attached to any file.
+
+    Every method that would read data from a file raises
+    `ArchiveAccessRequiredError`.
+
+    Notes
+    -----
+    Passing an instance to `ArchiveTree.deserialize_component` probes
+    whether a component can be deserialized from the tree alone: success
+    means no file access was needed, while `ArchiveAccessRequiredError`
+    means the caller must use a live archive instead.  Instances hold no
+    state, so a single instance can be shared by any number of probes.
+    """
+
+    def deserialize_pointer[U: ArchiveTree, V](
+        self, pointer: Any, model_type: type[U], deserializer: Callable[[U, InputArchive[Any]], V]
+    ) -> V:
+        # Docstring inherited.
+        raise ArchiveAccessRequiredError("Dereferencing an archive pointer requires file access.")
+
+    def get_frame_set(self, ref: Any) -> FrameSet:
+        # Docstring inherited.
+        raise ArchiveAccessRequiredError("Reading a frame set requires file access.")
+
+    def get_array(
+        self,
+        model: ArrayReferenceModel | InlineArrayModel,
+        *,
+        slices: tuple[slice, ...] | EllipsisType = ...,
+        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> np.ndarray:
+        # Docstring inherited.
+        raise ArchiveAccessRequiredError("Reading an array requires file access.")
+
+    def get_table(
+        self,
+        model: TableModel,
+        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> astropy.table.Table:
+        # Docstring inherited.
+        raise ArchiveAccessRequiredError("Reading a table requires file access.")
+
+    def get_structured_array(
+        self,
+        model: TableModel,
+        strip_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
+    ) -> np.ndarray:
+        # Docstring inherited.
+        raise ArchiveAccessRequiredError("Reading a structured array requires file access.")

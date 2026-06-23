@@ -42,6 +42,8 @@ import pydantic
 import pydantic_core.core_schema as pcs
 from pydantic.json_schema import GetJsonSchemaHandler, JsonSchemaValue
 
+from .utils import round_half_down, round_half_up
+
 if TYPE_CHECKING:
     from ._concrete_bounds import SerializableBounds
 
@@ -178,7 +180,7 @@ class Interval:
     Pydantic model itself.
     """
 
-    def __init__(self, start: int, stop: int):
+    def __init__(self, start: int, stop: int) -> None:
         # Coerce to be defensive against numpy int scalars.
         self._start = int(start)
         self._stop = int(stop)
@@ -494,7 +496,7 @@ class IntervalSliceFactory:
     `~collections.abc.Sequence` indexing).
     """
 
-    def __init__(self, parent: Interval | None = None, is_local: bool = False):
+    def __init__(self, parent: Interval | None = None, is_local: bool = False) -> None:
         self._parent = parent
         self._is_local = is_local
 
@@ -551,7 +553,7 @@ class Box:
     Pydantic model itself.
     """
 
-    def __init__(self, y: Interval, x: Interval):
+    def __init__(self, y: Interval, x: Interval) -> None:
         self._intervals = YX(y, x)
 
     __slots__ = ("_intervals",)
@@ -592,6 +594,32 @@ class Box:
             case _:
                 raise ValueError(f"Invalid sequence for start: {start!r}.")
         return Box(y=Interval.from_size(y_size, start=y_start), x=Interval.from_size(x_size, start=x_start))
+
+    @classmethod
+    def from_float_bounds(cls, *, x_min: float, x_max: float, y_min: float, y_max: float) -> Box:
+        """Construct a box from floating-point bounds ensuring that all the
+        are contained in the new box.
+
+        Parameters
+        ----------
+        x_min
+            Minimum X value.
+        x_max
+            Maximum X value.
+        y_min
+            Minimum Y value.
+        y_max
+            Maximum Y value.
+
+        Notes
+        -----
+        Uses the same rounding convention as `lsst.images.Region.bbox`, so that
+        pixels whose centers lie within the bounds are included.
+        """
+        return Box.factory[
+            round_half_up(y_min) : round_half_down(y_max) + 1,
+            round_half_up(x_min) : round_half_down(x_max) + 1,
+        ]
 
     @property
     def min(self) -> YX[int]:
@@ -927,7 +955,7 @@ class BoxSliceFactory:
 
     def __init__(
         self, y: IntervalSliceFactory = Interval.factory, x: IntervalSliceFactory = Interval.factory
-    ):
+    ) -> None:
         self._y = y
         self._x = x
 

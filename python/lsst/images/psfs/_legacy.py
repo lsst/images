@@ -42,7 +42,7 @@ class LegacyPointSpreadFunction(PointSpreadFunction):
     but subclasses (e.g. `PSFExWrapper`) must be used for serialization.
     """
 
-    def __init__(self, impl: Any, bounds: Bounds):
+    def __init__(self, impl: Any, bounds: Bounds) -> None:
         self._impl = impl
         self._bounds = bounds
 
@@ -97,7 +97,7 @@ class LegacyPointSpreadFunction(PointSpreadFunction):
 class PSFExWrapper(LegacyPointSpreadFunction):
     """A specialization of LegacyPointSpreadFunction for the PSFEx backend."""
 
-    def __init__(self, impl: Any, bounds: Bounds):
+    def __init__(self, impl: Any, bounds: Bounds) -> None:
         from lsst.meas.extensions.psfex import PsfexPsf
 
         if not isinstance(impl, PsfexPsf):

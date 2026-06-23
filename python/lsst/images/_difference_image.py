@@ -125,7 +125,7 @@ class DifferenceImage(VisitImage):
         backgrounds: BackgroundMap | None = None,
         band: str,
         metadata: dict[str, MetadataValue] | None = None,
-    ):
+    ) -> None:
         super().__init__(
             image,
             mask=mask,
@@ -371,8 +371,8 @@ class DifferenceImageSerializationModel[P: pydantic.BaseModel](VisitImageSeriali
         return DifferenceImage._from_visit_image(super().deserialize(archive, bbox=bbox))
 
     def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
-        if kwargs and component not in ("image", "mask", "variance"):
+        if kwargs and component not in ("image", "mask", "variance", "masked_image"):
             raise InvalidParameterError(
                 f"Unsupported parameters for DifferenceImage component {component}: {set(kwargs.keys())}."
             )
-        return super().deserialize_component(component, archive)
+        return super().deserialize_component(component, archive, **kwargs)

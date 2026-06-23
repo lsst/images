@@ -14,13 +14,13 @@ from __future__ import annotations
 __all__ = ("FitsOutputArchive", "write")
 
 import dataclasses
-import warnings
 from collections.abc import Callable, Hashable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, Self
 
 import astropy.io.fits
 import astropy.table
+import astropy.time
 import numpy as np
 import pydantic
 
@@ -45,6 +45,7 @@ from ._common import (
     FitsCompressionOptions,
     FitsOpaqueMetadata,
     PointerModel,
+    suppress_fits_card_warnings,
 )
 
 _FITS_FORMAT_VERSION = 1
@@ -53,6 +54,24 @@ _FITS_FORMAT_VERSION = 1
 Bumps when the on-disk FITS layout (HDU placement, INDX/JSON keyword schema)
 changes. Independent of any data-model ``SCHEMA_VERSION``.
 """
+
+
+def _set_creation_date(header: astropy.io.fits.Header) -> None:
+    """Record the current UTC time in the ``DATE`` card of a FITS header.
+
+    Parameters
+    ----------
+    header
+        Header to modify in place.
+
+    Notes
+    -----
+    The FITS standard requires every HDU to record the UTC date and time its
+    header was created via a ``DATE`` card in ``YYYY-MM-DDThh:mm:ss[.sss]``
+    form.  Any pre-existing ``DATE`` card (such as one preserved from an input
+    archive) is overwritten in place so the value reflects this write.
+    """
+    header.set("DATE", astropy.time.Time.now().fits, "UTC date this HDU was written.")
 
 
 def write(
@@ -124,7 +143,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
         opaque_metadata: Any = None,
         compression_seed: int | None = None,
-    ):
+    ) -> None:
         super().__init__()
         # JSON blobs for objects we've saved as pointers:
         self._pointer_targets: list[bytes] = []
@@ -185,28 +204,23 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         `contextlib.AbstractContextManager` [`FitsOutputArchive`]
             A context manager that returns a `FitsOutputArchive` when entered.
         """
-        with astropy.io.fits.open(filename, mode="append") as hdu_list:
+        # Astropy auto-fixes over-long keywords (HIERARCH) and comments
+        # (truncation) as cards are created and written, but doesn't honor its
+        # own output_verify option for these warnings, so we filter them out
+        # across the write of the main HDUs.
+        with suppress_fits_card_warnings(), astropy.io.fits.open(filename, mode="append") as hdu_list:
             if hdu_list:
                 raise OSError(f"File {filename!r} already exists.")
             archive = cls(hdu_list, compression_options, opaque_metadata, compression_seed=compression_seed)
             update_header(hdu_list[0].header)
+            # Set the creation date after update_header so a caller's callback
+            # cannot leave a stale DATE in the primary header; this card must
+            # always record the time of this write.
+            _set_creation_date(hdu_list[0].header)
             yield archive
             if not archive._json_hdu_added:
                 raise RuntimeError("Write context exited without 'add_tree' being called.")
-            # If a header card has a long string that required CONTINUE,
-            # Astropy will truncate the comment and warn without reporting
-            # what the offending card is.  But it doesn't look at its own
-            # output_verify kwarg when doing that, and it doesn't actually
-            # trigger if you try to format the header cards one at a time!
-            # So we have no choice but to silence the warnings manually, until
-            # we can get Astropy fixed.
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    "ignore",
-                    message="comment will be truncated",
-                    category=astropy.io.fits.verify.VerifyWarning,
-                )
-                hdu_list.flush()
+            hdu_list.flush()
         # This multi-open dance is necessary to get Astropy to tell us the
         # byte addresses of the HDUs.  Hopefully we can get an upstream change
         # make this unnecessary at some point.
@@ -366,6 +380,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         update_header(hdu.header)
         if (opaque_headers := self._opaque_metadata.headers.get(key)) is not None:
             hdu.header.extend(opaque_headers)
+        _set_creation_date(hdu.header)
         self._hdu_list.append(hdu)
         return key
 
@@ -389,6 +404,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         json_hdu.data[0][JSON_COLUMN] = np.frombuffer(tree.model_dump_json().encode(), dtype=np.byte)
         for n, json_target_data in enumerate(self._pointer_targets):
             json_hdu.data[n + 1][JSON_COLUMN] = np.frombuffer(json_target_data, dtype=np.byte)
+        _set_creation_date(json_hdu.header)
         self._hdu_list.append(json_hdu)
         self._json_hdu_added = True
 
@@ -426,12 +442,21 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
         # EXTNAMEs get super long, which is not likely (but maybe something to
         # guard against).
         max_name_size = max(len(hdu.header.get("EXTNAME", "")) for hdu in hdu_list)
+        # Attach the ZIMAGE values as a boolean array on the Column itself.
+        # Astropy only fills a logical column's raw bytes with 'F' as the
+        # default (rather than NULL, 0x00) when the bool array is present at
+        # construction; assigning False element-wise after construction leaves
+        # the byte as NULL under Astropy 8.0.0, which warns on every read.
+        # Should be fixed in v8.0.1.
+        # See https://github.com/astropy/astropy/pull/19939
+        # but pre-allocating the entire column works in v7 and v8.
+        zimage = np.array([hdu.header.get("ZIMAGE", False) for hdu in hdu_list], dtype=bool)
         index_hdu = astropy.io.fits.BinTableHDU.from_columns(
             [
                 astropy.io.fits.Column("EXTNAME", f"A{max_name_size}"),
                 astropy.io.fits.Column("EXTVER", "J"),
                 astropy.io.fits.Column("XTENSION", "A8"),
-                astropy.io.fits.Column("ZIMAGE", "L"),
+                astropy.io.fits.Column("ZIMAGE", "L", array=zimage),
             ]
             + _HDUBytes.get_index_hdu_columns(),
             nrows=len(hdu_list),
@@ -442,9 +467,9 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
             index_hdu.data[n]["EXTNAME"] = hdu.header.get("EXTNAME", "")
             index_hdu.data[n]["EXTVER"] = hdu.header.get("EXTVER", 1)
             index_hdu.data[n]["XTENSION"] = hdu.header.get("XTENSION", "IMAGE")
-            index_hdu.data[n]["ZIMAGE"] = hdu.header.get("ZIMAGE", False)
             bytes = _HDUBytes.from_read_hdu(hdu)
             bytes.update_index_row(index_hdu.data[n])
+        _set_creation_date(index_hdu.header)
         return index_hdu
 
 

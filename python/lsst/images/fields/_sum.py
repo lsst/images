@@ -44,7 +44,7 @@ class SumField(BaseField):
         The fields to sum together.
     """
 
-    def __init__(self, operands: Iterable[Field]):
+    def __init__(self, operands: Iterable[Field]) -> None:
         self._operands = tuple(operands)
         if not self._operands:
             raise ValueError("At least one operand must be provided.")

@@ -44,7 +44,7 @@ class ProductField(BaseField):
         The fields to multiply together.
     """
 
-    def __init__(self, operands: Iterable[Field]):
+    def __init__(self, operands: Iterable[Field]) -> None:
         self._operands = tuple(operands)
         if not self._operands:
             raise ValueError("At least one operand must be provided.")
@@ -162,9 +162,7 @@ class ProductField(BaseField):
 
         # Not all Field types have a to_legacy, since they don't all have an
         # afw analog.  But we just let that "no method" exception propagate.
-        return ProductBoundedField(
-            [operand.to_legacy() for operand in self._operands]  # type: ignore[union-attr]
-        )
+        return ProductBoundedField([operand.to_legacy() for operand in self._operands])
 
 
 class ProductFieldSerializationModel(ArchiveTree):

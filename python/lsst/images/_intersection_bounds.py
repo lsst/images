@@ -28,7 +28,7 @@ class IntersectionBounds:
     intersection of two other `Bounds` objects.
     """
 
-    def __init__(self, a: Bounds, b: Bounds):
+    def __init__(self, a: Bounds, b: Bounds) -> None:
         self._a = a
         self._b = b
 

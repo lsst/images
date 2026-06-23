@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ()
 
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import click
 import numpy as np
@@ -168,7 +168,7 @@ def extract_skymap(butler: Butler, output_path: str, dataset_ref: DatasetRef) ->
 
 
 def find_dataset_or_raise(
-    butler: Butler, dataset_type: str, *, collections: str | None = None, **kwargs
+    butler: Butler, dataset_type: str, *, collections: str | None = None, **kwargs: Any
 ) -> DatasetRef:
     """Call `lsst.daf.butler.Butler.find_dataset` with the given arguments and
     raise `LookupError` if it returns `None`.

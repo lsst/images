@@ -30,7 +30,7 @@ from lsst.resources import ResourcePath, ResourcePathExpression
 from . import fits
 from ._generalized_image import GeneralizedImage
 from ._geom import YX, Box
-from ._transforms import Frame, SkyProjection, SkyProjectionSerializationModel
+from ._transforms import Frame, GeneralFrame, SkyProjection, SkyProjectionSerializationModel
 from .serialization import (
     ArchiveTree,
     ArrayReferenceModel,
@@ -50,6 +50,13 @@ if TYPE_CHECKING:
         from lsst.afw.image import Image as LegacyImage
     except ImportError:
         type LegacyImage = Any  # type: ignore[no-redef]
+
+
+DEFAULT_PIXEL_FRAME = GeneralFrame(unit=astropy.units.pix)
+"""The pixel-grid `Frame` assumed when reconstructing a `SkyProjection` from a
+FITS header that does not otherwise identify its pixel frame, consistent with
+the FITS standard's notion of a plain pixel axis.
+"""
 
 
 @final
@@ -115,7 +122,7 @@ class Image(GeneralizedImage):
         unit: astropy.units.UnitBase | None = None,
         sky_projection: SkyProjection[Any] | None = None,
         metadata: dict[str, MetadataValue] | None = None,
-    ):
+    ) -> None:
         super().__init__(metadata)
         if isinstance(array_or_fill, np.ndarray):
             if dtype is not None:
@@ -371,6 +378,51 @@ class Image(GeneralizedImage):
             xy0=lsst.geom.Point2I(self._bbox.x.min, self._bbox.y.min),
         )
 
+    @classmethod
+    def from_hdu_list(
+        cls,
+        hdu_list: astropy.io.fits.HDUList,
+        *,
+        fits_wcs_frame: Frame | None = DEFAULT_PIXEL_FRAME,
+    ) -> Image:
+        """Reconstruct an `~lsst.images.Image` from a cut-down ``lsst.images``
+        HDU list.
+
+        This reads only the first two HDUs (the primary HDU and the image
+        HDU), as written for the image-only cut-outs produced by
+        ``dax_images_cutout``: a real ``lsst.images`` file with its JSON-tree,
+        index, and any nested-archive HDUs dropped.
+
+        Parameters
+        ----------
+        hdu_list
+            HDU list whose first HDU is the primary header and whose second
+            HDU holds the image pixels.
+        fits_wcs_frame
+            Pixel-grid `~lsst.images.Frame` for the
+            `~lsst.images.SkyProjection` reconstructed from the image HDU's
+            FITS WCS.  Defaults to a plain pixel frame; pass `None` to skip
+            attaching a projection.
+
+        Returns
+        -------
+        `~lsst.images.Image`
+            The reconstructed image, ready to be re-serialized as a normal
+            ``lsst.images`` file.
+
+        Notes
+        -----
+        The headers of the consumed HDUs are modified in place (WCS and other
+        interpreted cards are stripped), as in `read_legacy`.
+        """
+        opaque_metadata = fits.FitsOpaqueMetadata()
+        opaque_metadata.add_cutdown_primary_header(hdu_list[0].header)
+        result = cls._read_legacy_hdu(
+            hdu_list[1], opaque_metadata, preserve_bintable=None, fits_wcs_frame=fits_wcs_frame
+        )
+        result._opaque_metadata = opaque_metadata
+        return result
+
     @staticmethod
     def read_legacy(
         uri: ResourcePathExpression,
@@ -439,9 +491,9 @@ class Image(GeneralizedImage):
                     unit = astropy.units.electron
                 if unit == astropy.units.adu**2:
                     unit = astropy.units.electron**2
-        dx: int = hdu.header.pop("LTV1")
-        dy: int = hdu.header.pop("LTV2")
-        yx0 = YX(y=-dy, x=-dx)
+        yx0 = fits.read_yx0(hdu.header)
+        hdu.header.remove("LTV1", ignore_missing=True)
+        hdu.header.remove("LTV2", ignore_missing=True)
         read_only: bool = False
         if preserve_bintable is not None:
             opaque_metadata.precompressed[hdu.name] = fits.PrecompressedImage.from_bintable(preserve_bintable)

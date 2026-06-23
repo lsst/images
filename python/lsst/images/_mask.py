@@ -19,6 +19,7 @@ __all__ = (
     "MaskSerializationModel",
     "get_legacy_deep_coadd_mask_planes",
     "get_legacy_difference_image_mask_planes",
+    "get_legacy_non_cell_coadd_mask_planes",
     "get_legacy_visit_image_mask_planes",
 )
 
@@ -74,7 +75,7 @@ class MaskPlane:
     """Human-readable documentation for the mask plane (`str`)."""
 
     @classmethod
-    def read_legacy(cls, header: astropy.io.fits.Header) -> dict[str, int]:
+    def read_legacy(cls, header: astropy.io.fits.Header, *, strip: bool = True) -> dict[str, int]:
         """Read mask plane descriptions written by
         `lsst.afw.image.Mask.writeFits`.
 
@@ -82,6 +83,12 @@ class MaskPlane:
         ----------
         header
             FITS header.
+        strip
+            If `True` (default), delete the ``MP_`` cards from the header after
+            reading them, as appropriate when the mask is being reinterpreted
+            for new code only.  If `False`, leave them in place so they can be
+            propagated for backwards compatibility (re-indexed to the new
+            schema by the caller).
 
         Returns
         -------
@@ -92,7 +99,8 @@ class MaskPlane:
         for card in list(header.cards):
             if card.keyword.startswith("MP_"):
                 result[card.keyword.removeprefix("MP_")] = card.value
-                del header[card.keyword]
+                if strip:
+                    del header[card.keyword]
         return result
 
 
@@ -149,7 +157,7 @@ class MaskSchema:
     added.
     """
 
-    def __init__(self, planes: Iterable[MaskPlane | None], dtype: npt.DTypeLike = np.uint8):
+    def __init__(self, planes: Iterable[MaskPlane | None], dtype: npt.DTypeLike = np.uint8) -> None:
         self._planes: tuple[MaskPlane | None, ...] = tuple(planes) or (None,)
         self._dtype = cast(np.dtype[np.integer], np.dtype(dtype))
         stride = self.bits_per_element(self._dtype)
@@ -307,6 +315,43 @@ class MaskSchema:
                 header.remove(f"MSKM{n:04d}", ignore_missing=True)
                 header.remove(f"MSKD{n:04d}", ignore_missing=True)
 
+    @classmethod
+    def from_fits_header(cls, header: astropy.io.fits.Header, dtype: npt.DTypeLike = np.uint8) -> MaskSchema:
+        """Reconstruct a schema from the ``MSKN``/``MSKD`` cards written by
+        `update_header`.
+
+        Parameters
+        ----------
+        header
+            FITS header containing ``MSKN{n:04d}`` plane-name cards and
+            ``MSKD{n:04d}`` description cards.
+        dtype
+            Data type of the mask arrays that will use this schema.  The cards
+            describe a ``mask_size==1`` serialized form and do not record the
+            in-memory dtype, so the caller must supply it; it defaults to the
+            same ``uint8`` used by the `Mask` constructor.
+
+        Returns
+        -------
+        `MaskSchema`
+            Schema whose planes are ordered by their ``MSKN`` index, with
+            `None` placeholders inserted for any gaps in that numbering.
+
+        Raises
+        ------
+        ValueError
+            Raised if the header contains no ``MSKN`` cards.
+        """
+        planes_by_index: dict[int, MaskPlane] = {}
+        for card in header.cards:
+            if card.keyword.startswith("MSKN"):
+                n = int(card.keyword.removeprefix("MSKN"))
+                planes_by_index[n] = MaskPlane(card.value, header.get(f"MSKD{n:04d}", ""))
+        if not planes_by_index:
+            raise ValueError("Header has no MSKN cards describing a mask schema.")
+        planes = [planes_by_index.get(n) for n in range(max(planes_by_index) + 1)]
+        return cls(planes, dtype=dtype)
+
 
 class Mask(GeneralizedImage):
     """A 2-d bitmask image backed by a 3-d byte array.
@@ -359,7 +404,7 @@ class Mask(GeneralizedImage):
         shape: Sequence[int] | None = None,
         sky_projection: SkyProjection | None = None,
         metadata: dict[str, MetadataValue] | None = None,
-    ):
+    ) -> None:
         super().__init__(metadata)
         if shape is not None:
             shape = tuple(shape)
@@ -578,6 +623,87 @@ class Mask(GeneralizedImage):
         else:
             bit = self.schema.bit(plane)
             self._array[boolean_mask, bit.index] &= ~bit.mask
+
+    def add_plane(self, name: str, description: str) -> Mask:
+        """Return a new mask with one additional mask plane.
+
+        This is a convenience wrapper around `add_planes` for the common case
+        of adding a single plane.
+
+        Parameters
+        ----------
+        name
+            Unique name for the new mask plane.
+        description
+            Human-readable documentation for the new mask plane.
+
+        Returns
+        -------
+        `Mask`
+            A new mask whose schema includes the new plane; see `add_planes`
+            for the reallocation and view semantics.
+
+        Raises
+        ------
+        ValueError
+            Raised if a plane named ``name`` already exists.
+        """
+        return self.add_planes([MaskPlane(name, description)])
+
+    def add_planes(self, planes: Iterable[MaskPlane | None], *, drop: Iterable[str] = ()) -> Mask:
+        """Return a new mask with planes added and/or dropped.
+
+        Parameters
+        ----------
+        planes
+            New mask planes to append, in order, after the planes retained
+            from this mask.  `None` entries reserve unused bits (placeholders),
+            exactly as in `MaskSchema`.
+        drop
+            Names of existing planes to remove from the schema.
+
+        Returns
+        -------
+        `Mask`
+            A new mask with the updated schema.  Retained planes keep their
+            pixel values (copied by name); newly added planes start cleared.
+
+        Raises
+        ------
+        ValueError
+            Raised if a name in ``drop`` is not an existing plane, or if a
+            plane in ``planes`` collides with a retained plane name.
+
+        Notes
+        -----
+        Adding or dropping planes always reallocates the backing array and
+        returns a new `Mask`; this mask is left unchanged and any views or
+        subimages of it continue to refer to the original array with the
+        original schema.  This is deliberate: there is no way to update the
+        schema of an existing view, and a stale view must never set bits that
+        its now-outdated schema regards as unused.  Dropping a plane compacts
+        the schema, so planes after it are reassigned to lower bits and the
+        pixel values are repacked by plane name to match.
+        """
+        drop_set = set(drop)
+        if unknown := drop_set - set(self._schema.names):
+            raise ValueError(f"Cannot drop mask planes that do not exist: {sorted(unknown)}.")
+        retained = [plane for plane in self._schema if plane is None or plane.name not in drop_set]
+        names = {plane.name for plane in retained if plane is not None}
+        new_planes = list(planes)
+        for plane in new_planes:
+            if plane is None:
+                continue
+            if plane.name in names:
+                raise ValueError(f"Mask plane {plane.name!r} already exists.")
+            names.add(plane.name)
+        new_schema = MaskSchema([*retained, *new_planes], dtype=self._schema.dtype)
+        result = Mask(0, schema=new_schema, bbox=self._bbox, sky_projection=self._sky_projection)
+        # The retained planes are exactly the names common to both schemas, and
+        # ``result`` starts cleared and shares this mask's bbox, so ``update``
+        # transfers their pixel values (and nothing else) by name.
+        result.update(self)
+        return self._transfer_metadata(result, copy=True)
 
     def serialize[P: pydantic.BaseModel](
         self,
@@ -831,13 +957,13 @@ class Mask(GeneralizedImage):
         opaque_metadata: fits.FitsOpaqueMetadata,
         plane_map: Mapping[str, MaskPlane] | None = None,
         fits_wcs_frame: Frame | None = None,
+        strip_legacy_planes: bool = True,
     ) -> Mask:
         if isinstance(hdu, astropy.io.fits.BinTableHDU):
             hdu = astropy.io.fits.CompImageHDU(bintable=hdu)
-        dx: int = hdu.header.pop("LTV1")
-        dy: int = hdu.header.pop("LTV2")
-        yx0 = YX(y=-dy, x=-dx)
-        old_planes = MaskPlane.read_legacy(hdu.header)
+        yx0 = fits.read_yx0(hdu.header)
+        hdu.header.remove("LTV1", ignore_missing=True)
+        hdu.header.remove("LTV2", ignore_missing=True)
         sky_projection: SkyProjection | None = None
         if fits_wcs_frame is not None:
             try:
@@ -848,9 +974,31 @@ class Mask(GeneralizedImage):
                 sky_projection = SkyProjection.from_fits_wcs(
                     fits_wcs, pixel_frame=fits_wcs_frame, x0=yx0.x, y0=yx0.y
                 )
-        mask = Mask._from_legacy_array(
-            hdu.data, old_planes, yx0=yx0, plane_map=plane_map, sky_projection=sky_projection
-        )
+        if any(card.keyword.startswith("MSKN") for card in hdu.header.cards):
+            # New ``lsst.images`` form: plane definitions are self-describing
+            # via MSKN/MSKM/MSKD cards, so no plane_map is needed.  The on-disk
+            # array packs every plane into one element; ``set`` repacks each
+            # plane into the (default uint8) in-memory layout by name.
+            schema = MaskSchema.from_fits_header(hdu.header)
+            mask = Mask(0, schema=schema, yx0=yx0, shape=hdu.data.shape, sky_projection=sky_projection)
+            for n, plane in enumerate(schema):
+                if plane is not None:
+                    mask.set(plane.name, hdu.data & hdu.header.get(f"MSKM{n:04d}", 1 << n))
+            schema.strip_header(hdu.header)
+        else:
+            # Legacy ``lsst.afw.image`` form: bit indices in MP_* cards are
+            # mapped to new planes via ``plane_map``.
+            old_planes = MaskPlane.read_legacy(hdu.header, strip=strip_legacy_planes)
+            resolved_map = plane_map if plane_map is not None else _guess_legacy_plane_map(old_planes)
+            mask = Mask._from_legacy_array(
+                hdu.data, old_planes, yx0=yx0, plane_map=resolved_map, sky_projection=sky_projection
+            )
+            if not strip_legacy_planes:
+                # Keep the MP_ cards for backwards compatibility, but re-index
+                # them to the (reshuffled) positions of the new schema so a
+                # legacy reader sees each plane at the bit it is actually
+                # packed into on disk.
+                _reindex_legacy_plane_cards(hdu.header, old_planes, resolved_map, mask.schema)
         fits.strip_wcs_cards(hdu.header)
         hdu.header.strip()
         hdu.header.remove("EXTTYPE", ignore_missing=True)
@@ -918,6 +1066,15 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         """
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for Mask: {set(kwargs.keys())}.")
+
+        def strip_header_and_legacy_planes(header: astropy.io.fits.Header) -> None:
+            # The authoritative schema comes from the serialized tree, so drop
+            # any legacy MP_* cards (written only for afw compatibility in the
+            # legacy-cutout scenario) rather than carrying them as opaque
+            # metadata, where they could drift out of sync or be re-propagated.
+            strip_header(header)
+            _strip_legacy_plane_cards(header)
+
         slices: tuple[slice, ...] | EllipsisType = ...
         if bbox is not None:
             slices = bbox.slice_within(self.bbox)
@@ -929,7 +1086,9 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         sky_projection = self.sky_projection.deserialize(archive) if self.sky_projection is not None else None
         if len(self.data) == 1 and tuple(self.data[0].shape) == tuple(self.bbox.shape) + (schema.mask_size,):
             storage_slices = slices if slices is ... else (slice(None),) + slices
-            array = archive.get_array(self.data[0], strip_header=strip_header, slices=storage_slices)
+            array = archive.get_array(
+                self.data[0], strip_header=strip_header_and_legacy_planes, slices=storage_slices
+            )
             array = np.moveaxis(array, 0, -1)
             return Mask(array, schema=schema, bbox=bbox, sky_projection=sky_projection)._finish_deserialize(
                 self
@@ -942,7 +1101,12 @@ class MaskSerializationModel[P: pydantic.BaseModel](ArchiveTree):
             )
         for array_model, schema_2d in zip(self.data, schemas_2d):
             mask_2d = self._deserialize_2d(
-                array_model, schema_2d, bbox.start, archive, strip_header=strip_header, slices=slices
+                array_model,
+                schema_2d,
+                bbox.start,
+                archive,
+                strip_header=strip_header_and_legacy_planes,
+                slices=slices,
             )
             result.update(mask_2d)
         return result._finish_deserialize(self)
@@ -1074,6 +1238,34 @@ def get_legacy_deep_coadd_mask_planes() -> dict[str, MaskPlane]:
     }
 
 
+def get_legacy_non_cell_coadd_mask_planes() -> dict[str, MaskPlane]:
+    """Return a mapping from legacy mask plane name to `MaskPlane` instance
+    for LSST non-cell coadds such as ``template_coadd`` in DP2, and all
+    DP1 coadds.
+
+    These coadds carry the visit-level planes propagated from their input
+    warps in addition to the coadd-specific planes, and flag chip edges with
+    ``SENSOR_EDGE`` (cell coadds use ``CELL_EDGE`` instead).
+    """
+    result = get_legacy_deep_coadd_mask_planes()
+    result["BAD"] = MaskPlane("BAD", "Bad pixel in the instrument, including bad amplifiers.")
+    result["SUSPECT"] = MaskPlane("SUSPECT", "Pixel was close to the saturation level.")
+    result["CROSSTALK"] = MaskPlane("CROSSTALK", "Pixel was affected by crosstalk and corrected accordingly.")
+    result["DETECTED_NEGATIVE"] = MaskPlane(
+        "DETECTED_NEGATIVE", "Pixel was part of a detected source with negative flux."
+    )
+    result["NOT_DEBLENDED"] = MaskPlane(
+        "NOT_DEBLENDED",
+        "Pixel belonged to a detection that was not deblended, usually due to size limits.",
+    )
+    result["UNMASKEDNAN"] = MaskPlane("UNMASKED_NAN", "Pixel was found to be NaN unexpectedly.")
+    result["SENSOR_EDGE"] = MaskPlane(
+        "SENSOR_EDGE",
+        "Pixel is near the edge of a contributing sensor/chip, so the coadd PSF is discontinuous there.",
+    )
+    return result
+
+
 def _guess_legacy_plane_map(old_planes: Mapping[str, int]) -> dict[str, MaskPlane]:
     """Guess which of the ``get_legacy_*_plane_map`` created the given mask
     plane dictionary and call it.
@@ -1081,5 +1273,62 @@ def _guess_legacy_plane_map(old_planes: Mapping[str, int]) -> dict[str, MaskPlan
     if "SAT_TEMPLATE" in old_planes:
         return get_legacy_difference_image_mask_planes()
     if "INEXACT_PSF" in old_planes:
+        # Both cell and non-cell coadds have INEXACT_PSF, but only non-cell
+        # (assemble_coadd) coadds flag chip edges with SENSOR_EDGE; cell coadds
+        # use CELL_EDGE.
+        if "SENSOR_EDGE" in old_planes:
+            return get_legacy_non_cell_coadd_mask_planes()
         return get_legacy_deep_coadd_mask_planes()
     return get_legacy_visit_image_mask_planes()
+
+
+def _reindex_legacy_plane_cards(
+    header: astropy.io.fits.Header,
+    old_planes: Mapping[str, int],
+    plane_map: Mapping[str, MaskPlane],
+    schema: MaskSchema,
+) -> None:
+    """Rewrite retained legacy ``MP_`` cards in place to match a reshuffled
+    schema.
+
+    Parameters
+    ----------
+    header
+        Header whose ``MP_`` cards are updated in place.
+    old_planes
+        Mapping from legacy mask plane name to its original (on-disk) bit
+        index, as returned by `MaskPlane.read_legacy`.
+    plane_map
+        Mapping from legacy mask plane name to the `MaskPlane` it was remapped
+        to in ``schema``.
+    schema
+        The reconstructed schema that defines the new bit positions.
+
+    Notes
+    -----
+    Each ``MP_<legacy name>`` card is set to the index that its remapped plane
+    occupies in ``schema`` (equivalently, the ``MSKN`` index written on
+    serialization).  Cards for legacy planes that are not represented in the
+    new schema are removed, since they no longer correspond to any stored bit.
+    Legacy masks have at most 31 planes, so every plane maps to a single bit in
+    one on-disk element and the index is unambiguous.
+    """
+    new_index = {plane.name: n for n, plane in enumerate(schema) if plane is not None}
+    for old_name in old_planes:
+        keyword = f"MP_{old_name}"
+        new_plane = plane_map.get(old_name)
+        if new_plane is not None and (index := new_index.get(new_plane.name)) is not None:
+            header[keyword] = index
+        else:
+            del header[keyword]
+
+
+def _strip_legacy_plane_cards(header: astropy.io.fits.Header) -> None:
+    """Remove all legacy ``MP_*`` mask-plane cards from a FITS header.
+
+    These are written only so that legacy tooling can read masks reconstructed
+    from legacy cutouts; the ``lsst.images`` reader uses the serialized schema
+    instead, so it strips them rather than carrying them as opaque metadata.
+    """
+    for keyword in [card.keyword for card in header.cards if card.keyword.startswith("MP_")]:
+        del header[keyword]
