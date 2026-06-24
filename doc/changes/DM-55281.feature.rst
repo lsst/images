@@ -1,0 +1,3 @@
+* Added a ``lsst-images-admin diagram`` subcommand that renders the composition layout of a serialization model (e.g. ``visit-image`` or ``cell-coadd``) as Mermaid, Graphviz ``dot``, or an ASCII ``tree``.
+  By default it labels nodes with the public class names (``Image``, ``SkyProjection``, ...) and shows only model composition; pass ``--attributes`` to include scalar fields, ``--serialization-names`` to use the raw model names, ``--collapse``/``--expand``/``--expand-leaves`` to tune which helper models are drawn, and ``--hide-field``/``--hide-type`` to clip fields or whole types.
+  With ``--from-file`` it diagrams the concrete structure of a serialized file (reading only the reference tree, not pixels), collapsing unions such as the PSF to the type actually stored.

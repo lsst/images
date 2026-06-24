@@ -15,6 +15,7 @@ User Guide
    :maxdepth: 1
 
    for-afw-users.rst
+   model-diagrams.rst
 
 Changes
 =======
