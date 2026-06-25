@@ -236,6 +236,13 @@ def _resolve(annotation: object) -> object:
             return annotation
 
 
+def _strip_annotated(annotation: object) -> object:
+    """Unwrap ``Annotated`` layers while preserving type aliases."""
+    while hasattr(annotation, "__metadata__"):
+        annotation = getattr(annotation, "__origin__")
+    return annotation
+
+
 def _is_model(annotation: object) -> TypeGuard[type[pydantic.BaseModel]]:
     """Return whether ``annotation`` is a `pydantic.BaseModel` subclass."""
     return isinstance(annotation, type) and issubclass(annotation, pydantic.BaseModel)
@@ -268,22 +275,44 @@ def _type_str(annotation: object) -> str:
     return str(annotation).replace("typing.", "")
 
 
-def _models_in(args: tuple[object, ...]) -> tuple[list[type], bool]:
+def _models_in(
+    args: tuple[object, ...], seen_aliases: frozenset[int] = frozenset()
+) -> tuple[list[type], bool]:
     """Split union members into model types and a "something else" flag.
 
-    Nested unions are flattened; `None` is ignored (the optionality is
-    captured by the caller); anything else sets the "other" flag.
+    Nested unions and containers are flattened; `None` is ignored (the
+    optionality is captured by the caller); anything else sets the "other"
+    flag.
     """
     models: list[type] = []
     has_other = False
     for arg in args:
-        arg = _resolve(arg)
+        arg = _strip_annotated(arg)
+        if isinstance(arg, TypeAliasType):
+            alias_id = id(arg)
+            if alias_id in seen_aliases:
+                has_other = True
+                continue
+            sub_models, sub_other = _models_in((arg.__value__,), seen_aliases | {alias_id})
+            models.extend(sub_models)
+            has_other = has_other or sub_other
+            continue
         if arg is type(None):
             continue
         if _is_model(arg):
             models.append(arg)
         elif get_origin(arg) in _UNION_ORIGINS:
-            sub_models, sub_other = _models_in(get_args(arg))
+            sub_models, sub_other = _models_in(get_args(arg), seen_aliases)
+            models.extend(sub_models)
+            has_other = has_other or sub_other
+        elif get_origin(arg) in _SEQUENCE_ORIGINS:
+            sub_models, sub_other = _models_in(get_args(arg), seen_aliases)
+            models.extend(sub_models)
+            has_other = has_other or sub_other
+        elif get_origin(arg) in _MAPPING_ORIGINS:
+            mapping_args = get_args(arg)
+            value = (mapping_args[1],) if len(mapping_args) == 2 else ()
+            sub_models, sub_other = _models_in(value, seen_aliases)
             models.extend(sub_models)
             has_other = has_other or sub_other
         else:
@@ -373,7 +402,7 @@ def build_instance_graph(instance: pydantic.BaseModel, policy: Policy | None = N
     if policy is None:
         policy = Policy()
     nodes: dict[str, Node] = {}
-    root = _walk_instance(instance, nodes, policy)
+    root = _walk_instance(instance, nodes, policy, visited=set())
     return Graph(root=root, nodes=nodes)
 
 
@@ -387,25 +416,18 @@ def graph_from_file(path: str, policy: Policy | None = None) -> Graph:
         return build_instance_graph(reader.get_tree(), policy)
 
 
-def _distinct_by_type(values: list[pydantic.BaseModel]) -> list[pydantic.BaseModel]:
-    """Return one representative value per distinct concrete type, in order."""
-    seen: set[type] = set()
-    representatives: list[pydantic.BaseModel] = []
-    for value in values:
-        if type(value) not in seen:
-            seen.add(type(value))
-            representatives.append(value)
-    return representatives
-
-
-def _walk_instance(instance: pydantic.BaseModel, nodes: dict[str, Node], policy: Policy) -> str:
+def _walk_instance(
+    instance: pydantic.BaseModel, nodes: dict[str, Node], policy: Policy, visited: set[int]
+) -> str:
     """Add ``instance`` (and the models it holds) to ``nodes``; return key."""
     cls = type(instance)
     key = _key(cls)
-    if key in nodes:
+    if id(instance) in visited:
         return key
-    node = Node(key=key, label=_node_label(cls, policy), attributes=[], references=[])
-    nodes[key] = node
+    visited.add(id(instance))
+    if (node := nodes.get(key)) is None:
+        node = Node(key=key, label=_node_label(cls, policy), attributes=[], references=[])
+        nodes[key] = node
     if _type_names(cls) & policy.leaves:
         node.collapsed = True
         return key
@@ -413,11 +435,43 @@ def _walk_instance(instance: pydantic.BaseModel, nodes: dict[str, Node], policy:
         if name in policy.hide_fields:
             continue
         value = getattr(instance, name)
-        _add_instance_field(node, name, value, nodes, policy)
+        _add_instance_field(node, name, value, nodes, policy, visited)
     return key
 
 
-def _add_instance_field(node: Node, name: str, value: object, nodes: dict[str, Node], policy: Policy) -> None:
+def _merge_reference(node: Node, reference: Reference) -> None:
+    """Merge a newly observed instance reference into ``node``."""
+    node.attributes = [attribute for attribute in node.attributes if attribute.name != reference.name]
+    for existing in node.references:
+        if existing.name == reference.name and existing.cardinality == reference.cardinality:
+            for target in reference.targets:
+                if target not in existing.targets:
+                    existing.targets.append(target)
+            existing.has_other = existing.has_other or reference.has_other
+            return
+    node.references.append(reference)
+
+
+def _merge_attribute(node: Node, attribute: Attribute) -> None:
+    """Merge a newly observed scalar instance attribute into ``node``."""
+    if any(reference.name == attribute.name for reference in node.references):
+        return
+    for existing in node.attributes:
+        if existing.name == attribute.name:
+            if attribute.type_str not in existing.type_str.split(" | "):
+                existing.type_str += f" | {attribute.type_str}"
+            return
+    node.attributes.append(attribute)
+
+
+def _add_instance_field(
+    node: Node,
+    name: str,
+    value: object,
+    nodes: dict[str, Node],
+    policy: Policy,
+    visited: set[int],
+) -> None:
     """Classify a field *value* as a concrete-model reference or scalar.
 
     Instance mode reports only what the file actually holds: an empty container
@@ -426,8 +480,8 @@ def _add_instance_field(node: Node, name: str, value: object, nodes: dict[str, N
     if isinstance(value, pydantic.BaseModel):
         if _is_hidden_type(type(value), policy):
             return
-        target = _walk_instance(value, nodes, policy)
-        node.references.append(Reference(name=name, targets=[target], cardinality="one"))
+        target = _walk_instance(value, nodes, policy, visited)
+        _merge_reference(node, Reference(name=name, targets=[target], cardinality="one"))
         return
     if isinstance(value, Mapping):
         models = [v for v in value.values() if isinstance(v, pydantic.BaseModel)]
@@ -440,14 +494,18 @@ def _add_instance_field(node: Node, name: str, value: object, nodes: dict[str, N
         cardinality = ""
     models = [model for model in models if not _is_hidden_type(type(model), policy)]
     if models:
-        targets = [_walk_instance(v, nodes, policy) for v in _distinct_by_type(models)]
-        node.references.append(Reference(name=name, targets=targets, cardinality=cardinality))
+        targets: list[str] = []
+        for model in models:
+            target = _walk_instance(model, nodes, policy, visited)
+            if target not in targets:
+                targets.append(target)
+        _merge_reference(node, Reference(name=name, targets=targets, cardinality=cardinality))
     elif not policy.include_attributes:
         return
     elif value is None:
-        node.attributes.append(Attribute(name=name, type_str="None"))
+        _merge_attribute(node, Attribute(name=name, type_str="None"))
     else:
-        node.attributes.append(Attribute(name=name, type_str=type(value).__name__))
+        _merge_attribute(node, Attribute(name=name, type_str=type(value).__name__))
 
 
 def render(graph: Graph, fmt: str) -> str:

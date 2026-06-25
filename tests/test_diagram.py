@@ -63,6 +63,13 @@ class Containers(pydantic.BaseModel):
     open_union: Child | Any
 
 
+class OptionalContainers(pydantic.BaseModel):
+    """A model with optional containers of nested models."""
+
+    maybe_many: list[Child] | None
+    maybe_mapping: dict[str, Child] | None
+
+
 class TreeNode(pydantic.BaseModel):
     """A self-referential model, used to test the cycle guard."""
 
@@ -152,6 +159,20 @@ class BuildGraphTestCase(unittest.TestCase):
         # A union mixing a model with Any keeps the edge and flags "other".
         self.assertEqual({graph.nodes[t].label for t in refs["open_union"].targets}, {"Child"})
         self.assertTrue(refs["open_union"].has_other)
+
+    def test_optional_containers_are_model_references(self) -> None:
+        graph = build_graph(OptionalContainers)
+        root = graph.nodes[graph.root]
+        refs = {r.name: r for r in root.references}
+        attrs = {a.name for a in root.attributes}
+
+        self.assertIn("maybe_many", refs)
+        self.assertEqual({graph.nodes[t].label for t in refs["maybe_many"].targets}, {"Child"})
+        self.assertNotIn("maybe_many", attrs)
+
+        self.assertIn("maybe_mapping", refs)
+        self.assertEqual({graph.nodes[t].label for t in refs["maybe_mapping"].targets}, {"Child"})
+        self.assertNotIn("maybe_mapping", attrs)
 
     def test_scalar_type_strings_are_readable(self) -> None:
         graph = build_graph(Scalars)
@@ -347,6 +368,18 @@ class Kennel(pydantic.BaseModel):
     occupants: dict[str, Dog | Cat]
 
 
+class RepeatedWrapper(pydantic.BaseModel):
+    """A repeated model whose nested union can vary by instance."""
+
+    thing: Dog | Cat
+
+
+class WrapperCollection(pydantic.BaseModel):
+    """A model that contains multiple instances of the same wrapper type."""
+
+    wrappers: list[RepeatedWrapper]
+
+
 class InstanceGraphTestCase(unittest.TestCase):
     """Instance mode collapses unions to the concrete values present."""
 
@@ -372,6 +405,20 @@ class InstanceGraphTestCase(unittest.TestCase):
         graph = build_instance_graph(Kennel(occupants={"x": Dog(bark="woof")}))
         ref = {r.name: r for r in graph.nodes[graph.root].references}["occupants"]
         self.assertEqual({graph.nodes[t].label for t in ref.targets}, {"Dog"})
+
+    def test_repeated_instances_merge_nested_concrete_types(self) -> None:
+        root = WrapperCollection(
+            wrappers=[
+                RepeatedWrapper(thing=Dog(bark="woof")),
+                RepeatedWrapper(thing=Cat(meow="m")),
+            ]
+        )
+        graph = build_instance_graph(root)
+        wrapper = next(n for n in graph.nodes.values() if n.label == "RepeatedWrapper")
+        refs = {r.name: r for r in wrapper.references}
+
+        self.assertIn("thing", refs)
+        self.assertEqual({graph.nodes[t].label for t in refs["thing"].targets}, {"Dog", "Cat"})
 
     def test_hide_type_instance_mode(self) -> None:
         graph = build_instance_graph(
