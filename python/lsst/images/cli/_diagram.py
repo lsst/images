@@ -12,22 +12,35 @@ from __future__ import annotations
 
 __all__ = ("diagram",)
 
+import importlib.metadata
+
 import click
 
 from ..diagram import build_graph, graph_from_file, make_policy, render
 from ..serialization._asdf_utils import ArrayReferenceModel
-from ..serialization._io import _BUILTIN_SCHEMA_PROVIDERS, _REGISTRY, class_for_schema, parameterize_tree
+from ..serialization._io import (
+    _BUILTIN_SCHEMA_PROVIDERS,
+    _REGISTRY,
+    _SCHEMA_ENTRY_POINT_GROUP,
+    class_for_schema,
+    parameterize_tree,
+)
 
 
 def _available_schemas() -> list[str]:
     """Return the sorted schema names that can be diagrammed.
 
     Importing this module imports ``lsst.images`` first, so every
-    unconditionally-imported model is already registered in ``_REGISTRY``; the
-    lazily-loaded built-in providers are added from
-    ``_BUILTIN_SCHEMA_PROVIDERS``.
+    unconditionally-imported model is already registered in ``_REGISTRY``.  The
+    lazily-loaded built-in providers and the third-party
+    ``lsst.images.schemas`` entry points are added by name without importing
+    them, so a schema appears here even though `class_for_schema` only loads
+    its provider on demand.
     """
-    return sorted(set(_REGISTRY) | set(_BUILTIN_SCHEMA_PROVIDERS))
+    entry_point_names = {
+        entry_point.name for entry_point in importlib.metadata.entry_points(group=_SCHEMA_ENTRY_POINT_GROUP)
+    }
+    return sorted(set(_REGISTRY) | set(_BUILTIN_SCHEMA_PROVIDERS) | entry_point_names)
 
 
 @click.command(name="diagram")

@@ -10,10 +10,12 @@
 # license that can be found in the LICENSE file.
 from __future__ import annotations
 
+import importlib.metadata
 import os.path
 import tempfile
 import unittest
 from typing import Annotated, Any
+from unittest import mock
 
 import pydantic
 from click.testing import CliRunner
@@ -474,6 +476,20 @@ class DiagramCliTestCase(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertIn("visit_image", result.output)
         self.assertIn("cell_coadd", result.output)
+
+    def test_list_includes_entry_point_schemas(self) -> None:
+        # A third-party schema known only through an entry point is listed by
+        # name without its provider module being imported.
+        fake = importlib.metadata.EntryPoint(
+            name="third_party_schema", value="some.module:Model", group="lsst.images.schemas"
+        )
+        with mock.patch(
+            "lsst.images.cli._diagram.importlib.metadata.entry_points", return_value=[fake]
+        ) as entry_points:
+            result = self.invoke("--list")
+        self.assertEqual(result.exit_code, 0, result.output)
+        entry_points.assert_called_once_with(group="lsst.images.schemas")
+        self.assertIn("third_party_schema", result.output)
 
     def test_model_default_mermaid(self) -> None:
         result = self.invoke("visit-image")
