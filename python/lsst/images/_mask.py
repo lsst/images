@@ -590,7 +590,7 @@ class Mask(GeneralizedImage):
         Parameters
         ----------
         plane
-            Name of the mask plane to set
+            Name of the mask plane to set.
         boolean_mask
             A 2-d boolean array with the same shape as `bbox` that is `True`
             where the bit for ``plane`` should be set and `False` where it

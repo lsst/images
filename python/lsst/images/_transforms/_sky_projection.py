@@ -241,7 +241,7 @@ class SkyProjection[F: Frame]:
         return SkyCoord(ra=sky_rad.x, dec=sky_rad.y, unit=u.rad)
 
     def sky_to_pixel(self, sky: SkyCoord) -> XY[np.ndarray | float]:
-        """Transform one or more sky coordinates to pixels
+        """Transform one or more sky coordinates to pixels.
 
         Parameters
         ----------

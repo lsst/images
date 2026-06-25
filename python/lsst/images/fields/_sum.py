@@ -146,7 +146,7 @@ class SumField(BaseField):
 
         Parameters
         ----------
-        legacy
+        legacy_background
             Legacy background object to convert.
         bounds
             The bounds of the returned field, if they should be different from

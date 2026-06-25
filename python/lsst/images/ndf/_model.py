@@ -50,30 +50,28 @@ def _decode_ascii_attr(value: Any) -> str | None:
 
 @dataclass
 class HdsPrimitive:
-    """An HDS primitive component.
-
-    Parameters
-    ----------
-    data
-        Numeric/logical array data, or an open HDF5 dataset when this
-        primitive was read lazily from an existing file.
-    char_lines
-        Character data for ``_CHAR*N`` primitives. A scalar string is
-        represented as a one-element list with ``char_scalar=True``.
-    char_width
-        Fixed HDS character width for ``char_lines``.
-    is_char_scalar
-        If `True`, write ``char_lines`` as a scalar ``_CHAR*N`` primitive.
-        Otherwise write them as a one-dimensional character array.
-    compression_options
-        Optional h5py compression options for numeric array data.
-    """
+    """An HDS primitive component."""
 
     data: np.ndarray | h5py.Dataset | None = None
+    """Numeric/logical array data, or an open HDF5 dataset when this
+    primitive was read lazily from an existing file.
+    """
+
     char_lines: list[str] | None = None
+    """Character data for ``_CHAR*N`` primitives. A scalar string is
+    represented as a one-element list with ``char_scalar=True``.
+    """
+
     char_width: int | None = None
+    """Fixed HDS character width for ``char_lines``."""
+
     is_char_scalar: bool = False
+    """If `True`, write ``char_lines`` as a scalar ``_CHAR*N`` primitive.
+    Otherwise write them as a one-dimensional character array.
+    """
+
     compression_options: dict[str, Any] = field(default_factory=dict)
+    """Optional h5py compression options for numeric array data."""
 
     @classmethod
     def array(

@@ -850,7 +850,13 @@ class Box:
         return self
 
     def boundary(self) -> Iterator[YX[int]]:
-        """Iterate over the corners of the box as ``(y, x)`` tuples."""
+        """Iterate over the corners of the box as ``(y, x)`` tuples.
+
+        Yields
+        ------
+        corner
+            Each corner in turn.
+        """
         if len(self._intervals) != 2:
             raise TypeError("Box is not 2-d.")
         yield YX(self.y.min, self.x.min)

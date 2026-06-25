@@ -310,8 +310,8 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
 
     @property
     def info(self) -> ArchiveInfo:
-        """Schema/format info read from the open document's ``DATA_MODEL``.
-        (`.serialization.ArchiveInfo`)
+        """Schema/format info read from the open document's ``DATA_MODEL``
+        (`.serialization.ArchiveInfo`).
         """
         return _read_archive_info(self._get_optional_primitive, repr(self._file.filename))
 
@@ -358,7 +358,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         return node if isinstance(node, HdsPrimitive) else None
 
 
-def read_starlink[T: Any](cls: type[T], path: ResourcePathExpression) -> T:
+def read_starlink[T: Any](cls_: type[T], path: ResourcePathExpression) -> T:
     """Reconstruct an `~lsst.images.Image` or `~lsst.images.MaskedImage`
     from a schema-less Starlink NDF.
 
@@ -373,7 +373,7 @@ def read_starlink[T: Any](cls: type[T], path: ResourcePathExpression) -> T:
 
     Parameters
     ----------
-    cls
+    cls_
         Expected return type; `~lsst.images.Image` and
         `~lsst.images.MaskedImage` are the only types the auto-detect path
         can produce.
@@ -396,7 +396,7 @@ def read_starlink[T: Any](cls: type[T], path: ResourcePathExpression) -> T:
             raise ArchiveReadError(
                 f"{path!r} has an LSST JSON tree; read it with serialization.read()/open()."
             )
-        return _read_auto_detect(cls, archive)
+        return _read_auto_detect(cls_, archive)
 
 
 def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> T:

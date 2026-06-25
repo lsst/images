@@ -258,7 +258,7 @@ class GeneralizedImage(ABC):
     @property
     def butler_provenance(self) -> DatasetProvenance | None:
         """The butler inputs and ID of the task quantum that produced this
-        dataset (`lsst.daf.butler.DatasetProvenance` | `None`)
+        dataset (`lsst.daf.butler.DatasetProvenance` | `None`).
         """
         if self._butler_info is None:
             return None

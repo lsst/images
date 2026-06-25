@@ -213,9 +213,6 @@ class ColorImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
 
         Parameters
         ----------
-        model
-            A Pydantic model representation of the image, holding references
-            to data stored in the archive.
         archive
             Archive to read from.
         bbox

@@ -257,8 +257,8 @@ class FitsInputArchive(InputArchive[PointerModel]):
 
     @property
     def info(self) -> ArchiveInfo:
-        """Schema/format info read from the primary header on open.
-        (`.serialization.ArchiveInfo`)
+        """Schema/format info read from the primary header on open
+        (`.serialization.ArchiveInfo`).
         """
         if self._info is None:
             raise ArchiveReadError("This is not an lsst.images FITS archive (no DATAMODL card).")
@@ -456,7 +456,7 @@ class _ExtensionReader:
 
     @classmethod
     def from_bytes(cls, hdu_cls: type[ExtensionHDU], data: bytes) -> _ExtensionReader:
-        """Construct from already-read `bytes`
+        """Construct from already-read `bytes`.
 
         Parameters
         ----------

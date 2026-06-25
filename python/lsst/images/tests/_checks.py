@@ -500,13 +500,13 @@ def compare_cell_coadd_to_legacy(
         Legacy coadd to test against.
     tract_bbox
         Bounding box of the full tract.
-    psf_points
-        Points to use to compare the PSFs.
     plane_map
         Mapping between new and legacy mask planes.
     alternates
         A mapping of other versions of one or more (new) components to also
         check against the legacy versions of those components.
+    psf_points
+        Points to use to compare the PSFs.
     """
     legacy_stitched = legacy_cell_coadd.stitch(cell_coadd.bbox.to_legacy())
     compare_image_to_legacy(tc, cell_coadd.image, legacy_stitched.image, expect_view=False)
@@ -814,7 +814,7 @@ def compare_observation_summary_stats_to_legacy(
         Test case object with assert methods to use.
     summary_stats
         Struct to test.
-    legacy : ``lsst.afw.image.ExposureSummaryStats``
+    legacy_summary_stats : ``lsst.afw.image.ExposureSummaryStats``
         Equivalent legacy struct.
     """
     for field in dataclasses.fields(legacy_summary_stats):

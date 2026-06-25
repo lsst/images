@@ -746,7 +746,7 @@ class DetectorSerializationModel(ArchiveTree):
 
         Parameters
         ----------
-        model
+        archive
             Serialization model instance for this detector.
         frames
             Coordinate systems and transforms to use instead of what is saved
