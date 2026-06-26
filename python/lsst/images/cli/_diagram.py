@@ -59,9 +59,22 @@ def _available_schemas() -> list[str]:
     show_default=True,
     help="Output format.",
 )
-@click.option("--expand", multiple=True, metavar="TYPE", help="Force a model type to expand (repeatable).")
 @click.option(
-    "--collapse", multiple=True, metavar="TYPE", help="Force a model type to collapse to a leaf (repeatable)."
+    "--expand",
+    multiple=True,
+    metavar="TYPE",
+    help="Expand a type that is collapsed by default. Repeatable."
+    "The name can match the public name ('Image') or the serialization name "
+    "('ImageSerializationModel').",
+)
+@click.option(
+    "--collapse",
+    multiple=True,
+    metavar="TYPE",
+    help="Render TYPE as a leaf without expanding its fields. "
+    "Repeatable; useful for noisy sub-trees such as --collapse ButlerInfo. "
+    "The name can match the public name ('Image') or the serialization name "
+    "('ImageSerializationModel').",
 )
 @click.option(
     "--expand-leaves",
@@ -78,14 +91,17 @@ def _available_schemas() -> list[str]:
     "hide_fields",
     multiple=True,
     metavar="NAME",
-    help="Drop fields with this name and any sub-tree reached only through them (repeatable).",
+    help="Drop every field with this name, along with any sub-tree reachable only through it. "
+    "Repeatable; useful for clipping pervasive payload fields such as "
+    "'--hide-field data' and '--hide-field table'.",
 )
 @click.option(
     "--hide-type",
     "hide_types",
     multiple=True,
     metavar="TYPE",
-    help="Drop a type entirely, removing every edge that points at it (repeatable).",
+    help="Drop a type entirely, removing every edge that points at it (unlike --collapse, which keeps the "
+    "node as a leaf). Repeatable; matches the public or serialization name, e.g. '--hide-type TableModel'.",
 )
 @click.option(
     "--serialization-names",

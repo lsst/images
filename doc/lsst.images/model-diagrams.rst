@@ -6,7 +6,7 @@
 Model diagrams
 ###############
 
-The ``lsst-images-admin diagram`` subcommand renders the composition layout of an ``lsst.images`` serialization model: which model nests which sub-models, where unions branch, and which fields are lists or mappings.
+The `lsst-images-admin diagram <admin.html#lsst-images-admin-diagram>`__ subcommand renders the composition layout of an ``lsst.images`` serialization model: which model nests which sub-models, where unions branch, and which fields are lists or mappings.
 It is useful for documentation, for presentations, and for understanding an unfamiliar data product.
 
 The diagram describes the Python/Pydantic composition of a model, not the on-disk byte layout of any particular container.
@@ -54,32 +54,8 @@ Controlling detail
 ==================
 
 Serialization-plumbing helpers that carry array or table payloads (``ArrayReferenceModel``, ``InlineArrayModel``, ``TableModel`` and similar) are collapsed to leaves by default, because their internals are uninteresting for a layout view.
-Three options adjust this per run:
-
-``--collapse TYPE``
-   Render ``TYPE`` as a leaf without expanding its fields.
-   Repeatable; useful for noisy sub-trees such as ``--collapse ButlerInfo``.
-
-``--expand TYPE``
-   Expand a type that is collapsed by default.
-   Repeatable.
-
-``--expand-leaves``
-   Expand every default leaf, showing the full payload plumbing.
-
-``--attributes``
-   List scalar (non-model) fields too, instead of only model composition.
-
-``--hide-field NAME``
-   Drop every field with this name, along with any sub-tree reachable only through it.
-   Repeatable; useful for clipping pervasive payload fields such as ``--hide-field data --hide-field table``.
-
-``--hide-type TYPE``
-   Drop a type entirely, removing every edge that points at it (unlike ``--collapse``, which keeps the node as a leaf).
-   Repeatable; matches the public or serialization name, e.g. ``--hide-type TableModel``.
-
-``--serialization-names``
-   Label nodes with serialization-model class names instead of public class names.
+There are many options to control whether fields or types are hidden or shown and whether a type should be collapsed.
+The `full set of options are described on the CLI page <admin.html#lsst-images-admin-diagram>`__.
 
 ``--collapse`` and ``--expand`` match by name (the unparameterized class name), matching either the public or the serialization name, so ``--collapse Image`` and ``--collapse ImageSerializationModel`` are equivalent; ``--hide-field`` matches the field name.
 
