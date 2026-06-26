@@ -86,6 +86,78 @@ A file diagram reports only what the file holds: a model whose list or dict fiel
 
 ``MODEL`` and ``--from-file`` are mutually exclusive; provide exactly one.
 
+Here is an example diagram made from a Data Preview 2 visit image from the command:
+
+.. code-block:: bash
+
+   lsst-images-admin diagram --from-file dp2-visit.fits --hide-field data --collapse ButlerInfo --collapse Transform --hide-type TableModel --format mermaid --collapse Amplifier --collapse DetectorAttributes
+
+.. mermaid::
+
+   classDiagram
+  class VisitImage["VisitImage"] {
+  }
+  class Image["Image"] {
+  }
+  class Mask["Mask"] {
+  }
+  class SkyProjection["SkyProjection"] {
+  }
+  class Transform["Transform"] {
+  }
+  class PiffWrapper["PiffWrapper"] {
+  }
+  class PiffObjectModel["PiffObjectModel"] {
+  }
+  class GalSimPixelScaleModel["GalSimPixelScaleModel"] {
+  }
+  class PiffTableModel["PiffTableModel"] {
+  }
+  class MinimalStar["MinimalStar"] {
+  }
+  class ObservationInfo["ObservationInfo"] {
+  }
+  class ObservationSummaryStats["ObservationSummaryStats"] {
+  }
+  class Detector["Detector"] {
+  }
+  class DetectorAttributes["DetectorAttributes"] {
+  }
+  class Amplifier["Amplifier"] {
+  }
+  class CameraFrameSet["CameraFrameSet"] {
+  }
+  class ApertureCorrectionMapSerializationModel["ApertureCorrectionMapSerializationModel"] {
+  }
+  class ChebyshevField["ChebyshevField"] {
+  }
+  class RegionSerializationModel["RegionSerializationModel"] {
+  }
+  class BackgroundMap["BackgroundMap"] {
+  }
+  VisitImage --> Image : image
+  VisitImage --> Mask : mask
+  VisitImage --> Image : variance
+  VisitImage --> SkyProjection : sky_projection
+  VisitImage --> PiffWrapper : psf
+  VisitImage --> ObservationInfo : obs_info
+  VisitImage --> ObservationSummaryStats : summary_stats
+  VisitImage --> Detector : detector
+  VisitImage --> ApertureCorrectionMapSerializationModel : aperture_corrections
+  VisitImage --> RegionSerializationModel : bounds
+  VisitImage --> BackgroundMap : backgrounds
+  SkyProjection --> Transform : pixel_to_sky
+  SkyProjection --> Transform : fits_approximation
+  PiffWrapper --> PiffObjectModel : piff
+  PiffWrapper --> MinimalStar : stars*
+  PiffObjectModel --> GalSimPixelScaleModel : wcs+
+  PiffObjectModel --> PiffTableModel : tables+
+  PiffObjectModel --> PiffObjectModel : objects+
+  Detector --> DetectorAttributes : attributes
+  Detector --> Amplifier : amplifiers*
+  Detector --> CameraFrameSet : frames
+  ApertureCorrectionMapSerializationModel --> ChebyshevField : fields+
+
 Programmatic use
 ================
 
