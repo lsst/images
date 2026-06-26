@@ -36,6 +36,11 @@ type ApertureCorrectionMap = dict[str, Field]
 def aperture_corrections_from_legacy(legacy_ap_corr_map: LegacyApCorrMap) -> ApertureCorrectionMap:
     """Convert a `lsst.afw.image.ApCorrMap` instance to a `dict` mapping
     `str` algorithm name to `~.fields.BaseField`.
+
+    Parameters
+    ----------
+    legacy_ap_corr_map
+        Legacy aperture correction map to convert.
     """
     return {name: field_from_legacy(legacy_field) for name, legacy_field in legacy_ap_corr_map.items()}
 
@@ -43,6 +48,11 @@ def aperture_corrections_from_legacy(legacy_ap_corr_map: LegacyApCorrMap) -> Ape
 def aperture_corrections_to_legacy(aperture_corrections: ApertureCorrectionMap) -> LegacyApCorrMap:
     """Convert from a `dict` (mapping `str` algorithm name to
     `~.fields.BaseField`) to a `lsst.afw.image.ApCorrMap` instance.
+
+    Parameters
+    ----------
+    aperture_corrections
+        Aperture correction map to convert to the legacy type.
     """
     from lsst.afw.image import ApCorrMap
 
@@ -80,7 +90,15 @@ class ApertureCorrectionMapSerializationModel(ArchiveTree):
     def serialize(
         map: ApertureCorrectionMap, archive: OutputArchive[Any]
     ) -> ApertureCorrectionMapSerializationModel:
-        """Write an aperture correction map to an archive."""
+        """Write an aperture correction map to an archive.
+
+        Parameters
+        ----------
+        map
+            Aperture correction map to serialize.
+        archive
+            Archive to write to.
+        """
         result = ApertureCorrectionMapSerializationModel()
         for name, field in map.items():
             result.fields[name] = cast(
@@ -89,7 +107,17 @@ class ApertureCorrectionMapSerializationModel(ArchiveTree):
         return result
 
     def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> ApertureCorrectionMap:
-        """Read an aperture correction map from an archive."""
+        """Read an aperture correction map from an archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide
+            better error messages (raising
+            `.serialization.InvalidParameterError`).
+        """
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for Image: {set(kwargs.keys())}.")
         return {name: field.deserialize(archive) for name, field in self.fields.items()}

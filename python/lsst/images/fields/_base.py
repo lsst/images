@@ -195,6 +195,11 @@ class BaseField(ABC):
     def make_legacy_photo_calib(image_unit: astropy.units.UnitBase) -> LegacyPhotoCalib | None:
         """Make a legacy `lsst.afw.image.PhotoCalib` for an image with the
         given units, if that is possible without a photometric scaling field.
+
+        Parameters
+        ----------
+        image_unit
+            Units of the image the photometric calibration applies to.
         """
         from lsst.afw.image import PhotoCalib
 

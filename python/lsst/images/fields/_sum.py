@@ -124,7 +124,13 @@ class SumField(BaseField):
         return SumField([operand * factor for operand in self._operands])
 
     def serialize(self, archive: OutputArchive[Any]) -> SumFieldSerializationModel:
-        """Serialize the field to an output archive."""
+        """Serialize the field to an output archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to write to.
+        """
         return SumFieldSerializationModel(operands=[operand.serialize(archive) for operand in self._operands])
 
     @staticmethod
@@ -175,7 +181,17 @@ class SumFieldSerializationModel(ArchiveTree):
     field_type: Literal["SUM"] = "SUM"
 
     def deserialize(self, archive: InputArchive, **kwargs: Any) -> SumField:
-        """Deserialize the field from an input archive."""
+        """Deserialize the field from an input archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide
+            better error messages (raising
+            `.serialization.InvalidParameterError`).
+        """
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for SumField: {set(kwargs.keys())}.")
         return SumField([operand.deserialize(archive) for operand in self.operands])

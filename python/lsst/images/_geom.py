@@ -804,6 +804,11 @@ class Box:
     def padded(self, padding: int) -> Box:
         """Return a new box expanded by the given padding on
         all sides.
+
+        Parameters
+        ----------
+        padding
+            Number of pixels to expand the box by on every side.
         """
         return Box(y=self.y.padded(padding), x=self.x.padded(padding))
 
@@ -886,13 +891,24 @@ class Box:
         ``other``.
 
         When there is no overlap, `NoOverlapError` is raised.
+
+        Parameters
+        ----------
+        other
+            Bounds to intersect with this one.
         """
         from ._concrete_bounds import _intersect_box
 
         return _intersect_box(self, other)
 
     def dilated_by(self, padding: int) -> Box:
-        """Return a new box padded by the given amount on all sides."""
+        """Return a new box padded by the given amount on all sides.
+
+        Parameters
+        ----------
+        padding
+            Number of pixels to pad the box by on every side.
+        """
         return Box(*[i.dilated_by(padding) for i in self._intervals])
 
     def slice_within(self, other: Box) -> YX[slice]:
@@ -901,6 +917,11 @@ class Box:
         correspond to ``other``.
 
         This assumes ``other.contains(self)``.
+
+        Parameters
+        ----------
+        other
+            Box that the sliced container's items correspond to.
         """
         return YX(self.y.slice_within(other.y), self.x.slice_within(other.x))
 
@@ -932,7 +953,13 @@ class Box:
 
     @classmethod
     def from_legacy(cls, legacy: Any) -> Box:
-        """Convert from an `lsst.geom.Box2I` instance."""
+        """Convert from an `lsst.geom.Box2I` instance.
+
+        Parameters
+        ----------
+        legacy
+            Legacy `lsst.geom.Box2I` to convert.
+        """
         return cls(y=Interval.from_legacy(legacy.y), x=Interval.from_legacy(legacy.x))
 
     def to_legacy(self) -> Any:
@@ -991,6 +1018,13 @@ class Box:
 
 class BoxSliceFactory:
     """A factory for `Box` objects using array-slice syntax.
+
+    Parameters
+    ----------
+    y
+        Slice factory used for the y axis.
+    x
+        Slice factory used for the x axis.
 
     Notes
     -----
@@ -1086,7 +1120,13 @@ class Bounds(Protocol):
         ...
 
     def intersection(self, other: Bounds) -> Bounds:
-        """Compute the intersection of this bounds object with another."""
+        """Compute the intersection of this bounds object with another.
+
+        Parameters
+        ----------
+        other
+            Bounds to intersect with this one.
+        """
         ...
 
     def serialize(self) -> SerializableBounds:

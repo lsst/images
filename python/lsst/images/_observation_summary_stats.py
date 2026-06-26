@@ -318,6 +318,11 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
     def from_legacy(cls, exposure_summary_stats: LegacyExposureSummaryStats) -> Self:
         """Return an `ObservationSummaryStats` from a legacy
         `lsst.afw.image.ExposureSummaryStats`.
+
+        Parameters
+        ----------
+        exposure_summary_stats
+            Legacy exposure summary statistics to convert.
         """
         # Assume that all the fields in an ExposureSummaryStats dataclass
         # are compatible with an ObservationSummaryStats.

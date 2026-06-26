@@ -208,7 +208,6 @@ checks = [
     "SS05",  # pydocstyle is better at finding infinitive verb.
     "GL03",  # ruff format of docstrings disagrees.
     "PR04",  # We use type annotations.
-    "PR01",  # Not all parameters need to be documented.
     "SA04",  # We do not need to add descriptions to see also entries.
 ]
 exclude = [

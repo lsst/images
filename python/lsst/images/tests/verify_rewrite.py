@@ -43,7 +43,7 @@ def verify_rewrite() -> None:
 @click.option("--new-prefix", default="future_", help="Prefix for the new dataset type names.")
 def verify_stage4_rewrite(
     *, repo: str, old_collection: str, new_collection: str, where: str, old_prefix: str, new_prefix: str
-) -> None:
+) -> None:  # numpydoc ignore=PR01
     """Compare rewritten visit/difference images and downstream tables in
     NEW_COLLECTION against the originals in OLD_COLLECTION of REPO.
     """

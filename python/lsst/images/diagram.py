@@ -354,7 +354,16 @@ def _classify(annotation: object) -> tuple[list[type], str, bool] | None:
 
 
 def build_graph(model_cls: type[pydantic.BaseModel], policy: Policy | None = None) -> Graph:
-    """Walk ``model_cls`` and its sub-models into a composition `Graph`."""
+    """Walk ``model_cls`` and its sub-models into a composition `Graph`.
+
+    Parameters
+    ----------
+    model_cls
+        Pydantic model class to diagram.
+    policy
+        Policy controlling leaf collapsing, hidden fields, and labels; a
+        default `Policy` is used when `None`.
+    """
     if policy is None:
         policy = Policy()
     nodes: dict[str, Node] = {}
@@ -398,6 +407,14 @@ def build_instance_graph(instance: pydantic.BaseModel, policy: Policy | None = N
     Unlike `build_graph`, which works from field annotations, this follows the
     actual values, so unions collapse to the concrete member present and
     lists/dicts expand only the element types that actually occur.
+
+    Parameters
+    ----------
+    instance
+        Model instance to diagram.
+    policy
+        Policy controlling leaf collapsing, hidden fields, and labels; a
+        default `Policy` is used when `None`.
     """
     if policy is None:
         policy = Policy()
@@ -411,6 +428,14 @@ def graph_from_file(path: str, policy: Policy | None = None) -> Graph:
 
     Reads only the on-disk reference tree (pointers, not pixel data), so this
     is cheap even for large images.
+
+    Parameters
+    ----------
+    path
+        Path to the serialized ``lsst.images`` file.
+    policy
+        Policy controlling leaf collapsing, hidden fields, and labels; a
+        default `Policy` is used when `None`.
     """
     with open_archive(path) as reader:
         return build_instance_graph(reader.get_tree(), policy)
@@ -509,7 +534,15 @@ def _add_instance_field(
 
 
 def render(graph: Graph, fmt: str) -> str:
-    """Render ``graph`` as ``fmt`` text (``dot``, ``mermaid`` or ``tree``)."""
+    """Render ``graph`` as ``fmt`` text (``dot``, ``mermaid`` or ``tree``).
+
+    Parameters
+    ----------
+    graph
+        Composition graph to render.
+    fmt
+        Output format: ``dot``, ``mermaid`` or ``tree``.
+    """
     emitters = {"dot": _to_dot, "mermaid": _to_mermaid, "tree": _to_tree}
     try:
         emitter = emitters[fmt]

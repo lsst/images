@@ -99,6 +99,8 @@ class ChebyshevField(BaseField):
 
         Parameters
         ----------
+        bounds
+            Bounding box over which the Chebyshev field is defined.
         data
             Data points to fit.  If this is an `astropy.units.Quantity`,
             this sets the units of the field and the ``unit`` argument cannot
@@ -247,7 +249,13 @@ class ChebyshevField(BaseField):
         return ChebyshevField(self.bounds, self.coefficients * factor, unit=unit)
 
     def serialize(self, archive: OutputArchive[Any]) -> ChebyshevFieldSerializationModel:
-        """Serialize the Chebyshev field to an output archive."""
+        """Serialize the Chebyshev field to an output archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to write to.
+        """
         return ChebyshevFieldSerializationModel(
             bounds=self.bounds.serialize(),
             coefficients=self.coefficients,
@@ -418,7 +426,17 @@ class ChebyshevFieldSerializationModel(ArchiveTree):
     field_type: Literal["CHEBYSHEV"] = "CHEBYSHEV"
 
     def deserialize(self, archive: InputArchive, **kwargs: Any) -> ChebyshevField:
-        """Deserialize the Chebyshev field from an input archive."""
+        """Deserialize the Chebyshev field from an input archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide
+            better error messages (raising
+            `.serialization.InvalidParameterError`).
+        """
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for ChebyshevField: {set(kwargs.keys())}.")
         return ChebyshevField(self.bounds.deserialize(), self.coefficients, unit=self.unit)

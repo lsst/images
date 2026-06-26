@@ -95,7 +95,16 @@ class LegacyPointSpreadFunction(PointSpreadFunction):
 
 
 class PSFExWrapper(LegacyPointSpreadFunction):
-    """A specialization of LegacyPointSpreadFunction for the PSFEx backend."""
+    """A specialization of LegacyPointSpreadFunction for the PSFEx backend.
+
+    Parameters
+    ----------
+    impl
+        A `lsst.meas.extensions.psfex.PsfexPsf` instance.
+    bounds
+        The pixel-coordinate region where the model can safely be
+        evaluated.
+    """
 
     def __init__(self, impl: Any, bounds: Bounds) -> None:
         from lsst.meas.extensions.psfex import PsfexPsf
@@ -110,6 +119,11 @@ class PSFExWrapper(LegacyPointSpreadFunction):
         This method is intended to be usable as the callback function passed to
         `.serialization.OutputArchive.serialize_direct` or
         `.serialization.OutputArchive.serialize_pointer`.
+
+        Parameters
+        ----------
+        archive
+            Archive to write to.
         """
         data = self._impl.getSerializationData()
         shape = tuple(reversed(data.size))
@@ -184,6 +198,15 @@ class PSFExSerializationModel(serialization.ArchiveTree):
 
         This method is intended to be usable as the callback function passed to
         `.serialization.InputArchive.deserialize_pointer`.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide
+            better error messages (raising
+            `.serialization.InvalidParameterError`).
         """
         if kwargs:
             raise serialization.InvalidParameterError(

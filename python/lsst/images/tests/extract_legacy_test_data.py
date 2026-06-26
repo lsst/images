@@ -139,6 +139,18 @@ def extract_cell_coadd(
 ) -> None:
     """Load a subimage of a cell coadd from a butler repository and save it
     to testdata_images.
+
+    Parameters
+    ----------
+    butler
+        Butler repository to read the dataset from.
+    output_path
+        Path to the FITS file to write under testdata_images.
+    dataset_ref
+        Reference to the dataset to load from the butler.
+    shuffle
+        Whether to shuffle pixels within each cell to obscure proprietary
+        data.
     """
     from lsst.cell_coadds import MultipleCellCoadd
 
@@ -176,6 +188,15 @@ def extract_cell_coadd(
 def extract_camera(butler: Butler, output_path: str, dataset_ref: DatasetRef) -> None:
     """Read camera geometry from a butler repository and save it to
     testdata_images.
+
+    Parameters
+    ----------
+    butler
+        Butler repository to read the dataset from.
+    output_path
+        Path to the FITS file to write under testdata_images.
+    dataset_ref
+        Reference to the dataset to load from the butler.
     """
     camera = butler.get(dataset_ref)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -185,6 +206,15 @@ def extract_camera(butler: Butler, output_path: str, dataset_ref: DatasetRef) ->
 def extract_skymap(butler: Butler, output_path: str, dataset_ref: DatasetRef) -> None:
     """Read a skymap definition from a butler repository and save it to
     testdata_images.
+
+    Parameters
+    ----------
+    butler
+        Butler repository to read the dataset from.
+    output_path
+        Path to the file to write under testdata_images.
+    dataset_ref
+        Reference to the dataset to load from the butler.
     """
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     (path,) = butler.retrieveArtifacts(
@@ -203,6 +233,17 @@ def find_dataset_or_raise(
 ) -> DatasetRef:
     """Call `lsst.daf.butler.Butler.find_dataset` with the given arguments and
     raise `LookupError` if it returns `None`.
+
+    Parameters
+    ----------
+    butler
+        Butler repository to search.
+    dataset_type
+        Dataset type to find.
+    collections
+        Collections to search, or `None` for the butler's defaults.
+    **kwargs
+        Data ID key-value pairs forwarded to ``find_dataset``.
     """
     ref = butler.find_dataset(dataset_type, collections=collections, **kwargs)
     if ref is None:
@@ -259,7 +300,7 @@ def extract_dp2(
     coadds: bool,
     camera: bool,
     skymap: bool,
-) -> None:
+) -> None:  # numpydoc ignore=PR01
     """Extract test data from a butler repository."""
     try:
         # lsst.afw.image is imported only to confirm a full Rubin pipelines

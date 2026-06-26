@@ -106,7 +106,13 @@ class ArrayReferenceModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     byteorder: Literal["big"] = pydantic.Field(default="big", description="Byte order for the binary data.")
 
     def with_units(self, unit: astropy.units.UnitBase) -> ArrayReferenceQuantityModel:
-        """Add units, transforming this model into a Quantity model."""
+        """Add units, transforming this model into a Quantity model.
+
+        Parameters
+        ----------
+        unit
+            Units to attach to the array values.
+        """
         return ArrayReferenceQuantityModel.model_construct(value=self, unit=unit)
 
     model_config = pydantic.ConfigDict(
@@ -132,7 +138,13 @@ class InlineArrayModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
         return self._extract_shape(self.data)
 
     def with_units(self, unit: astropy.unit.UnitBase) -> InlineArrayQuantityModel:
-        """Add units, transforming this model in to a Quantity model."""
+        """Add units, transforming this model in to a Quantity model.
+
+        Parameters
+        ----------
+        unit
+            Units to attach to the array values.
+        """
         return InlineArrayQuantityModel.model_construct(value=self, unit=unit)
 
     @classmethod

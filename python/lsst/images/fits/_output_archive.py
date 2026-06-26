@@ -87,6 +87,8 @@ def write(
 
     Parameters
     ----------
+    obj
+        Object with a ``serialize`` method to write.
     path
         Name of the file to write to.  Must not already exist.
     compression_options
@@ -135,6 +137,21 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
 
     Instances of this class should only be constructed via the `open`
     context manager.
+
+    Parameters
+    ----------
+    hdu_list
+        HDU list that the archive writes its HDUs into.
+    compression_options
+        Options for how to compress the FITS file, keyed by the name of
+        the attribute (with JSON pointer ``/`` separators for nested
+        attributes).
+    opaque_metadata
+        Opaque metadata to carry through from the object being written.
+    compression_seed
+        A FITS tile compression seed to use whenever the configured
+        compression seed is `None` or (for backwards compatibility)
+        ``0``.
     """
 
     def __init__(

@@ -54,6 +54,8 @@ class PiffWrapper(PointSpreadFunction):
         The Piff PSF object to wrap.
     bounds
         The pixel-coordinate region where the model can safely be evaluated.
+    stamp_size
+        Side length in pixels of the PSF image stamps drawn by the model.
     """
 
     def __init__(self, impl: piff.PSF, bounds: Bounds, stamp_size: int) -> None:
@@ -118,6 +120,11 @@ class PiffWrapper(PointSpreadFunction):
         This method is intended to be usable as the callback function passed to
         `.serialization.OutputArchive.serialize_direct` or
         `.serialization.OutputArchive.serialize_pointer`.
+
+        Parameters
+        ----------
+        archive
+            Archive to write to.
         """
         from piff.config import PiffLogger
 
@@ -272,6 +279,15 @@ class PiffSerializationModel(serialization.ArchiveTree):
 
         This method is intended to be usable as the callback function passed to
         `.serialization.InputArchive.deserialize_pointer`.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide
+            better error messages (raising
+            `.serialization.InvalidParameterError`).
         """
         if kwargs:
             raise serialization.InvalidParameterError(
@@ -350,6 +366,11 @@ class _ArchivePiffWriter:
         `.serialization.OutputArchive.serialize_direct` and
         `.serialization.OutputArchive.serialize_pointer`, after first passing
         this writer to a Piff object's ``write`` or ``_write`` method.
+
+        Parameters
+        ----------
+        archive
+            Archive to write to.
         """
         model = PiffObjectModel()
         for name, struct in self.structs.items():

@@ -32,7 +32,19 @@ from ._base import PointSpreadFunction
 
 
 class GaussianPointSpreadFunction(PointSpreadFunction):
-    """A PSF with a spatially-invariant circular Gaussian profile."""
+    """A PSF with a spatially-invariant circular Gaussian profile.
+
+    Parameters
+    ----------
+    sigma
+        Standard deviation of the Gaussian profile in pixels.
+    bounds
+        The pixel-coordinate region where the model can safely be
+        evaluated.
+    stamp_size
+        Side length in pixels of the PSF image stamps; must be a positive
+        odd number.
+    """
 
     def __init__(self, sigma: float, bounds: Bounds, stamp_size: int) -> None:
         if sigma <= 0:

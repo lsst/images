@@ -110,6 +110,11 @@ class FitsInputArchive(InputArchive[PointerModel]):
 
     Instances of this class should only be constructed via the `open`
     context manager.
+
+    Parameters
+    ----------
+    stream
+        Open binary stream the archive reads from.
     """
 
     @classmethod
@@ -120,6 +125,11 @@ class FitsInputArchive(InputArchive[PointerModel]):
         Every FITS file written by this package records the schema URL in
         the ``DATAMODL`` card, so the schema can be identified without
         reading the (potentially large) JSON tree HDU.
+
+        Parameters
+        ----------
+        path
+            Path to the archive to read.
         """
         with ResourcePath(path).open("rb") as stream:
             primary = astropy.io.fits.PrimaryHDU.readfrom(stream)

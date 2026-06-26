@@ -45,6 +45,14 @@ class BackgroundMap(Mapping[str, Background]):
     Unlike most image characterization objects, the best background model
     often depends on the science case, and hence we may want to associate more
     than one with an image.
+
+    Parameters
+    ----------
+    backgrounds
+        Background models to include in the map, keyed by their name.
+    subtracted
+        Name of the background that has been subtracted from the image, or
+        `None` if no background has been subtracted.
     """
 
     def __init__(self, backgrounds: Iterable[Background] = (), subtracted: str | None = None) -> None:
@@ -122,7 +130,13 @@ class BackgroundMap(Mapping[str, Background]):
             self._subtracted = name
 
     def serialize(self, archive: OutputArchive[Any]) -> BackgroundMapSerializationModel:
-        """Write a background map to an archive."""
+        """Write a background map to an archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to write to.
+        """
         result = BackgroundMapSerializationModel(subtracted=self._subtracted)
         for name, background in self.items():
             result.fields[name] = cast(

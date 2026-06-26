@@ -81,7 +81,13 @@ class DetectorType(enum.StrEnum):
 
     @classmethod
     def from_legacy(cls, legacy_detector_type: LegacyDetectorType) -> DetectorType:
-        """Convert from `lsst.afw.cameraGeom.DetectorType`."""
+        """Convert from `lsst.afw.cameraGeom.DetectorType`.
+
+        Parameters
+        ----------
+        legacy_detector_type
+            Legacy detector type to convert.
+        """
         return getattr(cls, legacy_detector_type.name)
 
 
@@ -124,7 +130,13 @@ class Orientation(pydantic.BaseModel, ser_json_inf_nan="constants"):
 
     @staticmethod
     def from_legacy(legacy_orientation: LegacyOrientation) -> Orientation:
-        """Convert from `lsst.afw.cameraGeom.Orientation`."""
+        """Convert from `lsst.afw.cameraGeom.Orientation`.
+
+        Parameters
+        ----------
+        legacy_orientation
+            Legacy orientation to convert.
+        """
         focal_plane_x, focal_plane_y, focal_plane_z = legacy_orientation.getFpPosition3()
         pixel_reference_x, pixel_reference_y = legacy_orientation.getReferencePoint()
         return Orientation(
@@ -178,7 +190,13 @@ class ReadoutCorner(enum.StrEnum):
 
     @classmethod
     def from_legacy(cls, legacy_readout_corner: LegacyReadoutCorner) -> ReadoutCorner:
-        """Convert from `lsst.afw.cameraGeom.ReadoutCorner`."""
+        """Convert from `lsst.afw.cameraGeom.ReadoutCorner`.
+
+        Parameters
+        ----------
+        legacy_readout_corner
+            Legacy readout corner to convert.
+        """
         return getattr(cls, legacy_readout_corner.name)
 
     def as_flips(self) -> YX[bool]:
@@ -194,6 +212,13 @@ class ReadoutCorner(enum.StrEnum):
     def from_flips(cls, *, y: bool, x: bool) -> ReadoutCorner:
         """Construct from booleans indicating how the image needs to be
         flipped to bring the readout corner to ``LL``.
+
+        Parameters
+        ----------
+        y
+            Whether the image is flipped in the y direction.
+        x
+            Whether the image is flipped in the x direction.
         """
         match y, x:
             case False, False:
@@ -207,7 +232,15 @@ class ReadoutCorner(enum.StrEnum):
         raise TypeError(f"Invalid arguments: y={y}, x={x} (expected booleans).")
 
     def apply_flips(self, *, y: bool, x: bool) -> ReadoutCorner:
-        """Return the new readout corner after applying the given flips."""
+        """Return the new readout corner after applying the given flips.
+
+        Parameters
+        ----------
+        y
+            Whether to flip in the y direction.
+        x
+            Whether to flip in the x direction.
+        """
         current = self.as_flips()
         return self.from_flips(y=current.y ^ y, x=current.x ^ x)
 
@@ -476,7 +509,20 @@ class Amplifier(pydantic.BaseModel, ser_json_inf_nan="constants"):
 
 @final
 class Detector:
-    """Information about a detector in a camera."""
+    """Information about a detector in a camera.
+
+    Parameters
+    ----------
+    attributes
+        Identifying attributes and metadata for the detector.
+    amplifiers
+        Amplifiers that make up the detector.
+    frames
+        Coordinate systems and transforms for the camera.
+    visit
+        Visit number whose geometry to use, or `None` for the nominal
+        detector geometry.
+    """
 
     def __init__(
         self,
@@ -751,6 +797,10 @@ class DetectorSerializationModel(ArchiveTree):
         frames
             Coordinate systems and transforms to use instead of what is saved
             in ``model``.  Must be provided if ``model.frames`` is `None`.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide
+            better error messages (raising
+            `.serialization.InvalidParameterError`).
         """
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for Detector: {set(kwargs.keys())}.")

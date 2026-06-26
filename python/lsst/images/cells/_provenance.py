@@ -103,7 +103,13 @@ class CoaddProvenance:
 
     @classmethod
     def make_empty_input_table(cls, n_rows: int) -> astropy.table.Table:
-        """Make an empty `inputs` table with a set number of rows."""
+        """Make an empty `inputs` table with a set number of rows.
+
+        Parameters
+        ----------
+        n_rows
+            Number of rows in the new table.
+        """
         return astropy.table.Table(
             [
                 astropy.table.Column(name=name, length=n_rows, dtype=dtype, description=description)
@@ -113,7 +119,13 @@ class CoaddProvenance:
 
     @classmethod
     def make_empty_contribution_table(cls, n_rows: int) -> astropy.table.Table:
-        """Make an empty `contributions` table with a set number of rows."""
+        """Make an empty `contributions` table with a set number of rows.
+
+        Parameters
+        ----------
+        n_rows
+            Number of rows in the new table.
+        """
         return astropy.table.Table(
             [
                 astropy.table.Column(
@@ -141,7 +153,13 @@ class CoaddProvenance:
         return self.subset([cell])
 
     def subset(self, cells: Iterable[CellIJ]) -> CoaddProvenance:
-        """Return a new provenance object with just the given cells."""
+        """Return a new provenance object with just the given cells.
+
+        Parameters
+        ----------
+        cells
+            Cells to keep in the returned provenance.
+        """
         cells_to_keep = astropy.table.Table(
             rows=[(index.i, index.j) for index in cells],
             names=["cell_i", "cell_j"],
@@ -183,6 +201,11 @@ class CoaddProvenance:
     def from_legacy(legacy_cell_coadd: LegacyMultipleCellCoadd) -> CoaddProvenance:
         """Extract provenance from a legacy
         `lsst.cell_coadds.MultipleCellCoadd` object.
+
+        Parameters
+        ----------
+        legacy_cell_coadd
+            Legacy cell coadd to extract provenance from.
         """
         inputs = CoaddProvenance.make_empty_input_table(len(legacy_cell_coadd.common.visit_polygons))
         for n, (legacy_identifiers, legacy_polygon) in enumerate(
@@ -240,6 +263,12 @@ class CoaddProvenance:
     ) -> dict[LegacyIndex2D, dict[LegacyObservationIdentifiers, LegacyCellCoaddInputs]]:
         """Construct a mapping from legacy cell index to the list of legacy
         input structs for that cell.
+
+        Parameters
+        ----------
+        observations
+            Observations to include, or `None` to include all observations
+            in the `inputs` table.
         """
         from lsst.afw.geom.ellipses import Quadrupole
         from lsst.cell_coadds import CoaddInputs as LegacyCoaddInputs
@@ -309,6 +338,10 @@ class CoaddProvenanceSerializationModel(ArchiveTree):
         ----------
         archive
             Archive to read from.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide
+            better error messages (raising
+            `.serialization.InvalidParameterError`).
 
         Notes
         -----

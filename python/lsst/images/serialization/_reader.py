@@ -40,6 +40,18 @@ class Reader[T]:
     file that is opened once; the underlying archive caches dereferenced
     pointers so repeated reads share work.
     Valid only inside the ``with`` block that produced it.
+
+    Parameters
+    ----------
+    archive
+        Input archive backing the open file.
+    tree
+        Validated on-disk deserialization tree for the file.
+    info
+        Schema name, version, URL, and format version for the file.
+    expected_cls
+        Expected type of the deserialized object, or `None` to accept any
+        type.
     """
 
     def __init__(
@@ -88,12 +100,26 @@ class Reader[T]:
 
         Raises `~lsst.images.serialization.InvalidComponentError` for an
         unknown component name.
+
+        Parameters
+        ----------
+        name
+            Name of the component to deserialize.
+        **kwargs
+            Additional keyword arguments forwarded to the component
+            deserializer.
         """
         self._check_open()
         return self._tree.deserialize_component(name, self._archive, **kwargs)
 
     def read(self, **kwargs: Any) -> T:
-        """Deserialize and return the whole object."""
+        """Deserialize and return the whole object.
+
+        Parameters
+        ----------
+        **kwargs
+            Additional keyword arguments forwarded to the deserializer.
+        """
         self._check_open()
         obj = self._tree.deserialize(self._archive, **kwargs)
         if hasattr(obj, "_opaque_metadata"):

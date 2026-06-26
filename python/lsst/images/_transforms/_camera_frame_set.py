@@ -34,6 +34,13 @@ class CameraFrameSet(FrameSet):
     loading them from storage (via
     `~CameraFrameSetSerializationModel.deserialize`) or converting a legacy
     `lsst.afw.cameraGeom` object (`from_legacy`).
+
+    Parameters
+    ----------
+    instrument
+        Short (butler dimension) name of the instrument.
+    ast
+        AST frame set describing the camera's coordinate systems.
     """
 
     # This constructor is kept private while we support both the astshim

@@ -51,6 +51,8 @@ def write(
 
     Parameters
     ----------
+    obj
+        Object with a ``serialize`` method to write.
     path
         Name of the file to write to (may be a URI).  If not provided, a
         serializable model is returned but not written to disk.

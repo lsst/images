@@ -46,6 +46,11 @@ def backend_for_path(path: ResourcePathExpression) -> Backend:
     imported lazily so optional dependencies (e.g. ``h5py``) are only
     required when actually used.
 
+    Parameters
+    ----------
+    path
+        Path whose file extension selects the backend.
+
     Raises
     ------
     ValueError

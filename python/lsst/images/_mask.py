@@ -124,6 +124,15 @@ class MaskPlaneBit:
     def compute(cls, overall_index: int, stride: int, mask_type: type[np.integer]) -> MaskPlaneBit:
         """Construct a `MaskPlaneBit` from the overall index of a plane in a
         `MaskSchema` and the stride (number of bits per mask array element).
+
+        Parameters
+        ----------
+        overall_index
+            Index of the plane across the whole schema.
+        stride
+            Number of mask bits per array element.
+        mask_type
+            Integer dtype of the mask array elements.
         """
         index, bit = divmod(overall_index, stride)
         return cls(index, mask_type(1 << bit))
@@ -173,6 +182,11 @@ class MaskSchema:
     def bits_per_element(dtype: npt.DTypeLike) -> int:
         """Return the number of mask bits per array element for the given
         data type.
+
+        Parameters
+        ----------
+        dtype
+            Data type of the mask array elements.
         """
         dtype = np.dtype(dtype)
         match dtype.kind:
@@ -234,7 +248,13 @@ class MaskSchema:
         return self._descriptions
 
     def bit(self, plane: str) -> MaskPlaneBit:
-        """Return the last array index and mask for the given mask plane."""
+        """Return the last array index and mask for the given mask plane.
+
+        Parameters
+        ----------
+        plane
+            Name of the mask plane.
+        """
         return self._bits[plane]
 
     def bitmask(self, *planes: str) -> np.ndarray:
@@ -292,7 +312,13 @@ class MaskSchema:
         return schemas
 
     def update_header(self, header: astropy.io.fits.Header) -> None:
-        """Add a description of this mask schema to a FITS header."""
+        """Add a description of this mask schema to a FITS header.
+
+        Parameters
+        ----------
+        header
+            FITS header to add the mask schema description to.
+        """
         for n, plane in enumerate(self):
             if plane is not None:
                 bit = self.bit(plane.name)
@@ -308,7 +334,13 @@ class MaskSchema:
                 header.set(f"MSKD{n:04d}", plane.description)
 
     def strip_header(self, header: astropy.io.fits.Header) -> None:
-        """Remove all header cards added by `update_header`."""
+        """Remove all header cards added by `update_header`.
+
+        Parameters
+        ----------
+        header
+            FITS header to remove the mask schema cards from.
+        """
         for n, plane in enumerate(self):
             if plane is not None:
                 header.remove(f"MSKN{n:04d}", ignore_missing=True)
@@ -528,6 +560,15 @@ class Mask(GeneralizedImage):
     ) -> Mask:
         """Make a view of the mask, with optional updates.
 
+        Parameters
+        ----------
+        schema
+            Replacement schema; defaults to the current schema.
+        sky_projection
+            Replacement sky projection; defaults to the current one.
+        yx0
+            Replacement origin of the mask; defaults to the current origin.
+
         Notes
         -----
         This can only be used to make changes to schema descriptions; plane
@@ -548,6 +589,11 @@ class Mask(GeneralizedImage):
 
     def update(self, other: Mask) -> None:
         """Update ``self`` to include all common mask values set in ``other``.
+
+        Parameters
+        ----------
+        other
+            Mask whose set bits are merged into ``self``.
 
         Notes
         -----

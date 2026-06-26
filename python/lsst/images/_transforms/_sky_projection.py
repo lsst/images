@@ -393,6 +393,13 @@ class SkyProjection[F: Frame]:
 class SkyProjectionAstropyView(BaseLowLevelWCS, HighLevelWCSMixin):
     """An Astropy-interface view of a `SkyProjection`.
 
+    Parameters
+    ----------
+    ast_pixel_to_sky
+        AST mapping from pixel coordinates to sky coordinates.
+    bbox
+        Bounding box of the projection, or `None` if unbounded.
+
     Notes
     -----
     The constructor of this classe is considered a private implementation

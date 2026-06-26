@@ -21,7 +21,7 @@ from ..serialization import ArchiveReadError, backend_for_path, public_type_for_
 
 @click.command(name="inspect")
 @click.argument("file", type=click.Path(exists=True, dir_okay=False))
-def inspect(file: str) -> None:
+def inspect(file: str) -> None:  # numpydoc ignore=PR01
     """Print basic information about an lsst.images file.
 
     Reports the schema URL, container format version, and the public

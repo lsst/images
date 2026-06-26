@@ -102,7 +102,17 @@ def assert_close(
 
 
 def assert_equal_allow_nan(tc: unittest.TestCase, a: float, b: float) -> None:
-    """Test that two floating point values are equal, with nan == nan."""
+    """Test that two floating point values are equal, with nan == nan.
+
+    Parameters
+    ----------
+    tc
+        Test case providing the assertion methods to use.
+    a
+        First value to compare.
+    b
+        Second value to compare.
+    """
     try:
         tc.assertEqual(a, b)
     except AssertionError:
@@ -119,7 +129,24 @@ def assert_images_equal(
     atol: float = 0.0,
     expect_view: bool | Literal["array"] | None = None,
 ) -> None:
-    """Assert that two images are equal or nearly equal."""
+    """Assert that two images are equal or nearly equal.
+
+    Parameters
+    ----------
+    tc
+        Test case providing the assertion methods to use.
+    a
+        First image to compare.
+    b
+        Second image to compare.
+    rtol
+        Relative tolerance for the pixel comparison.
+    atol
+        Absolute tolerance for the pixel comparison.
+    expect_view
+        If not `None`, also assert whether ``b`` shares memory with ``a``
+        (i.e. is a view); ``"array"`` checks only the pixel arrays.
+    """
     tc.assertEqual(a.bbox, b.bbox)
     tc.assertEqual(a.unit, b.unit)
     assert_sky_projections_equal(tc, a.sky_projection, b.sky_projection)
@@ -135,7 +162,17 @@ def assert_images_equal(
 
 
 def assert_masks_equal(tc: unittest.TestCase, a: Mask, b: Mask) -> None:
-    """Assert that two masks are equal or nearly equal."""
+    """Assert that two masks are equal or nearly equal.
+
+    Parameters
+    ----------
+    tc
+        Test case providing the assertion methods to use.
+    a
+        First mask to compare.
+    b
+        Second mask to compare.
+    """
     tc.assertEqual(a.bbox, b.bbox)
     tc.assertEqual(a.schema, b.schema)
     tc.assertEqual(a.metadata, b.metadata)
@@ -152,7 +189,24 @@ def assert_masked_images_equal(
     atol: float = 0.0,
     expect_view: bool | None = None,
 ) -> None:
-    """Assert that two masked images are equal or nearly equal."""
+    """Assert that two masked images are equal or nearly equal.
+
+    Parameters
+    ----------
+    tc
+        Test case providing the assertion methods to use.
+    a
+        First masked image to compare.
+    b
+        Second masked image to compare.
+    rtol
+        Relative tolerance for the pixel comparison.
+    atol
+        Absolute tolerance for the pixel comparison.
+    expect_view
+        If not `None`, also assert whether ``b`` shares memory with ``a``
+        (i.e. is a view).
+    """
     tc.assertEqual(a.metadata, b.metadata)
     assert_sky_projections_equal(tc, a.sky_projection, b.sky_projection)
     assert_images_equal(tc, a.image, b.image, rtol=rtol, atol=atol, expect_view=expect_view)
@@ -228,6 +282,18 @@ def assert_visit_images_equal(
     corrections, photometric scaling, backgrounds, polygon bounds,
     summary stats) so a round-trip check on a `.VisitImage` does not
     silently miss differences in any of them.
+
+    Parameters
+    ----------
+    tc
+        Test case providing the assertion methods to use.
+    a
+        First visit image to compare.
+    b
+        Second visit image to compare.
+    expect_view
+        If not `None`, also assert whether ``b`` shares memory with ``a``
+        (i.e. is a view).
     """
     assert_masked_images_equal(tc, a, b, expect_view=expect_view)
     tc.assertEqual(a.summary_stats, b.summary_stats)
@@ -256,6 +322,18 @@ def assert_cell_coadds_equal(
     CellCoadd-specific attributes (PSF, cell grid, missing cells,
     backgrounds, patch/tract, band) so a round-trip check does not
     silently miss differences in any of them.
+
+    Parameters
+    ----------
+    tc
+        Test case providing the assertion methods to use.
+    a
+        First cell coadd to compare.
+    b
+        Second cell coadd to compare.
+    expect_view
+        If not `None`, also assert whether ``b`` shares memory with ``a``
+        (i.e. is a view).
     """
     assert_masked_images_equal(tc, a, b, expect_view=expect_view)
     tc.assertEqual(a.band, b.band)
@@ -271,7 +349,20 @@ def assert_cell_coadds_equal(
 def compare_image_to_legacy(
     tc: unittest.TestCase, image: Image, legacy_image: Any, expect_view: bool | None = None
 ) -> None:
-    """Compare an `.Image` object to a legacy `lsst.afw.image.Image` object."""
+    """Compare an `.Image` object to a legacy `lsst.afw.image.Image` object.
+
+    Parameters
+    ----------
+    tc
+        Test case providing the assertion methods to use.
+    image
+        Image to compare.
+    legacy_image
+        Legacy `lsst.afw.image.Image` to compare against.
+    expect_view
+        If not `None`, also assert whether ``image`` shares memory with
+        ``legacy_image`` (i.e. is a view).
+    """
     tc.assertEqual(image.bbox, Box.from_legacy(legacy_image.getBBox()))
     if expect_view is not None:
         tc.assertEqual(np.may_share_memory(image.array, legacy_image.array), expect_view)
@@ -282,7 +373,20 @@ def compare_image_to_legacy(
 def compare_mask_to_legacy(
     tc: unittest.TestCase, mask: Mask, legacy_mask: Any, plane_map: Mapping[str, MaskPlane] | None = None
 ) -> None:
-    """Compare a `.Mask` object to a legacy `lsst.afw.image.Mask` object."""
+    """Compare a `.Mask` object to a legacy `lsst.afw.image.Mask` object.
+
+    Parameters
+    ----------
+    tc
+        Test case providing the assertion methods to use.
+    mask
+        Mask to compare.
+    legacy_mask
+        Legacy `lsst.afw.image.Mask` to compare against.
+    plane_map
+        Mapping from legacy plane name to the new mask plane; defaults to
+        the planes in ``mask.schema``.
+    """
     tc.assertEqual(mask.bbox, Box.from_legacy(legacy_mask.getBBox()))
     if plane_map is None:
         plane_map = {plane.name: plane for plane in mask.schema if plane is not None}
@@ -371,6 +475,9 @@ def compare_visit_image_to_legacy(
         Expected visit ID.
     detector
         Expected detector ID.
+    applied_legacy_photo_calib
+        Legacy `lsst.afw.image.PhotoCalib` already applied to
+        ``legacy_exposure``, used when comparing photometric scaling.
     alternates
         A mapping of other versions of one or more (new) components to also
         check against the legacy versions of those components.
@@ -1074,7 +1181,19 @@ def assert_sky_projections_equal(
     b: SkyProjection[Any] | None,
     expect_identity: bool | None = None,
 ) -> None:
-    """Test that two `.SkyProjection` instances are equivalent."""
+    """Test that two `.SkyProjection` instances are equivalent.
+
+    Parameters
+    ----------
+    tc
+        Test case providing the assertion methods to use.
+    a
+        First sky projection to compare.
+    b
+        Second sky projection to compare.
+    expect_identity
+        If not `None`, assert whether ``a`` and ``b`` are the same object.
+    """
     if a is None and b is None:
         return
     assert a is not None and b is not None
@@ -1125,13 +1244,24 @@ def check_astropy_wcs_interface(
 
 
 def legacy_points_to_xy_array(legacy_points: list[Any]) -> XY[np.ndarray]:
-    """Convert a list of ``lsst.geom.Point2D`` objects to an `.XY` array."""
+    """Convert a list of ``lsst.geom.Point2D`` objects to an `.XY` array.
+
+    Parameters
+    ----------
+    legacy_points
+        Legacy ``lsst.geom.Point2D`` objects to convert.
+    """
     return XY(x=np.array([p.x for p in legacy_points]), y=np.array([p.y for p in legacy_points]))
 
 
 def legacy_coords_to_astropy(legacy_coords: list[Any]) -> SkyCoord:
     """Convert a list of ``lsst.geom.SpherePoint`` objects to an Astropy
     coordinate object.
+
+    Parameters
+    ----------
+    legacy_coords
+        Legacy ``lsst.geom.SpherePoint`` objects to convert.
     """
     return SkyCoord(
         ra=np.array([p.getRa().asRadians() for p in legacy_coords]) * u.rad,
@@ -1140,7 +1270,15 @@ def legacy_coords_to_astropy(legacy_coords: list[Any]) -> SkyCoord:
 
 
 def arrays_to_legacy_points(x: np.ndarray, y: np.ndarray) -> list[Any]:
-    """Convert arrays of ``x`` and ``y`` to a list of ``lsst.geom.Point2D``."""
+    """Convert arrays of ``x`` and ``y`` to a list of ``lsst.geom.Point2D``.
+
+    Parameters
+    ----------
+    x
+        X coordinates of the points.
+    y
+        Y coordinates of the points.
+    """
     from lsst.geom import Point2D
 
     return [Point2D(x=xv, y=yv) for xv, yv in zip(x, y)]
@@ -1156,6 +1294,20 @@ def compare_amplifier_to_legacy(
 ) -> None:
     """Compare an `~.cameras.Amplifier` to a legacy
     `lsst.afw.cameraGeom.Amplifier`.
+
+    Parameters
+    ----------
+    tc
+        Test case providing the assertion methods to use.
+    amplifier
+        Amplifier to compare.
+    legacy_amplifier
+        Legacy `lsst.afw.cameraGeom.Amplifier` to compare against.
+    is_raw_assembled
+        Whether the raw geometry is expected to be the assembled-raw
+        geometry (`True`) or the unassembled-raw geometry (`False`).
+    expect_nominal_calibrations
+        Whether the amplifier is expected to carry nominal calibrations.
     """
     tc.assertEqual(legacy_amplifier.getName(), amplifier.name)
     tc.assertEqual(Box.from_legacy(legacy_amplifier.getBBox()), amplifier.bbox)
@@ -1202,7 +1354,23 @@ def compare_detector_to_legacy(
     is_raw_assembled: bool,
     expect_nominal_calibrations: bool = True,
 ) -> None:
-    """Compare a `~.cameras.Detector` to a `lsst.afw.cameraGeom.Detector`."""
+    """Compare a `~.cameras.Detector` to a `lsst.afw.cameraGeom.Detector`.
+
+    Parameters
+    ----------
+    tc
+        Test case providing the assertion methods to use.
+    detector
+        Detector to compare.
+    legacy_detector
+        Legacy `lsst.afw.cameraGeom.Detector` to compare against.
+    is_raw_assembled
+        Whether the raw geometry is expected to be the assembled-raw
+        geometry (`True`) or the unassembled-raw geometry (`False`).
+    expect_nominal_calibrations
+        Whether the detector's amplifiers are expected to carry nominal
+        calibrations.
+    """
     from lsst.afw.cameraGeom import FIELD_ANGLE, FOCAL_PLANE, PIXELS
 
     tc.assertEqual(legacy_detector.getName(), detector.name)

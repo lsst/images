@@ -45,6 +45,13 @@ class FrameSet(ABC):
     def get[I: _frames.Frame, O: _frames.Frame](self, in_frame: I, out_frame: O) -> Transform[I, O] | None:
         """Return the `Transform` that maps the two frames, or `None` if at
         least one is not known to the `FrameSet`.
+
+        Parameters
+        ----------
+        in_frame
+            Frame to transform from.
+        out_frame
+            Frame to transform to.
         """
         try:
             return self[in_frame, out_frame]

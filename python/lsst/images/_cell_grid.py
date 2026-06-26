@@ -71,6 +71,11 @@ class CellIJ:
     def from_legacy(legacy_index: LegacyIndex2D) -> CellIJ:
         """Convert from a legacy `lsst.skymap.Index2D` instance.
 
+        Parameters
+        ----------
+        legacy_index
+            Legacy `lsst.skymap.Index2D` to convert.
+
         Notes
         -----
         `lsst.skymap.Index2D` is ordered ``(x, y)``, i.e. ``(j, i)``.
@@ -135,7 +140,13 @@ class CellGrid(pydantic.BaseModel, frozen=True):
         )
 
     def bbox_of(self, cell: CellIJ) -> Box:
-        """Return the bounding box of the given cell."""
+        """Return the bounding box of the given cell.
+
+        Parameters
+        ----------
+        cell
+            Index of the cell whose bounding box is returned.
+        """
         return Box.from_shape(
             self.cell_shape,
             start=YX(
@@ -254,13 +265,25 @@ class CellGridBounds(pydantic.BaseModel, frozen=True):
         return result
 
     def intersection(self, other: Bounds) -> Bounds:
-        """Compute the intersection of this bounds object with another."""
+        """Compute the intersection of this bounds object with another.
+
+        Parameters
+        ----------
+        other
+            Bounds to intersect with this one.
+        """
         from ._concrete_bounds import _intersect_cgb
 
         return _intersect_cgb(self, other)
 
     def contains_cell(self, index: CellIJ) -> bool:
-        """Test whether the given cell is in the bounds."""
+        """Test whether the given cell is in the bounds.
+
+        Parameters
+        ----------
+        index
+            Index of the cell to test.
+        """
         return (
             (index.i >= self.subgrid_start.i and index.i < self.subgrid_stop.i)
             and (index.j >= self.subgrid_start.j and index.j < self.subgrid_stop.j)

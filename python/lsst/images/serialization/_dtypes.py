@@ -125,5 +125,11 @@ type FloatType = Literal[NumberType.float32] | Literal[NumberType.float64]
 
 
 def is_integer(t: NumberType) -> TypeGuard[IntegerType]:
-    """Test whether a `NumberType` corresponds to an integer type."""
+    """Test whether a `NumberType` corresponds to an integer type.
+
+    Parameters
+    ----------
+    t
+        Number type to test.
+    """
     return np.dtype(t.to_numpy()).kind in ("i", "u")

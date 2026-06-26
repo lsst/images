@@ -282,14 +282,28 @@ class HdsStructure:
         return cursor
 
     def get_structure(self, path: str) -> HdsStructure:
-        """Return a child structure by relative or absolute path."""
+        """Return a child structure by relative or absolute path.
+
+        Parameters
+        ----------
+        path
+            Relative or absolute path to the child structure.
+        """
         node = self.get(path)
         if not isinstance(node, HdsStructure):
             raise KeyError(f"{path!r} is an HDS primitive, not a structure.")
         return node
 
     def set(self, path: str, node: HdsStructure | HdsPrimitive) -> None:
-        """Set a child component by relative or absolute path."""
+        """Set a child component by relative or absolute path.
+
+        Parameters
+        ----------
+        path
+            Relative or absolute path at which to store the component.
+        node
+            Child structure or primitive to store at ``path``.
+        """
         parts = _split_path(path)
         if not parts:
             raise ValueError("Cannot replace an HDS structure with itself.")
@@ -297,7 +311,13 @@ class HdsStructure:
         parent.children[parts[-1]] = node
 
     def delete(self, path: str) -> None:
-        """Delete a child component if it exists."""
+        """Delete a child component if it exists.
+
+        Parameters
+        ----------
+        path
+            Relative or absolute path to the component to remove.
+        """
         parts = _split_path(path)
         if not parts:
             raise ValueError("Cannot delete an HDS structure root.")
@@ -314,6 +334,15 @@ class HdsStructure:
         sole exception and defaults to ``EXT``. Pass ``hds_type`` to
         override the type on the leaf component only; existing structures
         retain their type unless overridden.
+
+        Parameters
+        ----------
+        path
+            Relative or absolute path to the structure to return or
+            create.
+        hds_type
+            HDS type tag to assign to the leaf component when it is
+            created, or to override on an existing leaf.
         """
         if path in ("", "/"):
             return self
@@ -337,7 +366,17 @@ class HdsStructure:
         return cursor
 
     def write_to_hdf5(self, parent: h5py.Group, name: str | None = None) -> h5py.Group:
-        """Write this structure to an HDF5 group."""
+        """Write this structure to an HDF5 group.
+
+        Parameters
+        ----------
+        parent
+            HDF5 group to write into, or the group to populate directly
+            when ``name`` is `None`.
+        name
+            Name of the child group to create under ``parent``; if `None`
+            the structure is written into ``parent`` itself.
+        """
         if name is None:
             group = parent
             _clear_hdf5_group(group)
@@ -355,20 +394,38 @@ class HdsStructure:
 
 
 class HdsExtension(HdsStructure):
-    """A general-purpose HDS extension structure."""
+    """A general-purpose HDS extension structure.
+
+    Parameters
+    ----------
+    children
+        Initial child components keyed by name.
+    """
 
     def __init__(self, children: Mapping[str, HdsStructure | HdsPrimitive] | None = None) -> None:
         super().__init__("EXT", children)
 
 
 class NdfContainer(HdsStructure):
-    """A top-level HDS container for multiple NDFs and shared metadata."""
+    """A top-level HDS container for multiple NDFs and shared metadata.
+
+    Parameters
+    ----------
+    children
+        Initial child components keyed by name.
+    """
 
     def __init__(self, children: Mapping[str, HdsStructure | HdsPrimitive] | None = None) -> None:
         super().__init__("EXT", children)
 
     def ensure_ndf(self, path: str) -> Ndf:
-        """Return or create a child NDF at ``path``."""
+        """Return or create a child NDF at ``path``.
+
+        Parameters
+        ----------
+        path
+            Relative or absolute path to the NDF to return or create.
+        """
         structure = self.ensure_structure(path, "NDF")
         if not isinstance(structure, Ndf):
             structure.__class__ = Ndf
@@ -399,7 +456,13 @@ class NdfArray:
 
     @classmethod
     def from_hds_structure(cls, structure: HdsStructure) -> Self:
-        """Build an `NdfArray` facade from an HDS ``ARRAY`` structure."""
+        """Build an `NdfArray` facade from an HDS ``ARRAY`` structure.
+
+        Parameters
+        ----------
+        structure
+            HDS ``ARRAY`` structure to read the array component from.
+        """
         data = structure.children["DATA"]
         if not isinstance(data, HdsPrimitive):
             raise TypeError("ARRAY.DATA must be an HDS primitive.")
@@ -447,7 +510,13 @@ class NdfWcs:
 
 
 class Ndf(HdsStructure):
-    """An NDF structure with convenience accessors for standard components."""
+    """An NDF structure with convenience accessors for standard components.
+
+    Parameters
+    ----------
+    children
+        Initial child components keyed by name.
+    """
 
     def __init__(self, children: Mapping[str, HdsStructure | HdsPrimitive] | None = None) -> None:
         super().__init__("NDF", children)
@@ -461,7 +530,23 @@ class Ndf(HdsStructure):
         bad_pixel: bool | None = None,
         compression_options: Mapping[str, Any] | None = None,
     ) -> None:
-        """Set an NDF array-like component such as ``DATA_ARRAY``."""
+        """Set an NDF array-like component such as ``DATA_ARRAY``.
+
+        Parameters
+        ----------
+        name
+            Name of the NDF component to set, such as ``DATA_ARRAY``.
+        data
+            Pixel data for the component.
+        origin
+            Pixel origin of the array; `None` to omit the ``ORIGIN``
+            component.
+        bad_pixel
+            Value of the bad-pixel flag; `None` to omit the
+            ``BAD_PIXEL`` component.
+        compression_options
+            HDF5 compression options applied to the stored array.
+        """
         self.children[name] = NdfArray(
             data,
             origin=origin,
@@ -470,15 +555,33 @@ class Ndf(HdsStructure):
         ).to_hds_structure()
 
     def set_quality(self, quality: NdfQuality) -> None:
-        """Set the NDF ``QUALITY`` component."""
+        """Set the NDF ``QUALITY`` component.
+
+        Parameters
+        ----------
+        quality
+            Quality component to store.
+        """
         self.children["QUALITY"] = quality.to_hds_structure()
 
     def set_wcs(self, wcs: NdfWcs) -> None:
-        """Set the NDF ``WCS`` component."""
+        """Set the NDF ``WCS`` component.
+
+        Parameters
+        ----------
+        wcs
+            WCS component to store.
+        """
         self.children["WCS"] = wcs.to_hds_structure()
 
     def set_units(self, units: str | None) -> None:
-        """Set or remove the NDF ``UNITS`` component."""
+        """Set or remove the NDF ``UNITS`` component.
+
+        Parameters
+        ----------
+        units
+            Units string to store, or `None` to remove the component.
+        """
         if units is None:
             self.children.pop("UNITS", None)
         else:
@@ -495,7 +598,13 @@ class Ndf(HdsStructure):
         return lines[0] if lines else ""
 
     def ensure_lsst_extension(self, *, base_path: str = "MORE/LSST") -> HdsStructure:
-        """Return or create the LSST extension structure for this NDF."""
+        """Return or create the LSST extension structure for this NDF.
+
+        Parameters
+        ----------
+        base_path
+            Path to the LSST extension structure within the NDF.
+        """
         return self.ensure_structure(base_path, "EXT")
 
 
@@ -508,7 +617,13 @@ class NdfDocument:
 
     @classmethod
     def from_hdf5(cls, file: h5py.File) -> Self:
-        """Read an NDF document model from an open HDF5 file."""
+        """Read an NDF document model from an open HDF5 file.
+
+        Parameters
+        ----------
+        file
+            Open HDF5 file to read the document from.
+        """
         root = HdsStructure.from_hdf5(file["/"])
         typed_root: Ndf | NdfContainer
         if isinstance(root, Ndf | NdfContainer):
@@ -522,13 +637,25 @@ class NdfDocument:
         return cls(root=typed_root, root_name=_decode_ascii_attr(file["/"].attrs.get(_hds.ATTR_ROOT_NAME)))
 
     def write_to_hdf5(self, file: h5py.File) -> None:
-        """Write this document to an open HDF5 file."""
+        """Write this document to an open HDF5 file.
+
+        Parameters
+        ----------
+        file
+            Open HDF5 file to write the document into.
+        """
         self.root.write_to_hdf5(file["/"])
         if self.root_name is not None:
             _hds.set_root_name(file, self.root_name, self.root.hds_type)
 
     def ensure_ndf(self, path: str = "/") -> Ndf:
-        """Return or create an NDF at the requested absolute path."""
+        """Return or create an NDF at the requested absolute path.
+
+        Parameters
+        ----------
+        path
+            Absolute path to the NDF to return or create.
+        """
         if path in ("", "/"):
             if not isinstance(self.root, Ndf):
                 raise TypeError("The document root is an NDF container, not an NDF.")
@@ -541,7 +668,13 @@ class NdfDocument:
         return cast(Ndf, structure)
 
     def get(self, path: str) -> HdsStructure | HdsPrimitive:
-        """Return a component by absolute path."""
+        """Return a component by absolute path.
+
+        Parameters
+        ----------
+        path
+            Absolute path to the component to return.
+        """
         return self.root.get(path)
 
 
@@ -571,7 +704,13 @@ def _split_path(path: str) -> list[str]:
 
 
 def _clear_hdf5_group(group: h5py.Group) -> None:
-    """Remove children and HDS root attributes before rewriting a group."""
+    """Remove children and HDS root attributes before rewriting a group.
+
+    Parameters
+    ----------
+    group
+        HDF5 group to clear of child datasets and HDS attributes.
+    """
     for name in list(group.keys()):
         del group[name]
     for name in (_hds.ATTR_CLASS, _hds.ATTR_ROOT_NAME, _hds.ATTR_STRUCTURE_DIMS, "HDSTYPE"):

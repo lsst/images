@@ -70,7 +70,13 @@ class Region:
 
     @staticmethod
     def from_wkt(wkt: str) -> Region:
-        """Construct from a 'Well-Known Text' string."""
+        """Construct from a 'Well-Known Text' string.
+
+        Parameters
+        ----------
+        wkt
+            Well-Known Text representation of the region.
+        """
         impl = shapely.from_wkt(wkt)
         if not isinstance(impl, shapely.Polygon | shapely.MultiPolygon):
             raise ValueError("Only Polygon and MultiPolygon geometries can be converted to Regions.")
@@ -139,13 +145,24 @@ class Region:
         Because `Region` implements the `Bounds` interface, its intersections
         need to support all other `Bounds` objects.  This is not true of other
         `Region` point-set operations like `union` and `difference`.
+
+        Parameters
+        ----------
+        other
+            Bounds to intersect with this region.
         """
         from ._concrete_bounds import _intersect_region
 
         return _intersect_region(self, other)
 
     def union(self, other: Region) -> Region:
-        """Compute the point-set union of this region with another."""
+        """Compute the point-set union of this region with another.
+
+        Parameters
+        ----------
+        other
+            Region to union with this one.
+        """
         impl = shapely.union(self._impl, other._impl)
         assert isinstance(impl, shapely.Polygon | shapely.MultiPolygon), (
             "A union of Polygons and MultiPolygons should be one of those."
@@ -153,7 +170,13 @@ class Region:
         return Region(impl).try_to_polygon()
 
     def difference(self, other: Region) -> Region:
-        """Compute the point-set difference of this region with another."""
+        """Compute the point-set difference of this region with another.
+
+        Parameters
+        ----------
+        other
+            Region to subtract from this one.
+        """
         impl = shapely.difference(self._impl, other._impl)
         assert isinstance(impl, shapely.Polygon | shapely.MultiPolygon), (
             "A difference of Polygons and MultiPolygons should be one of those."
@@ -220,6 +243,11 @@ class Polygon(Region):
     def from_box(box: Box) -> Polygon:
         """Construct from an integer-coordinate box.
 
+        Parameters
+        ----------
+        box
+            Integer-coordinate box to convert to a polygon.
+
         Notes
         -----
         Because the integer min and max coordinates of the box are
@@ -257,7 +285,13 @@ class Polygon(Region):
 
     @staticmethod
     def from_legacy(legacy: LegacyPolygon) -> Polygon:
-        """Convert from a legacy `lsst.afw.geom.Polygon` instance."""
+        """Convert from a legacy `lsst.afw.geom.Polygon` instance.
+
+        Parameters
+        ----------
+        legacy
+            Legacy `lsst.afw.geom.Polygon` to convert.
+        """
         vertices = legacy.getVertices()
         x_vertices = np.zeros(len(vertices), dtype=np.float64)
         y_vertices = np.zeros(len(vertices), dtype=np.float64)

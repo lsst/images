@@ -213,7 +213,7 @@ def fuzz_masked_image(
     quantize_level: float,
     compression_seed: int,
     overwrite: bool,
-) -> None:
+) -> None:  # numpydoc ignore=PR01
     """Shuffle the proprietary pixels of MaskedImage files for public release.
 
     Each FILE is read in whatever format it is given, its image, mask, and

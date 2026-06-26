@@ -73,6 +73,14 @@ class ArchiveInfo(pydantic.BaseModel, frozen=True):
         The URL is parsed with `~lsst.resources.ResourcePath` and its
         hostname must be ``images.lsst.io``, so a ``DATAMODL`` header written
         by an unrelated tool cannot steer reads toward an arbitrary schema.
+
+        Parameters
+        ----------
+        schema_url
+            Schema URL to parse for the schema name and version.
+        format_version
+            Container layout version, or `None` for formats with no
+            separate container version.
         """
         parsed = ResourcePath(schema_url)
         if parsed.netloc != SCHEMA_URL_HOST:
@@ -115,6 +123,11 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         without deserializing pixel data.
 
         Each concrete backend reads only the headers/metadata it needs.
+
+        Parameters
+        ----------
+        path
+            Path to the archive to read.
         """
         raise NotImplementedError(f"{cls.__name__} does not implement get_basic_info.")
 

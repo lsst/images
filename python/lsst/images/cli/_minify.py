@@ -21,7 +21,7 @@ import click
 @click.argument("input", type=click.Path(exists=True, dir_okay=False))
 @click.argument("output", type=click.Path(dir_okay=False))
 @click.option("--overwrite", is_flag=True, default=False, help="Overwrite OUTPUT if it exists.")
-def minify(input: str, output: str, overwrite: bool) -> None:
+def minify(input: str, output: str, overwrite: bool) -> None:  # numpydoc ignore=PR01
     """Subset a real data file into a small test fixture."""
     from ..tests._minify_for_fixtures import minify as _minify
 
