@@ -118,7 +118,14 @@ class ZarrCompressionOptions:
 
     @classmethod
     def default_for_dtype(cls, dtype: str | np.dtype) -> Self:
-        """Return the default codec stack for a numpy dtype."""
+        """Return the default codec stack for a numpy dtype.
+
+        Parameters
+        ----------
+        dtype
+            Array dtype whose ``kind`` selects bit-shuffle (integer or
+            bool) or byte-shuffle (float) defaults.
+        """
         kind = np.dtype(dtype).kind
         # 'u' (unsigned int), 'i' (signed int), 'b' (bool) -> bit-shuffle.
         if kind in ("u", "i", "b"):
@@ -138,6 +145,12 @@ def archive_path_to_zarr_path(archive_path: str) -> str:
     leading slash). The v1 design's JSON-pointer mapping table is
     intentionally absent: arrays land where their archive name says
     they do.
+
+    Parameters
+    ----------
+    archive_path
+        Serialization archive path; the empty string maps to
+        ``/lsst_json``.
     """
     if not archive_path:
         return "/lsst_json"
@@ -151,6 +164,11 @@ def mask_dtype_for_plane_count(n_planes: int) -> np.dtype:
     Returns ``uint8`` for <=8 planes, ``uint16`` for <=16, ``uint32``
     for <=32, ``uint64`` for <=64. Raises `ValueError` for >64 planes;
     a 3-D fallback for that case is tracked as a follow-up.
+
+    Parameters
+    ----------
+    n_planes
+        Number of mask planes (bits) the dtype must hold.
     """
     if n_planes <= 0:
         raise ValueError(f"n_planes must be positive, got {n_planes}.")
