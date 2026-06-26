@@ -258,7 +258,7 @@ class GeneralizedImage(ABC):
     @property
     def butler_provenance(self) -> DatasetProvenance | None:
         """The butler inputs and ID of the task quantum that produced this
-        dataset (`lsst.daf.butler.DatasetProvenance` | `None`)
+        dataset (`lsst.daf.butler.DatasetProvenance` | `None`).
         """
         if self._butler_info is None:
             return None
@@ -323,6 +323,11 @@ class LocalSliceProxy[T: GeneralizedImage]:
     slicing.
 
     See `~lsst.images.GeneralizedImage.local` for more information.
+
+    Parameters
+    ----------
+    parent
+        Image the slice proxy operates on.
     """
 
     def __init__(self, parent: T) -> None:
@@ -342,6 +347,11 @@ class AbsoluteSliceProxy[T: GeneralizedImage]:
     slicing.
 
     See `~lsst.images.GeneralizedImage.absolute` for more information.
+
+    Parameters
+    ----------
+    parent
+        Image the slice proxy operates on.
     """
 
     def __init__(self, parent: T) -> None:

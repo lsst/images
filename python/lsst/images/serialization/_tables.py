@@ -138,6 +138,14 @@ class TableColumnModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     def from_table(cls, table: astropy.table.Table, inline: bool = False) -> list[TableColumnModel]:
         """Extract column definitions and (optionally) data from an Astropy
         table.
+
+        Parameters
+        ----------
+        table
+            Astropy table whose columns are described.
+        inline
+            If `True`, store the column data inline instead of as an array
+            reference.
         """
         return [cls.from_column(c, inline=inline) for c in table.columns.values()]
 
@@ -145,6 +153,14 @@ class TableColumnModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     def from_column(cls, column: astropy.table.Column, inline: bool = False) -> TableColumnModel:
         """Extract a column definition and (optionally) data from an Astropy
         column.
+
+        Parameters
+        ----------
+        column
+            Astropy column to describe.
+        inline
+            If `True`, store the column data inline instead of as an array
+            reference.
 
         Notes
         -----
@@ -178,6 +194,11 @@ class TableColumnModel(pydantic.BaseModel, ser_json_inf_nan="constants"):
     def update_table(self, table: astropy.table.Table) -> None:
         """Update the unit and description of an astropy column from this
         object.
+
+        Parameters
+        ----------
+        table
+            Astropy table whose matching column is updated in place.
         """
         astropy_column: astropy.table.Column = table.columns[self.name]
         astropy_column.unit = self.unit

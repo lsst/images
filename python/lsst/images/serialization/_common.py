@@ -312,12 +312,23 @@ class OpaqueArchiveMetadata(Protocol):
     def subset(self, bbox: Box) -> Self | None:
         """Copy, reference, or discard metadata when a subset of its its
         holding object is extracted.
+
+        Parameters
+        ----------
+        bbox
+            Bounding box of the subset being extracted.
         """
         ...
 
 
 def no_header_updates(header: astropy.io.fits.Header) -> None:
-    """Do not make any modifications to the given FITS header."""
+    """Do not make any modifications to the given FITS header.
+
+    Parameters
+    ----------
+    header
+        FITS header that is left unchanged.
+    """
 
 
 def _parse_major(version: str) -> int:

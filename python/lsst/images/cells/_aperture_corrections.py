@@ -49,12 +49,14 @@ class CellField(BaseField):
 
     Parameters
     ----------
-    array
-        A 2-d array of cell values with shape
-        ``bounds.subgrid_size.as_tuple()``.
     bounds
         Description of the cell grid and any missing cells.  Array entries for
         missing cells should be NaN.
+    array
+        A 2-d array of cell values with shape
+        ``bounds.subgrid_size.as_tuple()``.
+    unit
+        Units of the field values, or `None` if dimensionless.
 
     Notes
     -----
@@ -98,7 +100,13 @@ class CellField(BaseField):
         return True
 
     def value_in_cell(self, key: CellIJ) -> float:
-        """Return the value of the field in the cell with the given index."""
+        """Return the value of the field in the cell with the given index.
+
+        Parameters
+        ----------
+        key
+            Index of the cell to evaluate.
+        """
         if key in self._bounds.missing:
             raise BoundsError(f"Cell {key} is missing for this field.")
         index = key - self._bounds.subgrid_start
@@ -110,6 +118,11 @@ class CellField(BaseField):
     def quantity_in_cell(self, key: CellIJ) -> astropy.units.Quantity:
         """Return the quantity (value with units) of the field in the cell
         with the given index.
+
+        Parameters
+        ----------
+        key
+            Index of the cell to evaluate.
         """
         return astropy.units.Quantity(self.value_in_cell(key), self._unit)
 

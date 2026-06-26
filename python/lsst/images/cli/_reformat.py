@@ -24,7 +24,7 @@ from ..serialization import ArchiveReadError, backend_for_path, read, write
 @click.argument("input", type=click.Path(exists=True, dir_okay=False))
 @click.argument("output", type=click.Path(dir_okay=False))
 @click.option("--overwrite", is_flag=True, default=False, help="Overwrite OUTPUT if it exists.")
-def reformat(input: str, output: str, overwrite: bool) -> None:
+def reformat(input: str, output: str, overwrite: bool) -> None:  # numpydoc ignore=PR01
     """Rewrite an lsst.images file in a different container format.
 
     Reads INPUT and writes it back out to OUTPUT, choosing the format from

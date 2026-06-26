@@ -99,6 +99,13 @@ class HdsNameShrinker:
         characters, so the version number stays readable in Starlink tools.
         Version one (the first occurrence) is shrunk exactly like an
         unversioned component.
+
+        Parameters
+        ----------
+        base
+            Component name to shrink.
+        version
+            Version number whose suffix is preserved when greater than one.
         """
         suffix = f"_{version}" if version > 1 else ""
         return self.shrink(base, reserve=len(suffix)) + suffix
@@ -111,6 +118,13 @@ def archive_path_to_hdf5_path(archive_path: str, shrinker: HdsNameShrinker) -> s
     Any non-empty path is uppercased and kept hierarchical under
     ``/MORE/LSST/``. This mirrors the serialization path while keeping HDS
     component names within the HDS object-name limit (``DAT__SZNAM``).
+
+    Parameters
+    ----------
+    archive_path
+        Serialization archive path to translate.
+    shrinker
+        Name shrinker used to keep components within the HDS name limit.
     """
     if not archive_path:
         return "/MORE/LSST/JSON"
@@ -123,5 +137,12 @@ def archive_path_to_hdf5_path_components(archive_path: str, shrinker: HdsNameShr
 
     Each component is uppercased; components longer than the HDS object-name
     limit (``DAT__SZNAM``) are shrunk by ``shrinker``.
+
+    Parameters
+    ----------
+    archive_path
+        Serialization archive path to split into components.
+    shrinker
+        Name shrinker used to keep components within the HDS name limit.
     """
     return [shrinker.shrink(component) for component in archive_path.strip("/").split("/") if component]

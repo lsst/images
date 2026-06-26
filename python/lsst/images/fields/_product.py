@@ -116,7 +116,13 @@ class ProductField(BaseField):
         return ProductField(new_operands)
 
     def serialize(self, archive: OutputArchive[Any]) -> ProductFieldSerializationModel:
-        """Serialize the field to an output archive."""
+        """Serialize the field to an output archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to write to.
+        """
         return ProductFieldSerializationModel(
             operands=[operand.serialize(archive) for operand in self._operands]
         )
@@ -178,7 +184,17 @@ class ProductFieldSerializationModel(ArchiveTree):
     field_type: Literal["PRODUCT"] = "PRODUCT"
 
     def deserialize(self, archive: InputArchive, **kwargs: Any) -> ProductField:
-        """Deserialize the field from an input archive."""
+        """Deserialize the field from an input archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide
+            better error messages (raising
+            `.serialization.InvalidParameterError`).
+        """
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for ProductField: {set(kwargs.keys())}.")
         return ProductField([operand.deserialize(archive) for operand in self.operands])

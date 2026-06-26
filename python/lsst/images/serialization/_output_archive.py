@@ -302,11 +302,6 @@ class OutputArchive[P](ABC):
 
         Parameters
         ----------
-        name
-            Attribute of the paired Pydantic model that will be assigned the
-            result of this call.  If it will not be assigned to a direct
-            attribute, it may be a JSON Pointer path (relative to the paired
-            Pydantic model) to the location where it will be added.
         array
             A structured numpy array.
         name

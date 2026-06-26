@@ -278,6 +278,16 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         Optional `~lsst.images.fits.FitsOpaqueMetadata`; if its primary-HDU
         header is non-empty its cards will be written to ``/MORE/FITS`` by the
         top-level `write` function.
+    root
+        Root NDF or NDF container to populate; a new empty ``Ndf`` is created
+        when `None`.
+    lsst_path
+        HDS path under which the LSST extension is written.
+    direct_ndf_array_paths
+        Mapping from archive path to NDF array path for arrays written
+        directly as NDF components rather than into the LSST extension.
+    wcs_ndf_paths
+        NDF paths for which WCS information is written.
     """
 
     def __init__(
@@ -325,6 +335,28 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         ``filename=None`` uses an in-memory HDF5 file; the on-disk
         artefact is discarded but the archive's writes still produce a
         usable returned tree (handy for tests).
+
+        Parameters
+        ----------
+        filename
+            Name of the file to write to, or `None` to use an in-memory
+            HDF5 file whose on-disk artefact is discarded.
+        compression_options
+            Optional dict passed through to `h5py.Group.create_dataset`
+            for image arrays.
+        opaque_metadata
+            Optional `~lsst.images.fits.FitsOpaqueMetadata` whose cards are
+            written to ``/MORE/FITS`` by the top-level `write` function.
+        root
+            Root NDF or NDF container to populate; a new empty ``Ndf`` is
+            created when `None`.
+        lsst_path
+            HDS path under which the LSST extension is written.
+        direct_ndf_array_paths
+            Mapping from archive path to NDF array path for arrays written
+            directly as NDF components rather than into the LSST extension.
+        wcs_ndf_paths
+            NDF paths for which WCS information is written.
         """
         if filename is None:
             h5_file = h5py.File("inmem.sdf", "w", driver="core", backing_store=False)
@@ -692,7 +724,13 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         return self._document.root.ensure_structure(path, hds_type)
 
     def _archive_path_to_hdf5_path(self, archive_path: str) -> str:
-        """Translate an archive path to this layout's HDF5 path."""
+        """Translate an archive path to this layout's HDF5 path.
+
+        Parameters
+        ----------
+        archive_path
+            Serialization archive path to translate.
+        """
         if self._lsst_path == "/MORE/LSST":
             return archive_path_to_hdf5_path(archive_path, self._name_shrinker)
         if not archive_path:
@@ -707,6 +745,13 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
         applied), which is unique per logical write.
         Two different archive entries shrinking to the same HDS path would
         silently clobber one another, so this fails loudly instead.
+
+        Parameters
+        ----------
+        hdf5_path
+            HDF5 path being claimed.
+        logical_id
+            Un-shrunk archive path that owns ``hdf5_path``.
         """
         previous = self._hdf5_path_owners.get(hdf5_path)
         if previous is not None and previous != logical_id:

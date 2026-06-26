@@ -26,6 +26,13 @@ if TYPE_CHECKING:
 class IntersectionBounds:
     """An implementation of the `Bounds` protocol that acts as a lazy
     intersection of two other `Bounds` objects.
+
+    Parameters
+    ----------
+    a
+        First operand of the intersection.
+    b
+        Second operand of the intersection.
     """
 
     def __init__(self, a: Bounds, b: Bounds) -> None:
@@ -68,6 +75,11 @@ class IntersectionBounds:
 
     def intersection(self, other: Bounds) -> Bounds:
         """Compute the intersection of this bounds object with another.
+
+        Parameters
+        ----------
+        other
+            Bounds to intersect with this one.
 
         Notes
         -----

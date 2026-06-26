@@ -99,6 +99,11 @@ class ExtensionKey:
     def from_index_row(cls, row: np.ndarray) -> ExtensionKey:
         """Construct from a row of the index binary table appended to the
         FITS files written by the package.
+
+        Parameters
+        ----------
+        row
+            Structured-array row with ``EXTNAME`` and ``EXTVER`` fields.
         """
         return cls(str(row["EXTNAME"]).upper(), int(row["EXTVER"]))
 
@@ -107,6 +112,12 @@ class ExtensionKey:
         """Construct from the `str` coercion of this type, which is used
         as the 'source' field in various Pydantic models that serve as
         references to other HDUs.
+
+        Parameters
+        ----------
+        source
+            ``fits:<extname>[,<extver>]`` reference string, as produced by
+            ``str(self)``.
         """
         if (m := FITS_SOURCE_REGEX.fullmatch(source)) is None:
             raise ArchiveReadError(f"Bad 'source' string for FITS: {source!r}.")
@@ -221,7 +232,15 @@ class FitsCompressionOptions(pydantic.BaseModel, frozen=True):
     """Default lossy compression options."""
 
     def make_hdu(self, data: np.ndarray, name: str) -> astropy.io.fits.CompImageHDU:
-        """Make an `astropy.io.fits.CompImageHDU` object from these options."""
+        """Make an `astropy.io.fits.CompImageHDU` object from these options.
+
+        Parameters
+        ----------
+        data
+            Pixel data to store in the HDU.
+        name
+            ``EXTNAME`` of the HDU.
+        """
         if self.quantization is not None:
             return astropy.io.fits.CompImageHDU(
                 data,
@@ -402,6 +421,11 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         of a legacy (`lsst.afw.image`) FITS file, stripping cards we know we
         don't need and extracting any ``LSST IMAGES ...`` cards into a
         dictionary we return.
+
+        Parameters
+        ----------
+        header
+            Primary HDU header of the legacy FITS file.
         """
         primary_header = header.copy(strip=True)
         # No idea what these spare TAN-SIP headers are doing in the afw
@@ -549,6 +573,11 @@ def strip_wcs_cards(header: astropy.io.fits.Header) -> None:
 
     This does *not* attempt to cover all possible FITS WCS forms; it focuses on
     the ones we actually plan to write (simple undistorted ones + TAN-SIP).
+
+    Parameters
+    ----------
+    header
+        FITS header to strip WCS cards from in place.
     """
     wcsaxes = header.pop("WCSAXES", 2)
     for wcsname in [""] + list(string.ascii_uppercase):
@@ -583,7 +612,13 @@ def _strip_sip_poly(header: astropy.io.fits.Header, wcsname: str, which: str) ->
 
 
 def strip_legacy_exposure_cards(header: astropy.io.fits.Header) -> None:
-    """Strip header keywords added by lsst.afw.image.Exposure."""
+    """Strip header keywords added by lsst.afw.image.Exposure.
+
+    Parameters
+    ----------
+    header
+        FITS header to strip exposure cards from in place.
+    """
     header.remove("AR_HDU", ignore_missing=True)
     for name in (
         "FILTER",
@@ -602,6 +637,11 @@ def strip_legacy_exposure_cards(header: astropy.io.fits.Header) -> None:
 def strip_butler_cards(header: astropy.io.fits.Header) -> None:
     """Strip header keywords added by butler provenance that would be
     incorrect if propagated to a downstream file.
+
+    Parameters
+    ----------
+    header
+        FITS header to strip butler provenance cards from in place.
     """
     for key in list(header):
         if key.startswith("LSST BUTLER"):

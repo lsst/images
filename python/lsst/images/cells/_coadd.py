@@ -296,6 +296,12 @@ class CellCoadd(MaskedImage):
         in place.
 
         If ``name`` is `None`, restore the original background.
+
+        Parameters
+        ----------
+        name
+            Name of the background to subtract, or `None` to restore the
+            original background.
         """
         current_bg = self.backgrounds.subtracted
         if current_bg is not None:

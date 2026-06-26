@@ -149,6 +149,11 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         Reading the datasets directly from the HDF5 file avoids building
         the full internal model, which would eagerly read the
         (potentially large) JSON tree.
+
+        Parameters
+        ----------
+        path
+            Path to the archive to read.
         """
         ospath = ResourcePath(path).ospath
 
@@ -175,6 +180,16 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         a separate `get_basic_info` open.  Requires the symmetric LSST JSON
         tree; ``partial`` is accepted but not meaningful, since h5py reads
         lazily regardless.
+
+        Parameters
+        ----------
+        path
+            The file resource to open.
+        partial
+            Accepted for interface compatibility but not meaningful; h5py
+            reads lazily regardless.
+        **backend_kwargs
+            Backend-specific options; none are currently used.
         """
         with cls.open(path) as archive:
             if archive._get_main_json_path() is None:
@@ -194,6 +209,11 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
 
         Remote ResourcePaths are materialised locally first; fsspec-direct
         h5py reads are a deferred follow-up.
+
+        Parameters
+        ----------
+        path
+            Path to the NDF file to open.
         """
         rp = ResourcePath(path)
         with rp.as_local() as local:
@@ -201,7 +221,13 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
                 yield cls(f)
 
     def get_tree[T: ArchiveTree](self, model_type: type[T]) -> T:
-        """Read and validate the main Pydantic tree at ``/MORE/LSST/JSON``."""
+        """Read and validate the main Pydantic tree at ``/MORE/LSST/JSON``.
+
+        Parameters
+        ----------
+        model_type
+            Archive tree model type to validate the JSON tree against.
+        """
         json_path = self._get_main_json_path()
         if json_path is None:
             raise ArchiveReadError(
@@ -310,8 +336,8 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
 
     @property
     def info(self) -> ArchiveInfo:
-        """Schema/format info read from the open document's ``DATA_MODEL``.
-        (`.serialization.ArchiveInfo`)
+        """Schema/format info read from the open document's ``DATA_MODEL``
+        (`.serialization.ArchiveInfo`).
         """
         return _read_archive_info(self._get_optional_primitive, repr(self._file.filename))
 
@@ -358,7 +384,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         return node if isinstance(node, HdsPrimitive) else None
 
 
-def read_starlink[T: Any](cls: type[T], path: ResourcePathExpression) -> T:
+def read_starlink[T: Any](cls_: type[T], path: ResourcePathExpression) -> T:
     """Reconstruct an `~lsst.images.Image` or `~lsst.images.MaskedImage`
     from a schema-less Starlink NDF.
 
@@ -373,7 +399,7 @@ def read_starlink[T: Any](cls: type[T], path: ResourcePathExpression) -> T:
 
     Parameters
     ----------
-    cls
+    cls_
         Expected return type; `~lsst.images.Image` and
         `~lsst.images.MaskedImage` are the only types the auto-detect path
         can produce.
@@ -396,7 +422,7 @@ def read_starlink[T: Any](cls: type[T], path: ResourcePathExpression) -> T:
             raise ArchiveReadError(
                 f"{path!r} has an LSST JSON tree; read it with serialization.read()/open()."
             )
-        return _read_auto_detect(cls, archive)
+        return _read_auto_detect(cls_, archive)
 
 
 def _read_auto_detect[T: Any](cls: type[T], archive: NdfInputArchive) -> T:

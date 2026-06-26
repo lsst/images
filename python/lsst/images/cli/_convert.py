@@ -39,6 +39,11 @@ def detect_legacy_type(path: str) -> str | None:
     containing ``coadd`` is a `CellCoadd`.  astropy exposes the
     ``HIERARCH LSST BUTLER DATASETTYPE`` card as
     ``header["LSST BUTLER DATASETTYPE"]``.
+
+    Parameters
+    ----------
+    path
+        Path to the legacy FITS file to inspect.
     """
     dataset_type: str | None = None
     with astropy.io.fits.open(path) as hdul:
@@ -153,7 +158,7 @@ def convert(
     collection: str | None,
     overwrite: bool,
     preserve_quantization: bool,
-) -> None:
+) -> None:  # numpydoc ignore=PR01
     """Convert a legacy FITS file to a new lsst.images format.
 
     The output format is chosen from OUTPUT's extension.

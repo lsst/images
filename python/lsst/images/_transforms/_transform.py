@@ -53,6 +53,23 @@ class TransformCompositionError(RuntimeError):
 class Transform[I: Frame, O: Frame]:
     """A transform that maps two coordinate frames.
 
+    Parameters
+    ----------
+    in_frame
+        Input coordinate frame.
+    out_frame
+        Output coordinate frame.
+    ast_mapping
+        AST mapping that implements the transform.
+    in_bounds
+        Bounds of the input frame, defaulting to the input frame's
+        bounding box.
+    out_bounds
+        Bounds of the output frame, defaulting to the output frame's
+        bounding box.
+    components
+        Component transforms that this transform was composed from.
+
     Notes
     -----
     The `Transform` class constructor is considered a private implementation

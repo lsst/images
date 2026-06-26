@@ -208,7 +208,13 @@ class SplineField(BaseField):
         return SplineField(self._bounds, self._data * factor, y=self._y, x=self._x, unit=unit)
 
     def serialize(self, archive: OutputArchive[Any]) -> SplineFieldSerializationModel:
-        """Serialize the spline field to an output archive."""
+        """Serialize the spline field to an output archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to write to.
+        """
         if self._data.size > 64:
             data = archive.add_array(self._data, name="data")
         else:
@@ -243,7 +249,7 @@ class SplineField(BaseField):
 
         Parameters
         ----------
-        legacy
+        legacy_background
             Legacy background object to convert.
         bounds
             The bounds of the returned field, if they should be different from
@@ -341,7 +347,17 @@ class SplineFieldSerializationModel(ArchiveTree):
     field_type: Literal["SPLINE"] = "SPLINE"
 
     def deserialize(self, archive: InputArchive, **kwargs: Any) -> SplineField:
-        """Deserialize the spline field from an input archive."""
+        """Deserialize the spline field from an input archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide
+            better error messages (raising
+            `.serialization.InvalidParameterError`).
+        """
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for SplineField: {set(kwargs.keys())}.")
         data = (

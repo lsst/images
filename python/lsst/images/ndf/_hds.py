@@ -546,6 +546,11 @@ def iter_children(group: h5py.Group) -> Iterator[tuple[str, h5py.Group | h5py.Da
     group
         HDF5 group to inspect.
 
-    Yields ``(name, child)`` pairs where ``child`` is a group or dataset.
+    Yields
+    ------
+    name
+        Name of the structure.
+    child
+        Child is a group or dataset.
     """
     yield from group.items()

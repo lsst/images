@@ -46,11 +46,23 @@ class Frame(Protocol):
         ...
 
     def standardize_x[T: float | np.ndarray](self, x: T) -> T:
-        """Coerce ``x`` coordinates into their standard range."""
+        """Coerce ``x`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        x
+            ``x`` coordinate values to standardize.
+        """
         ...
 
     def standardize_y[T: float | np.ndarray](self, y: T) -> T:
-        """Coerce ``y`` coordinates into their standard range."""
+        """Coerce ``y`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        y
+            ``y`` coordinate values to standardize.
+        """
         ...
 
     def serialize(self) -> SerializableFrame:
@@ -105,11 +117,23 @@ class DetectorFrame(pydantic.BaseModel, frozen=True):
         return u.pix
 
     def standardize_x[T: float | np.ndarray](self, x: T) -> T:
-        """Coerce ``x`` coordinates into their standard range."""
+        """Coerce ``x`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        x
+            ``x`` coordinate values to standardize.
+        """
         return x
 
     def standardize_y[T: float | np.ndarray](self, y: T) -> T:
-        """Coerce ``y`` coordinates into their standard range."""
+        """Coerce ``y`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        y
+            ``y`` coordinate values to standardize.
+        """
         return y
 
     def serialize(self) -> DetectorFrame:
@@ -145,11 +169,23 @@ class FocalPlaneFrame(pydantic.BaseModel, frozen=True):
     )
 
     def standardize_x[T: float | np.ndarray](self, x: T) -> T:
-        """Coerce ``x`` coordinates into their standard range."""
+        """Coerce ``x`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        x
+            Coordinates to standardize.
+        """
         return x
 
     def standardize_y[T: float | np.ndarray](self, y: T) -> T:
-        """Coerce ``y`` coordinates into their standard range."""
+        """Coerce ``y`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        y
+            Coordinates to standardize.
+        """
         return y
 
     def serialize(self) -> FocalPlaneFrame:
@@ -197,11 +233,23 @@ class FieldAngleFrame(pydantic.BaseModel, frozen=True):
         return u.rad
 
     def standardize_x[T: float | np.ndarray](self, x: T) -> T:
-        """Coerce ``x`` coordinates into their standard range."""
+        """Coerce ``x`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        x
+            Coordinates to standardize.
+        """
         return _wrap_symmetric(x)
 
     def standardize_y[T: float | np.ndarray](self, y: T) -> T:
-        """Coerce ``y`` coordinates into their standard range."""
+        """Coerce ``y`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        y
+            Coordinates to standardize.
+        """
         return _wrap_symmetric(y)
 
     def serialize(self) -> FieldAngleFrame:
@@ -239,11 +287,23 @@ class TractFrame(pydantic.BaseModel, frozen=True):
         return u.pix
 
     def standardize_x[T: float | np.ndarray](self, x: T) -> T:
-        """Coerce ``x`` coordinates into their standard range."""
+        """Coerce ``x`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        x
+            Coordinates to standardize.
+        """
         return x
 
     def standardize_y[T: float | np.ndarray](self, y: T) -> T:
-        """Coerce ``y`` coordinates into their standard range."""
+        """Coerce ``y`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        y
+            Coordinates to standardize.
+        """
         return y
 
     def serialize(self) -> TractFrame:
@@ -270,11 +330,23 @@ class GeneralFrame(pydantic.BaseModel, frozen=True):
     )
 
     def standardize_x[T: float | np.ndarray](self, x: T) -> T:
-        """Coerce ``x`` coordinates into their standard range."""
+        """Coerce ``x`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        x
+            Coordinates to standardize.
+        """
         return x
 
     def standardize_y[T: float | np.ndarray](self, y: T) -> T:
-        """Coerce ``y`` coordinates into their standard range."""
+        """Coerce ``y`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        y
+            Coordinates to standardize.
+        """
         return y
 
     def serialize(self) -> GeneralFrame:
@@ -303,11 +375,23 @@ class SkyFrame(enum.StrEnum):
         return u.rad
 
     def standardize_x[T: float | np.ndarray](self, x: T) -> T:
-        """Coerce ``x`` coordinates into their standard range."""
+        """Coerce ``x`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        x
+            Coordinates to standardize.
+        """
         return _wrap_positive(x)
 
     def standardize_y[T: float | np.ndarray](self, y: T) -> T:
-        """Coerce ``x`` coordinates into their standard range."""
+        """Coerce ``y`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        y
+            Coordinates to standardize.
+        """
         return _wrap_symmetric(y)
 
     def serialize(self) -> SkyFrame:

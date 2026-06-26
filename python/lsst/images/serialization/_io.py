@@ -193,6 +193,13 @@ def parameterize_tree(
     take no type parameters; their ``_get_archive_tree_type`` returns
     the class itself.  Match that behaviour here so per-backend
     ``open_tree`` implementations can call this uniformly.
+
+    Parameters
+    ----------
+    tree_cls
+        Archive tree class to parameterise.
+    pointer_type
+        Pointer type to parameterise ``tree_cls`` over when it is generic.
     """
     if not getattr(tree_cls, "__parameters__", ()):
         return tree_cls

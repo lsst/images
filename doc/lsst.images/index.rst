@@ -15,6 +15,7 @@ User Guide
    :maxdepth: 1
 
    for-afw-users.rst
+   model-diagrams.rst
 
 Changes
 =======
@@ -31,6 +32,14 @@ Concepts
    :maxdepth: 1
 
    schema-versioning.rst
+
+Administrative Interface
+========================
+
+.. toctree::
+   :maxdepth: 1
+
+   admin.rst
 
 API Reference
 =============

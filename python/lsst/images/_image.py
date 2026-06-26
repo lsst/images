@@ -241,7 +241,20 @@ class Image(GeneralizedImage):
         sky_projection: SkyProjection | None | EllipsisType = ...,
         yx0: Sequence[int] | EllipsisType = ...,
     ) -> Image:
-        """Make a view of the image, with optional updates."""
+        """Make a view of the image, with optional updates.
+
+        Parameters
+        ----------
+        unit
+            Units for the view's pixel values.  Defaults to the units of this
+            image.
+        sky_projection
+            Projection that maps the pixel grid to the sky.  Defaults to the
+            projection of this image.
+        yx0
+            Logical coordinates of the first pixel, ordered ``y``, ``x``.
+            Defaults to the ``start`` of this image's bounding box.
+        """
         if unit is ...:
             unit = self._unit
         if sky_projection is ...:

@@ -241,7 +241,7 @@ class SkyProjection[F: Frame]:
         return SkyCoord(ra=sky_rad.x, dec=sky_rad.y, unit=u.rad)
 
     def sky_to_pixel(self, sky: SkyCoord) -> XY[np.ndarray | float]:
-        """Transform one or more sky coordinates to pixels
+        """Transform one or more sky coordinates to pixels.
 
         Parameters
         ----------
@@ -392,6 +392,13 @@ class SkyProjection[F: Frame]:
 
 class SkyProjectionAstropyView(BaseLowLevelWCS, HighLevelWCSMixin):
     """An Astropy-interface view of a `SkyProjection`.
+
+    Parameters
+    ----------
+    ast_pixel_to_sky
+        AST mapping from pixel coordinates to sky coordinates.
+    bbox
+        Bounding box of the projection, or `None` if unbounded.
 
     Notes
     -----

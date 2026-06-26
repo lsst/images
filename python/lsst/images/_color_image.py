@@ -84,6 +84,19 @@ class ColorImage(GeneralizedImage):
 
         All channels are assumed to have the same bounding box, sky_projection,
         and pixel type.
+
+        Parameters
+        ----------
+        r
+            Red channel image.
+        g
+            Green channel image.
+        b
+            Blue channel image.
+        sky_projection
+            Sky projection for the image, defaulting to that of ``r``.
+        metadata
+            Flexible metadata to associate with the image.
         """
         if sky_projection is None and r.sky_projection is not None:
             sky_projection = r.sky_projection
@@ -213,13 +226,14 @@ class ColorImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
 
         Parameters
         ----------
-        model
-            A Pydantic model representation of the image, holding references
-            to data stored in the archive.
         archive
             Archive to read from.
         bbox
             Bounding box of a subimage to read instead.
+        **kwargs
+            Unsupported keyword arguments are accepted only to provide
+            better error messages (raising
+            `.serialization.InvalidParameterError`).
         """
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for ColoImage: {set(kwargs.keys())}.")

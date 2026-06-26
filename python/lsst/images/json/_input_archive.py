@@ -65,6 +65,11 @@ class JsonInputArchive(InputArchive[JsonRef]):
         nested trees carry their own ``schema_url``, so a bounded prefix
         cannot identify the top-level tree reliably.  JSON is not intended
         for large pixel archives, where FITS or NDF should be used instead.
+
+        Parameters
+        ----------
+        path
+            Path to the archive to read.
         """
         raw = from_json(ResourcePath(path).read())
         if not isinstance(raw, dict) or not raw.get("schema_url"):
