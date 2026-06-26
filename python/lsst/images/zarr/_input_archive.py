@@ -46,7 +46,14 @@ from ._store import open_store_for_read
 
 
 class ZarrInputArchive(InputArchive[ZarrPointerModel]):
-    """Reads zarr archives written by `ZarrOutputArchive`."""
+    """Reads zarr archives written by `ZarrOutputArchive`.
+
+    Parameters
+    ----------
+    document
+        In-memory IR for the open archive, built by
+        ``ZarrDocument.from_zarr``.
+    """
 
     def __init__(self, document: ZarrDocument) -> None:
         self._document = document
@@ -62,7 +69,13 @@ class ZarrInputArchive(InputArchive[ZarrPointerModel]):
     @classmethod
     @contextmanager
     def open(cls, path: ResourcePathExpression) -> Iterator[Self]:
-        """Open a zarr archive for reading."""
+        """Open a zarr archive for reading.
+
+        Parameters
+        ----------
+        path
+            URI or path of the zarr archive to open.
+        """
         with open_store_for_read(path) as store:
             doc = ZarrDocument.from_zarr(store)
             yield cls(doc)
@@ -73,6 +86,11 @@ class ZarrInputArchive(InputArchive[ZarrPointerModel]):
 
         Reads only the root group's ``lsst`` attributes (``data_model``
         and ``version``); building the lazy IR does not fetch pixel data.
+
+        Parameters
+        ----------
+        path
+            URI or path of the zarr archive to inspect.
         """
         with open_store_for_read(path) as store:
             doc = ZarrDocument.from_zarr(store)
@@ -100,6 +118,16 @@ class ZarrInputArchive(InputArchive[ZarrPointerModel]):
         than a separate `get_basic_info` open.  Zarr reads are always lazy,
         so ``partial`` is accepted for interface compatibility but has no
         effect.
+
+        Parameters
+        ----------
+        path
+            URI or path of the zarr archive to open.
+        partial
+            Accepted for interface compatibility; ignored because zarr
+            reads are always lazy.
+        **backend_kwargs
+            Accepted for interface compatibility; ignored.
         """
         with cls.open(path) as archive:
             info = archive.info
@@ -123,7 +151,14 @@ class ZarrInputArchive(InputArchive[ZarrPointerModel]):
         return self._document
 
     def get_tree[T: ArchiveTree](self, model_type: type[T]) -> T:
-        """Read and validate the main Pydantic tree at ``/lsst_json``."""
+        """Read and validate the main Pydantic tree at ``/lsst_json``.
+
+        Parameters
+        ----------
+        model_type
+            Pydantic tree class to validate the ``/lsst_json`` bytes
+            against.
+        """
         try:
             node = self._document.root.get("/lsst_json")
         except KeyError:
