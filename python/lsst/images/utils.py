@@ -36,6 +36,11 @@ def round_half_up(x: float) -> int:
     Note that Python's built-in `round` implements the "round half to even"
     strategy.  This function implements the strategy used in `lsst.geom.Point`
     conversions.
+
+    Parameters
+    ----------
+    x
+        Value to round.
     """
     return math.floor(x + 0.5)
 
@@ -45,6 +50,11 @@ def round_half_down(x: float) -> int:
 
     Note that Python's built-in `round` implements the "round half to even"
     strategy.
+
+    Parameters
+    ----------
+    x
+        Value to round.
     """
     return math.ceil(x - 0.5)
 
@@ -54,6 +64,11 @@ def round_half_away_from_zero(x: float) -> int:
 
     Note that Python's built-in `round` implements the "round half to even"
     strategy.  This function implements the C/C++ standard strategy.
+
+    Parameters
+    ----------
+    x
+        Value to round.
     """
     if x > 0:
         return math.floor(x + 0.5)

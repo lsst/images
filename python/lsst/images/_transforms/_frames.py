@@ -46,11 +46,23 @@ class Frame(Protocol):
         ...
 
     def standardize_x[T: float | np.ndarray](self, x: T) -> T:
-        """Coerce ``x`` coordinates into their standard range."""
+        """Coerce ``x`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        x
+            ``x`` coordinate values to standardize.
+        """
         ...
 
     def standardize_y[T: float | np.ndarray](self, y: T) -> T:
-        """Coerce ``y`` coordinates into their standard range."""
+        """Coerce ``y`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        y
+            ``y`` coordinate values to standardize.
+        """
         ...
 
     def serialize(self) -> SerializableFrame:
@@ -105,11 +117,23 @@ class DetectorFrame(pydantic.BaseModel, frozen=True):
         return u.pix
 
     def standardize_x[T: float | np.ndarray](self, x: T) -> T:
-        """Coerce ``x`` coordinates into their standard range."""
+        """Coerce ``x`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        x
+            ``x`` coordinate values to standardize.
+        """
         return x
 
     def standardize_y[T: float | np.ndarray](self, y: T) -> T:
-        """Coerce ``y`` coordinates into their standard range."""
+        """Coerce ``y`` coordinates into their standard range.
+
+        Parameters
+        ----------
+        y
+            ``y`` coordinate values to standardize.
+        """
         return y
 
     def serialize(self) -> DetectorFrame:

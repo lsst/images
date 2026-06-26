@@ -99,6 +99,11 @@ class ExtensionKey:
     def from_index_row(cls, row: np.ndarray) -> ExtensionKey:
         """Construct from a row of the index binary table appended to the
         FITS files written by the package.
+
+        Parameters
+        ----------
+        row
+            Structured-array row with ``EXTNAME`` and ``EXTVER`` fields.
         """
         return cls(str(row["EXTNAME"]).upper(), int(row["EXTVER"]))
 
@@ -107,6 +112,12 @@ class ExtensionKey:
         """Construct from the `str` coercion of this type, which is used
         as the 'source' field in various Pydantic models that serve as
         references to other HDUs.
+
+        Parameters
+        ----------
+        source
+            ``fits:<extname>[,<extver>]`` reference string, as produced by
+            ``str(self)``.
         """
         if (m := FITS_SOURCE_REGEX.fullmatch(source)) is None:
             raise ArchiveReadError(f"Bad 'source' string for FITS: {source!r}.")

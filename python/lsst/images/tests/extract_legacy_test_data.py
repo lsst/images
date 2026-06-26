@@ -34,6 +34,18 @@ def extract_exposure(
 ) -> None:
     """Load a subimage of a processed visit image from a butler repository
     and save it to testdata_images.
+
+    Parameters
+    ----------
+    butler
+        Butler repository to read the dataset from.
+    output_path
+        Path to the FITS file to write under testdata_images.
+    dataset_ref
+        Reference to the dataset to load from the butler.
+    shuffle
+        If `True`, randomly permute the image, mask, and variance pixels so
+        the test data does not reproduce real survey pixel values.
     """
     from lsst.afw.fits import (
         CompressionAlgorithm,
@@ -85,6 +97,15 @@ def extract_visit_image_background(
 ) -> None:
     """Load the background model of a processed visit image from a butler
     repository and save it to testdata_images.
+
+    Parameters
+    ----------
+    butler
+        Butler repository to read the dataset from.
+    output_path
+        Path to the FITS file to write under testdata_images.
+    dataset_ref
+        Reference to the dataset to load from the butler.
     """
     visit_image_background = butler.get(dataset_ref)
     visit_image_background.writeFits(output_path)
@@ -95,7 +116,17 @@ def extract_visit_summary(
     output_path: str,
     dataset_ref: DatasetRef,
 ) -> None:
-    """Load a visit_summary dataset and save it to testdata_images."""
+    """Load a visit_summary dataset and save it to testdata_images.
+
+    Parameters
+    ----------
+    butler
+        Butler repository to read the dataset from.
+    output_path
+        Path to the FITS file to write under testdata_images.
+    dataset_ref
+        Reference to the dataset to load from the butler.
+    """
     visit_summary = butler.get(dataset_ref)
     visit_summary.writeFits(output_path)
 

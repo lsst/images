@@ -80,7 +80,17 @@ class HdsPrimitive:
         *,
         compression_options: Mapping[str, Any] | None = None,
     ) -> Self:
-        """Create a numeric/logical HDS primitive."""
+        """Create a numeric/logical HDS primitive.
+
+        Parameters
+        ----------
+        data
+            Numeric or logical array data, or an open HDF5 dataset to
+            wrap lazily.
+        compression_options
+            Optional h5py compression options to apply when writing the
+            array.
+        """
         return cls(
             data=data if isinstance(data, h5py.Dataset) else np.asarray(data),
             compression_options=dict(compression_options) if compression_options else {},
@@ -88,18 +98,41 @@ class HdsPrimitive:
 
     @classmethod
     def char_array(cls, lines: Sequence[str], *, width: int = 80) -> Self:
-        """Create a one-dimensional HDS ``_CHAR*N`` primitive."""
+        """Create a one-dimensional HDS ``_CHAR*N`` primitive.
+
+        Parameters
+        ----------
+        lines
+            Character strings forming the one-dimensional array.
+        width
+            Fixed HDS character width for each string.
+        """
         return cls(char_lines=list(lines), char_width=width)
 
     @classmethod
     def char_scalar(cls, text: str, *, width: int | None = None) -> Self:
-        """Create a scalar HDS ``_CHAR*N`` primitive."""
+        """Create a scalar HDS ``_CHAR*N`` primitive.
+
+        Parameters
+        ----------
+        text
+            Scalar string value to store.
+        width
+            Fixed HDS character width; if not given it is taken from the
+            encoded length of ``text``.
+        """
         encoded = text.encode("ascii")
         return cls(char_lines=[text], char_width=max(width or 0, len(encoded), 1), is_char_scalar=True)
 
     @classmethod
     def from_hdf5(cls, dataset: h5py.Dataset) -> Self:
-        """Build an HDS primitive model from an open HDF5 dataset."""
+        """Build an HDS primitive model from an open HDF5 dataset.
+
+        Parameters
+        ----------
+        dataset
+            Open HDF5 dataset to wrap as an HDS primitive.
+        """
         if dataset.dtype.kind == "S":
             if dataset.ndim == 0:
                 raw = dataset[()]
@@ -141,7 +174,15 @@ class HdsPrimitive:
         raise TypeError("Numeric HDS primitives cannot be read as character arrays.")
 
     def write_to_hdf5(self, parent: h5py.Group, name: str) -> h5py.Dataset:
-        """Write this primitive to an HDF5 group."""
+        """Write this primitive to an HDF5 group.
+
+        Parameters
+        ----------
+        parent
+            HDF5 group to create the dataset in.
+        name
+            Name of the dataset to create within ``parent``.
+        """
         if name in parent:
             del parent[name]
         if self.char_lines is not None:
@@ -171,7 +212,15 @@ class HdsPrimitive:
 
 
 class HdsStructure:
-    """An HDS structure component with named child components."""
+    """An HDS structure component with named child components.
+
+    Parameters
+    ----------
+    hds_type
+        HDS type tag for this structure.
+    children
+        Initial child components keyed by name.
+    """
 
     def __init__(
         self,
@@ -183,7 +232,13 @@ class HdsStructure:
 
     @classmethod
     def from_hdf5(cls, group: h5py.Group) -> HdsStructure:
-        """Build a structure model from an open HDF5 group."""
+        """Build a structure model from an open HDF5 group.
+
+        Parameters
+        ----------
+        group
+            Open HDF5 group to read the structure from.
+        """
         hds_type = _decode_ascii_attr(group.attrs.get(_hds.ATTR_CLASS))
         if hds_type is None:
             hds_type = _decode_ascii_attr(group.attrs.get("HDSTYPE")) or "EXT"
@@ -210,7 +265,13 @@ class HdsStructure:
         return self.children.items()
 
     def get(self, path: str) -> HdsStructure | HdsPrimitive:
-        """Return a child component by relative or absolute path."""
+        """Return a child component by relative or absolute path.
+
+        Parameters
+        ----------
+        path
+            Relative or absolute path to the child component.
+        """
         if path in ("", "/"):
             return self
         cursor: HdsStructure | HdsPrimitive = self

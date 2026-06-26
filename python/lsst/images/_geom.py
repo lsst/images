@@ -96,7 +96,13 @@ class YX[T](NamedTuple):
         return XY(x=self.x, y=self.y)
 
     def map[U](self, func: Callable[[T], U]) -> YX[U]:
-        """Apply a function to both objects."""
+        """Apply a function to both objects.
+
+        Parameters
+        ----------
+        func
+            Callable applied to each of the two objects in turn.
+        """
         return YX(y=func(self.y), x=func(self.x))
 
     def to_legacy_extent(self) -> LegacyExtent2I:
@@ -139,7 +145,13 @@ class XY[T](NamedTuple):
         return YX(y=self.y, x=self.x)
 
     def map[U](self, func: Callable[[T], U]) -> XY[U]:
-        """Apply a function to both objects."""
+        """Apply a function to both objects.
+
+        Parameters
+        ----------
+        func
+            Callable applied to each of the two objects in turn.
+        """
         return XY(x=func(self.x), y=func(self.y))
 
     def to_legacy_extent(self) -> LegacyExtent2I:
@@ -201,6 +213,13 @@ class Interval:
     def hull(cls, first: int | Interval, *args: int | Interval) -> Interval:
         """Construct an interval that includes all of the given points and/or
         intervals.
+
+        Parameters
+        ----------
+        first
+            First point or interval to include in the hull.
+        *args
+            Additional points and/or intervals to include in the hull.
         """
         if type(first) is Interval:
             rmin = first.min
@@ -218,7 +237,15 @@ class Interval:
 
     @classmethod
     def from_size(cls, size: int, start: int = 0) -> Interval:
-        """Construct an interval from its size and optional start."""
+        """Construct an interval from its size and optional start.
+
+        Parameters
+        ----------
+        size
+            Number of points in the interval.
+        start
+            Inclusive minimum point in the interval.
+        """
         return cls(start=start, stop=start + size)
 
     @property
@@ -323,6 +350,11 @@ class Interval:
     def padded(self, padding: int) -> Interval:
         """Return a new interval expanded by the given padding on
         either side.
+
+        Parameters
+        ----------
+        padding
+            Number of points to add to each side of the interval.
         """
         return Interval(self.start - padding, self.stop + padding)
 
@@ -388,6 +420,11 @@ class Interval:
 
         When there is no overlap between the intervals, `NoOverlapError` is
         raised.
+
+        Parameters
+        ----------
+        other
+            Interval to intersect with this one.
         """
         new_start = max(self.start, other.start)
         new_stop = min(self.stop, other.stop)
@@ -396,7 +433,13 @@ class Interval:
         raise NoOverlapError(f"No overlap between {self} and {other}.")
 
     def dilated_by(self, padding: int) -> Interval:
-        """Return a new interval padded by the given amount on both sides."""
+        """Return a new interval padded by the given amount on both sides.
+
+        Parameters
+        ----------
+        padding
+            Number of points to add to each side of the interval.
+        """
         return Interval(start=self._start - padding, stop=self._stop + padding)
 
     def slice_within(self, other: Interval) -> slice:
@@ -404,6 +447,11 @@ class Interval:
         when the items of the container being sliced correspond to ``other``.
 
         This assumes ``other.contains(self)``.
+
+        Parameters
+        ----------
+        other
+            Interval whose values correspond to the container being sliced.
         """
         if not other.contains(self):
             raise IndexError(
@@ -414,7 +462,13 @@ class Interval:
 
     @classmethod
     def from_legacy(cls, legacy: Any) -> Interval:
-        """Convert from an `lsst.geom.IntervalI` instance."""
+        """Convert from an `lsst.geom.IntervalI` instance.
+
+        Parameters
+        ----------
+        legacy
+            Legacy `lsst.geom.IntervalI` instance to convert.
+        """
         return cls(legacy.begin, legacy.end)
 
     def to_legacy(self) -> Any:
@@ -464,6 +518,15 @@ class Interval:
 
 class IntervalSliceFactory:
     """A factory for `Interval` objects using array-slice syntax.
+
+    Parameters
+    ----------
+    parent
+        Interval that constructed intervals must be contained by, or `None`
+        to allow any bounds.
+    is_local
+        Whether slice bounds are interpreted relative to the start of
+        ``parent`` rather than as absolute coordinates.
 
     Notes
     -----
