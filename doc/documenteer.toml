@@ -40,7 +40,8 @@ nitpick_ignore_regex = [
   ['py:.*', '__builtins__.range'],  # None of 'range', 'builtins.range', or '__builtins__.range' resolves.
 ]
 extensions = [
-    "sphinxcontrib.autodoc_pydantic"
+    "sphinxcontrib.autodoc_pydantic",
+    "sphinx_click"
 ]
 
 [sphinx.intersphinx.projects]

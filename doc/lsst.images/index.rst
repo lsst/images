@@ -33,6 +33,14 @@ Concepts
 
    schema-versioning.rst
 
+Administrative Interface
+========================
+
+.. toctree::
+   :maxdepth: 1
+
+   admin.rst
+
 API Reference
 =============
 

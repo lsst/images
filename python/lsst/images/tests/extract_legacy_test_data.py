@@ -227,7 +227,7 @@ def extract_test_data() -> None:
 @click.option(
     "--visit-images/--no-visit-images",
     default=True,
-    help="Whether to extract [preliminary_]visit_image datasets.",
+    help="Whether to extract preliminary_visit_image or visit_image datasets.",
 )
 @click.option(
     "--difference-images/--no-difference-images",
