@@ -34,6 +34,17 @@ def open_store_for_write(path: ResourcePathExpression) -> Iterator[Store]:
     Refuses to overwrite a non-empty existing store. The returned
     context manager closes the store on exit; for ``ZipStore`` this
     finalizes the central directory.
+
+    Parameters
+    ----------
+    path
+        URI or path of the zarr store to open for writing.  Must not
+        already exist or must be empty.
+
+    Yields
+    ------
+    store
+        Open writable zarr store.
     """
     rp = ResourcePath(path)
     store: Store
@@ -67,7 +78,18 @@ def open_store_for_write(path: ResourcePathExpression) -> Iterator[Store]:
 
 @contextmanager
 def open_store_for_read(path: ResourcePathExpression) -> Iterator[Store]:
-    """Open a zarr store for reading."""
+    """Open a zarr store for reading.
+
+    Parameters
+    ----------
+    path
+        URI or path of the zarr store to open for reading.
+
+    Yields
+    ------
+    store
+        Open read-only zarr store.
+    """
     rp = ResourcePath(path)
     store: Store
     if _is_zip(rp):
