@@ -55,6 +55,11 @@ def axes_for_archive_class(name: str) -> tuple[str, ...]:
     Returns an empty tuple for ``ColorImage`` to signal that there is
     no OME multiscale at the root of that class — the per-channel
     sub-archives carry their own ``(y, x)`` multiscales.
+
+    Parameters
+    ----------
+    name
+        Archive class name (e.g. ``"ColorImage"``).
     """
     if name == "ColorImage":
         return ()
@@ -98,6 +103,13 @@ def chunks_aligned_to(
     override. The result is per-axis ``min(image_chunks[i],
     shape[i])`` so a sibling smaller than ``image`` is not
     over-chunked.
+
+    Parameters
+    ----------
+    image_chunks
+        Chunk shape of the ``image`` array to align the sibling to.
+    shape
+        The sibling array's shape; each axis caps the aligned chunk.
     """
     if len(image_chunks) != len(shape):
         raise ValueError(
@@ -294,6 +306,11 @@ def decorate_sub_archives(document: ZarrDocument) -> None:
 
     The root group is left alone — its ``lsst.archive_class`` is set
     by ``add_tree`` based on the in-memory object's type.
+
+    Parameters
+    ----------
+    document
+        IR document whose sub-archive groups are decorated in place.
     """
     if not isinstance(document, ZarrDocument):
         raise TypeError(type(document).__name__)
@@ -328,6 +345,13 @@ def serialize_fits_opaque_metadata(document: ZarrDocument, opaque: FitsOpaqueMet
     byte-exact and preserves comments, ``HISTORY``, ``COMMENT``,
     ``CONTINUE``, and ``HIERARCH`` cards. No-op if the metadata is
     empty or missing a primary header.
+
+    Parameters
+    ----------
+    document
+        IR document the header array is staged into.
+    opaque
+        FITS opaque metadata whose primary header is staged.
     """
     primary = opaque.headers.get(ExtensionKey())
     if primary is None or len(primary) == 0:
@@ -356,6 +380,11 @@ def deserialize_fits_opaque_metadata(document: ZarrDocument) -> FitsOpaqueMetada
     native zarr). ``Header.fromstring`` parses cards up to the ``END``
     marker and drops the padding, so the recovered header carries
     only the real cards.
+
+    Parameters
+    ----------
+    document
+        IR document to recover the FITS opaque metadata from.
     """
     if document.root.attributes.lsst.get("opaque_metadata_format") != "fits":
         return None

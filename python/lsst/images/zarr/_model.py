@@ -80,7 +80,13 @@ class ZarrAttributes:
 
     @classmethod
     def load(cls, raw: dict[str, Any]) -> Self:
-        """Construct from a raw attributes mapping read from zarr."""
+        """Construct from a raw attributes mapping read from zarr.
+
+        Parameters
+        ----------
+        raw
+            Raw ``zarr.json`` attributes mapping to split into namespaces.
+        """
         lsst = dict(raw.get(LSST_NS, {}))
         version = lsst.pop("version", None)
         if version is not None:
@@ -95,36 +101,31 @@ class ZarrAttributes:
 
 @dataclass
 class ZarrArray:
-    """An IR node holding either staged numpy data or a lazy zarr handle.
-
-    Parameters
-    ----------
-    data
-        Either a ``numpy.ndarray`` (when staged for write by the output
-        archive) or a ``zarr.Array`` (when read by the input archive).
-        The two forms never mix in a single instance.
-    chunks
-        Per-axis chunk shape. ``None`` lets `to_zarr` derive a fallback
-        default for any IR node that reached the writer without explicit
-        chunks (the output archive normally sets these via the
-        `~lsst.images.zarr._layout.chunks_for` family of rules).
-    shards
-        Per-axis shard shape (zarr v3 native). ``None`` means the array
-        is unsharded. Populated by `ZarrOutputArchive` via the
-        `~lsst.images.zarr._layout.default_shards` rule for arrays large
-        enough to benefit; tiny / single-chunk arrays stay ``None``.
-    compression
-        Codec configuration. ``None`` falls back to
-        `ZarrCompressionOptions.default_for_dtype`.
-    attributes
-        Namespaced attributes for this array's ``zarr.json``.
-    """
+    """An IR node holding either staged numpy data or a lazy zarr handle."""
 
     data: np.ndarray | zarr.Array
+    """Either a ``numpy.ndarray`` (when staged for write by the output
+    archive) or a ``zarr.Array`` (when read by the input archive). The
+    two forms never mix in a single instance.
+    """
     chunks: tuple[int, ...] | None = None
+    """Per-axis chunk shape. ``None`` lets `to_zarr` derive a fallback
+    default for any IR node that reached the writer without explicit
+    chunks (the output archive normally sets these via the
+    `~lsst.images.zarr._layout.chunks_for` family of rules).
+    """
     shards: tuple[int, ...] | None = None
+    """Per-axis shard shape (zarr v3 native). ``None`` means the array
+    is unsharded. Populated by `ZarrOutputArchive` via the
+    `~lsst.images.zarr._layout.default_shards` rule for arrays large
+    enough to benefit; tiny / single-chunk arrays stay ``None``.
+    """
     compression: ZarrCompressionOptions | None = None
+    """Codec configuration. ``None`` falls back to
+    `ZarrCompressionOptions.default_for_dtype`.
+    """
     attributes: ZarrAttributes = field(default_factory=ZarrAttributes)
+    """Namespaced attributes for this array's ``zarr.json``."""
 
     @property
     def shape(self) -> tuple[int, ...]:
@@ -136,7 +137,13 @@ class ZarrArray:
 
     @classmethod
     def from_zarr(cls, zarr_array: zarr.Array) -> Self:
-        """Wrap an open ``zarr.Array`` without reading its data."""
+        """Wrap an open ``zarr.Array`` without reading its data.
+
+        Parameters
+        ----------
+        zarr_array
+            Open lazy ``zarr.Array`` handle to wrap.
+        """
         attrs = ZarrAttributes.load(dict(zarr_array.attrs))
         # Mirror native zarr v3 ``dimension_names`` into the xarray v2-style
         # ``_ARRAY_DIMENSIONS`` attribute when only the v3 form is present,
@@ -156,6 +163,11 @@ class ZarrArray:
         For a `ZarrArray` backed by a lazy handle, this is the only
         place that touches array bytes. ``slices`` is forwarded straight
         to the handle so only chunks intersecting the slice are fetched.
+
+        Parameters
+        ----------
+        slices
+            Per-axis slice tuple to read; defaults to the whole array.
         """
         if isinstance(self.data, np.ndarray):
             return self.data if slices is ... else self.data[slices]
@@ -172,7 +184,13 @@ class ZarrGroup:
     attributes: ZarrAttributes = field(default_factory=ZarrAttributes)
 
     def get(self, path: str) -> ZarrGroup | ZarrArray:
-        """Return a child by absolute or relative zarr path."""
+        """Return a child by absolute or relative zarr path.
+
+        Parameters
+        ----------
+        path
+            Absolute or relative zarr path of the child to return.
+        """
         if path in ("", "/"):
             return self
         parts = [p for p in path.strip("/").split("/") if p]
@@ -189,7 +207,13 @@ class ZarrGroup:
         return cursor
 
     def ensure_group(self, path: str) -> ZarrGroup:
-        """Return or create a sub-group at ``path``."""
+        """Return or create a sub-group at ``path``.
+
+        Parameters
+        ----------
+        path
+            Zarr path of the sub-group to return or create.
+        """
         if path in ("", "/"):
             return self
         parts = [p for p in path.strip("/").split("/") if p]
@@ -211,12 +235,24 @@ class ZarrDocument:
 
     @classmethod
     def from_zarr(cls, store: Store) -> Self:
-        """Open ``store`` and build a lazy IR view of its contents."""
+        """Open ``store`` and build a lazy IR view of its contents.
+
+        Parameters
+        ----------
+        store
+            Open zarr store to build the lazy IR view from.
+        """
         zarr_root = zarr.open_group(store=store, mode="r", zarr_format=3)
         return cls(root=_group_from_zarr(zarr_root))
 
     def to_zarr(self, store: Store) -> None:
-        """Materialize this IR into ``store`` (which must be empty)."""
+        """Materialize this IR into ``store`` (which must be empty).
+
+        Parameters
+        ----------
+        store
+            Empty zarr store to materialize the IR into.
+        """
         zarr_root = zarr.create_group(
             store=store,
             zarr_format=3,
@@ -397,6 +433,15 @@ def build_image_array_attrs(
     """Build the CF / xarray attribute block for an image array.
 
     Used for arrays of rank 2 or higher.
+
+    Parameters
+    ----------
+    axes
+        Axis names, emitted as ``_ARRAY_DIMENSIONS``.
+    units
+        CF ``units`` string; omitted when ``None``.
+    long_name
+        CF ``long_name`` string; omitted when ``None``.
     """
     out: dict[str, Any] = {"_ARRAY_DIMENSIONS": list(axes)}
     if units is not None:

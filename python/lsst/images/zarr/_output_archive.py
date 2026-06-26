@@ -371,6 +371,11 @@ class ZarrOutputArchive(OutputArchive[ZarrPointerModel]):
         root group, stages ``/lsst_json`` as 1-D ``uint8`` UTF-8 JSON,
         and runs the affine residual validator if the archive carries
         a frame set.
+
+        Parameters
+        ----------
+        tree
+            The serialized archive tree to finalize and stage.
         """
         # Stage the JSON tree at /lsst_json (single chunk — read whole).
         # Name mirrors NDF's /MORE/LSST/JSON and FITS's "JSON" HDU.
@@ -480,6 +485,11 @@ def build_archive_metadata(obj: Any) -> dict[str, Any]:
     Returns a flat ``dict`` ready to pass as
     ``ZarrOutputArchive(archive_metadata=...)``. Keys are present
     only when a value was found.
+
+    Parameters
+    ----------
+    obj
+        In-memory archive object to resolve layout metadata from.
     """
     metadata: dict[str, Any] = {}
     mask_schema = _resolve_mask_schema(obj)
@@ -519,6 +529,27 @@ def write(
     Parameters mirror the FITS / NDF write helpers. The store
     implementation (LocalStore / ZipStore / FsspecStore) is selected
     from the URI shape by ``_store.open_store_for_write``.
+
+    Parameters
+    ----------
+    obj
+        Object with a ``serialize`` method to write.
+    path
+        URI or path of the zarr archive to write.  Must not already
+        exist.
+    chunks
+        Per-array chunk overrides keyed by the array's archive path
+        (e.g. ``"image"``).  ``None`` for a key means "use the layout
+        default".
+    shards
+        Per-array shard overrides, same shape as ``chunks``.
+    compression
+        Per-array codec overrides, same shape as ``chunks``.
+    metadata
+        Additional metadata to save with the object.  This overrides any
+        flexible metadata carried by the object itself with the same keys.
+    butler_info
+        Butler information to store in the archive.
     """
     archive_class = type(obj).__name__
     archive_default_name = getattr(obj, "_archive_default_name", None)
