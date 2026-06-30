@@ -25,7 +25,7 @@ import pydantic
 from lsst.images._image import Image
 
 from .. import serialization
-from .._concrete_bounds import SerializableBounds
+from .._concrete_bounds import BoundsSerializationModel
 from .._geom import Bounds, Box
 from ..utils import round_half_up
 from ._base import PointSpreadFunction
@@ -140,7 +140,7 @@ class GaussianPSFSerializationModel(serialization.ArchiveTree):
     stamp_size: int = pydantic.Field(
         description="Width of the (square) images returned by this PSF's methods."
     )
-    bounds: SerializableBounds = pydantic.Field(
+    bounds: BoundsSerializationModel = pydantic.Field(
         description="The bounds object that represents the PSF's validity region."
     )
 

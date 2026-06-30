@@ -23,11 +23,13 @@ import pydantic
 
 from lsst.images import (
     ICRS,
+    XY,
     Box,
     CameraFrameSet,
     CameraFrameSetSerializationModel,
     DetectorFrame,
     FocalPlaneFrame,
+    GeneralFrame,
     SkyProjection,
     Transform,
     TransformSerializationModel,
@@ -164,6 +166,44 @@ class TransformTestCase(unittest.TestCase):
             make_pixel_to_sky(), fits_approximation=make_pixel_to_sky(astshim.ShiftMap([0.3, 0.4]))
         )
         self.assertNotEqual(with_approx, other_approx)
+
+    def test_affine_2x2(self) -> None:
+        """Test an affine transform constructed from a 2x2 matrix."""
+        in_frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=Box.factory[:5, :4])
+        out_frame = GeneralFrame(unit=u.pix)
+        transform_matrix = np.array([[2.0, 0.25], [-0.75, 0.8]])
+        in_xy = in_frame.bbox.meshgrid().map(np.ravel)
+        in_matrix = np.array([in_xy.x, in_xy.y])
+        out_matrix = np.dot(transform_matrix, in_matrix)
+        check_transform(
+            self,
+            Transform.affine(in_frame, out_frame, transform_matrix),
+            in_xy,
+            XY(x=out_matrix[0, :], y=out_matrix[1, :]),
+            in_frame,
+            out_frame,
+            in_atol=1e-15 * u.pix,
+            out_atol=1e-15 * u.pix,
+        )
+
+    def test_affine_3x3(self) -> None:
+        """Test an affine transform constructed from a 3x3 matrix."""
+        in_frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=Box.factory[:5, :4])
+        out_frame = GeneralFrame(unit=u.pix)
+        transform_matrix = np.array([[2.0, 0.25, -0.5], [-0.75, 0.8, 0.4], [0.0, 0.0, 1.0]])
+        in_xy = in_frame.bbox.meshgrid().map(np.ravel)
+        in_matrix = np.array([in_xy.x, in_xy.y, np.ones(in_xy.x.shape)])
+        out_matrix = np.dot(transform_matrix, in_matrix)
+        check_transform(
+            self,
+            Transform.affine(in_frame, out_frame, transform_matrix),
+            in_xy,
+            XY(x=out_matrix[0, :], y=out_matrix[1, :]),
+            in_frame,
+            out_frame,
+            in_atol=1e-15 * u.pix,
+            out_atol=1e-15 * u.pix,
+        )
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_camera(self) -> None:

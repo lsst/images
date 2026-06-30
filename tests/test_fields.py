@@ -29,14 +29,17 @@ from lsst.images.fields import (
 )
 from lsst.images.tests import (
     RoundtripFits,
+    assert_close,
     assert_images_equal,
     compare_field_to_legacy,
 )
 
 try:
     from lsst.afw.math import BackgroundList as LegacyBackgroundList
+    from lsst.afw.math import Chebyshev1Function2D as LegacyChebyshev1Function2D
     from lsst.afw.math import ChebyshevBoundedField as LegacyChebyshevBoundedField
     from lsst.afw.math import ProductBoundedField as LegacyProductBoundedField
+    from lsst.geom import Box2D as LegacyBox2D
 except ImportError:
     HAVE_LEGACY = False
 else:
@@ -358,6 +361,18 @@ class FieldLegacyTestCase(unittest.TestCase):
             ),
             rtol=1e-7,
         )
+
+    def test_chebyshev1_function2(self) -> None:
+        legacy_func2a = LegacyChebyshev1Function2D(4, LegacyBox2D(self.box.to_legacy()))
+        legacy_func2a.setParameters(self.rng.standard_normal(legacy_func2a.getNParameters()))
+        field = ChebyshevField.from_legacy_function2(legacy_func2a)
+        legacy_func2b = field.to_legacy_function2()
+        self.assertEqual(field.bounds, self.box)
+        xy_array = self.box.meshgrid(4)
+        z_array = field(x=xy_array.x, y=xy_array.y)
+        for z, x, y in zip(z_array.flat, xy_array.x.flat, xy_array.y.flat):
+            assert_close(self, legacy_func2a(x, y), z)
+            assert_close(self, legacy_func2b(x, y), z)
 
 
 @unittest.skipIf(DATA_DIR is None, "This test requires the TESTDATA_IMAGES_DIR envvar to be set.")

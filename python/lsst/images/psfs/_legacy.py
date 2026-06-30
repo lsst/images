@@ -20,7 +20,7 @@ import numpy as np
 import pydantic
 
 from .. import serialization
-from .._concrete_bounds import SerializableBounds
+from .._concrete_bounds import BoundsSerializationModel
 from .._geom import Bounds, Box
 from .._image import Image
 from ._base import PointSpreadFunction
@@ -189,7 +189,7 @@ class PSFExSerializationModel(serialization.ArchiveTree):
 
     context: serialization.InlineArray = pydantic.Field(description="Internal PSFEx context array.")
 
-    bounds: SerializableBounds = pydantic.Field(description="Validity range for this PSF model.")
+    bounds: BoundsSerializationModel = pydantic.Field(description="Validity range for this PSF model.")
 
     model_config = pydantic.ConfigDict(ser_json_inf_nan="constants")
 

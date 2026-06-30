@@ -25,6 +25,7 @@ __all__ = (
     "Frame",
     "FrameSet",
     "Mapping",
+    "MatrixMap",
     "PolyMap",
     "ShiftMap",
     "SkyFrame",
@@ -48,6 +49,7 @@ else:
             FrameDict,
             FrameSet,
             Mapping,
+            MatrixMap,
             Object,
             PolyMap,
             ShiftMap,
@@ -257,6 +259,12 @@ if USING_STARLINK_PYAST:
             super().__init__(starlink.Ast.PolyMap(coeff_f_arr, coeff_i, options))
 
         _IMPL_TYPE: ClassVar[type[starlink.Ast.PolyMap]] = starlink.Ast.PolyMap
+
+    class MatrixMap(Mapping):
+        def __init__(self, matrix: np.ndarray, options: str = ""):
+            super().__init__(starlink.Ast.MatrixMap(matrix, options))
+
+        _IMPL_TYPE: ClassVar[type[starlink.Ast.MatrixMap]] = starlink.Ast.MatrixMap
 
     class Frame(Mapping):
         def __init__(self, n_axes: int, options: str = "") -> None:

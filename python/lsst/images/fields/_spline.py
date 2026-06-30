@@ -20,7 +20,7 @@ import numpy as np
 import pydantic
 from scipy.interpolate import Akima1DInterpolator
 
-from .._concrete_bounds import SerializableBounds
+from .._concrete_bounds import BoundsSerializationModel
 from .._geom import Bounds, Box, Interval
 from .._image import Image
 from ..serialization import (
@@ -332,7 +332,9 @@ class SplineFieldSerializationModel(ArchiveTree):
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = SplineField
 
-    bounds: SerializableBounds = pydantic.Field(description=("The region where this field can be evaluated."))
+    bounds: BoundsSerializationModel = pydantic.Field(
+        description=("The region where this field can be evaluated.")
+    )
 
     data: ArrayReferenceModel | InlineArrayModel = pydantic.Field(
         description="2-d data to interpolate.  NaNs indicate missing values."

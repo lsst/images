@@ -22,13 +22,12 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 import astropy.io.fits
 import astropy.units
-import astropy.wcs
 import numpy as np
 import pydantic
 from astro_metadata_translator import ObservationInfo, VisitInfoTranslator
 
 from ._backgrounds import BackgroundMap, BackgroundMapSerializationModel
-from ._concrete_bounds import SerializableBounds
+from ._concrete_bounds import BoundsSerializationModel
 from ._geom import Bounds, Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_legacy_visit_image_mask_planes
@@ -461,13 +460,13 @@ class VisitImage(MaskedImage):
             )
         )
 
-    def serialize(self, archive: OutputArchive[Any]) -> VisitImageSerializationModel:
+    def serialize(self, archive: OutputArchive[Any]) -> VisitImageSerializationModel[Any]:
         return self._serialize_impl(VisitImageSerializationModel, archive)
 
     # This is slightly bad Liskov substitution - we're demanding M be a
     # VisitImageSerializationModel, not just a MaskedImageSerializationModel,
     # but that's because we know only `serialize` will call it.
-    def _serialize_impl[M: VisitImageSerializationModel](  # type: ignore[override]
+    def _serialize_impl[M: VisitImageSerializationModel[Any]](  # type: ignore[override]
         self, model_type: type[M], archive: OutputArchive[Any]
     ) -> M:
         result = super()._serialize_impl(model_type, archive)
@@ -905,7 +904,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
         default_factory=ApertureCorrectionMapSerializationModel,
         description="Aperture corrections, keyed by flux algorithm.",
     )
-    bounds: SerializableBounds | None = pydantic.Field(
+    bounds: BoundsSerializationModel | None = pydantic.Field(
         default=None,
         description="Pixel validity region, if different from the image bounding box.",
         exclude_if=is_none,

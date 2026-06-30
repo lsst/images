@@ -566,8 +566,8 @@ class CellCoadd(MaskedImage):
         return LegacyMultipleCellCoadd(
             cells,
             legacy_grid,
-            outer_cell_size=self.grid.cell_shape.to_legacy_extent(),
-            psf_image_size=self.psf.kernel_bbox.shape.to_legacy_extent(),
+            outer_cell_size=self.grid.cell_shape.to_legacy_int_extent(),
+            psf_image_size=self.psf.kernel_bbox.shape.to_legacy_int_extent(),
             common=legacy_common,
             inner_bbox=self.bbox.to_legacy(),
         )

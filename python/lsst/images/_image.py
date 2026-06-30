@@ -369,7 +369,7 @@ class Image(GeneralizedImage):
         copy
             If `True`, always copy the pixel data.  If `False`, return a view,
             and raise `TypeError` if the pixel data is read-only (this is not
-            supported by afw).  If `None`, onyl if the pixel data is
+            supported by afw).  If `None`, only copy if the pixel data is
             read-only.
         """
         import lsst.afw.image

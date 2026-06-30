@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("SerializableBounds",)
+__all__ = ("BoundsSerializationModel",)
 
 import pydantic
 import shapely
@@ -26,15 +26,15 @@ from ._polygon import Polygon, Region, RegionSerializationModel
 class IntersectionBoundsSerializationModel(pydantic.BaseModel):
     """Serialization model for `IntersectionBounds`."""
 
-    a: SerializableBounds
-    b: SerializableBounds
+    a: BoundsSerializationModel
+    b: BoundsSerializationModel
 
     def deserialize(self) -> IntersectionBounds:
         """Deserialize into an `IntersectionBounds` instance."""
         return IntersectionBounds(self.a.deserialize(), self.b.deserialize())
 
 
-type SerializableBounds = (
+type BoundsSerializationModel = (
     Box | CellGridBounds | RegionSerializationModel | IntersectionBoundsSerializationModel
 )
 
@@ -119,6 +119,8 @@ def _intersect_box_box(lhs: Box, rhs: Box) -> Box:
 
     When there is no overlap between the boxes, `NoOverlapError` is raised.
     """
+    if lhs is rhs or lhs == rhs:
+        return lhs
     intervals = []
     for a, b in zip(lhs._intervals, rhs._intervals, strict=True):
         try:
@@ -142,6 +144,8 @@ def _intersect_region_region(lhs: Region, rhs: Region) -> Region:
 
     When there is no overlap, `NoOverlapError` is raised.
     """
+    if lhs is rhs or lhs == rhs:
+        return lhs
     impl = shapely.intersection(lhs._impl, rhs._impl)
     if not impl.area:
         raise NoOverlapError(f"No overlap between {lhs} and {rhs}.")
@@ -156,6 +160,8 @@ def _intersect_cgb_cgb(lhs: CellGridBounds, rhs: CellGridBounds) -> CellGridBoun
 
     When there is no overlap, `NoOverlapError` is raised.
     """
+    if lhs is rhs or lhs == rhs:
+        return lhs
     bbox = _intersect_box_box(lhs.bbox, rhs.bbox)  # will raise if they don't overlap
     if lhs.grid == rhs.grid:
         sliced_lhs = lhs[bbox]

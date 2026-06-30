@@ -83,7 +83,7 @@ class MaskedImage(GeneralizedImage):
         mask: Mask | None = None,
         variance: Image | None = None,
         mask_schema: MaskSchema | None = None,
-        sky_projection: SkyProjection | None = None,
+        sky_projection: SkyProjection[Any] | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ) -> None:
         super().__init__(metadata)
@@ -208,7 +208,7 @@ class MaskedImage(GeneralizedImage):
             copy=True,
         )
 
-    def serialize(self, archive: OutputArchive[Any]) -> MaskedImageSerializationModel:
+    def serialize(self, archive: OutputArchive[Any]) -> MaskedImageSerializationModel[Any]:
         """Serialize the masked image to an output archive.
 
         Parameters
@@ -218,7 +218,7 @@ class MaskedImage(GeneralizedImage):
         """
         return self._serialize_impl(MaskedImageSerializationModel, archive)
 
-    def _serialize_impl[M: MaskedImageSerializationModel](
+    def _serialize_impl[M: MaskedImageSerializationModel[Any]](
         self, model_type: type[M], archive: OutputArchive[Any]
     ) -> M:
         serialized_image = archive.serialize_direct(

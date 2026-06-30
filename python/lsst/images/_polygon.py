@@ -18,12 +18,16 @@ from typing import TYPE_CHECKING, Any, Literal, overload
 import numpy as np
 import numpy.typing as npt
 import pydantic
+import pydantic_core.core_schema as pcs
 import shapely
+from pydantic.json_schema import JsonSchemaValue
 
-from ._geom import Bounds, Box
+from ._geom import XY, Bounds, Box
 from .utils import round_half_down, round_half_up
 
 if TYPE_CHECKING:
+    from ._transforms import Transform
+
     try:
         from lsst.afw.geom import Polygon as LegacyPolygon
     except ImportError:
@@ -137,6 +141,15 @@ class Region:
             # Quibbles about bool vs numpy.bool_ as the return type.
             return shapely.contains_xy(self._impl, x=x, y=y)  # type: ignore[return-value]
 
+    @overload
+    def intersection(self, other: Region) -> Region: ...
+
+    @overload
+    def intersection(self, other: Box) -> Region | Box: ...
+
+    @overload
+    def intersection(self, other: Bounds) -> Bounds: ...
+
     def intersection(self, other: Bounds) -> Bounds:
         """Compute the intersection of this region with a `Bounds` object.
 
@@ -212,6 +225,29 @@ class Region:
         """Convert to a `shapely.Polygon` or `shapely.MultiPolygon` object."""
         return self._impl
 
+    def transform(self, transform: Transform[Any, Any]) -> Region:
+        """Transform the coordinates of the region, returning a new one.
+
+        Parameters
+        ----------
+        transform
+            Coordinate transform to apply (in the forward direction).
+
+        Notes
+        -----
+        This applies the transform to all vertices, assuming that the
+        transform is close enough to affine that the topology of the geometry
+        does not change and straight-line edges do not need to be subsampled.
+        """
+
+        def wrapper(x: np.ndarray, y: np.ndarray) -> XY[np.ndarray]:
+            return transform.apply_forward(x=x, y=y)
+
+        return Region(
+            # Shapely overloads don't seem to have been annotated rigorously
+            shapely.transform(self._impl, wrapper, interleaved=False)  # type: ignore[arg-type]
+        ).try_to_polygon()
+
     def serialize(self) -> RegionSerializationModel:
         """Serialize the region to a Pydantic model.
 
@@ -219,6 +255,28 @@ class Region:
         RFC 7946).
         """
         return RegionSerializationModel.model_validate_json(shapely.to_geojson(self._impl))
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: pydantic.GetCoreSchemaHandler
+    ) -> pcs.CoreSchema:
+        from_model_schema = pcs.chain_schema(
+            [
+                handler(RegionSerializationModel),
+                pcs.no_info_plain_validator_function(RegionSerializationModel.deserialize),
+            ]
+        )
+        return pcs.json_or_python_schema(
+            json_schema=from_model_schema,
+            python_schema=pcs.union_schema([pcs.is_instance_schema(cls), from_model_schema]),
+            serialization=pcs.plain_serializer_function_ser_schema(cls.serialize),
+        )
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, schema: pcs.CoreSchema, handler: pydantic.GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        return handler(RegionSerializationModel.__pydantic_core_schema__)
 
 
 class Polygon(Region):
@@ -280,8 +338,20 @@ class Polygon(Region):
         """
         return self._vertices[:, 1]
 
+    @property
+    def centroid(self) -> XY[float]:
+        """The centroid of the polygon (`XY` [`float`])."""
+        c = self._impl.centroid
+        return XY(x=c.x, y=c.y)
+
     def __repr__(self) -> str:
         return f"Polygon(x_vertices={self.x_vertices!r}, y_vertices={self.y_vertices!r})"
+
+    def transform(self, transform: Transform[Any, Any]) -> Polygon:
+        # Docstring inherited.
+        result = super().transform(transform)
+        assert isinstance(result, Polygon), "Transforming a polygon should not change its topology."
+        return result
 
     @staticmethod
     def from_legacy(legacy: LegacyPolygon) -> Polygon:

@@ -11,15 +11,16 @@
 
 from __future__ import annotations
 
-__all__ = ("DifferenceImage", "DifferenceImageSerializationModel")
+__all__ = ("DifferenceImage", "DifferenceImageSerializationModel", "DifferenceImageTemplateInfo")
 
-from collections.abc import Mapping
+import logging
+import math
+import uuid
+from collections.abc import Iterable, Mapping
 from types import EllipsisType
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
-import astropy.io.fits
 import astropy.units
-import astropy.wcs
 import pydantic
 from astro_metadata_translator import ObservationInfo
 
@@ -28,27 +29,45 @@ from ._geom import Bounds, Box
 from ._image import Image
 from ._mask import Mask, MaskPlane, MaskSchema, get_legacy_difference_image_mask_planes
 from ._observation_summary_stats import ObservationSummaryStats
-from ._transforms import DetectorFrame, SkyProjection
+from ._polygon import Polygon
+from ._transforms import DetectorFrame, SkyProjection, TractFrame, Transform
 from ._visit_image import VisitImage, VisitImageSerializationModel
 from .aperture_corrections import (
     ApertureCorrectionMap,
 )
 from .cameras import Detector
+from .convolution_kernels import ConvolutionKernel, ConvolutionKernelSerializationModel
 from .fields import Field
 from .psfs import (
     PointSpreadFunction,
 )
-from .serialization import ArchiveReadError, InputArchive, InvalidParameterError, MetadataValue, OutputArchive
+from .serialization import (
+    ArchiveReadError,
+    InputArchive,
+    InvalidParameterError,
+    MetadataValue,
+    OutputArchive,
+)
 
 if TYPE_CHECKING:
+    from lsst.daf.butler import DataId
+
     try:
+        from lsst.afw.geom import SkyWcs as LegacySkyWcs
         from lsst.afw.image import Exposure as LegacyExposure
+        from lsst.geom import Box2I as LegacyBox2I
+        from lsst.meas.algorithms import CoaddPsf as LegacyCoaddPsf
+        from lsst.sphgeom import ConvexPolygon as SkyPolygon
     except ImportError:
+        type LegacyBox2I = Any  # type: ignore[no-redef]
         type LegacyExposure = Any  # type: ignore[no-redef]
+        type LegacyCoaddPsf = Any  # type: ignore[no-redef]
+        type LegacySkyWcs = Any  # type: ignore[no-redef]
+        type SkyPolygon = Any  # type: ignore[no-redef]
 
 
 class DifferenceImage(VisitImage):
-    """A calibrated single-visit image.
+    """An image that is the PSF-matched difference of two other images.
 
     Parameters
     ----------
@@ -103,8 +122,26 @@ class DifferenceImage(VisitImage):
     band
         Name of the passband the image was observed with (this is a shorter,
         less specific version of ``obs_info.physical_filter``).
+    kernel
+        The convolution kernel used to match the (warped) template to the
+        science image.
+    templates
+        Information about the template coadds that went into this difference
+        image.
     metadata
         Arbitrary flexible metadata to associate with the image.
+
+    Notes
+    -----
+    This class assumes that the difference has been performed on the pixel
+    grid of the 'science image' (i.e. a single observation, like `VisitImage`),
+    and most of the attributes of `DifferenceImage` correspond to the science
+    image.  The 'template image' is assumed to be comprised of one or more
+    resampled coadd images stitched together.
+
+    The `DifferenceImage` class can also be used to represent the stitched
+    template itself; while this makes the naming a bit confusing, the type has
+    the right state to play this role.
     """
 
     def __init__(
@@ -124,6 +161,8 @@ class DifferenceImage(VisitImage):
         aperture_corrections: ApertureCorrectionMap | None = None,
         backgrounds: BackgroundMap | None = None,
         band: str,
+        kernel: ConvolutionKernel | None = None,
+        templates: Iterable[DifferenceImageTemplateInfo] | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ) -> None:
         super().__init__(
@@ -143,9 +182,15 @@ class DifferenceImage(VisitImage):
             band=band,
             metadata=metadata,
         )
+        self._kernel = kernel
+        self._templates = list(templates) if templates is not None else None
 
     @staticmethod
-    def _from_visit_image(visit_image: VisitImage) -> DifferenceImage:
+    def _from_visit_image(
+        visit_image: VisitImage,
+        kernel: ConvolutionKernel | None,
+        templates: Iterable[DifferenceImageTemplateInfo] | None,
+    ) -> DifferenceImage:
         return visit_image._transfer_metadata(
             DifferenceImage(
                 visit_image.image,
@@ -160,14 +205,52 @@ class DifferenceImage(VisitImage):
                 detector=visit_image.detector,
                 aperture_corrections=visit_image.aperture_corrections,
                 backgrounds=visit_image.backgrounds,
+                kernel=kernel,
+                templates=templates,
                 band=visit_image.band,
             ),
         )
 
+    @property
+    def kernel(self) -> ConvolutionKernel:
+        """The convolution kernel used to match the (warped) template
+        to the science image (`.convolution_kernels.ConvolutionKernel`).
+        """
+        if self._kernel is None:
+            raise AttributeError("This difference image does not have a kernel attached.")
+        return self._kernel
+
+    @kernel.setter
+    def kernel(self, kernel: ConvolutionKernel) -> None:
+        self._kernel = kernel
+
+    @kernel.deleter
+    def kernel(self) -> None:
+        self._kernel = None
+
+    @property
+    def templates(self) -> list[DifferenceImageTemplateInfo]:
+        """Information about the template coadds that went into this
+        difference image (`list` [`DifferenceImageTemplateInfo`]).
+        """
+        if self._templates is None:
+            raise AttributeError("This difference image does not have any template information attached.")
+        return self._templates
+
+    @templates.setter
+    def templates(self, templates: Iterable[DifferenceImageTemplateInfo]) -> None:
+        self._templates = list(templates)
+
+    @templates.deleter
+    def templates(self) -> None:
+        self._templates = None
+
     def __getitem__(self, bbox: Box | EllipsisType) -> DifferenceImage:
         if bbox is ...:
             return self
-        return self._from_visit_image(super().__getitem__(bbox))
+        return self._from_visit_image(
+            super().__getitem__(bbox), kernel=self._kernel, templates=self._templates
+        )
 
     def __str__(self) -> str:
         return f"DifferenceImage({self.image!s}, {list(self.mask.schema.names)})"
@@ -183,7 +266,9 @@ class DifferenceImage(VisitImage):
         copy_detector
             Whether to deep-copy the `detector` attribute.
         """
-        return self._from_visit_image(super().copy(copy_detector=copy_detector))
+        return self._from_visit_image(
+            super().copy(copy_detector=copy_detector), kernel=self._kernel, templates=self._templates
+        )
 
     def convert_unit(
         self,
@@ -221,10 +306,20 @@ class DifferenceImage(VisitImage):
         `DifferenceImage`
             An image with the given units.
         """
-        return self._from_visit_image(super().convert_unit(unit, copy=copy, copy_detector=copy_detector))
+        return self._from_visit_image(
+            super().convert_unit(unit, copy=copy, copy_detector=copy_detector),
+            kernel=self._kernel,
+            templates=self._templates,
+        )
 
-    def serialize(self, archive: OutputArchive[Any]) -> DifferenceImageSerializationModel:
-        return self._serialize_impl(DifferenceImageSerializationModel, archive)
+    def serialize(self, archive: OutputArchive[Any]) -> DifferenceImageSerializationModel[Any]:
+        result = self._serialize_impl(DifferenceImageSerializationModel, archive)
+        if self._kernel is not None:
+            result.kernel = archive.serialize_direct("kernel", self._kernel.serialize)
+        else:
+            result.kernel = None
+        result.templates = self._templates
+        return result
 
     @staticmethod
     def _get_archive_tree_type[P: pydantic.BaseModel](
@@ -267,7 +362,11 @@ class DifferenceImage(VisitImage):
         if plane_map is None:
             plane_map = get_legacy_difference_image_mask_planes()
         return DifferenceImage._from_visit_image(
-            VisitImage.from_legacy(legacy, unit=unit, plane_map=plane_map, instrument=instrument, visit=visit)
+            VisitImage.from_legacy(
+                legacy, unit=unit, plane_map=plane_map, instrument=instrument, visit=visit
+            ),
+            kernel=None,
+            templates=None,
         )
 
     def to_legacy(
@@ -351,7 +450,156 @@ class DifferenceImage(VisitImage):
             component=component,
         )
         if component is None:
-            return DifferenceImage._from_visit_image(result)
+            return DifferenceImage._from_visit_image(result, kernel=None, templates=None)
+        return result
+
+
+class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constants"):
+    """Information about how a template image contributed to a difference
+    image.
+    """
+
+    skymap: str = pydantic.Field(description="Name of the skymap that defines the tract/patch tiling.")
+    tract: int = pydantic.Field(description="ID of the tract (each tract is a different projection).")
+    patch: int = pydantic.Field(
+        description="ID of the patch (all patches within a tract share a projection)."
+    )
+    dataset_id: uuid.UUID = pydantic.Field(
+        description="Universally unique butler identifier for this template.",
+    )
+    dataset_run: str = pydantic.Field(description="Name of the butler RUN collection for this template.")
+    bounds: Polygon = pydantic.Field(
+        description=(
+            "The approximate intersection of the template and the science image, "
+            "in the science image's pixel coordinate system."
+        )
+    )
+    psf_shape_xx: float = pydantic.Field(description="Second moment of the effective PSF of the template.")
+    psf_shape_yy: float = pydantic.Field(description="Second moment of the effective PSF of the template.")
+    psf_shape_xy: float = pydantic.Field(description="Second moment of the effective PSF of the template.")
+    psf_shape_flag: bool = pydantic.Field(
+        description="Flag set if the second moments of the effective template PSF could not be computed."
+    )
+
+    @staticmethod
+    def from_legacy(
+        detector_frame: DetectorFrame,
+        legacy_template_psf: LegacyCoaddPsf,
+        legacy_template_metadata: Mapping[str, Any],
+        coadd_data_ids_by_uuid: Mapping[uuid.UUID, DataId],
+        coadd_dataset_type: str = "template_coadd",
+        log: logging.Logger | None = None,
+    ) -> list[DifferenceImageTemplateInfo]:
+        """Construct a list of template information structs from information
+        stored in a legacy stitched template image.
+
+        Parameters
+        ----------
+        detector_frame
+            Coordinate system and bounding box of the science image.
+        legacy_template_psf
+            The lazy-evaluation PSF model for the stitched template; used to
+            extract the tract and patch IDs of the coadds actually used and
+            their PSF models.
+        legacy_template_metadata
+            The FITS-style metadata of the stitched template; used to extract
+            butler UUIDs and RUN collection names for all *potential* input
+            coadds.
+        coadd_data_ids_by_uuid
+            A mapping from butler dataset ID to ``{tract, patch, band}`` data
+            ID for all coadds that may have contributed to the template.  May
+            be a much larger superset of the needed datasets.
+        coadd_dataset_type
+            The name of the coadd template dataset type.
+        log
+            Logger to use for diagnostic messages.
+        """
+        from lsst.afw.geom import makeWcsPairTransform
+
+        n_inputs = legacy_template_metadata["LSST BUTLER N_INPUTS"]
+        butler_info: dict[tuple[int, int], tuple[uuid.UUID, str]] = {}
+        skymap: str | None = None
+        for n in range(n_inputs):
+            if legacy_template_metadata[f"LSST BUTLER INPUT {n} DATASETTYPE"] == coadd_dataset_type:
+                input_id = uuid.UUID(legacy_template_metadata[f"LSST BUTLER INPUT {n} ID"])
+                input_run = legacy_template_metadata[f"LSST BUTLER INPUT {n} RUN"]
+                input_data_id = coadd_data_ids_by_uuid[input_id]
+                if skymap is None:
+                    skymap = cast(str, input_data_id["skymap"])
+                elif skymap != input_data_id["skymap"]:
+                    raise RuntimeError("Cannot handle multiple skymaps in the inputs to a single template.")
+                butler_info[cast(int, input_data_id["tract"]), cast(int, input_data_id["patch"])] = (
+                    input_id,
+                    input_run,
+                )
+        result: list[DifferenceImageTemplateInfo] = []
+        # A "component" of this PSF is an input {tract, patch} coadd.
+        for n in range(legacy_template_psf.getComponentCount()):
+            tract = legacy_template_psf.getTract(n)
+            patch = legacy_template_psf.getPatch(n)
+            dataset_id, dataset_run = butler_info[tract, patch]
+            patch_bbox = Box.from_legacy(legacy_template_psf.getBBox(n))
+            coadd_frame = TractFrame(
+                skymap=skymap,
+                tract=tract,
+                # This bbox is supposed to be the full tract bbox, but this
+                # frame is just a temporary and we don't have access to that.
+                # (If this ever becomes not-a-temporary, we could add a skymap
+                # argument).
+                bbox=patch_bbox,
+            )
+            detector_to_coadd = Transform.from_legacy(
+                makeWcsPairTransform(
+                    # CoaddPsf method names did not anticipate being used for
+                    # detector-level templates, so this is confusing:
+                    legacy_template_psf.getCoaddWcs(),  # this is the template_detector WCS!
+                    legacy_template_psf.getWcs(n),  # this is the template_coadd WCS!
+                ),
+                detector_frame,
+                coadd_frame,
+            )
+            coadd_to_detector = detector_to_coadd.inverted()
+            # We transform the detector bbox to each coadd frame, do the
+            # intersection there, and then transform the intersection back to
+            # the detector frame, because we do not trust detector WCSs beyond
+            # the detector bounding box; they can be polynomials that
+            # extrapolate badly. Coadd WCSs in contrast are simple projections.
+            tmp_bounds = (
+                Polygon.from_box(detector_frame.bbox).transform(detector_to_coadd).intersection(patch_bbox)
+            ).transform(coadd_to_detector)
+            # Unfortunately doing the intersection in the coadd coordinate
+            # system means the transformed intersection might not quite be
+            # contained by the detector bounding box, due to floating-point
+            # round-off error.  Intersect one more time to tidy it up.
+            bounds = tmp_bounds.intersection(detector_frame.bbox)
+            assert isinstance(bounds, Polygon), (
+                "The operations above should not change the region's fundamental topology."
+            )
+            try:
+                psf_shape = legacy_template_psf.computeShape(bounds.centroid.to_legacy_float_point())
+            except Exception:
+                if log is not None:
+                    log.exception(
+                        "Could not compute PSF shape for template coadd with tract=%s, patch=%s", tract, patch
+                    )
+                else:
+                    raise
+                psf_shape = None
+            result.append(
+                DifferenceImageTemplateInfo(
+                    skymap=skymap,
+                    tract=tract,
+                    patch=patch,
+                    dataset_id=dataset_id,
+                    dataset_run=dataset_run,
+                    bounds=bounds,
+                    psf_shape_xx=psf_shape.getIxx() if psf_shape is not None else math.nan,
+                    psf_shape_yy=psf_shape.getIyy() if psf_shape is not None else math.nan,
+                    psf_shape_xy=psf_shape.getIxy() if psf_shape is not None else math.nan,
+                    psf_shape_flag=psf_shape is None,
+                )
+            )
+        result.sort(key=lambda item: (item.tract, item.patch))
         return result
 
 
@@ -363,12 +611,22 @@ class DifferenceImageSerializationModel[P: pydantic.BaseModel](VisitImageSeriali
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = DifferenceImage
 
+    kernel: ConvolutionKernelSerializationModel | None = pydantic.Field(
+        description="The convolution kernel used to match the (warped) template to the science image."
+    )
+    templates: list[DifferenceImageTemplateInfo] | None = pydantic.Field(
+        description="Information about the template coadds that went into this difference image"
+    )
+
     def deserialize(
         self, archive: InputArchive[Any], *, bbox: Box | None = None, **kwargs: Any
     ) -> DifferenceImage:
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for DifferenceImage: {set(kwargs.keys())}.")
-        return DifferenceImage._from_visit_image(super().deserialize(archive, bbox=bbox))
+        kernel = self.kernel.deserialize(archive) if self.kernel is not None else None
+        return DifferenceImage._from_visit_image(
+            super().deserialize(archive, bbox=bbox), kernel=kernel, templates=self.templates
+        )
 
     def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
         if kwargs and component not in ("image", "mask", "variance", "masked_image"):

@@ -26,7 +26,7 @@ import astropy.units as u
 import numpy as np
 import pydantic
 
-from .._concrete_bounds import SerializableBounds
+from .._concrete_bounds import BoundsSerializationModel
 from .._geom import XY, Bounds, Box
 from ..serialization import ArchiveReadError, ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 from . import _ast as astshim
@@ -79,6 +79,7 @@ class Transform[I: Frame, O: Frame]:
       `astropy.wcs.WCS`;
     - `then` composes two transforms;
     - `identity` constructs a trivial transform that does nothing;
+    - `affine` contructs an affine transform from a 2x2 or 3x3 matrix;
     - `inverted` returns the inverse of a transform;
     - `from_legacy` converts an `lsst.afw.geom.Transform` instance.
 
@@ -193,6 +194,32 @@ class Transform[I: Frame, O: Frame]:
             Frame used for both input and output points.
         """
         return Transform(frame, frame, astshim.UnitMap(2))
+
+    @staticmethod
+    def affine(in_frame: I, out_frame: O, matrix: np.ndarray) -> Transform[I, O]:
+        """Construct an affine transform from a matrix.
+
+        Parameters
+        ----------
+        in_frame
+            Coordinate frame for input points to the forward transform.
+        out_frame
+            Coordinate frame for output points from the forward transform.
+        matrix
+            Matrix of coefficients, either a 2x2 linear transform or a 3x3
+            augmented affine transform, with a shift embedded in the third
+            column and ``[0, 0, 1]`` the third row.
+        """
+        if matrix.shape == (2, 2):
+            return Transform(in_frame, out_frame, astshim.MatrixMap(matrix.copy()))
+        elif matrix.shape == (3, 3):
+            linear = astshim.MatrixMap(matrix[:2, :2].copy())
+            shift = astshim.ShiftMap(matrix[:2, 2])
+            if not np.array_equal(matrix[2, :], np.array([0.0, 0.0, 1.0])):
+                raise ValueError("3x3 affine transform array must have [0, 0, 1] in its last row.")
+            return Transform(in_frame, out_frame, linear.then(shift))
+        else:
+            raise ValueError("Affine transform array must be 2x2 or 3x3.")
 
     @property
     def in_frame(self) -> I:
@@ -571,7 +598,7 @@ class TransformSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         ),
     )
 
-    bounds: list[SerializableBounds | None] = pydantic.Field(
+    bounds: list[BoundsSerializationModel | None] = pydantic.Field(
         default_factory=list,
         description=textwrap.dedent(
             """
