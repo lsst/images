@@ -33,11 +33,11 @@ try:
 except ImportError:
     HAVE_BUTLER = False
 
-from .. import fits, json
 from .._generalized_image import GeneralizedImage
-from ..serialization import ArchiveTree, MetadataValue
+from ..serialization import MetadataValue
 from ..serialization import open as open_archive
 from ..serialization import read as read_archive
+from ..serialization import write as write_archive
 
 # We need an old-style TypeVar for Sphinx.
 T = TypeVar("T")
@@ -242,9 +242,11 @@ class RoundtripBase[T](ABC):
             # The butler code path doesn't give us a way to inspect the
             # serialized model, so we have to save it again directly to another
             # file (which we then discard).
-            with tempfile.NamedTemporaryFile(suffix=".fits", delete_on_close=False, delete=True) as tmp:
+            with tempfile.NamedTemporaryFile(
+                suffix=self._get_extension(), delete_on_close=False, delete=True
+            ) as tmp:
                 tmp.close()
-                self._serialized = fits.write(self._original, tmp.name)
+                self._serialized = write_archive(self._original, tmp.name)
         return self._serialized
 
     def get(self, component: str | None = None, storageClass: str | None = None, **kwargs: Any) -> Any:
@@ -328,17 +330,13 @@ class RoundtripBase[T](ABC):
         )
         tmp.close()
         self._filename = tmp.name
-        self._serialized = self._write(self._original, tmp.name, **self._write_kwargs)
+        self._serialized = write_archive(self._original, tmp.name, **self._write_kwargs)
         with open_archive(tmp.name, type(self._original)) as reader:
             self._tc.assertIsNone(reader.butler_info)
             self.result = reader.read()
 
     @abstractmethod
     def _get_extension(self) -> str:
-        raise NotImplementedError()
-
-    @abstractmethod
-    def _write(self, obj: Any, filename: str) -> ArchiveTree:
         raise NotImplementedError()
 
 
@@ -352,9 +350,6 @@ class RoundtripFits[T](RoundtripBase[T]):
     def _get_extension(self) -> str:
         return ".fits"
 
-    def _write(self, obj: Any, filename: str) -> ArchiveTree:
-        return fits.write(obj, filename)
-
 
 class RoundtripJson[T](RoundtripBase[T]):
     def inspect(self) -> dict[str, Any]:
@@ -364,9 +359,6 @@ class RoundtripJson[T](RoundtripBase[T]):
 
     def _get_extension(self) -> str:
         return ".json"
-
-    def _write(self, obj: Any, filename: str) -> ArchiveTree:
-        return json.write(obj, filename)
 
 
 class RoundtripNdf[T](RoundtripBase[T]):
@@ -378,8 +370,3 @@ class RoundtripNdf[T](RoundtripBase[T]):
 
     def _get_extension(self) -> str:
         return ".sdf"
-
-    def _write(self, obj: Any, filename: str) -> ArchiveTree:
-        from .. import ndf
-
-        return ndf.write(obj, filename)
