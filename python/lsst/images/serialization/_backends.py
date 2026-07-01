@@ -17,7 +17,7 @@ import dataclasses
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from lsst.resources import ResourcePathExpression
+from lsst.resources import ResourcePath, ResourcePathExpression
 
 if TYPE_CHECKING:
     from ._input_archive import InputArchive
@@ -41,8 +41,8 @@ class Backend:
 def backend_for_path(path: ResourcePathExpression) -> Backend:
     """Return the `Backend` for ``path`` based on its file extension.
 
-    Supported extensions: ``.fits`` / ``.fits.gz`` (FITS), ``.sdf`` /
-    ``.ndf`` (NDF), and ``.json`` (JSON).  The NDF and FITS backends are
+    Supported extensions: ``.fits`` / ``.fits.gz`` (FITS), ``.h5`` /
+    ``.sdf`` (NDF), and ``.json`` (JSON).  The NDF and FITS backends are
     imported lazily so optional dependencies (e.g. ``h5py``) are only
     required when actually used.
 
@@ -56,22 +56,25 @@ def backend_for_path(path: ResourcePathExpression) -> Backend:
     ValueError
         If the extension is not recognised.
     """
-    s = str(path)
-    if s.endswith(".fits") or s.endswith(".fits.gz"):
-        from ..fits import FitsInputArchive
-        from ..fits import write as fits_write
+    uri = ResourcePath(path)
+    match uri.getExtension():
+        case ".fits" | ".fits.gz":
+            from ..fits import FitsInputArchive
+            from ..fits import write as fits_write
 
-        return Backend("fits", fits_write, FitsInputArchive)
-    if s.endswith(".sdf") or s.endswith(".ndf"):
-        from ..ndf import NdfInputArchive
-        from ..ndf import write as ndf_write
+            return Backend("fits", fits_write, FitsInputArchive)
+        case ".h5" | ".sdf":
+            from ..ndf import NdfInputArchive
+            from ..ndf import write as ndf_write
 
-        return Backend("ndf", ndf_write, NdfInputArchive)
-    if s.endswith(".json"):
-        from ..json import JsonInputArchive
-        from ..json import write as json_write
+            return Backend("ndf", ndf_write, NdfInputArchive)
+        case ".json":
+            from ..json import JsonInputArchive
+            from ..json import write as json_write
 
-        return Backend("json", json_write, JsonInputArchive)
-    raise ValueError(
-        f"Unrecognised file extension: {path!r}; expected one of .fits, .fits.gz, .sdf, .ndf, .json."
-    )
+            return Backend("json", json_write, JsonInputArchive)
+        case ext:
+            raise ValueError(
+                f"Unrecognised file extension: {ext!r} from {uri!r}; "
+                "expected one of .fits, .fits.gz, .h5, .sdf, .json."
+            )
