@@ -239,9 +239,7 @@ class CellCoadd(MaskedImage):
         return self._backgrounds
 
     def __getitem__(self, bbox: Box | EllipsisType) -> CellCoadd:
-        if bbox is ...:
-            return self
-        super().__getitem__(bbox)
+        bbox, _ = self._handle_getitem_args(bbox)
         psf = self.psf[bbox]
         return self._transfer_metadata(
             CellCoadd(
