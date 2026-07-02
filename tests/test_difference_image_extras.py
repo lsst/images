@@ -78,7 +78,7 @@ class DifferenceImageExtraLegacyTestCase(unittest.TestCase):
             self.legacy_template_metadata,
             DP2_TEMPLATE_COADD_DATASETS,
         )
-        with RoundtripFits(self, difference_image, storage_class="DifferenceImage") as roundtrip:
+        with RoundtripFits(difference_image, storage_class="DifferenceImage") as roundtrip:
             self.compare_kernel_to_legacy(roundtrip.get("kernel"), self.legacy_kernel)
         self.compare_kernel_to_legacy(roundtrip.result.kernel, self.legacy_kernel)
         self.sanity_check_template_info(roundtrip.result.templates)
@@ -90,7 +90,8 @@ class DifferenceImageExtraLegacyTestCase(unittest.TestCase):
         legacy_kernel_2 = kernel.to_legacy()
         self.compare_kernel_to_legacy(kernel, legacy_kernel_2)
 
-    def compare_kernel_to_legacy(self, kernel: ConvolutionKernel, legacy_kernel: LegacyKernel) -> None:
+    @staticmethod
+    def compare_kernel_to_legacy(kernel: ConvolutionKernel, legacy_kernel: LegacyKernel) -> None:
         xy_array = kernel.bounds.bbox.meshgrid(3)
         legacy_im = LegacyImageD(kernel.kernel_bbox.to_legacy())
         for x, y in zip(xy_array.x.flat, xy_array.y.flat):
@@ -99,7 +100,7 @@ class DifferenceImageExtraLegacyTestCase(unittest.TestCase):
             im = kernel.compute_kernel_image(x=x, y=y)
             legacy_im.array[...] = 0.0
             legacy_kernel.computeImage(legacy_im, doNormalize=False, x=x, y=y)
-            assert_close(self, im.array, legacy_im.array, rtol=1e-15, atol=1e-15)
+            assert_close(im.array, legacy_im.array, rtol=1e-15, atol=1e-15)
 
     def test_template_info(self) -> None:
         """Test extracting template information from various legacy

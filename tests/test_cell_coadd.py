@@ -103,7 +103,6 @@ class CellCoaddTestCase(unittest.TestCase):
         self.assertEqual(self.cell_coadd.bounds.missing, {self.missing_cell})
         self.assertEqual(self.cell_coadd.bbox, Box.factory[12900:13500, 9600:10050])
         compare_cell_coadd_to_legacy(
-            self,
             self.cell_coadd,
             self.legacy_cell_coadd,
             tract_bbox=Box.from_legacy(self.skymap[DP2_COADD_DATA_ID["tract"]].getBBox()),
@@ -115,7 +114,7 @@ class CellCoaddTestCase(unittest.TestCase):
         """Test serializing a CellCoadd and reading it back in, including
         subimage and component reads.
         """
-        with RoundtripFits(self, self.cell_coadd, "CellCoadd") as roundtrip:
+        with RoundtripFits(self.cell_coadd, "CellCoadd") as roundtrip:
             # Check a subimage read.  The subbox only overlaps (but does not
             # fully cover) the middle 2 (of 4) cells in y, while covering
             # exactly the last column of cells in x.  It does not cover the
@@ -125,7 +124,7 @@ class CellCoaddTestCase(unittest.TestCase):
                 self.cell_coadd.bbox.x.stop - 150 : self.cell_coadd.bbox.x.stop,
             ]
             subimage = roundtrip.get(bbox=subbox)
-            assert_masked_images_equal(self, subimage, self.cell_coadd[subbox], expect_view=False)
+            assert_masked_images_equal(subimage, self.cell_coadd[subbox], expect_view=False)
             alternates: dict[str, Any] = {}
             with self.subTest():
                 subpsf = roundtrip.get("psf", bbox=subbox)
@@ -138,7 +137,7 @@ class CellCoaddTestCase(unittest.TestCase):
                         x=subbox.x,
                     ),
                 )
-                assert_psfs_equal(self, subpsf, self.cell_coadd.psf, points=self.make_psf_points(subbox))
+                assert_psfs_equal(subpsf, self.cell_coadd.psf, points=self.make_psf_points(subbox))
                 self.assertEqual(roundtrip.get("bbox"), self.cell_coadd.bbox)
                 alternates = {
                     k: roundtrip.get(k)
@@ -159,8 +158,8 @@ class CellCoaddTestCase(unittest.TestCase):
                 all_components = roundtrip.get("components")
                 self.assertEqual(set(all_components), set(alternates) - {"masked_image"})
                 self.assertEqual(all_components["bbox"], alternates["bbox"])
-                assert_psfs_equal(self, all_components["psf"], alternates["psf"])
-                assert_images_equal(self, all_components["image"], alternates["image"])
+                assert_psfs_equal(all_components["psf"], alternates["psf"])
+                assert_images_equal(all_components["image"], alternates["image"])
 
                 with self.subTest():
                     backgrounds = roundtrip.get("backgrounds")
@@ -177,9 +176,8 @@ class CellCoaddTestCase(unittest.TestCase):
         self.assertEqual(self.cell_coadd.bounds.missing, {self.missing_cell})
         self.assertEqual(self.cell_coadd.bbox, Box.factory[12900:13500, 9600:10050])
         # Full round-trip fidelity, including background contents.
-        assert_cell_coadds_equal(self, roundtrip.result, self.cell_coadd, expect_view=False)
+        assert_cell_coadds_equal(roundtrip.result, self.cell_coadd, expect_view=False)
         compare_cell_coadd_to_legacy(
-            self,
             roundtrip.result,
             self.legacy_cell_coadd,
             tract_bbox=Box.from_legacy(self.skymap[DP2_COADD_DATA_ID["tract"]].getBBox()),
@@ -191,7 +189,6 @@ class CellCoaddTestCase(unittest.TestCase):
     def test_fits_compression(self) -> None:
         """Test writing with quantized FITS compression."""
         with RoundtripFits(
-            self,
             self.cell_coadd,
             storage_class="CellCoadd",
             recipe="lossy16",
@@ -216,18 +213,17 @@ class CellCoaddTestCase(unittest.TestCase):
     def test_fits_json_consistency(self) -> None:
         """FITS and JSON backends produce equal CellCoadds on round-trip."""
         with (
-            RoundtripFits(self, self.cell_coadd) as fits_rt,
-            RoundtripJson(self, self.cell_coadd) as json_rt,
+            RoundtripFits(self.cell_coadd) as fits_rt,
+            RoundtripJson(self.cell_coadd) as json_rt,
         ):
-            assert_cell_coadds_equal(self, self.cell_coadd, fits_rt.result, expect_view=False)
-            assert_cell_coadds_equal(self, self.cell_coadd, json_rt.result, expect_view=False)
-            assert_cell_coadds_equal(self, fits_rt.result, json_rt.result, expect_view=False)
+            assert_cell_coadds_equal(self.cell_coadd, fits_rt.result, expect_view=False)
+            assert_cell_coadds_equal(self.cell_coadd, json_rt.result, expect_view=False)
+            assert_cell_coadds_equal(fits_rt.result, json_rt.result, expect_view=False)
 
     def test_to_legacy(self) -> None:
         """Test converting a CellCoadd back into a legacy MultipleCellCoadd."""
         legacy_cell_coadd = self.cell_coadd.to_legacy()
         compare_cell_coadd_to_legacy(
-            self,
             self.cell_coadd,
             legacy_cell_coadd,
             tract_bbox=Box.from_legacy(self.skymap[DP2_COADD_DATA_ID["tract"]].getBBox()),
@@ -242,17 +238,15 @@ class CellCoaddTestCase(unittest.TestCase):
         self.assertEqual(legacy_exposure.getFilter().bandLabel, self.cell_coadd.band)
         self.assertEqual(Box.from_legacy(legacy_exposure.getBBox()), self.cell_coadd.bbox)
         compare_masked_image_to_legacy(
-            self, self.cell_coadd, legacy_exposure.maskedImage, plane_map=self.plane_map, expect_view=True
+            self.cell_coadd, legacy_exposure.maskedImage, plane_map=self.plane_map, expect_view=True
         )
         compare_psf_to_legacy(
-            self,
             self.cell_coadd.psf,
             legacy_exposure.getPsf(),
             points=self.psf_points,
             expect_legacy_raise_on_out_of_bounds=True,
         )
         compare_sky_projection_to_legacy_wcs(
-            self,
             self.cell_coadd.sky_projection,
             legacy_exposure.getWcs(),
             self.cell_coadd.sky_projection.pixel_frame,
@@ -266,19 +260,19 @@ class CellCoaddTestCase(unittest.TestCase):
 
         This test covers the HDS name-shrinker fix for noise_realizations.
         """
-        with RoundtripNdf(self, self.cell_coadd, "CellCoadd") as roundtrip:
-            assert_cell_coadds_equal(self, roundtrip.result, self.cell_coadd, expect_view=False)
+        with RoundtripNdf(self.cell_coadd, "CellCoadd") as roundtrip:
+            assert_cell_coadds_equal(roundtrip.result, self.cell_coadd, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_fits_ndf_consistency(self) -> None:
         """FITS and NDF backends produce equal CellCoadds on round-trip."""
         with (
-            RoundtripFits(self, self.cell_coadd) as fits_rt,
-            RoundtripNdf(self, self.cell_coadd) as ndf_rt,
+            RoundtripFits(self.cell_coadd) as fits_rt,
+            RoundtripNdf(self.cell_coadd) as ndf_rt,
         ):
-            assert_cell_coadds_equal(self, self.cell_coadd, fits_rt.result, expect_view=False)
-            assert_cell_coadds_equal(self, self.cell_coadd, ndf_rt.result, expect_view=False)
-            assert_cell_coadds_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
+            assert_cell_coadds_equal(self.cell_coadd, fits_rt.result, expect_view=False)
+            assert_cell_coadds_equal(self.cell_coadd, ndf_rt.result, expect_view=False)
+            assert_cell_coadds_equal(fits_rt.result, ndf_rt.result, expect_view=False)
 
 
 if __name__ == "__main__":

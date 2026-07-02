@@ -57,11 +57,11 @@ class TransformTestCase(unittest.TestCase):
         frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=Box.factory[:5, :4])
         xy = frame.bbox.meshgrid().map(np.ravel)
         identity = Transform.identity(frame)
-        check_transform(self, identity, xy, xy, frame, frame)
+        check_transform(identity, xy, xy, frame, frame)
         self.assertEqual(identity.decompose(), [])
-        with RoundtripJson(self, identity) as roundtrip:
+        with RoundtripJson(identity) as roundtrip:
             pass
-        check_transform(self, roundtrip.result, xy, xy, frame, frame)
+        check_transform(roundtrip.result, xy, xy, frame, frame)
 
     def test_transform_equality(self) -> None:
         """Test ``Transform.__eq__`` across all of its comparison branches."""
@@ -176,7 +176,6 @@ class TransformTestCase(unittest.TestCase):
         in_matrix = np.array([in_xy.x, in_xy.y])
         out_matrix = np.dot(transform_matrix, in_matrix)
         check_transform(
-            self,
             Transform.affine(in_frame, out_frame, transform_matrix),
             in_xy,
             XY(x=out_matrix[0, :], y=out_matrix[1, :]),
@@ -195,7 +194,6 @@ class TransformTestCase(unittest.TestCase):
         in_matrix = np.array([in_xy.x, in_xy.y, np.ones(in_xy.x.shape)])
         out_matrix = np.dot(transform_matrix, in_matrix)
         check_transform(
-            self,
             Transform.affine(in_frame, out_frame, transform_matrix),
             in_xy,
             XY(x=out_matrix[0, :], y=out_matrix[1, :]),
@@ -235,7 +233,7 @@ class TransformTestCase(unittest.TestCase):
             frames=frame_set,
             pixels_to_fp=frame_set[frame_set.detector(detector_id), frame_set.focal_plane()],
         )
-        with RoundtripFits(self, test_holder) as roundtrip1:
+        with RoundtripFits(test_holder) as roundtrip1:
             self.assertEqual(len(roundtrip1.serialized.pixels_to_fp.frames), 2)
             self.assertEqual(len(roundtrip1.serialized.pixels_to_fp.bounds), 2)
             self.assertEqual(len(roundtrip1.serialized.pixels_to_fp.mappings), 1)
@@ -249,7 +247,7 @@ class TransformTestCase(unittest.TestCase):
             roundtrip1.result.pixels_to_fp._ast_mapping.simplified().show(),
             test_holder.pixels_to_fp._ast_mapping.simplified().show(),
         )
-        with RoundtripJson(self, test_holder) as roundtrip2:
+        with RoundtripJson(test_holder) as roundtrip2:
             self.assertEqual(len(roundtrip2.serialized.pixels_to_fp.frames), 2)
             self.assertEqual(len(roundtrip2.serialized.pixels_to_fp.bounds), 2)
             self.assertEqual(len(roundtrip2.serialized.pixels_to_fp.mappings), 1)
@@ -267,7 +265,8 @@ class TransformTestCase(unittest.TestCase):
             test_holder.pixels_to_fp._ast_mapping.simplified().show(),
         )
 
-    def compare_to_legacy_camera(self, legacy_camera: Any, frame_set: CameraFrameSet) -> None:
+    @staticmethod
+    def compare_to_legacy_camera(legacy_camera: Any, frame_set: CameraFrameSet) -> None:
         """Test the transforms extracted from a CameraFrameSet against the
         legacy lsst.afw.cameraGeom implementations.
         """
@@ -284,20 +283,17 @@ class TransformTestCase(unittest.TestCase):
         # Test transforms extracted directly from the frame set.
         pixel_to_fp = frame_set[frame_set.detector(16), frame_set.focal_plane()]
         check_transform(
-            self, pixel_to_fp, pixel_xy_array, fp_xy_array, frame_set.detector(16), frame_set.focal_plane()
+            pixel_to_fp, pixel_xy_array, fp_xy_array, frame_set.detector(16), frame_set.focal_plane()
         )
         pixel_to_fa = frame_set[frame_set.detector(16), frame_set.field_angle()]
         check_transform(
-            self, pixel_to_fa, pixel_xy_array, fa_xy_array, frame_set.detector(16), frame_set.field_angle()
+            pixel_to_fa, pixel_xy_array, fa_xy_array, frame_set.detector(16), frame_set.field_angle()
         )
         fp_to_fa = frame_set[frame_set.focal_plane(), frame_set.field_angle()]
-        check_transform(
-            self, fp_to_fa, fp_xy_array, fa_xy_array, frame_set.focal_plane(), frame_set.field_angle()
-        )
+        check_transform(fp_to_fa, fp_xy_array, fa_xy_array, frame_set.focal_plane(), frame_set.field_angle())
         # Test a composition.
         pixel_to_fa_indirect = pixel_to_fp.then(fp_to_fa)
         check_transform(
-            self,
             pixel_to_fa_indirect,
             pixel_xy_array,
             fa_xy_array,
@@ -306,17 +302,17 @@ class TransformTestCase(unittest.TestCase):
         )
         pixel_to_fp_d, fp_to_fa_d = pixel_to_fa_indirect.decompose()
         check_transform(
-            self, pixel_to_fp_d, pixel_xy_array, fp_xy_array, frame_set.detector(16), frame_set.focal_plane()
+            pixel_to_fp_d, pixel_xy_array, fp_xy_array, frame_set.detector(16), frame_set.focal_plane()
         )
         check_transform(
-            self, fp_to_fa_d, fp_xy_array, fa_xy_array, frame_set.focal_plane(), frame_set.field_angle()
+            fp_to_fa_d, fp_xy_array, fa_xy_array, frame_set.focal_plane(), frame_set.field_angle()
         )
         fa_to_fp_d, fp_to_pixel_d = pixel_to_fa_indirect.inverted().decompose()
         check_transform(
-            self, fa_to_fp_d, fa_xy_array, fp_xy_array, frame_set.field_angle(), frame_set.focal_plane()
+            fa_to_fp_d, fa_xy_array, fp_xy_array, frame_set.field_angle(), frame_set.focal_plane()
         )
         check_transform(
-            self, fp_to_pixel_d, fp_xy_array, pixel_xy_array, frame_set.focal_plane(), frame_set.detector(16)
+            fp_to_pixel_d, fp_xy_array, pixel_xy_array, frame_set.focal_plane(), frame_set.detector(16)
         )
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
@@ -337,36 +333,32 @@ class TransformTestCase(unittest.TestCase):
         detector_frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=wcs_bbox)
         sky_projection = SkyProjection.from_legacy(legacy_wcs, detector_frame)
         assert sky_projection.fits_approximation is not None
-        compare_sky_projection_to_legacy_wcs(self, sky_projection, legacy_wcs, detector_frame, subimage_bbox)
+        compare_sky_projection_to_legacy_wcs(sky_projection, legacy_wcs, detector_frame, subimage_bbox)
         # When we convert from a legacy SkyWcs, the internal AST Mapping needs
         # to really be an AST FrameSet in order to be able to convert back.
         self.assertIn("Begin FrameSet", sky_projection.show())
         compare_sky_projection_to_legacy_wcs(
-            self, sky_projection, sky_projection.to_legacy(), detector_frame, subimage_bbox
+            sky_projection, sky_projection.to_legacy(), detector_frame, subimage_bbox
         )
         self.assertIn("Begin FrameSet", sky_projection.fits_approximation.show())
         compare_sky_projection_to_legacy_wcs(
-            self,
             sky_projection.fits_approximation,
             sky_projection.fits_approximation.to_legacy(),
             detector_frame,
             subimage_bbox,
             is_fits=True,
         )
-        with RoundtripJson(self, sky_projection, "SkyProjection") as roundtrip:
+        with RoundtripJson(sky_projection, "SkyProjection") as roundtrip:
             pass
-        compare_sky_projection_to_legacy_wcs(
-            self, roundtrip.result, legacy_wcs, detector_frame, subimage_bbox
-        )
+        compare_sky_projection_to_legacy_wcs(roundtrip.result, legacy_wcs, detector_frame, subimage_bbox)
         # The AST FrameSet-ness needs to propagate through serialization.
         self.assertIn("Begin FrameSet", roundtrip.result.show())
         compare_sky_projection_to_legacy_wcs(
-            self, sky_projection, roundtrip.result.to_legacy(), detector_frame, subimage_bbox
+            sky_projection, roundtrip.result.to_legacy(), detector_frame, subimage_bbox
         )
-        with RoundtripJson(self, sky_projection.fits_approximation, "SkyProjection") as roundtrip:
+        with RoundtripJson(sky_projection.fits_approximation, "SkyProjection") as roundtrip:
             pass
         compare_sky_projection_to_legacy_wcs(
-            self,
             roundtrip.result,
             legacy_wcs.getFitsApproximation(),
             detector_frame,
@@ -375,7 +367,6 @@ class TransformTestCase(unittest.TestCase):
         )
         self.assertIn("Begin FrameSet", roundtrip.result.show())
         compare_sky_projection_to_legacy_wcs(
-            self,
             sky_projection.fits_approximation,
             roundtrip.result.to_legacy(),
             detector_frame,

@@ -214,17 +214,17 @@ class IntervalTestCase(unittest.TestCase):
             i.slice_within(Interval(start=3, stop=5))
 
         val = i.linspace()
-        assert_close(self, val, np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]))
+        assert_close(val, np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]))
         val = i.linspace(step=2.0)
-        assert_close(self, val, np.array([1.0, 3.0, 5.0, 7.0, 9.0]))
+        assert_close(val, np.array([1.0, 3.0, 5.0, 7.0, 9.0]))
         val = i.linspace(n=3)
-        assert_close(self, val, np.array([1.0, 5.0, 9.0]))
+        assert_close(val, np.array([1.0, 5.0, 9.0]))
         with self.assertRaises(TypeError):
             i.linspace(n=2, step=3.0)
 
         self.assertEqual(list(i.range), [1, 2, 3, 4, 5, 6, 7, 8, 9])
         val = i.arange
-        assert_close(self, val, np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]))
+        assert_close(val, np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]))
 
     def test_pydantic(self) -> None:
         """Test roundtrip through pydantic serialization."""
@@ -364,28 +364,28 @@ class BoxTestCase(unittest.TestCase):
         box = Box.factory[0:2, 0:3]
 
         grid = box.meshgrid()
-        assert_close(self, grid.x, np.array([[0.0, 1.0, 2.0], [0.0, 1.0, 2.0]]))
-        assert_close(self, grid.y, np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]))
+        assert_close(grid.x, np.array([[0.0, 1.0, 2.0], [0.0, 1.0, 2.0]]))
+        assert_close(grid.y, np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]))
 
         grid = box.meshgrid(2)
-        assert_close(self, grid.x, np.array([[0.0, 2.0], [0.0, 2.0]]))
-        assert_close(self, grid.y, np.array([[0.0, 0.0], [1.0, 1.0]]))
+        assert_close(grid.x, np.array([[0.0, 2.0], [0.0, 2.0]]))
+        assert_close(grid.y, np.array([[0.0, 0.0], [1.0, 1.0]]))
 
         grid = box.meshgrid([2, 1])
-        assert_close(self, grid.x, np.array([[0.0, 2.0]]))
-        assert_close(self, grid.y, np.array([[0.0, 0.0]]))
+        assert_close(grid.x, np.array([[0.0, 2.0]]))
+        assert_close(grid.y, np.array([[0.0, 0.0]]))
 
         grid = box.meshgrid(XY(2, 1))
-        assert_close(self, grid.x, np.array([[0.0, 2.0]]))
-        assert_close(self, grid.y, np.array([[0.0, 0.0]]))
+        assert_close(grid.x, np.array([[0.0, 2.0]]))
+        assert_close(grid.y, np.array([[0.0, 0.0]]))
 
         grid = box.meshgrid(YX(1, 2))
-        assert_close(self, grid.x, np.array([[0.0, 2.0]]))
-        assert_close(self, grid.y, np.array([[0.0, 0.0]]))
+        assert_close(grid.x, np.array([[0.0, 2.0]]))
+        assert_close(grid.y, np.array([[0.0, 0.0]]))
 
         grid = box.meshgrid(step=3)
-        assert_close(self, grid.x, np.array([[0.0]]))
-        assert_close(self, grid.y, np.array([[0.0]]))
+        assert_close(grid.x, np.array([[0.0]]))
+        assert_close(grid.y, np.array([[0.0]]))
 
         with self.assertRaises(TypeError):
             box.meshgrid(2, step=3)

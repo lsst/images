@@ -198,7 +198,7 @@ class MaskTestCase(unittest.TestCase):
         for plane in schema:
             if plane is not None:
                 mask.set(plane.name, self.rng.random(shape) > 0.5)
-        with RoundtripFits(self, mask) as roundtrip:
+        with RoundtripFits(mask) as roundtrip:
             fits = roundtrip.inspect()
             self.assertEqual(fits[1].header["EXTNAME"], "MASK")
             self.assertEqual(fits[1].header.get("EXTVER", 1), 1)
@@ -214,7 +214,7 @@ class MaskTestCase(unittest.TestCase):
                     self.assertEqual(hdu.header[f"MSKM{(n % 31):04d}"], 1 << (n % 31))
                     self.assertEqual(hdu.header[f"MSKD{(n % 31):04d}"], plane.description)
                     n += 1
-        assert_masks_equal(self, mask, roundtrip.result)
+        assert_masks_equal(mask, roundtrip.result)
 
     def test_add_plane_returns_new_mask(self) -> None:
         """Adding a plane returns a new mask, leaves the original (and any
@@ -354,8 +354,8 @@ class MaskTestCase(unittest.TestCase):
         self.assertFalse(new_mask.get("C").any())
         self.assertFalse(new_mask.get("D").any())
 
-        with RoundtripFits(self, new_mask) as roundtrip:
-            assert_masks_equal(self, new_mask, roundtrip.result)
+        with RoundtripFits(new_mask) as roundtrip:
+            assert_masks_equal(new_mask, roundtrip.result)
 
     def test_add_planes_drop_unknown_raises(self) -> None:
         """Dropping a plane that does not exist is an error."""
@@ -384,7 +384,7 @@ class MaskTestCase(unittest.TestCase):
             new = Mask.read(tmpFile)
         self.assertEqual(new, mask)
         self.assertEqual(new.schema.descriptions["OUTSIDE_STENCIL"], "Pixel lies outside the stencil.")
-        assert_masks_equal(self, new, mask)
+        assert_masks_equal(new, mask)
 
     def test_legacy_non_cell_coadd_plane_map(self) -> None:
         """The non-cell coadd map defines a distinct ``SENSOR_EDGE`` plane."""
@@ -416,12 +416,12 @@ class MaskTestCase(unittest.TestCase):
         reader = MaskedImageFitsReader(filename)
         self.assertEqual(mask.bbox, Box.from_legacy(reader.readBBox()))
         legacy_mask = reader.readMask()
-        compare_mask_to_legacy(self, mask, legacy_mask, plane_map)
-        compare_mask_to_legacy(self, mask, mask.to_legacy(plane_map), plane_map)
-        assert_masks_equal(self, mask, Mask.from_legacy(legacy_mask, plane_map=plane_map))
+        compare_mask_to_legacy(mask, legacy_mask, plane_map)
+        compare_mask_to_legacy(mask, mask.to_legacy(plane_map), plane_map)
+        assert_masks_equal(mask, Mask.from_legacy(legacy_mask, plane_map=plane_map))
         # Write the mask out in the new format, and test that we can read it
         # back either way.
-        with RoundtripFits(self, mask, storage_class="MaskV2") as roundtrip:
+        with RoundtripFits(mask, storage_class="MaskV2") as roundtrip:
             with self.subTest():
                 try:
                     import lsst.afw.image
@@ -429,8 +429,8 @@ class MaskTestCase(unittest.TestCase):
                     raise unittest.SkipTest("afw could not be imported") from None
                 legacy_mask = roundtrip.get(storageClass="Mask")
                 self.assertIsInstance(legacy_mask, lsst.afw.image.Mask)
-                compare_mask_to_legacy(self, mask, legacy_mask)
-        assert_masks_equal(self, roundtrip.result, mask)
+                compare_mask_to_legacy(mask, legacy_mask)
+        assert_masks_equal(roundtrip.result, mask)
 
 
 if __name__ == "__main__":

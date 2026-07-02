@@ -231,20 +231,21 @@ class FieldTestCase(unittest.TestCase):
         )
         self.check_evaluation_consistency(mixed)
 
-    def check_evaluation_consistency(self, field: BaseField) -> None:
+    @staticmethod
+    def check_evaluation_consistency(field: BaseField) -> None:
         """Test that `BaseField.__call__` and `BaseField.render` agree on a
         concrete field.
         """
         image_1 = field.render()
         p = field.bounds.bbox.meshgrid()
         image_2 = Image(field(x=p.x, y=p.y), bbox=field.bounds.bbox, unit=field.unit)
-        assert_images_equal(self, image_1, image_2)
+        assert_images_equal(image_1, image_2)
         scaled_field = field * 2.0
         image_3 = scaled_field.render()
         image_3.array *= 0.5
-        assert_images_equal(self, image_1, image_3)
+        assert_images_equal(image_1, image_3)
         image_4 = field.render(Box.factory[9:11, -3:1])
-        assert_images_equal(self, image_4, image_1[image_4.bbox])
+        assert_images_equal(image_4, image_1[image_4.bbox])
 
     def check_units(self, field: BaseField) -> None:
         """Test that the methods of a `BaseField` implementation correctly
@@ -286,15 +287,11 @@ class FieldLegacyTestCase(unittest.TestCase):
         """
         cheby = field_from_legacy(self.legacy_cheby)
         assert isinstance(cheby, ChebyshevField)
-        compare_field_to_legacy(self, cheby, self.legacy_cheby, subimage_bbox=Box.factory[8:12, -3:2])
-        with RoundtripFits(self, cheby) as roundtrip:
+        compare_field_to_legacy(cheby, self.legacy_cheby, subimage_bbox=Box.factory[8:12, -3:2])
+        with RoundtripFits(cheby) as roundtrip:
             pass
-        compare_field_to_legacy(
-            self, roundtrip.result, self.legacy_cheby, subimage_bbox=Box.factory[8:12, -3:2]
-        )
-        compare_field_to_legacy(
-            self, roundtrip.result, cheby.to_legacy(), subimage_bbox=Box.factory[8:12, -3:2]
-        )
+        compare_field_to_legacy(roundtrip.result, self.legacy_cheby, subimage_bbox=Box.factory[8:12, -3:2])
+        compare_field_to_legacy(roundtrip.result, cheby.to_legacy(), subimage_bbox=Box.factory[8:12, -3:2])
 
     def test_product_roundtrip(self) -> None:
         """Test converting ProductField from and to legacy, and serializing
@@ -302,15 +299,11 @@ class FieldLegacyTestCase(unittest.TestCase):
         """
         product = field_from_legacy(self.legacy_product)
         assert isinstance(product, ProductField)
-        compare_field_to_legacy(self, product, self.legacy_product, subimage_bbox=Box.factory[8:12, -3:2])
-        with RoundtripFits(self, product) as roundtrip:
+        compare_field_to_legacy(product, self.legacy_product, subimage_bbox=Box.factory[8:12, -3:2])
+        with RoundtripFits(product) as roundtrip:
             pass
-        compare_field_to_legacy(
-            self, roundtrip.result, self.legacy_product, subimage_bbox=Box.factory[8:12, -3:2]
-        )
-        compare_field_to_legacy(
-            self, roundtrip.result, product.to_legacy(), subimage_bbox=Box.factory[8:12, -3:2]
-        )
+        compare_field_to_legacy(roundtrip.result, self.legacy_product, subimage_bbox=Box.factory[8:12, -3:2])
+        compare_field_to_legacy(roundtrip.result, product.to_legacy(), subimage_bbox=Box.factory[8:12, -3:2])
 
     def test_spline_simple(self) -> None:
         """Test SplineField against `lsst.afw.math.BackgroundMI`, when there
@@ -326,7 +319,6 @@ class FieldLegacyTestCase(unittest.TestCase):
         spline = field_from_legacy_background(legacy_bg)
         render_bbox = self.box.padded(-3)
         assert_images_equal(
-            self,
             spline.render(render_bbox),
             Image.from_legacy(
                 legacy_bg.getImageF(
@@ -351,7 +343,6 @@ class FieldLegacyTestCase(unittest.TestCase):
         spline = field_from_legacy_background(legacy_bg)
         render_bbox = self.box.padded(-3)
         assert_images_equal(
-            self,
             spline.render(render_bbox),
             Image.from_legacy(
                 legacy_bg.getImageF(
@@ -371,8 +362,8 @@ class FieldLegacyTestCase(unittest.TestCase):
         xy_array = self.box.meshgrid(4)
         z_array = field(x=xy_array.x, y=xy_array.y)
         for z, x, y in zip(z_array.flat, xy_array.x.flat, xy_array.y.flat):
-            assert_close(self, legacy_func2a(x, y), z)
-            assert_close(self, legacy_func2b(x, y), z)
+            assert_close(legacy_func2a(x, y), z)
+            assert_close(legacy_func2b(x, y), z)
 
 
 @unittest.skipIf(DATA_DIR is None, "This test requires the TESTDATA_IMAGES_DIR envvar to be set.")
@@ -385,7 +376,7 @@ class FieldLegacyDataTestCase(unittest.TestCase):
         filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image_background.fits")
         legacy_bg_list = LegacyBackgroundList.readFits(filename)
         bg_field = field_from_legacy_background(legacy_bg_list)
-        assert_images_equal(self, bg_field.render(), Image.from_legacy(legacy_bg_list.getImage()), rtol=1e-6)
+        assert_images_equal(bg_field.render(), Image.from_legacy(legacy_bg_list.getImage()), rtol=1e-6)
 
 
 if __name__ == "__main__":

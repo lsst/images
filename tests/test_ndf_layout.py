@@ -84,7 +84,7 @@ class NdfImageLayoutTestCase(unittest.TestCase):
             np.arange(20, dtype=np.float32).reshape(4, 5),
             bbox=Box.factory[10:14, 20:25],
         )
-        with RoundtripNdf(self, image) as roundtrip:
+        with RoundtripNdf(image) as roundtrip:
             f = roundtrip.inspect()
             # Root group carries CLASS="NDF".
             self.assertEqual(_cls(f["/"]), "NDF")
@@ -145,7 +145,7 @@ class NdfCompatibleMaskLayoutTestCase(unittest.TestCase):
         masked.mask.set("BAD", image.array % 2 == 0)
         masked.mask.set("SAT", image.array > 10)
 
-        with RoundtripNdf(self, masked) as roundtrip:
+        with RoundtripNdf(masked) as roundtrip:
             f = roundtrip.inspect()
             self.assertIn("QUALITY", f)
             self.assertEqual(_cls(f["/QUALITY"]), "QUALITY")
@@ -215,7 +215,7 @@ class NdfIncompatibleMaskLayoutTestCase(unittest.TestCase):
         masked.mask.set("P11", image.array > 10)
         expected_quality = np.any(masked.mask.array != 0, axis=2).astype(np.uint8)
 
-        with RoundtripNdf(self, masked) as roundtrip:
+        with RoundtripNdf(masked) as roundtrip:
             f = roundtrip.inspect()
             self.assertIn("QUALITY", f)
             self.assertEqual(_cls(f["/QUALITY/QUALITY"]), "ARRAY")
@@ -256,7 +256,7 @@ class NdfIncompatibleMaskLayoutTestCase(unittest.TestCase):
         masked.mask.set("P39", image.array == 19)
         expected_quality = np.any(masked.mask.array != 0, axis=2).astype(np.uint8)
 
-        with RoundtripNdf(self, masked) as roundtrip:
+        with RoundtripNdf(masked) as roundtrip:
             f = roundtrip.inspect()
             self.assertIn("QUALITY", f)
             self.assertEqual(_cls(f["/QUALITY/QUALITY"]), "ARRAY")
