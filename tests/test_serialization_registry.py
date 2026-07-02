@@ -10,9 +10,10 @@
 # license that can be found in the LICENSE file.
 from __future__ import annotations
 
-import unittest
 from typing import Any, ClassVar
 from unittest import mock
+
+import pytest
 
 from lsst.images import SkyProjection, VisitImage
 from lsst.images._image import ImageSerializationModel
@@ -21,105 +22,125 @@ from lsst.images.serialization import ArchiveTree, _io, class_for_schema, public
 from lsst.images.serialization._io import _REGISTRY, register_schema_class
 
 
-class ClassForSchemaTestCase(unittest.TestCase):
-    """class_for_schema returns None for unknown schema names."""
-
-    def test_unknown_returns_none(self) -> None:
-        self.assertIsNone(class_for_schema("does-not-exist"))
+def test_unknown_returns_none() -> None:
+    """Verify class_for_schema returns None for an unrecognised schema name."""
+    assert class_for_schema("does-not-exist") is None
 
 
-class RegistrationTestCase(unittest.TestCase):
-    """ArchiveTree subclasses register themselves under SCHEMA_NAME."""
+def test_visit_image_registered() -> None:
+    """Verify visit_image is registered and maps to
+    VisitImageSerializationModel.
+    """
+    cls = class_for_schema("visit_image")
+    assert cls is VisitImageSerializationModel
 
-    def test_visit_image_registered(self) -> None:
-        cls = class_for_schema("visit_image")
-        self.assertIs(cls, VisitImageSerializationModel)
 
-    def test_nested_image_registered(self) -> None:
-        # Nested types are registered too -- "register all" was the spec
-        # decision so callers can read sub-models directly.
-        cls = class_for_schema("image")
-        self.assertIs(cls, ImageSerializationModel)
+def test_nested_image_registered() -> None:
+    """Verify nested types like image are registered so sub-models can
+    be read directly.
+    """
+    # Nested types are registered too -- "register all" was the spec
+    # decision so callers can read sub-models directly.
+    cls = class_for_schema("image")
+    assert cls is ImageSerializationModel
 
-    def test_duplicate_registration_raises(self) -> None:
-        # Re-registering the same class is a no-op.
-        register_schema_class(VisitImageSerializationModel)
 
-        # Defining a subclass that redeclares SCHEMA_NAME triggers
-        # __pydantic_init_subclass__, which calls register_schema_class
-        # with a different class object under an existing name.  That
-        # call raises RuntimeError.
-        with self.assertRaises(RuntimeError):
+def test_duplicate_registration_raises() -> None:
+    """Verify re-registering a class is a no-op but a conflicting class
+    raises RuntimeError.
+    """
+    # Re-registering the same class is a no-op.
+    register_schema_class(VisitImageSerializationModel)
 
-            class _Imposter(VisitImageSerializationModel):  # type: ignore[misc]
-                SCHEMA_NAME: ClassVar[str] = "visit_image"
-                SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    # Defining a subclass that redeclares SCHEMA_NAME triggers
+    # __pydantic_init_subclass__, which calls register_schema_class
+    # with a different class object under an existing name.  That
+    # call raises RuntimeError.
+    with pytest.raises(RuntimeError):
 
-    def test_builtin_provider_loaded_on_miss(self) -> None:
-        schema_names = ("cell_coadd", "cell_psf", "coadd_provenance")
-        saved = {schema_name: _REGISTRY.pop(schema_name, None) for schema_name in schema_names}
-        try:
-            for schema_name in schema_names:
-                with self.subTest(schema_name=schema_name):
-                    cls = class_for_schema(schema_name)
-                    self.assertIsNotNone(cls)
-                    self.assertEqual(cls.SCHEMA_NAME, schema_name)
-        finally:
-            # Preserve any registrations that existed before this test, even
-            # if an assertion above fails.
-            _REGISTRY.update({schema_name: cls for schema_name, cls in saved.items() if cls is not None})
-
-    def test_entry_point_provider_loaded_on_miss(self) -> None:
-        class _EntryPointTree(ArchiveTree):
-            SCHEMA_NAME: ClassVar[str] = "_entry_point_schema_test"
+        class _Imposter(VisitImageSerializationModel):  # type: ignore[misc]
+            SCHEMA_NAME: ClassVar[str] = "visit_image"
             SCHEMA_VERSION: ClassVar[str] = "1.0.0"
-            MIN_READ_VERSION: ClassVar[int] = 1
 
-            def deserialize(self, archive: Any, **kwargs: Any) -> VisitImage:
-                raise AssertionError("not used")
 
-        class _FakeEntryPoint:
-            value = "tests.test_serialization_registry:_EntryPointTree"
+def test_builtin_provider_loaded_on_miss() -> None:
+    """Verify builtin schema providers are loaded lazily on a registry
+    cache miss.
+    """
+    schema_names = ("cell_coadd", "cell_psf", "coadd_provenance")
+    saved = {schema_name: _REGISTRY.pop(schema_name, None) for schema_name in schema_names}
+    try:
+        for schema_name in schema_names:
+            cls = class_for_schema(schema_name)
+            assert cls is not None, f"schema_name={schema_name!r}: expected a registered class"
+            assert cls.SCHEMA_NAME == schema_name, f"schema_name={schema_name!r}: SCHEMA_NAME mismatch"
+    finally:
+        # Preserve any registrations that existed before this test, even
+        # if an assertion above fails.
+        _REGISTRY.update({schema_name: cls for schema_name, cls in saved.items() if cls is not None})
 
-            def load(self) -> type[ArchiveTree]:
-                return _EntryPointTree
 
+def test_entry_point_provider_loaded_on_miss() -> None:
+    """Verify entry-point providers are loaded lazily on a registry
+    cache miss.
+    """
+
+    class _EntryPointTree(ArchiveTree):
+        SCHEMA_NAME: ClassVar[str] = "_entry_point_schema_test"
+        SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+        MIN_READ_VERSION: ClassVar[int] = 1
+
+        def deserialize(self, archive: Any, **kwargs: Any) -> VisitImage:
+            raise AssertionError("not used")
+
+    class _FakeEntryPoint:
+        value = "tests.test_serialization_registry:_EntryPointTree"
+
+        def load(self) -> type[ArchiveTree]:
+            return _EntryPointTree
+
+    _REGISTRY.pop("_entry_point_schema_test", None)
+    try:
+        with mock.patch.object(
+            _io.importlib.metadata,
+            "entry_points",
+            return_value=[_FakeEntryPoint()],
+        ) as entry_points:
+            cls = class_for_schema("_entry_point_schema_test")
+        entry_points.assert_called_once_with(
+            group="lsst.images.schemas",
+            name="_entry_point_schema_test",
+        )
+        assert cls is _EntryPointTree
+    finally:
         _REGISTRY.pop("_entry_point_schema_test", None)
-        try:
-            with mock.patch.object(
-                _io.importlib.metadata,
-                "entry_points",
-                return_value=[_FakeEntryPoint()],
-            ) as entry_points:
-                cls = class_for_schema("_entry_point_schema_test")
-            entry_points.assert_called_once_with(
-                group="lsst.images.schemas",
-                name="_entry_point_schema_test",
-            )
-            self.assertIs(cls, _EntryPointTree)
-        finally:
-            _REGISTRY.pop("_entry_point_schema_test", None)
 
 
-class PublicTypeTestCase(unittest.TestCase):
-    """public_type_for_schema returns each tree's PUBLIC_TYPE ClassVar."""
+def test_concrete_type() -> None:
+    """Verify public_type_for_schema returns VisitImage for the
+    visit_image schema.
+    """
+    assert public_type_for_schema("visit_image") is VisitImage
 
-    def test_concrete_type(self) -> None:
-        self.assertIs(public_type_for_schema("visit_image"), VisitImage)
 
-    def test_generic_in_memory_type(self) -> None:
-        # ProjectionSerializationModel produces a Projection (its PUBLIC_TYPE
-        # is the unparameterised class, not Projection[Any]).
-        self.assertIs(public_type_for_schema("sky_projection"), SkyProjection)
+def test_generic_in_memory_type() -> None:
+    """Verify public_type_for_schema returns SkyProjection for the
+    sky_projection schema.
+    """
+    # ProjectionSerializationModel produces a Projection (its PUBLIC_TYPE
+    # is the unparameterised class, not Projection[Any]).
+    assert public_type_for_schema("sky_projection") is SkyProjection
 
-    def test_unregistered_schema_returns_none(self) -> None:
-        self.assertIsNone(public_type_for_schema("no-such-schema"))
+
+def test_unregistered_schema_returns_none() -> None:
+    """Verify public_type_for_schema returns None for an unregistered
+    schema name.
+    """
+    assert public_type_for_schema("no-such-schema") is None
 
 
 def _all_concrete_archive_tree_subclasses() -> list[type]:
-    """Walk ArchiveTree's subclass tree and return all concrete subclasses
-    that declare SCHEMA_NAME (i.e. are real schema-bearing leaves).
-    """
+    """Return all concrete ArchiveTree subclasses that declare SCHEMA_NAME."""
     seen: list[type] = []
     stack: list[type] = list(ArchiveTree.__subclasses__())
     while stack:
@@ -130,36 +151,34 @@ def _all_concrete_archive_tree_subclasses() -> list[type]:
     return seen
 
 
-class ClassInvariantsTestCase(unittest.TestCase):
-    """Every ArchiveTree subclass with SCHEMA_NAME is registered and has a
-    resolvable, concrete deserialize return annotation.
+def test_every_subclass_registered() -> None:
+    """Verify every package-local ArchiveTree subclass with SCHEMA_NAME
+    is registered.
     """
-
-    def test_every_subclass_registered(self) -> None:
-        # Test-local classes from other test methods may linger in
-        # __subclasses__ after their cleanup runs; restrict the check to
-        # classes whose modules belong to the package itself.
-        missing: list[str] = []
-        for cls in _all_concrete_archive_tree_subclasses():
-            if not cls.__module__.startswith("lsst.images"):
-                continue
-            registered = _REGISTRY.get(cls.SCHEMA_NAME)
-            if registered is None or registered is not cls:
-                missing.append(f"{cls.__qualname__} -> {cls.SCHEMA_NAME}")
-        self.assertEqual(missing, [], f"Unregistered subclasses: {missing}")
-
-    def test_every_registered_class_declares_public_type(self) -> None:
-        # Restrict to package-local classes; test-only ArchiveTree
-        # subclasses (e.g. tests/test_schema_versioning.py's
-        # _DummyArchiveTree) may register but are not part of the package.
-        unresolved: list[str] = []
-        for cls in _REGISTRY.values():
-            if not cls.__module__.startswith("lsst.images"):
-                continue
-            if not isinstance(getattr(cls, "PUBLIC_TYPE", None), type):
-                unresolved.append(cls.__qualname__)
-        self.assertEqual(unresolved, [], f"No PUBLIC_TYPE declared: {unresolved}")
+    # Test-local classes from other test methods may linger in
+    # __subclasses__ after their cleanup runs; restrict the check to
+    # classes whose modules belong to the package itself.
+    missing: list[str] = []
+    for cls in _all_concrete_archive_tree_subclasses():
+        if not cls.__module__.startswith("lsst.images"):
+            continue
+        registered = _REGISTRY.get(cls.SCHEMA_NAME)
+        if registered is None or registered is not cls:
+            missing.append(f"{cls.__qualname__} -> {cls.SCHEMA_NAME}")
+    assert missing == [], f"Unregistered subclasses: {missing}"
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_every_registered_class_declares_public_type() -> None:
+    """Verify every package-local registered ArchiveTree class declares
+    PUBLIC_TYPE.
+    """
+    # Restrict to package-local classes; test-only ArchiveTree
+    # subclasses (e.g. tests/test_schema_versioning.py's
+    # _DummyArchiveTree) may register but are not part of the package.
+    unresolved: list[str] = []
+    for cls in _REGISTRY.values():
+        if not cls.__module__.startswith("lsst.images"):
+            continue
+        if not isinstance(getattr(cls, "PUBLIC_TYPE", None), type):
+            unresolved.append(cls.__qualname__)
+    assert unresolved == [], f"No PUBLIC_TYPE declared: {unresolved}"

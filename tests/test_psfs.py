@@ -12,25 +12,16 @@
 from __future__ import annotations
 
 import os
-import unittest
 import warnings
+from typing import Any
 
 import numpy as np
+import pytest
 
 from lsst.images import Box
-from lsst.images.psfs import (
-    GaussianPointSpreadFunction,
-    PiffWrapper,
-    PointSpreadFunction,
-    PSFExWrapper,
-)
+from lsst.images.psfs import GaussianPointSpreadFunction, PiffWrapper, PointSpreadFunction, PSFExWrapper
 from lsst.images.psfs._piff import _ArchivePiffWriter
-from lsst.images.tests import (
-    RoundtripFits,
-    RoundtripJson,
-    RoundtripNdf,
-    compare_psf_to_legacy,
-)
+from lsst.images.tests import RoundtripFits, RoundtripJson, RoundtripNdf, compare_psf_to_legacy
 
 try:
     import h5py  # noqa: F401
@@ -39,142 +30,157 @@ try:
 except ImportError:
     HAVE_H5PY = False
 
-DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
+try:
+    from lsst.afw.detection import Psf as LegacyPsf
+except ImportError:
+    type LegacyPsf = Any  # type: ignore[no-redef]
+
+EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
+
+skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
 
 
-class PointSpreadFunctionTestCase(unittest.TestCase):
-    """Tests for the PointSpreadFunction classes."""
+@pytest.fixture(scope="session")
+def legacy_piff_psf_and_bbox() -> tuple[LegacyPsf, Box]:
+    """Return a legacy-wrapped Piff PSF and its bounding box.
 
-    def test_gaussian(self) -> None:
-        """Test the built-in Gaussian PSF implementation."""
-        bounds = Box.factory[-1024:1024, -2048:2048]
-        psf = GaussianPointSpreadFunction(2.5, bounds=bounds, stamp_size=33)
-        self.assertEqual(psf.bounds, bounds)
+    Skips if TESTDATA_IMAGES_DIR is unset, piff is unavailable, or afw is
+    unavailable.
+    """
+    if EXTERNAL_DATA_DIR is None:
+        pytest.skip("TESTDATA_IMAGES_DIR is not in the environment.")
+    try:
+        import piff  # noqa: F401
 
-        kernel = psf.compute_kernel_image(x=5.0, y=3.0)
-        self.assertEqual(kernel.bbox, psf.kernel_bbox)
-        self.assertAlmostEqual(float(kernel.array.sum()), 1.0)
-        center = kernel.array.shape[0] // 2
-        self.assertEqual(np.unravel_index(np.argmax(kernel.array), kernel.array.shape), (center, center))
-
-        stellar = psf.compute_stellar_image(x=5.25, y=3.75)
-        self.assertEqual(stellar.bbox, psf.compute_stellar_bbox(x=5.25, y=3.75))
-        self.assertAlmostEqual(float(stellar.array.sum()), 1.0)
-        self.assertGreater(stellar.array[center - 1, center], stellar.array[center + 1, center])
-        self.assertGreater(stellar.array[center, center], stellar.array[center, center - 1])
-        self.assertGreater(stellar.array[center, center], stellar.array[center - 1, center])
-
-        with RoundtripFits(psf) as roundtrip:
-            self.assertEqual(roundtrip.result, psf, f"{roundtrip.result} != {psf}")
-
-        with self.assertRaises(ValueError):
-            # Even stamp size.
-            GaussianPointSpreadFunction(2.5, bounds=bounds, stamp_size=32)
-
-        with self.assertRaises(ValueError):
-            # Negative stamp size.
-            GaussianPointSpreadFunction(2.5, bounds=bounds, stamp_size=-33)
-
-        with self.assertRaises(ValueError):
-            # Negative sigma.
-            GaussianPointSpreadFunction(-2.5, bounds=bounds, stamp_size=33)
-
-    def test_piff_writer_normalizes_tuple_metadata(self) -> None:
-        """Piff metadata should be normalized to JSON-like values."""
-        writer = _ArchivePiffWriter()
-        writer.write_struct(
-            "interp",
-            {
-                "keys": ("u", "v"),
-                "scale": np.float64(1.5),
-                "flags": [np.bool_(True), np.int64(3)],
-            },
-        )
-        model = writer.serialize(None)  # type: ignore[arg-type]
-        self.assertEqual(model.structs["interp"]["keys"], ["u", "v"])
-        self.assertEqual(model.structs["interp"]["scale"], 1.5)
-        self.assertEqual(model.structs["interp"]["flags"], [True, 3])
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", UserWarning)
-            model.model_dump_json()
-
-    @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
-    def test_piff(self) -> None:
-        """Test that we can:
-
-        - read a legacy Piff PSF with afw;
-        - convert it to the new `PiffWrapper` class;
-        - get consistent behavior from the two;
-        - round-trip the new PSF through a FITS archive;
-        - still get consistent behavior with the round-tripped PSF.
-
-        This test is skipped if legacy modules cannot be imported.
-        """
-        try:
-            from piff import PSF
-
-            from lsst.afw.image import ExposureFitsReader
-        except ImportError:
-            raise unittest.SkipTest("'lsst.afw.image' could not be imported.") from None
-        assert DATA_DIR is not None, "Guaranteed by decorator."
-        filename = os.path.join(DATA_DIR, "dp2", "legacy", "visit_image.fits")
-        reader = ExposureFitsReader(filename)
-        legacy_psf = reader.readPsf()
-        bounds = Box.from_legacy(reader.readBBox())
-        psf = PointSpreadFunction.from_legacy(legacy_psf, bounds)
-        self.assertIsInstance(psf, PiffWrapper)
-        self.assertEqual(psf.bounds, bounds)
-        self.assertIsInstance(psf.piff_psf, PSF)
-        compare_psf_to_legacy(psf, legacy_psf)
-        with RoundtripFits(psf) as roundtrip1:
-            pass
-        compare_psf_to_legacy(roundtrip1.result, legacy_psf)
-        with RoundtripJson(psf) as roundtrip2:
-            pass
-        compare_psf_to_legacy(roundtrip2.result, legacy_psf)
-        with self.subTest("NDF round-trip"):
-            if not HAVE_H5PY:
-                raise unittest.SkipTest("h5py is not available.")
-            with RoundtripNdf(psf) as roundtrip3:
-                pass
-            compare_psf_to_legacy(roundtrip3.result, legacy_psf)
-        legacy_psf_2 = roundtrip1.result.to_legacy()
-        compare_psf_to_legacy(psf, legacy_psf_2)
-        self.assertEqual(legacy_psf.getAveragePosition(), legacy_psf_2.getAveragePosition())
-
-    @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
-    def test_psfex(self) -> None:
-        """Test that we can:
-
-        - read a legacy PSFEX PSF with afw;
-        - wrap it inthe new `LegacyPointSpreadFunction` class;
-        - get consistent behavior from the two.
-
-        This test is skipped if legacy modules cannot be imported.
-        """
-        try:
-            from lsst.afw.image import ExposureFitsReader
-            from lsst.meas.extensions.psfex import PsfexPsf
-        except ImportError:
-            raise unittest.SkipTest("'lsst.afw.image' could not be imported.") from None
-        assert DATA_DIR is not None, "Guaranteed by decorator."
-        filename = os.path.join(DATA_DIR, "dp2", "legacy", "preliminary_visit_image.fits")
-        reader = ExposureFitsReader(filename)
-        legacy_psf = reader.readPsf()
-        bounds = Box.from_legacy(reader.readBBox())
-        psf = PointSpreadFunction.from_legacy(legacy_psf, bounds)
-        self.assertIsInstance(psf, PSFExWrapper)
-        self.assertEqual(psf.bounds, bounds)
-        self.assertIsInstance(psf.legacy_psf, PsfexPsf)
-        compare_psf_to_legacy(psf, legacy_psf)
-        compare_psf_to_legacy(psf, legacy_psf)
-        with RoundtripFits(psf) as roundtrip1:
-            pass
-        compare_psf_to_legacy(roundtrip1.result, legacy_psf)
-        with RoundtripJson(psf) as roundtrip2:
-            pass
-        compare_psf_to_legacy(roundtrip2.result, legacy_psf)
+        from lsst.afw.image import ExposureFitsReader
+    except ImportError:
+        pytest.skip("'piff' or 'lsst.afw.image' could not be imported.")
+    filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
+    reader = ExposureFitsReader(filename)
+    legacy_psf = reader.readPsf()
+    bounds = Box.from_legacy(reader.readBBox())
+    return legacy_psf, bounds
 
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.fixture(scope="session")
+def legacy_psfex_psf_and_bbox() -> tuple[LegacyPsf, Box]:
+    """Return a legacy PSFEx PSF and its bounding box
+
+    Skips if TESTDATA_IMAGES_DIR is unset, afw is unavailable, or psfex is
+    unavailable.
+    """
+    if EXTERNAL_DATA_DIR is None:
+        pytest.skip("TESTDATA_IMAGES_DIR is not in the environment.")
+    try:
+        from lsst.afw.image import ExposureFitsReader
+        from lsst.meas.extensions.psfex import PsfexPsf  # noqa: F401
+    except ImportError:
+        pytest.skip("'lsst.afw.image' or 'lsst.meas.extensions.psfex' could not be imported.")
+    filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "preliminary_visit_image.fits")
+    reader = ExposureFitsReader(filename)
+    legacy_psf = reader.readPsf()
+    bounds = Box.from_legacy(reader.readBBox())
+    return legacy_psf, bounds
+
+
+def test_gaussian() -> None:
+    """Test the built-in Gaussian PSF implementation."""
+    bounds = Box.factory[-1024:1024, -2048:2048]
+    psf = GaussianPointSpreadFunction(2.5, bounds=bounds, stamp_size=33)
+    assert psf.bounds == bounds
+
+    kernel = psf.compute_kernel_image(x=5.0, y=3.0)
+    assert kernel.bbox == psf.kernel_bbox
+    assert abs(float(kernel.array.sum()) - 1.0) < 1e-6
+    center = kernel.array.shape[0] // 2
+    assert np.unravel_index(np.argmax(kernel.array), kernel.array.shape) == (center, center)
+
+    stellar = psf.compute_stellar_image(x=5.25, y=3.75)
+    assert stellar.bbox == psf.compute_stellar_bbox(x=5.25, y=3.75)
+    assert abs(float(stellar.array.sum()) - 1.0) < 1e-6
+    assert stellar.array[center - 1, center] > stellar.array[center + 1, center]
+    assert stellar.array[center, center] > stellar.array[center, center - 1]
+    assert stellar.array[center, center] > stellar.array[center - 1, center]
+
+    with RoundtripFits(psf) as roundtrip:
+        assert roundtrip.result == psf, f"{roundtrip.result} != {psf}"
+
+    with pytest.raises(ValueError):
+        # Even stamp size.
+        GaussianPointSpreadFunction(2.5, bounds=bounds, stamp_size=32)
+
+    with pytest.raises(ValueError):
+        # Negative stamp size.
+        GaussianPointSpreadFunction(2.5, bounds=bounds, stamp_size=-33)
+
+    with pytest.raises(ValueError):
+        # Negative sigma.
+        GaussianPointSpreadFunction(-2.5, bounds=bounds, stamp_size=33)
+
+
+def test_piff_writer_normalizes_tuple_metadata():  # intentionally untyped
+    """Test that Piff metadata is normalized to JSON-like values."""
+    writer = _ArchivePiffWriter()
+    writer.write_struct(
+        "interp",
+        {
+            "keys": ("u", "v"),
+            "scale": np.float64(1.5),
+            "flags": [np.bool_(True), np.int64(3)],
+        },
+    )
+    model = writer.serialize(None)  # type: ignore[arg-type]
+    assert model.structs["interp"]["keys"] == ["u", "v"]
+    assert model.structs["interp"]["scale"] == 1.5
+    assert model.structs["interp"]["flags"] == [True, 3]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        model.model_dump_json()
+
+
+def test_piff(legacy_piff_psf_and_bbox: tuple[LegacyPsf, Box]) -> None:
+    """Test round-tripping a legacy Piff PSF through FITS, JSON, and NDF
+    archives.
+    """
+    from piff import PSF
+
+    legacy_psf, bounds = legacy_piff_psf_and_bbox
+    psf = PointSpreadFunction.from_legacy(legacy_psf, bounds)
+    assert isinstance(psf, PiffWrapper)
+    assert psf.bounds == bounds
+    assert isinstance(psf.piff_psf, PSF)
+    compare_psf_to_legacy(psf, legacy_psf)
+    with RoundtripFits(psf) as roundtrip1:
+        pass
+    compare_psf_to_legacy(roundtrip1.result, legacy_psf)
+    with RoundtripJson(psf) as roundtrip2:
+        pass
+    compare_psf_to_legacy(roundtrip2.result, legacy_psf)
+    if not HAVE_H5PY:
+        pytest.skip("h5py is not available.")
+    with RoundtripNdf(psf) as roundtrip3:
+        pass
+    compare_psf_to_legacy(roundtrip3.result, legacy_psf)
+    legacy_psf_2 = roundtrip1.result.to_legacy()
+    compare_psf_to_legacy(psf, legacy_psf_2)
+    assert legacy_psf.getAveragePosition() == legacy_psf_2.getAveragePosition()
+
+
+def test_psfex(legacy_psfex_psf_and_bbox: tuple[LegacyPsf, Box]) -> None:
+    """Test wrapping a legacy PSFEx PSF and round-tripping through FITS and
+    JSON.
+    """
+    from lsst.meas.extensions.psfex import PsfexPsf
+
+    legacy_psf, bounds = legacy_psfex_psf_and_bbox
+    psf = PointSpreadFunction.from_legacy(legacy_psf, bounds)
+    assert isinstance(psf, PSFExWrapper)
+    assert psf.bounds == bounds
+    assert isinstance(psf.legacy_psf, PsfexPsf)
+    compare_psf_to_legacy(psf, legacy_psf)
+    with RoundtripFits(psf) as roundtrip1:
+        pass
+    compare_psf_to_legacy(roundtrip1.result, legacy_psf)
+    with RoundtripJson(psf) as roundtrip2:
+        pass
+    compare_psf_to_legacy(roundtrip2.result, legacy_psf)

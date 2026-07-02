@@ -11,12 +11,11 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
-import unittest
+from pathlib import Path
 
 import numpy as np
 import pydantic
+import pytest
 
 from lsst.images import Box, Image
 from lsst.images import fits as images_fits
@@ -35,108 +34,114 @@ try:
 except ImportError:
     HAVE_H5PY = False
 
-
-class ArchiveInfoTestCase(unittest.TestCase):
-    """Tests for the ArchiveInfo model and its schema_url parsing."""
-
-    def test_from_schema_url(self) -> None:
-        info = ArchiveInfo.from_schema_url(
-            "https://images.lsst.io/schemas/visit_image-1.2.3", format_version=1
-        )
-        self.assertEqual(info.schema_name, "visit_image")
-        self.assertEqual(info.schema_version, "1.2.3")
-        self.assertEqual(info.schema_url, "https://images.lsst.io/schemas/visit_image-1.2.3")
-        self.assertEqual(info.format_version, 1)
-
-    def test_from_schema_url_none_format(self) -> None:
-        info = ArchiveInfo.from_schema_url("https://images.lsst.io/schemas/image-1.0.0", format_version=None)
-        self.assertEqual(info.schema_name, "image")
-        self.assertIsNone(info.format_version)
-
-    def test_frozen(self) -> None:
-        info = ArchiveInfo.from_schema_url("https://images.lsst.io/schemas/image-1.0.0", format_version=None)
-        with self.assertRaises(pydantic.ValidationError):
-            info.schema_name = "other"  # type: ignore[misc]
-
-    def test_from_schema_url_invalid(self) -> None:
-        with self.assertRaises(ValueError):
-            ArchiveInfo.from_schema_url("https://images.lsst.io/schemas/noversion", format_version=None)
-
-    def test_from_schema_url_foreign_host(self) -> None:
-        # A DATAMODL header pointing at another host must be rejected so a
-        # file not written by lsst.images cannot select an arbitrary schema.
-        with self.assertRaises(ValueError):
-            ArchiveInfo.from_schema_url("https://evil.example.com/schemas/image-1.0.0", format_version=None)
-
-    def test_get_basic_info_base_raises(self) -> None:
-        with self.assertRaises(NotImplementedError):
-            InputArchive.get_basic_info("x.fits")
+skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
 
 
-class JsonBasicInfoTestCase(unittest.TestCase):
-    """get_basic_info for the JSON backend."""
-
-    def setUp(self) -> None:
-        self.tmp = tempfile.mkdtemp()
-        self.image = Image(np.zeros((4, 4), dtype=np.float32), bbox=Box.factory[0:4, 0:4])
-
-    def test_json_basic_info(self) -> None:
-        path = os.path.join(self.tmp, "x.json")
-        images_json.write(self.image, path)
-        info = JsonInputArchive.get_basic_info(path)
-        self.assertEqual(info.schema_name, "image")
-        self.assertEqual(info.schema_version, "1.0.0")
-        self.assertEqual(info.schema_url, "https://images.lsst.io/schemas/image-1.0.0")
-        self.assertIsNone(info.format_version)
+def _make_image() -> Image:
+    """Return a small float32 Image for serialization tests."""
+    return Image(np.zeros((4, 4), dtype=np.float32), bbox=Box.factory[0:4, 0:4])
 
 
-class FitsBasicInfoTestCase(unittest.TestCase):
-    """get_basic_info for the FITS backend."""
-
-    def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.tmp = tmp.name
-        self.image = Image(np.zeros((4, 4), dtype=np.float32), bbox=Box.factory[0:4, 0:4])
-
-    def test_fits_basic_info(self) -> None:
-        path = os.path.join(self.tmp, "x.fits")
-        images_fits.write(self.image, path)
-        info = FitsInputArchive.get_basic_info(path)
-        self.assertEqual(info.schema_name, "image")
-        self.assertEqual(info.schema_version, "1.0.0")
-        self.assertEqual(info.schema_url, "https://images.lsst.io/schemas/image-1.0.0")
-        self.assertEqual(info.format_version, 1)
+def test_archive_info_from_schema_url() -> None:
+    """Verify ArchiveInfo.from_schema_url parses schema name, version, and
+    format correctly.
+    """
+    info = ArchiveInfo.from_schema_url("https://images.lsst.io/schemas/visit_image-1.2.3", format_version=1)
+    assert info.schema_name == "visit_image"
+    assert info.schema_version == "1.2.3"
+    assert info.schema_url == "https://images.lsst.io/schemas/visit_image-1.2.3"
+    assert info.format_version == 1
 
 
-@unittest.skipUnless(HAVE_H5PY, "h5py is not available.")
-class NdfBasicInfoTestCase(unittest.TestCase):
-    """get_basic_info for the NDF backend."""
+def test_archive_info_from_schema_url_none_format() -> None:
+    """Verify ArchiveInfo.from_schema_url accepts None for format_version."""
+    info = ArchiveInfo.from_schema_url("https://images.lsst.io/schemas/image-1.0.0", format_version=None)
+    assert info.schema_name == "image"
+    assert info.format_version is None
 
-    def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.tmp = tmp.name
-        self.image = Image(np.zeros((4, 4), dtype=np.float32), bbox=Box.factory[0:4, 0:4])
 
-    def test_ndf_basic_info(self) -> None:
-        path = os.path.join(self.tmp, "x.sdf")
-        images_ndf.write(self.image, path)
-        info = NdfInputArchive.get_basic_info(path)
-        self.assertEqual(info.schema_name, "image")
-        self.assertEqual(info.schema_version, "1.0.0")
-        self.assertEqual(info.schema_url, "https://images.lsst.io/schemas/image-1.0.0")
-        self.assertEqual(info.format_version, 1)
+def test_archive_info_frozen() -> None:
+    """Verify ArchiveInfo is frozen (schema_name cannot be reassigned)."""
+    info = ArchiveInfo.from_schema_url("https://images.lsst.io/schemas/image-1.0.0", format_version=None)
+    with pytest.raises(pydantic.ValidationError):
+        info.schema_name = "other"  # type: ignore[misc]
 
-    def test_ndf_basic_info_ignores_nested_json(self) -> None:
-        path = os.path.join(self.tmp, "nested.sdf")
-        images_ndf.write(self.image, path)
-        # Inject a nested pointer-tree JSON alongside the top-level one; it
-        # sorts before "JSON" so a depth-first scan would hit it first.
-        payload = json.dumps({"schema_url": "https://images.lsst.io/schemas/aaa_child-9.9.9"})
-        with h5py.File(path, "a") as handle:
-            child = handle.require_group("MORE/LSST/AAA")
-            child.create_dataset("JSON", data=np.frombuffer(payload.encode("utf-8"), dtype=np.uint8))
-        info = NdfInputArchive.get_basic_info(path)
-        self.assertEqual(info.schema_name, "image")
-        self.assertEqual(info.schema_url, "https://images.lsst.io/schemas/image-1.0.0")
+
+def test_archive_info_from_schema_url_invalid() -> None:
+    """Verify ArchiveInfo.from_schema_url raises ValueError for URLs without
+    a version.
+    """
+    with pytest.raises(ValueError):
+        ArchiveInfo.from_schema_url("https://images.lsst.io/schemas/noversion", format_version=None)
+
+
+def test_archive_info_from_schema_url_foreign_host() -> None:
+    """Verify ArchiveInfo.from_schema_url rejects URLs from non-lsst hosts."""
+    with pytest.raises(ValueError):
+        ArchiveInfo.from_schema_url("https://evil.example.com/schemas/image-1.0.0", format_version=None)
+
+
+def test_input_archive_get_basic_info_base_raises() -> None:
+    """Verify InputArchive.get_basic_info raises NotImplementedError on the
+    base class.
+    """
+    with pytest.raises(NotImplementedError):
+        InputArchive.get_basic_info("x.fits")
+
+
+def test_json_basic_info(tmp_path: Path) -> None:
+    """Verify JsonInputArchive.get_basic_info returns correct schema
+    metadata.
+    """
+    path = tmp_path / "x.json"
+    images_json.write(_make_image(), path)
+    info = JsonInputArchive.get_basic_info(path)
+    assert info.schema_name == "image"
+    assert info.schema_version == "1.0.0"
+    assert info.schema_url == "https://images.lsst.io/schemas/image-1.0.0"
+    assert info.format_version is None
+
+
+def test_fits_basic_info(tmp_path: Path) -> None:
+    """Verify FitsInputArchive.get_basic_info returns correct schema
+    metadata.
+    """
+    path = tmp_path / "x.fits"
+    images_fits.write(_make_image(), path)
+    info = FitsInputArchive.get_basic_info(path)
+    assert info.schema_name == "image"
+    assert info.schema_version == "1.0.0"
+    assert info.schema_url == "https://images.lsst.io/schemas/image-1.0.0"
+    assert info.format_version == 1
+
+
+@skip_no_h5py
+def test_ndf_basic_info(tmp_path: Path) -> None:
+    """Verify NdfInputArchive.get_basic_info returns correct schema
+    metadata.
+    """
+    path = tmp_path / "x.sdf"
+    images_ndf.write(_make_image(), path)
+    info = NdfInputArchive.get_basic_info(path)
+    assert info.schema_name == "image"
+    assert info.schema_version == "1.0.0"
+    assert info.schema_url == "https://images.lsst.io/schemas/image-1.0.0"
+    assert info.format_version == 1
+
+
+@skip_no_h5py
+def test_ndf_basic_info_ignores_nested_json(tmp_path: Path) -> None:
+    """Verify NdfInputArchive.get_basic_info reads the top-level schema, not
+    nested pointer trees.
+    """
+    path = tmp_path / "nested.sdf"
+    images_ndf.write(_make_image(), path)
+    # Inject a nested pointer-tree JSON alongside the top-level one; it
+    # sorts before "JSON" so a depth-first scan would hit it first.
+    payload = json.dumps({"schema_url": "https://images.lsst.io/schemas/aaa_child-9.9.9"})
+    with h5py.File(path, "a") as handle:
+        child = handle.require_group("MORE/LSST/AAA")
+        child.create_dataset("JSON", data=np.frombuffer(payload.encode("utf-8"), dtype=np.uint8))
+    info = NdfInputArchive.get_basic_info(path)
+    assert info.schema_name == "image"
+    assert info.schema_url == "https://images.lsst.io/schemas/image-1.0.0"

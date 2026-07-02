@@ -12,65 +12,70 @@
 from __future__ import annotations
 
 import os
-import tempfile
-import unittest
+from pathlib import Path
 
 import numpy as np
+import pytest
 
 from lsst.images import Box, Image
 from lsst.images import fits as images_fits
 from lsst.images.serialization import Backend, backend_for_path
 
 
-class BackendForPathTestCase(unittest.TestCase):
-    """Tests for suffix -> backend resolution."""
+def test_backend_for_path_fits() -> None:
+    """Verify that a .fits path resolves to the FITS backend."""
+    from lsst.images.fits import FitsInputArchive
 
-    def test_fits(self) -> None:
-        from lsst.images.fits import FitsInputArchive
-
-        b = backend_for_path("a/b/c.fits")
-        self.assertIsInstance(b, Backend)
-        self.assertEqual(b.name, "fits")
-        self.assertIs(b.input_archive, FitsInputArchive)
-        self.assertTrue(callable(b.write))
-
-    def test_fits_gz(self) -> None:
-        self.assertEqual(backend_for_path("c.fits.gz").name, "fits")
-        self.assertEqual(backend_for_path("file://a/b/c.fits.gz?param=2").name, "fits")
-
-    def test_json(self) -> None:
-        from lsst.images.json import JsonInputArchive
-
-        b = backend_for_path("c.json")
-        self.assertEqual(b.name, "json")
-        self.assertIs(b.input_archive, JsonInputArchive)
-
-    def test_ndf(self) -> None:
-        self.assertEqual(backend_for_path("c.sdf").name, "ndf")
-        self.assertEqual(backend_for_path("c.h5").name, "ndf")
-
-    def test_unknown(self) -> None:
-        with self.assertRaises(ValueError) as cm:
-            backend_for_path("c.txt")
-        self.assertIn(".fits", str(cm.exception))
+    b = backend_for_path("a/b/c.fits")
+    assert isinstance(b, Backend)
+    assert b.name == "fits"
+    assert b.input_archive is FitsInputArchive
+    assert callable(b.write)
 
 
-class MinifyDispatchTestCase(unittest.TestCase):
-    """minify resolves backend and schema via the shared APIs."""
-
-    def test_minify_unsupported_schema_uses_shared_dispatch(self) -> None:
-        from lsst.images.tests._minify_for_fixtures import minify
-
-        tmp = tempfile.mkdtemp()
-        src = os.path.join(tmp, "plain.fits")
-        out = os.path.join(tmp, "plain.json")
-        images_fits.write(Image(np.zeros((4, 4), dtype=np.float32), bbox=Box.factory[0:4, 0:4]), src)
-        # Reaching the "no subsetter" error proves backend_for_path and
-        # get_basic_info ran and detected schema_name "image".
-        with self.assertRaises(NotImplementedError) as cm:
-            minify(src, out)
-        self.assertIn("image", str(cm.exception))
+def test_backend_for_path_fits_gz() -> None:
+    """Verify that .fits.gz and URL-form .fits.gz both resolve to the
+    FITS backend.
+    """
+    assert backend_for_path("c.fits.gz").name == "fits"
+    assert backend_for_path("file://a/b/c.fits.gz?param=2").name == "fits"
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_backend_for_path_json() -> None:
+    """Verify that a .json path resolves to the JSON backend."""
+    from lsst.images.json import JsonInputArchive
+
+    b = backend_for_path("c.json")
+    assert b.name == "json"
+    assert b.input_archive is JsonInputArchive
+
+
+def test_backend_for_path_ndf() -> None:
+    """Verify that .sdf and .h5 paths both resolve to the NDF backend."""
+    assert backend_for_path("c.sdf").name == "ndf"
+    assert backend_for_path("c.h5").name == "ndf"
+
+
+def test_backend_for_path_unknown_raises() -> None:
+    """Verify that an unrecognised suffix raises ValueError naming known
+    formats.
+    """
+    with pytest.raises(ValueError) as exc_info:
+        backend_for_path("c.txt")
+    assert ".fits" in str(exc_info.value)
+
+
+def test_minify_unsupported_schema_uses_shared_dispatch(tmp_path: Path) -> None:
+    """Verify minify resolves backend and schema via the shared APIs.
+
+    Reaching the 'no subsetter' error proves backend_for_path and
+    get_basic_info ran and detected schema_name 'image'.
+    """
+    from lsst.images.tests._minify_for_fixtures import minify
+
+    src = os.path.join(tmp_path, "plain.fits")
+    out = os.path.join(tmp_path, "plain.json")
+    images_fits.write(Image(np.zeros((4, 4), dtype=np.float32), bbox=Box.factory[0:4, 0:4]), src)
+    with pytest.raises(NotImplementedError) as exc_info:
+        minify(src, out)
+    assert "image" in str(exc_info.value)

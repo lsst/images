@@ -12,8 +12,9 @@
 from __future__ import annotations
 
 import json
-import unittest
 from pathlib import Path
+
+import pytest
 
 SCHEMA_DIR = Path(__file__).parent / "data" / "schema_v1"
 
@@ -22,32 +23,28 @@ SCHEMA_DIR = Path(__file__).parent / "data" / "schema_v1"
 _FIXTURES = sorted(SCHEMA_DIR.glob("*.json"))
 
 
-class SchemaV1FixturesTestCase(unittest.TestCase):
-    """Tests over the bundled v1 reference JSON fixtures."""
-
-    def test_fixtures_present(self):
-        """The fixture directory is populated."""
-        self.assertTrue(_FIXTURES, f"no fixtures found in {SCHEMA_DIR}")
-
-    def test_fixture_has_top_level_stamps(self):
-        """Every fixture has schema_url, schema_version, min_read_version."""
-        for path in _FIXTURES:
-            with self.subTest(name=path.stem):
-                tree = json.loads(path.read_text())
-                self.assertIn("schema_url", tree)
-                self.assertIn("schema_version", tree)
-                self.assertIn("min_read_version", tree)
-
-    def test_fixture_url_matches_name_and_version(self):
-        """schema_url matches the ``<name>-<version>`` pattern, where the name
-        is the fixture file's stem.
-        """
-        for path in _FIXTURES:
-            with self.subTest(name=path.stem):
-                tree = json.loads(path.read_text())
-                expected = f"https://images.lsst.io/schemas/{path.stem}-{tree['schema_version']}"
-                self.assertEqual(tree["schema_url"], expected)
+@pytest.mark.parametrize("path", _FIXTURES, ids=lambda p: p.stem)
+def test_fixture_has_top_level_stamps(path: Path) -> None:
+    """Verify every fixture has schema_url, schema_version,
+    min_read_version.
+    """
+    tree = json.loads(path.read_text())
+    assert "schema_url" in tree
+    assert "schema_version" in tree
+    assert "min_read_version" in tree
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_fixtures_present() -> None:
+    """Verify the fixture directory is populated."""
+    assert _FIXTURES, f"no fixtures found in {SCHEMA_DIR}"
+
+
+@pytest.mark.parametrize("path", _FIXTURES, ids=lambda p: p.stem)
+def test_fixture_url_matches_name_and_version(path: Path) -> None:
+    """Verify schema_url matches the ``<name>-<version>`` pattern.
+
+    The name is the fixture file's stem.
+    """
+    tree = json.loads(path.read_text())
+    expected = f"https://images.lsst.io/schemas/{path.stem}-{tree['schema_version']}"
+    assert tree["schema_url"] == expected

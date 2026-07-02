@@ -11,10 +11,10 @@
 from __future__ import annotations
 
 import os
-import tempfile
-import unittest
+from pathlib import Path
 
 import numpy as np
+import pytest
 
 from lsst.images import Box, Image, VisitImage
 from lsst.images.serialization import ArchiveReadError, read, write
@@ -22,19 +22,21 @@ from lsst.utils.introspection import get_full_type_name
 
 try:
     import h5py  # noqa: F401  -- detect availability for NDF round-trip skip
+
+    H5PY_AVAILABLE = True
 except ImportError:
     H5PY_AVAILABLE = False
-else:
-    H5PY_AVAILABLE = True
 
 try:
     import piff  # noqa: F401  -- detect availability for piff_psf fixture skip
+
+    PIFF_AVAILABLE = True
 except ImportError:
     PIFF_AVAILABLE = False
-else:
-    PIFF_AVAILABLE = True
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
+skip_no_h5py = pytest.mark.skipif(not H5PY_AVAILABLE, reason="h5py is not installed")
+
+LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
 
 # Full Python type produced when each fixture is read through the generic
 # read() API, keyed by the fixture's file name.  These are pinned here rather
@@ -67,146 +69,124 @@ EXPECTED_TYPES = {
 }
 
 
-class GenericReadTestCase(unittest.TestCase):
-    """read(path) dispatches by extension and produces the registered type."""
-
-    def test_visit_image_json(self) -> None:
-        path = os.path.join(DATA_DIR, "visit_image.json")
-        result = read(path)
-        self.assertIsInstance(result, VisitImage)
-
-    def test_image_json(self) -> None:
-        path = os.path.join(DATA_DIR, "image.json")
-        result = read(path)
-        self.assertIsInstance(result, Image)
+def test_generic_read_visit_image_json() -> None:
+    """Verify read() on a visit_image JSON fixture returns a VisitImage."""
+    path = os.path.join(LOCAL_DATA_DIR, "visit_image.json")
+    result = read(path)
+    assert isinstance(result, VisitImage)
 
 
-class GenericReadErrorsTestCase(unittest.TestCase):
-    """Unknown schemas and bad extensions raise clean errors."""
-
-    def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.tmp = tmp.name
-
-    def test_unsupported_extension(self) -> None:
-        path = os.path.join(self.tmp, "bogus.txt")
-        with open(path, "w") as f:
-            f.write("nope")
-        # backend_for_path raises ValueError; read() must let it through.
-        with self.assertRaises(ValueError):
-            read(path)
-
-    def test_unregistered_schema(self) -> None:
-        # Write a JSON file with a fabricated schema name not in the
-        # registry.
-        path = os.path.join(self.tmp, "fake.json")
-        with open(path, "w") as f:
-            f.write(
-                '{"schema_url": "https://images.lsst.io/schemas/no-such-schema-99.0.0",'
-                ' "schema_version": "99.0.0", "min_read_version": 1, "indirect": []}'
-            )
-        with self.assertRaises(ArchiveReadError) as ctx:
-            read(path)
-        self.assertIn("no-such-schema", str(ctx.exception))
+def test_generic_read_image_json() -> None:
+    """Verify read() on an image JSON fixture returns an Image."""
+    path = os.path.join(LOCAL_DATA_DIR, "image.json")
+    result = read(path)
+    assert isinstance(result, Image)
 
 
-class FixtureSweepTestCase(unittest.TestCase):
-    """Every schema_v1 JSON fixture reads through the generic API and
-    produces the Python type pinned in ``EXPECTED_TYPES``.
+def test_read_unsupported_extension(tmp_path: Path) -> None:
+    """Verify read() raises ValueError for an unrecognized file extension."""
+    path = tmp_path / "bogus.txt"
+    with open(path, "w") as f:
+        f.write("nope")
+    with pytest.raises(ValueError):
+        read(path)
+
+
+def test_read_unregistered_schema(tmp_path: Path) -> None:
+    """Verify read() raises ArchiveReadError for a JSON with an unknown
+    schema.
     """
-
-    def test_sweep(self) -> None:
-        # piff is an optional dependency that PiffSerializationModel
-        # imports lazily on deserialise; skip its fixture when missing.
-        skip = set() if PIFF_AVAILABLE else {"piff_psf.json"}
-        seen = set()
-        roots = [DATA_DIR, os.path.join(DATA_DIR, "legacy")]
-        for root in roots:
-            if not os.path.isdir(root):
-                continue
-            for entry in sorted(os.listdir(root)):
-                if not entry.endswith(".json") or entry in skip:
-                    continue
-                with self.subTest(entry=entry):
-                    self.assertIn(entry, EXPECTED_TYPES, f"no expected type recorded for {entry!r}")
-                    result = read(os.path.join(root, entry))
-                    self.assertEqual(get_full_type_name(type(result)), EXPECTED_TYPES[entry])
-                seen.add(entry)
-        # Fail if EXPECTED_TYPES drifts from the fixtures actually on disk.
-        self.assertEqual(seen, set(EXPECTED_TYPES) - skip)
+    path = tmp_path / "fake.json"
+    with open(path, "w") as f:
+        f.write(
+            '{"schema_url": "https://images.lsst.io/schemas/no-such-schema-99.0.0",'
+            ' "schema_version": "99.0.0", "min_read_version": 1, "indirect": []}'
+        )
+    with pytest.raises(ArchiveReadError) as exc_info:
+        read(path)
+    assert "no-such-schema" in str(exc_info.value)
 
 
-class GenericWriteRoundTripTestCase(unittest.TestCase):
-    """write(obj, path) dispatches by extension and round-trips."""
-
-    def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.tmp = tmp.name
-        self.image = Image(np.arange(16, dtype=np.float32).reshape(4, 4), bbox=Box.factory[0:4, 0:4])
-
-    def test_round_trip_fits(self) -> None:
-        path = os.path.join(self.tmp, "x.fits")
-        write(self.image, path)
-        result = read(path)
-        self.assertIsInstance(result, Image)
-        np.testing.assert_array_equal(result.array, self.image.array)
-
-    def test_round_trip_json(self) -> None:
-        path = os.path.join(self.tmp, "x.json")
-        write(self.image, path)
-        result = read(path)
-        self.assertIsInstance(result, Image)
-        np.testing.assert_array_equal(result.array, self.image.array)
-
-    @unittest.skipUnless(H5PY_AVAILABLE, "h5py not available.")
-    def test_round_trip_ndf(self) -> None:
-        path = os.path.join(self.tmp, "x.sdf")
-        write(self.image, path)
-        result = read(path)
-        self.assertIsInstance(result, Image)
-        np.testing.assert_array_equal(result.array, self.image.array)
+@pytest.mark.parametrize("entry", sorted(EXPECTED_TYPES))
+def test_fixture_sweep(entry: str) -> None:
+    """Verify every schema_v1 JSON fixture reads to the pinned Python type."""
+    if entry == "piff_psf.json" and not PIFF_AVAILABLE:
+        pytest.skip("piff not available")
+    roots = [LOCAL_DATA_DIR, os.path.join(LOCAL_DATA_DIR, "legacy")]
+    for root in roots:
+        path = os.path.join(root, entry)
+        if os.path.exists(path):
+            result = read(path)
+            assert get_full_type_name(type(result)) == EXPECTED_TYPES[entry], entry
+            return
+    pytest.skip(f"fixture {entry!r} not found on disk")
 
 
-class GenericReadKwargsTestCase(unittest.TestCase):
-    """**kwargs forwarded by read() reach the backend deserialize."""
-
-    def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.tmp = tmp.name
-
-    def test_bbox_subset_fits(self) -> None:
-        img = Image(np.arange(64, dtype=np.float32).reshape(8, 8), bbox=Box.factory[0:8, 0:8])
-        path = os.path.join(self.tmp, "x.fits")
-        write(img, path)
-        # Read a 4x4 subset.  bbox is the FITS-specific kwarg understood
-        # by Image.deserialize; the generic read must forward it.
-        sub = read(path, bbox=Box.factory[2:6, 2:6])
-        self.assertEqual(sub.array.shape, (4, 4))
-        np.testing.assert_array_equal(sub.array, img.array[2:6, 2:6])
+def _make_image() -> Image:
+    """Return a small float32 Image for round-trip tests."""
+    return Image(np.arange(16, dtype=np.float32).reshape(4, 4), bbox=Box.factory[0:4, 0:4])
 
 
-class ReadClsTestCase(unittest.TestCase):
-    """read(path, cls=...) validates the deserialized type."""
-
-    def test_read_cls_match(self) -> None:
-        path = os.path.join(DATA_DIR, "image.json")
-        result = read(path, cls=Image)
-        self.assertIsInstance(result, Image)
-
-    def test_read_cls_mismatch_raises(self) -> None:
-        from lsst.images import Mask
-
-        path = os.path.join(DATA_DIR, "image.json")
-        with self.assertRaises(TypeError) as ctx:
-            read(path, cls=Mask)
-        msg = str(ctx.exception)
-        self.assertIn("image", msg)  # path / schema name
-        self.assertIn("Image", msg)  # actual deserialized type
-        self.assertIn("Mask", msg)  # requested cls
+def test_generic_write_round_trip_fits(tmp_path: Path) -> None:
+    """Verify write() + read() round-trips an Image through FITS."""
+    image = _make_image()
+    path = tmp_path / "x.fits"
+    write(image, path)
+    result = read(path)
+    assert isinstance(result, Image)
+    np.testing.assert_array_equal(result.array, image.array)
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_generic_write_round_trip_json(tmp_path: Path) -> None:
+    """Verify write() + read() round-trips an Image through JSON."""
+    image = _make_image()
+    path = tmp_path / "x.json"
+    write(image, path)
+    result = read(path)
+    assert isinstance(result, Image)
+    np.testing.assert_array_equal(result.array, image.array)
+
+
+@skip_no_h5py
+def test_generic_write_round_trip_ndf(tmp_path: Path) -> None:
+    """Verify write() + read() round-trips an Image through NDF."""
+    image = _make_image()
+    path = tmp_path / "x.sdf"
+    write(image, path)
+    result = read(path)
+    assert isinstance(result, Image)
+    np.testing.assert_array_equal(result.array, image.array)
+
+
+def test_read_bbox_subset_fits(tmp_path: Path) -> None:
+    """Verify read() forwards bbox kwarg to the FITS backend for subset
+    reads.
+    """
+    img = Image(np.arange(64, dtype=np.float32).reshape(8, 8), bbox=Box.factory[0:8, 0:8])
+    path = tmp_path / "x.fits"
+    write(img, path)
+    sub = read(path, bbox=Box.factory[2:6, 2:6])
+    assert sub.array.shape == (4, 4)
+    np.testing.assert_array_equal(sub.array, img.array[2:6, 2:6])
+
+
+def test_read_cls_match() -> None:
+    """Verify read() with cls= returns the expected type when it matches."""
+    path = os.path.join(LOCAL_DATA_DIR, "image.json")
+    result = read(path, cls=Image)
+    assert isinstance(result, Image)
+
+
+def test_read_cls_mismatch_raises() -> None:
+    """Verify read() raises TypeError when the deserialized type does not
+    match cls.
+    """
+    from lsst.images import Mask
+
+    path = os.path.join(LOCAL_DATA_DIR, "image.json")
+    with pytest.raises(TypeError) as exc_info:
+        read(path, cls=Mask)
+    msg = str(exc_info.value)
+    assert "image" in msg  # path / schema name
+    assert "Image" in msg  # actual deserialized type
+    assert "Mask" in msg  # requested cls
