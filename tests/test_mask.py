@@ -150,6 +150,32 @@ def test_schema_from_fits_header_requires_cards() -> None:
         MaskSchema.from_fits_header(astropy.io.fits.Header())
 
 
+def test_interpret() -> None:
+    """Verify interpret returns correct plane names across a multi-byte
+    schema.
+    """
+    # 3 named planes padded with Nones to exceed 8 bits; A and B land in
+    # byte 0, C lands in byte 1.
+    planes: list[MaskPlane | None] = [
+        MaskPlane("A", "a"),
+        MaskPlane("B", "b"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        MaskPlane("C", "c"),
+    ]
+    schema = MaskSchema(planes, dtype=np.uint8)
+    assert schema.mask_size == 2
+
+    assert set(schema.interpret(schema.bitmask("A", "C"))) == {"A", "C"}
+    assert set(schema.interpret(schema.bitmask("B"))) == {"B"}
+    assert set(schema.interpret(np.zeros(schema.mask_size, dtype=schema.dtype))) == set()
+    assert set(schema.interpret(schema.bitmask("A", "B", "C"))) == {"A", "B", "C"}
+
+
 def test_basics() -> None:
     """Test basic Mask construction, string representation, and error
     conditions.

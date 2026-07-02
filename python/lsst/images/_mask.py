@@ -137,6 +137,17 @@ class MaskPlaneBit:
         index, bit = divmod(overall_index, stride)
         return cls(index, mask_type(1 << bit))
 
+    def check(self, value: np.ndarray) -> bool:
+        """Test if this bit is set on a single `Mask` pixel value.
+
+        Parameters
+        ----------
+        value
+            A 1-d array of length `MaskSchema.mask_size`, representing a
+            single pixel in a `Mask`.
+        """
+        return bool(value[self.index] & self.mask)
+
 
 class MaskSchema:
     """A schema for a bit-packed mask array.
@@ -383,6 +394,18 @@ class MaskSchema:
             raise ValueError("Header has no MSKN cards describing a mask schema.")
         planes = [planes_by_index.get(n) for n in range(max(planes_by_index) + 1)]
         return cls(planes, dtype=dtype)
+
+    def interpret(self, value: np.ndarray) -> list[str]:
+        """Return the names of the mask planes that are set in the given
+        pixel value.
+
+        Parameters
+        ----------
+        value
+            A 1-d array of length `mask_size`, representing a single pixel in
+            a `Mask`.
+        """
+        return [name for name, bit in self._bits.items() if bit.check(value)]
 
 
 class Mask(GeneralizedImage):
