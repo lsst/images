@@ -36,6 +36,7 @@ class BackendForPathTestCase(unittest.TestCase):
 
     def test_fits_gz(self) -> None:
         self.assertEqual(backend_for_path("c.fits.gz").name, "fits")
+        self.assertEqual(backend_for_path("file://a/b/c.fits.gz?param=2").name, "fits")
 
     def test_json(self) -> None:
         from lsst.images.json import JsonInputArchive
@@ -46,7 +47,7 @@ class BackendForPathTestCase(unittest.TestCase):
 
     def test_ndf(self) -> None:
         self.assertEqual(backend_for_path("c.sdf").name, "ndf")
-        self.assertEqual(backend_for_path("c.ndf").name, "ndf")
+        self.assertEqual(backend_for_path("c.h5").name, "ndf")
 
     def test_unknown(self) -> None:
         with self.assertRaises(ValueError) as cm:
