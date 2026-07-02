@@ -14,13 +14,13 @@ from __future__ import annotations
 __all__ = ("RoundtripFits", "RoundtripJson", "RoundtripNdf", "TemporaryButler")
 
 import tempfile
-import unittest
 import uuid
 from abc import ABC, abstractmethod
 from contextlib import ExitStack
 from typing import TYPE_CHECKING, Any, Self, TypeVar
 
 import astropy.io.fits
+import pytest
 from pydantic_core import from_json
 
 if TYPE_CHECKING:
@@ -67,14 +67,10 @@ class TemporaryButler:
         `~lsst.daf.butler.DatasetRef` will be created and added as an
         attribute of this class.
 
-    Raises
-    ------
-    unittest.SkipTest
-        Raised when the context manager is entered if `lsst.daf.butler` could
-        not be imported.  This is typically handled by using this context
-        manager within a `unittest.TestCase.subTest` context, which will skip
-        just the butler-required tests in that context while allowing the rest
-        of the test to continue.
+    Notes
+    -----
+    `pytest.skip` is called when the context manager is entered if
+    `lsst.daf.butler` could not be imported, skipping the current test.
     """
 
     def __init__(
@@ -93,7 +89,7 @@ class TemporaryButler:
 
     def __enter__(self) -> TemporaryButler:
         if not HAVE_BUTLER:
-            raise unittest.SkipTest("lsst.daf.butler could not be imported.")
+            pytest.skip("lsst.daf.butler could not be imported.")
         self._exit_stack.__enter__()
         root = self._exit_stack.enter_context(
             tempfile.TemporaryDirectory(ignore_cleanup_errors=True, delete=True)
@@ -152,8 +148,6 @@ class RoundtripBase[T](ABC):
 
     Parameters
     ----------
-    tc
-        A test case object to used for internal checks.
     original
         The object to serialize.
     storage_class
@@ -181,7 +175,6 @@ class RoundtripBase[T](ABC):
 
     def __init__(
         self,
-        tc: unittest.TestCase,
         original: T,
         storage_class: str | None = None,
         recipe: str | None = None,
@@ -192,7 +185,6 @@ class RoundtripBase[T](ABC):
         self._serialized: Any = None
         self._exit_stack = ExitStack()
         self._filename: str | None = None
-        self._tc = tc
         self._recipe = recipe
         self._write_kwargs = kwargs
         self.result: Any
@@ -217,7 +209,7 @@ class RoundtripBase[T](ABC):
         if isinstance(self._original, GeneralizedImage):
             assert isinstance(self.result, GeneralizedImage)
             for k in self._test_metadata:
-                self._tc.assertEqual(self.result.metadata[k], self._test_metadata[k])
+                assert self.result.metadata[k] == self._test_metadata[k]
                 del self._original.metadata[k]
                 del self.result.metadata[k]
         return self
@@ -256,9 +248,10 @@ class RoundtripBase[T](ABC):
         ----------
         component
             Component to read instead of the main object.  This requires the
-            roundtrip to use a butler, raising `unittest.SkipTest` otherwise;
-            this generally means these tests should be nested within a
-            `~unittest.TestCase.subTest` context.
+            roundtrip to use a butler; `pytest.skip` is called otherwise.
+            Place calls to this method in a dedicated test function that
+            contains only component-read assertions, so the skip does not
+            suppress unrelated always-run assertions in other test functions.
         storageClass
             Override storage class name to affect the type returned by
             the get. Only used if a butler is active.
@@ -274,9 +267,9 @@ class RoundtripBase[T](ABC):
         """
         if self.butler is None:
             if component is not None:
-                raise unittest.SkipTest("Cannot test component reads without a butler.")
+                pytest.skip("Cannot test component reads without a butler.")
             if storageClass is not None:
-                raise unittest.SkipTest("Cannot test storage class override without a butler")
+                pytest.skip("Cannot test storage class override without a butler")
             result = read_archive(self.filename, type(self._original), **kwargs)
         else:
             assert self.ref is not None, "butler and ref should be None or not together"
@@ -315,13 +308,13 @@ class RoundtripBase[T](ABC):
         )
         self.result = self.butler.get(self.ref)
         if isinstance(self._original, GeneralizedImage):
-            self._tc.assertEqual(
-                DatasetRef.from_simple(self.result.butler_dataset, universe=self.butler.dimensions), self.ref
+            assert (
+                DatasetRef.from_simple(self.result.butler_dataset, universe=self.butler.dimensions)
+                == self.ref
             )
-            self._tc.assertEqual(self.result.butler_provenance.quantum_id, quantum_id)
-        self._tc.assertTrue(
-            self.filename.endswith(self._get_extension()),
-            f"{self.filename} did not end with {self._get_extension()}",
+            assert self.result.butler_provenance.quantum_id == quantum_id
+        assert self.filename.endswith(self._get_extension()), (
+            f"{self.filename} did not end with {self._get_extension()}"
         )
 
     def _run_without_butler(self) -> None:
@@ -332,7 +325,7 @@ class RoundtripBase[T](ABC):
         self._filename = tmp.name
         self._serialized = write_archive(self._original, tmp.name, **self._write_kwargs)
         with open_archive(tmp.name, type(self._original)) as reader:
-            self._tc.assertIsNone(reader.butler_info)
+            assert reader.butler_info is None
             self.result = reader.read()
 
     @abstractmethod

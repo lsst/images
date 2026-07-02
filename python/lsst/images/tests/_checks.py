@@ -46,13 +46,14 @@ __all__ = (
 
 import dataclasses
 import math
-import unittest
+import re
 from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import astropy.units as u
 import astropy.wcs.wcsapi
 import numpy as np
+import pytest
 from astropy.coordinates import SkyCoord
 
 from .._geom import XY, YX, Box
@@ -80,7 +81,6 @@ if TYPE_CHECKING:
 
 
 def assert_close(
-    tc: unittest.TestCase,
     a: np.ndarray | u.Quantity | float,
     b: np.ndarray | u.Quantity | float,
     **kwargs: Any,
@@ -89,8 +89,6 @@ def assert_close(
 
     Parameters
     ----------
-    tc
-        Test case object with assert methods to use.
     a
         Array, float, or quantity to compare.
     b
@@ -98,30 +96,24 @@ def assert_close(
     **kwargs
         Forwarded to `astropy.units.allclose`.
     """
-    tc.assertTrue(u.allclose(a, b, **kwargs), msg=f"{a} != {b}")
+    assert u.allclose(a, b, **kwargs), f"{a} != {b}"
 
 
-def assert_equal_allow_nan(tc: unittest.TestCase, a: float, b: float) -> None:
+def assert_equal_allow_nan(a: float, b: float) -> None:
     """Test that two floating point values are equal, with nan == nan.
 
     Parameters
     ----------
-    tc
-        Test case providing the assertion methods to use.
     a
         First value to compare.
     b
         Second value to compare.
     """
-    try:
-        tc.assertEqual(a, b)
-    except AssertionError:
-        if not (math.isnan(a) and math.isnan(b)):
-            raise
+    if not (a == b or (math.isnan(a) and math.isnan(b))):
+        raise AssertionError(f"{a!r} != {b!r}")
 
 
 def assert_images_equal(
-    tc: unittest.TestCase,
     a: Image,
     b: Image,
     *,
@@ -133,8 +125,6 @@ def assert_images_equal(
 
     Parameters
     ----------
-    tc
-        Test case providing the assertion methods to use.
     a
         First image to compare.
     b
@@ -147,41 +137,38 @@ def assert_images_equal(
         If not `None`, also assert whether ``b`` shares memory with ``a``
         (i.e. is a view); ``"array"`` checks only the pixel arrays.
     """
-    tc.assertEqual(a.bbox, b.bbox)
-    tc.assertEqual(a.unit, b.unit)
-    assert_sky_projections_equal(tc, a.sky_projection, b.sky_projection)
+    assert a.bbox == b.bbox
+    assert a.unit == b.unit
+    assert_sky_projections_equal(a.sky_projection, b.sky_projection)
     if expect_view is not None:
-        tc.assertEqual(np.may_share_memory(a.array, b.array), bool(expect_view))
+        assert np.may_share_memory(a.array, b.array) == bool(expect_view)
         if expect_view == "array":
-            tc.assertEqual(a.metadata, b.metadata)
+            assert a.metadata == b.metadata
         else:
-            tc.assertEqual(a.metadata is b.metadata, expect_view)
+            assert (a.metadata is b.metadata) == expect_view
     if not expect_view:
-        assert_close(tc, a.array, b.array, atol=atol, rtol=rtol)
-        tc.assertEqual(a.metadata, b.metadata)
+        assert_close(a.array, b.array, atol=atol, rtol=rtol)
+        assert a.metadata == b.metadata
 
 
-def assert_masks_equal(tc: unittest.TestCase, a: Mask, b: Mask) -> None:
+def assert_masks_equal(a: Mask, b: Mask) -> None:
     """Assert that two masks are equal or nearly equal.
 
     Parameters
     ----------
-    tc
-        Test case providing the assertion methods to use.
     a
         First mask to compare.
     b
         Second mask to compare.
     """
-    tc.assertEqual(a.bbox, b.bbox)
-    tc.assertEqual(a.schema, b.schema)
-    tc.assertEqual(a.metadata, b.metadata)
-    assert_sky_projections_equal(tc, a.sky_projection, b.sky_projection)
+    assert a.bbox == b.bbox
+    assert a.schema == b.schema
+    assert a.metadata == b.metadata
+    assert_sky_projections_equal(a.sky_projection, b.sky_projection)
     np.testing.assert_array_equal(a.array, b.array)
 
 
 def assert_masked_images_equal(
-    tc: unittest.TestCase,
     a: MaskedImage,
     b: MaskedImage,
     *,
@@ -193,8 +180,6 @@ def assert_masked_images_equal(
 
     Parameters
     ----------
-    tc
-        Test case providing the assertion methods to use.
     a
         First masked image to compare.
     b
@@ -207,15 +192,14 @@ def assert_masked_images_equal(
         If not `None`, also assert whether ``b`` shares memory with ``a``
         (i.e. is a view).
     """
-    tc.assertEqual(a.metadata, b.metadata)
-    assert_sky_projections_equal(tc, a.sky_projection, b.sky_projection)
-    assert_images_equal(tc, a.image, b.image, rtol=rtol, atol=atol, expect_view=expect_view)
-    assert_masks_equal(tc, a.mask, b.mask)
-    assert_images_equal(tc, a.variance, b.variance, rtol=rtol, atol=atol, expect_view=expect_view)
+    assert a.metadata == b.metadata
+    assert_sky_projections_equal(a.sky_projection, b.sky_projection)
+    assert_images_equal(a.image, b.image, rtol=rtol, atol=atol, expect_view=expect_view)
+    assert_masks_equal(a.mask, b.mask)
+    assert_images_equal(a.variance, b.variance, rtol=rtol, atol=atol, expect_view=expect_view)
 
 
 def assert_psfs_equal(
-    tc: unittest.TestCase,
     psf1: PointSpreadFunction,
     psf2: PointSpreadFunction,
     points: YX[np.ndarray] | XY[np.ndarray] | None = None,
@@ -224,8 +208,6 @@ def assert_psfs_equal(
 
     Parameters
     ----------
-    tc
-        Test case object with assert methods to use.
     psf1
         Point-spread function to test.
     psf2
@@ -242,7 +224,7 @@ def assert_psfs_equal(
     if points is None:
         points = psf1.bounds.bbox.intersection(psf2.bounds.bbox).meshgrid(3).map(np.ravel)
 
-    tc.assertEqual(psf1.kernel_bbox, psf2.kernel_bbox)
+    assert psf1.kernel_bbox == psf2.kernel_bbox
 
     n_points_tested: int = 0
     for x, y in zip(points.x, points.y):
@@ -254,22 +236,19 @@ def assert_psfs_equal(
         # missing cell does not always raise ``BoundsError``.
         contains1 = psf1.bounds.contains(x=x, y=y)
         contains2 = psf2.bounds.contains(x=x, y=y)
-        tc.assertEqual(
-            contains1,
-            contains2,
-            f"PSFs disagree on whether ({x}, {y}) is in-bounds: psf1={contains1}, psf2={contains2}",
+        assert contains1 == contains2, (
+            f"PSFs disagree on whether ({x}, {y}) is in-bounds: psf1={contains1}, psf2={contains2}"
         )
         if not contains1:
             continue
-        tc.assertEqual(psf1.compute_kernel_image(x=x, y=y), psf2.compute_kernel_image(x=x, y=y))
-        tc.assertEqual(psf1.compute_stellar_bbox(x=x, y=y), psf2.compute_stellar_bbox(x=x, y=y))
-        tc.assertEqual(psf1.compute_stellar_image(x=x, y=y), psf2.compute_stellar_image(x=x, y=y))
+        assert psf1.compute_kernel_image(x=x, y=y) == psf2.compute_kernel_image(x=x, y=y)
+        assert psf1.compute_stellar_bbox(x=x, y=y) == psf2.compute_stellar_bbox(x=x, y=y)
+        assert psf1.compute_stellar_image(x=x, y=y) == psf2.compute_stellar_image(x=x, y=y)
         n_points_tested += 1
     return n_points_tested
 
 
 def assert_visit_images_equal(
-    tc: unittest.TestCase,
     a: VisitImage,
     b: VisitImage,
     *,
@@ -285,8 +264,6 @@ def assert_visit_images_equal(
 
     Parameters
     ----------
-    tc
-        Test case providing the assertion methods to use.
     a
         First visit image to compare.
     b
@@ -295,22 +272,21 @@ def assert_visit_images_equal(
         If not `None`, also assert whether ``b`` shares memory with ``a``
         (i.e. is a view).
     """
-    assert_masked_images_equal(tc, a, b, expect_view=expect_view)
-    tc.assertEqual(a.summary_stats, b.summary_stats)
-    tc.assertEqual(a.physical_filter, b.physical_filter)
-    tc.assertEqual(a.band, b.band)
-    tc.assertEqual(a.obs_info, b.obs_info)
-    tc.assertEqual(a.detector, b.detector)
-    tc.assertEqual(dict(a.aperture_corrections), dict(b.aperture_corrections))
-    tc.assertEqual(a.photometric_scaling, b.photometric_scaling)
-    tc.assertEqual(dict(a.backgrounds), dict(b.backgrounds))
-    tc.assertEqual(a.backgrounds.subtracted, b.backgrounds.subtracted)
-    tc.assertEqual(a.bounds, b.bounds)
-    assert_psfs_equal(tc, a.psf, b.psf)
+    assert_masked_images_equal(a, b, expect_view=expect_view)
+    assert a.summary_stats == b.summary_stats
+    assert a.physical_filter == b.physical_filter
+    assert a.band == b.band
+    assert a.obs_info == b.obs_info
+    assert a.detector == b.detector
+    assert dict(a.aperture_corrections) == dict(b.aperture_corrections)
+    assert a.photometric_scaling == b.photometric_scaling
+    assert dict(a.backgrounds) == dict(b.backgrounds)
+    assert a.backgrounds.subtracted == b.backgrounds.subtracted
+    assert a.bounds == b.bounds
+    assert_psfs_equal(a.psf, b.psf)
 
 
 def assert_cell_coadds_equal(
-    tc: unittest.TestCase,
     a: CellCoadd,
     b: CellCoadd,
     *,
@@ -325,8 +301,6 @@ def assert_cell_coadds_equal(
 
     Parameters
     ----------
-    tc
-        Test case providing the assertion methods to use.
     a
         First cell coadd to compare.
     b
@@ -335,26 +309,22 @@ def assert_cell_coadds_equal(
         If not `None`, also assert whether ``b`` shares memory with ``a``
         (i.e. is a view).
     """
-    assert_masked_images_equal(tc, a, b, expect_view=expect_view)
-    tc.assertEqual(a.band, b.band)
-    tc.assertEqual(a.patch, b.patch)
-    tc.assertEqual(a.tract, b.tract)
-    tc.assertEqual(a.grid, b.grid)
-    tc.assertEqual(a.bounds.missing, b.bounds.missing)
-    tc.assertEqual(dict(a.backgrounds), dict(b.backgrounds))
-    tc.assertEqual(a.backgrounds.subtracted, b.backgrounds.subtracted)
-    assert_psfs_equal(tc, a.psf, b.psf)
+    assert_masked_images_equal(a, b, expect_view=expect_view)
+    assert a.band == b.band
+    assert a.patch == b.patch
+    assert a.tract == b.tract
+    assert a.grid == b.grid
+    assert a.bounds.missing == b.bounds.missing
+    assert dict(a.backgrounds) == dict(b.backgrounds)
+    assert a.backgrounds.subtracted == b.backgrounds.subtracted
+    assert_psfs_equal(a.psf, b.psf)
 
 
-def compare_image_to_legacy(
-    tc: unittest.TestCase, image: Image, legacy_image: Any, expect_view: bool | None = None
-) -> None:
+def compare_image_to_legacy(image: Image, legacy_image: Any, expect_view: bool | None = None) -> None:
     """Compare an `.Image` object to a legacy `lsst.afw.image.Image` object.
 
     Parameters
     ----------
-    tc
-        Test case providing the assertion methods to use.
     image
         Image to compare.
     legacy_image
@@ -363,22 +333,20 @@ def compare_image_to_legacy(
         If not `None`, also assert whether ``image`` shares memory with
         ``legacy_image`` (i.e. is a view).
     """
-    tc.assertEqual(image.bbox, Box.from_legacy(legacy_image.getBBox()))
+    assert image.bbox == Box.from_legacy(legacy_image.getBBox())
     if expect_view is not None:
-        tc.assertEqual(np.may_share_memory(image.array, legacy_image.array), expect_view)
+        assert np.may_share_memory(image.array, legacy_image.array) == expect_view
     if not expect_view:
         np.testing.assert_array_equal(image.array, legacy_image.array)
 
 
 def compare_mask_to_legacy(
-    tc: unittest.TestCase, mask: Mask, legacy_mask: Any, plane_map: Mapping[str, MaskPlane] | None = None
+    mask: Mask, legacy_mask: Any, plane_map: Mapping[str, MaskPlane] | None = None
 ) -> None:
     """Compare a `.Mask` object to a legacy `lsst.afw.image.Mask` object.
 
     Parameters
     ----------
-    tc
-        Test case providing the assertion methods to use.
     mask
         Mask to compare.
     legacy_mask
@@ -387,7 +355,7 @@ def compare_mask_to_legacy(
         Mapping from legacy plane name to the new mask plane; defaults to
         the planes in ``mask.schema``.
     """
-    tc.assertEqual(mask.bbox, Box.from_legacy(legacy_mask.getBBox()))
+    assert mask.bbox == Box.from_legacy(legacy_mask.getBBox())
     if plane_map is None:
         plane_map = {plane.name: plane for plane in mask.schema if plane is not None}
     for old_name, new_plane in plane_map.items():
@@ -398,7 +366,6 @@ def compare_mask_to_legacy(
 
 
 def compare_masked_image_to_legacy(
-    tc: unittest.TestCase,
     masked_image: MaskedImage,
     legacy_masked_image: Any,
     *,
@@ -411,8 +378,6 @@ def compare_masked_image_to_legacy(
 
     Parameters
     ----------
-    tc
-        Test case to use for asserts.
     masked_image
         New image to test.
     legacy_masked_image
@@ -426,22 +391,19 @@ def compare_masked_image_to_legacy(
         A mapping of other versions of one or more (new) components to also
         check against the legacy versions of those components.
     """
-    compare_image_to_legacy(tc, masked_image.image, legacy_masked_image.getImage(), expect_view=expect_view)
-    compare_mask_to_legacy(tc, masked_image.mask, legacy_masked_image.getMask(), plane_map=plane_map)
-    compare_image_to_legacy(
-        tc, masked_image.variance, legacy_masked_image.getVariance(), expect_view=expect_view
-    )
+    compare_image_to_legacy(masked_image.image, legacy_masked_image.getImage(), expect_view=expect_view)
+    compare_mask_to_legacy(masked_image.mask, legacy_masked_image.getMask(), plane_map=plane_map)
+    compare_image_to_legacy(masked_image.variance, legacy_masked_image.getVariance(), expect_view=expect_view)
     if alternates:
         if image := alternates.get("image"):
-            compare_image_to_legacy(tc, image, legacy_masked_image.getImage(), expect_view=expect_view)
+            compare_image_to_legacy(image, legacy_masked_image.getImage(), expect_view=expect_view)
         if mask := alternates.get("mask"):
-            compare_mask_to_legacy(tc, mask, legacy_masked_image.getMask(), plane_map=plane_map)
+            compare_mask_to_legacy(mask, legacy_masked_image.getMask(), plane_map=plane_map)
         if variance := alternates.get("variance"):
-            compare_image_to_legacy(tc, variance, legacy_masked_image.getVariance(), expect_view=expect_view)
+            compare_image_to_legacy(variance, legacy_masked_image.getVariance(), expect_view=expect_view)
 
 
 def compare_visit_image_to_legacy(
-    tc: unittest.TestCase,
     visit_image: VisitImage,
     legacy_exposure: Any,
     *,
@@ -458,8 +420,6 @@ def compare_visit_image_to_legacy(
 
     Parameters
     ----------
-    tc
-        Test case to use for asserts.
     visit_image
         New image to test.
     legacy_exposure
@@ -483,7 +443,6 @@ def compare_visit_image_to_legacy(
         check against the legacy versions of those components.
     """
     compare_masked_image_to_legacy(
-        tc,
         visit_image,
         legacy_exposure.getMaskedImage(),
         plane_map=plane_map,
@@ -492,27 +451,25 @@ def compare_visit_image_to_legacy(
     )
     detector_bbox = Box.from_legacy(legacy_exposure.getDetector().getBBox())
     compare_sky_projection_to_legacy_wcs(
-        tc,
         visit_image.sky_projection,
         legacy_exposure.getWcs(),
         DetectorFrame(instrument=instrument, visit=visit, detector=detector, bbox=detector_bbox),
         visit_image.bbox,
     )
-    tc.assertIs(visit_image.sky_projection, visit_image.mask.sky_projection)
-    tc.assertIs(visit_image.sky_projection, visit_image.variance.sky_projection)
-    compare_psf_to_legacy(tc, visit_image.psf, legacy_exposure.getPsf())
+    assert visit_image.sky_projection is visit_image.mask.sky_projection
+    assert visit_image.sky_projection is visit_image.variance.sky_projection
+    compare_psf_to_legacy(visit_image.psf, legacy_exposure.getPsf())
     compare_observation_summary_stats_to_legacy(
-        tc, visit_image.summary_stats, legacy_exposure.info.getSummaryStats()
+        visit_image.summary_stats, legacy_exposure.info.getSummaryStats()
     )
-    compare_detector_to_legacy(tc, visit_image.detector, legacy_exposure.getDetector(), is_raw_assembled=True)
+    compare_detector_to_legacy(visit_image.detector, legacy_exposure.getDetector(), is_raw_assembled=True)
     # Make a tiny box for Field comparisons that need to make arrays; that can
     # get expensive otherwisre.
     tiny_bbox = detector_bbox.local[2:4, 3:6]
     compare_aperture_corrections_to_legacy(
-        tc, visit_image.aperture_corrections, legacy_exposure.info.getApCorrMap(), tiny_bbox
+        visit_image.aperture_corrections, legacy_exposure.info.getApCorrMap(), tiny_bbox
     )
     compare_photo_calib_to_legacy(
-        tc,
         visit_image.photometric_scaling,
         legacy_exposure.info.getPhotoCalib(),
         applied_legacy_photo_calib=applied_legacy_photo_calib,
@@ -520,33 +477,29 @@ def compare_visit_image_to_legacy(
     )
     if alternates:
         if (bbox := alternates.get("bbox")) is not None:
-            tc.assertEqual(bbox, visit_image.bbox)
+            assert bbox == visit_image.bbox
         if sky_projection := alternates.get("sky_projection"):
             compare_sky_projection_to_legacy_wcs(
-                tc,
                 sky_projection,
                 legacy_exposure.getWcs(),
                 DetectorFrame(instrument=instrument, visit=visit, detector=detector, bbox=detector_bbox),
                 visit_image.bbox,
             )
         if psf := alternates.get("psf"):
-            compare_psf_to_legacy(tc, psf, legacy_exposure.getPsf())
+            compare_psf_to_legacy(psf, legacy_exposure.getPsf())
         if summary_stats := alternates.get("summary_stats"):
-            compare_observation_summary_stats_to_legacy(
-                tc, summary_stats, legacy_exposure.info.getSummaryStats()
-            )
+            compare_observation_summary_stats_to_legacy(summary_stats, legacy_exposure.info.getSummaryStats())
         if detector_obj := alternates.get("detector"):
-            compare_detector_to_legacy(tc, detector_obj, legacy_exposure.getDetector(), is_raw_assembled=True)
+            compare_detector_to_legacy(detector_obj, legacy_exposure.getDetector(), is_raw_assembled=True)
         if obs_info := alternates.get("obs_info"):
             visitInfo = legacy_exposure.visitInfo
-            tc.assertEqual(obs_info.instrument, visitInfo.getInstrumentLabel())
+            assert obs_info.instrument == visitInfo.getInstrumentLabel()
         if aperture_corrections := alternates.get("aperture_corrections"):
             compare_aperture_corrections_to_legacy(
-                tc, aperture_corrections, legacy_exposure.info.getApCorrMap(), tiny_bbox
+                aperture_corrections, legacy_exposure.info.getApCorrMap(), tiny_bbox
             )
         if (photometric_scaling := alternates.get("photometic_scaling", ...)) is not ...:
             compare_photo_calib_to_legacy(
-                tc,
                 photometric_scaling,
                 legacy_exposure.info.getPhotoCalib(),
                 applied_legacy_photo_calib=applied_legacy_photo_calib,
@@ -555,7 +508,6 @@ def compare_visit_image_to_legacy(
 
 
 def compare_photo_calib_to_legacy(
-    tc: unittest.TestCase,
     photometric_scaling: BaseField | None,
     legacy_photo_calib: LegacyPhotoCalib,
     *,
@@ -565,19 +517,16 @@ def compare_photo_calib_to_legacy(
     if legacy_photo_calib._isConstant:
         if legacy_photo_calib.getCalibrationMean() == 1.0:
             if applied_legacy_photo_calib is None:
-                tc.assertIsNone(photometric_scaling)
+                assert photometric_scaling is None
                 return
             else:
                 legacy_photo_calib = applied_legacy_photo_calib
     if legacy_photo_calib._isConstant:
         assert isinstance(photometric_scaling, ChebyshevField)
-        assert_close(
-            tc, photometric_scaling.coefficients, np.array([[legacy_photo_calib.getCalibrationMean()]])
-        )
+        assert_close(photometric_scaling.coefficients, np.array([[legacy_photo_calib.getCalibrationMean()]]))
     else:
         assert photometric_scaling is not None
         compare_field_to_legacy(
-            tc,
             photometric_scaling / legacy_photo_calib.getCalibrationMean(),
             legacy_photo_calib.computeScaledCalibration(),
             subimage_bbox,
@@ -585,7 +534,6 @@ def compare_photo_calib_to_legacy(
 
 
 def compare_cell_coadd_to_legacy(
-    tc: unittest.TestCase,
     cell_coadd: CellCoadd,
     legacy_cell_coadd: MultipleCellCoadd,
     *,
@@ -599,8 +547,6 @@ def compare_cell_coadd_to_legacy(
 
     Parameters
     ----------
-    tc
-        Test case to use for asserts.
     cell_coadd
         New coadd to test.
     legacy_cell_coadd
@@ -616,30 +562,29 @@ def compare_cell_coadd_to_legacy(
         Points to use to compare the PSFs.
     """
     legacy_stitched = legacy_cell_coadd.stitch(cell_coadd.bbox.to_legacy())
-    compare_image_to_legacy(tc, cell_coadd.image, legacy_stitched.image, expect_view=False)
-    compare_mask_to_legacy(tc, cell_coadd.mask, legacy_stitched.mask, plane_map=plane_map)
-    compare_image_to_legacy(tc, cell_coadd.variance, legacy_stitched.variance, expect_view=False)
+    compare_image_to_legacy(cell_coadd.image, legacy_stitched.image, expect_view=False)
+    compare_mask_to_legacy(cell_coadd.mask, legacy_stitched.mask, plane_map=plane_map)
+    compare_image_to_legacy(cell_coadd.variance, legacy_stitched.variance, expect_view=False)
     if legacy_stitched.mask_fractions is not None:
         compare_image_to_legacy(
-            tc, cell_coadd.mask_fractions["rejected"], legacy_stitched.mask_fractions, expect_view=False
+            cell_coadd.mask_fractions["rejected"], legacy_stitched.mask_fractions, expect_view=False
         )
     for n in range(legacy_stitched.n_noise_realizations):
         compare_image_to_legacy(
-            tc, cell_coadd.noise_realizations[n], legacy_stitched.noise_realizations[n], expect_view=False
+            cell_coadd.noise_realizations[n], legacy_stitched.noise_realizations[n], expect_view=False
         )
-    tc.assertEqual(cell_coadd.skymap, legacy_stitched.identifiers.skymap)
-    tc.assertEqual(cell_coadd.tract, legacy_stitched.identifiers.tract)
-    tc.assertEqual(cell_coadd.patch.index.x, legacy_stitched.identifiers.patch.x)
-    tc.assertEqual(cell_coadd.patch.index.y, legacy_stitched.identifiers.patch.y)
-    tc.assertEqual(cell_coadd.band, legacy_stitched.identifiers.band)
-    tc.assertTrue(tract_bbox.contains(cell_coadd.patch.outer_bbox))
-    tc.assertTrue(cell_coadd.patch.outer_bbox.contains(cell_coadd.patch.inner_bbox))
-    tc.assertTrue(cell_coadd.patch.outer_bbox.contains(cell_coadd.bbox))
-    tc.assertEqual(cell_coadd.unit, u.Unit(legacy_cell_coadd.common.units.value))
-    tc.assertTrue(cell_coadd.bounds.bbox.contains(cell_coadd.bbox))
-    tc.assertTrue(cell_coadd.grid.bbox.contains(cell_coadd.bbox))
+    assert cell_coadd.skymap == legacy_stitched.identifiers.skymap
+    assert cell_coadd.tract == legacy_stitched.identifiers.tract
+    assert cell_coadd.patch.index.x == legacy_stitched.identifiers.patch.x
+    assert cell_coadd.patch.index.y == legacy_stitched.identifiers.patch.y
+    assert cell_coadd.band == legacy_stitched.identifiers.band
+    assert tract_bbox.contains(cell_coadd.patch.outer_bbox)
+    assert cell_coadd.patch.outer_bbox.contains(cell_coadd.patch.inner_bbox)
+    assert cell_coadd.patch.outer_bbox.contains(cell_coadd.bbox)
+    assert cell_coadd.unit == u.Unit(legacy_cell_coadd.common.units.value)
+    assert cell_coadd.bounds.bbox.contains(cell_coadd.bbox)
+    assert cell_coadd.grid.bbox.contains(cell_coadd.bbox)
     compare_sky_projection_to_legacy_wcs(
-        tc,
         cell_coadd.sky_projection,
         legacy_cell_coadd.wcs,
         TractFrame(
@@ -650,19 +595,18 @@ def compare_cell_coadd_to_legacy(
         cell_coadd.bbox,
         is_fits=True,
     )
-    tc.assertIs(cell_coadd.sky_projection, cell_coadd.mask.sky_projection)
-    tc.assertIs(cell_coadd.sky_projection, cell_coadd.variance.sky_projection)
+    assert cell_coadd.sky_projection is cell_coadd.mask.sky_projection
+    assert cell_coadd.sky_projection is cell_coadd.variance.sky_projection
     compare_psf_to_legacy(
-        tc, cell_coadd.psf, legacy_stitched.psf, expect_legacy_raise_on_out_of_bounds=True, points=psf_points
+        cell_coadd.psf, legacy_stitched.psf, expect_legacy_raise_on_out_of_bounds=True, points=psf_points
     )
     compare_aperture_corrections_to_legacy(
-        tc, cell_coadd.aperture_corrections, legacy_stitched.ap_corr_map, cell_coadd.bbox
+        cell_coadd.aperture_corrections, legacy_stitched.ap_corr_map, cell_coadd.bbox
     )
-    compare_cell_coadd_provenance_to_legacy(tc, cell_coadd.provenance, legacy_cell_coadd)
+    compare_cell_coadd_provenance_to_legacy(cell_coadd.provenance, legacy_cell_coadd)
     if alternates:
         if sky_projection := alternates.get("sky_projection"):
             compare_sky_projection_to_legacy_wcs(
-                tc,
                 sky_projection,
                 legacy_stitched.wcs,
                 TractFrame(
@@ -674,25 +618,23 @@ def compare_cell_coadd_to_legacy(
                 is_fits=True,
             )
         if psf := alternates.get("psf"):
-            compare_psf_to_legacy(tc, psf, legacy_stitched.psf, points=psf_points)
+            compare_psf_to_legacy(psf, legacy_stitched.psf, points=psf_points)
         if aperture_corrections := alternates.get("aperture_corrections"):
             compare_aperture_corrections_to_legacy(
-                tc, aperture_corrections, legacy_stitched.ap_corr_map, cell_coadd.bbox
+                aperture_corrections, legacy_stitched.ap_corr_map, cell_coadd.bbox
             )
         if provenance := alternates.get("provenance"):
-            compare_cell_coadd_provenance_to_legacy(tc, provenance, legacy_cell_coadd)
+            compare_cell_coadd_provenance_to_legacy(provenance, legacy_cell_coadd)
 
 
 def compare_cell_coadd_provenance_to_legacy(
-    tc: unittest.TestCase, provenance: CoaddProvenance, legacy_cell_coadd: MultipleCellCoadd
+    provenance: CoaddProvenance, legacy_cell_coadd: MultipleCellCoadd
 ) -> None:
     """Compare a `.cells.CoaddProvenance` object to a legacy
     `lsst.cell_coadds.MultipleCellCoadd` object.
 
     Parameters
     ----------
-    tc
-        Test case to use for asserts.
     provenance
         New provenance object to test.
     legacy_cell_coadd
@@ -751,8 +693,8 @@ def compare_cell_coadd_provenance_to_legacy(
             ],
         )
         # For a single cell all 'inputs' are also 'contributions'.
-        tc.assertEqual(len(legacy_cell.inputs), len(prov.inputs))
-        tc.assertEqual(len(legacy_cell.inputs), len(prov.contributions))
+        assert len(legacy_cell.inputs) == len(prov.inputs)
+        assert len(legacy_cell.inputs) == len(prov.contributions)
         prov.inputs.sort(["instrument", "visit", "detector"])
         prov.contributions.sort(["instrument", "visit", "detector"])
         legacy_table.sort(["instrument", "visit", "detector"])
@@ -776,11 +718,10 @@ def compare_cell_coadd_provenance_to_legacy(
         for row in prov.inputs:
             polygon_key = ObservationIdentifiers(**{k: row[k] for k in row.keys() if k != "polygon"})
             legacy_polygon = legacy_cell_coadd.common.visit_polygons[polygon_key]
-            tc.assertEqual(legacy_polygon, row["polygon"].to_legacy())
+            assert legacy_polygon == row["polygon"].to_legacy()
 
 
 def compare_psf_to_legacy(
-    tc: unittest.TestCase,
     psf: PointSpreadFunction,
     legacy_psf: Any,
     points: YX[np.ndarray] | XY[np.ndarray] | None = None,
@@ -790,8 +731,6 @@ def compare_psf_to_legacy(
 
     Parameters
     ----------
-    tc
-        Test case object with assert methods to use.
     psf
         Point-spread function to test.
     legacy_psf
@@ -818,23 +757,18 @@ def compare_psf_to_legacy(
     for p in legacy_points:
         if not psf.bounds.contains(x=p.x, y=p.y):
             if expect_legacy_raise_on_out_of_bounds:
-                with tc.assertRaises(InvalidPsfError):
+                with pytest.raises(InvalidPsfError):
                     legacy_psf.computeKernelImage(p)
             continue
-        tc.assertEqual(psf.kernel_bbox, Box.from_legacy(legacy_psf.computeKernelBBox(p)))
-        tc.assertEqual(
-            psf.compute_kernel_image(x=p.x, y=p.y), Image.from_legacy(legacy_psf.computeKernelImage(p))
-        )
-        tc.assertEqual(
-            psf.compute_stellar_bbox(x=p.x, y=p.y), Box.from_legacy(legacy_psf.computeImageBBox(p))
-        )
-        tc.assertEqual(psf.compute_stellar_image(x=p.x, y=p.y), Image.from_legacy(legacy_psf.computeImage(p)))
+        assert psf.kernel_bbox == Box.from_legacy(legacy_psf.computeKernelBBox(p))
+        assert psf.compute_kernel_image(x=p.x, y=p.y) == Image.from_legacy(legacy_psf.computeKernelImage(p))
+        assert psf.compute_stellar_bbox(x=p.x, y=p.y) == Box.from_legacy(legacy_psf.computeImageBBox(p))
+        assert psf.compute_stellar_image(x=p.x, y=p.y) == Image.from_legacy(legacy_psf.computeImage(p))
         n_points_tested += 1
     return n_points_tested
 
 
 def compare_field_to_legacy(
-    tc: unittest.TestCase,
     field: BaseField,
     legacy_field: Any,
     subimage_bbox: Box,
@@ -844,8 +778,6 @@ def compare_field_to_legacy(
 
     Parameters
     ----------
-    tc
-        Test case object with assert methods to use.
     field
         Field to test.
     legacy_field : ``lsst.afw.math.BoundedField``
@@ -855,7 +787,7 @@ def compare_field_to_legacy(
     """
     from lsst.afw.math import BoundedField as LegacyBoundedField
 
-    tc.assertEqual(field.bounds.bbox, Box.from_legacy(legacy_field.getBBox()))
+    assert field.bounds.bbox == Box.from_legacy(legacy_field.getBBox())
     # Pixel coordinates to test the numpy array interface with.
     pixel_xy = field.bounds.bbox.meshgrid(n=5).map(np.ravel)
     if not isinstance(field.bounds, Box):
@@ -863,7 +795,6 @@ def compare_field_to_legacy(
         pixel_xy = pixel_xy.map(lambda v: v[mask])
     try:
         assert_close(
-            tc,
             field(x=pixel_xy.x, y=pixel_xy.y),
             legacy_field.evaluate(pixel_xy.x, pixel_xy.y),
             equal_nan=True,
@@ -878,12 +809,11 @@ def compare_field_to_legacy(
     legacy_image_1 = Image(0, bbox=subimage_bbox, dtype=np.float64).to_legacy()
     legacy_field.addToImage(legacy_image_1, overlapOnly=True)
     assert_images_equal(
-        tc, field.render(subimage_bbox), Image.from_legacy(legacy_image_1, unit=field.unit), rtol=1e-13
+        field.render(subimage_bbox), Image.from_legacy(legacy_image_1, unit=field.unit), rtol=1e-13
     )
 
 
 def compare_aperture_corrections_to_legacy(
-    tc: unittest.TestCase,
     aperture_corrections: Mapping[str, BaseField],
     legacy_ap_corr_map: Any,
     subimage_bbox: Box,
@@ -893,8 +823,6 @@ def compare_aperture_corrections_to_legacy(
 
     Parameters
     ----------
-    tc
-        Test case object with assert methods to use.
     aperture_corrections
         Dictionary to test.
     legacy_ap_corr_map : ``lsst.afw.image.ApCorrMap``
@@ -902,13 +830,12 @@ def compare_aperture_corrections_to_legacy(
     subimage_bbox
         Bounding box for full-image tests.
     """
-    tc.assertEqual(aperture_corrections.keys(), set(legacy_ap_corr_map.keys()))
+    assert aperture_corrections.keys() == set(legacy_ap_corr_map.keys())
     for name, field in aperture_corrections.items():
-        compare_field_to_legacy(tc, field, legacy_ap_corr_map[name], subimage_bbox)
+        compare_field_to_legacy(field, legacy_ap_corr_map[name], subimage_bbox)
 
 
 def compare_observation_summary_stats_to_legacy(
-    tc: unittest.TestCase,
     summary_stats: ObservationSummaryStats,
     legacy_summary_stats: Any,
 ) -> None:
@@ -917,8 +844,6 @@ def compare_observation_summary_stats_to_legacy(
 
     Parameters
     ----------
-    tc
-        Test case object with assert methods to use.
     summary_stats
         Struct to test.
     legacy_summary_stats : ``lsst.afw.image.ExposureSummaryStats``
@@ -929,13 +854,12 @@ def compare_observation_summary_stats_to_legacy(
         b = getattr(summary_stats, field.name)
         if isinstance(b, tuple):
             for ai, bi in zip(a, b):
-                tc.assertTrue(ai == bi or (math.isnan(ai) and math.isnan(bi)), f"{field.name}: {a} != {b}")
+                assert ai == bi or (math.isnan(ai) and math.isnan(bi)), f"{field.name}: {a} != {b}"
         else:
-            tc.assertTrue(a == b or (math.isnan(a) and math.isnan(b)), f"{field.name}: {a} != {b}")
+            assert a == b or (math.isnan(a) and math.isnan(b)), f"{field.name}: {a} != {b}"
 
 
 def compare_sky_projection_to_legacy_wcs[F: Frame](
-    tc: unittest.TestCase,
     sky_projection: SkyProjection[F],
     legacy_wcs: Any,
     pixel_frame: F,
@@ -947,8 +871,6 @@ def compare_sky_projection_to_legacy_wcs[F: Frame](
 
     Parameters
     ----------
-    tc
-        Test case object with assert methods to use.
     sky_projection
         Projection to test.
     legacy_wcs : ``lsst.afw.geom.SkyWcs``
@@ -972,21 +894,20 @@ def compare_sky_projection_to_legacy_wcs[F: Frame](
     # Test transforming with the Projection itself, which also tests its
     # nested Transform and an Astropy High-Level WCS view with no origin
     # change.
-    check_projection(tc, sky_projection, pixel_xy, sky_coords, pixel_frame)
+    check_projection(sky_projection, pixel_xy, sky_coords, pixel_frame)
     # Also test the Astropy High-Level WCS view with an origin change to
     # array indices.
     check_astropy_wcs_interface(
-        tc, sky_projection.as_astropy(subimage_bbox), subimage_array_xy, sky_coords, pixel_atol=1e-5
+        sky_projection.as_astropy(subimage_bbox), subimage_array_xy, sky_coords, pixel_atol=1e-5
     )
     if is_fits:
         fits_wcs = sky_projection.as_fits_wcs(subimage_bbox, allow_approximation=True)
         assert fits_wcs is not None
-        check_astropy_wcs_interface(tc, fits_wcs, subimage_array_xy, sky_coords, pixel_atol=1e-5)
+        check_astropy_wcs_interface(fits_wcs, subimage_array_xy, sky_coords, pixel_atol=1e-5)
         # Use that FITS approximation to check that we can make a
         # Projection from a FITS WCS, too.
         fits_projection = SkyProjection.from_fits_wcs(fits_wcs, pixel_frame)
         check_projection(
-            tc,
             fits_projection,
             subimage_array_xy,
             sky_coords,
@@ -996,14 +917,13 @@ def compare_sky_projection_to_legacy_wcs[F: Frame](
         # We want Projections we create from a FITS WCS to be backed by an
         # AST FrameSet so we can convert them into legacy
         # `lsst.afw.geom.SkyWcs` objects if desired.
-        tc.assertIn("Begin FrameSet", fits_projection.show())
+        assert "Begin FrameSet" in fits_projection.show()
     else:
-        tc.assertIsNone(sky_projection.as_fits_wcs(subimage_bbox, allow_approximation=False))
+        assert sky_projection.as_fits_wcs(subimage_bbox, allow_approximation=False) is None
         # The legacy SkyWcs should instead have a FITS approximation
         # attached; run the same tests on that.
         assert sky_projection.fits_approximation is not None
         compare_sky_projection_to_legacy_wcs(
-            tc,
             sky_projection.fits_approximation,
             legacy_wcs.getFitsApproximation(),
             pixel_frame,
@@ -1013,7 +933,6 @@ def compare_sky_projection_to_legacy_wcs[F: Frame](
 
 
 def check_transform[I: Frame, O: Frame](
-    tc: unittest.TestCase,
     transform: Transform[I, O],
     input_xy: XY[np.ndarray],
     output_xy: XY[np.ndarray],
@@ -1028,8 +947,6 @@ def check_transform[I: Frame, O: Frame](
 
     Parameters
     ----------
-    tc
-        Test case object with assert methods to use.
     transform
         Transform to test.
     input_xy
@@ -1047,44 +964,43 @@ def check_transform[I: Frame, O: Frame](
     out_atol
         Expected absolute precision of output points.
     """
-    tc.assertEqual(transform.in_frame, in_frame)
-    tc.assertEqual(transform.out_frame, out_frame)
+    assert transform.in_frame == in_frame
+    assert transform.out_frame == out_frame
     in_atol_v = in_atol.to_value(in_frame.unit) if in_atol is not None else None
     out_atol_v = out_atol.to_value(out_frame.unit) if out_atol is not None else None
     # Test array interfaces.
     test_output_xy = transform.apply_forward(x=input_xy.x, y=input_xy.y)
-    assert_close(tc, test_output_xy.x, output_xy.x, atol=out_atol_v)
-    assert_close(tc, test_output_xy.y, output_xy.y, atol=out_atol_v)
+    assert_close(test_output_xy.x, output_xy.x, atol=out_atol_v)
+    assert_close(test_output_xy.y, output_xy.y, atol=out_atol_v)
     test_input_xy = transform.apply_inverse(x=output_xy.x, y=output_xy.y)
-    assert_close(tc, test_input_xy.x, input_xy.x, atol=in_atol_v)
-    assert_close(tc, test_input_xy.y, input_xy.y, atol=in_atol_v)
+    assert_close(test_input_xy.x, input_xy.x, atol=in_atol_v)
+    assert_close(test_input_xy.y, input_xy.y, atol=in_atol_v)
     # Test scalar interfaces with numpy scalars.
     for input_x, input_y, output_x, output_y in zip(input_xy.x, input_xy.y, output_xy.x, output_xy.y):
-        assert_close(tc, transform.apply_forward(x=input_x, y=input_y).x, output_x, atol=out_atol_v)
-        assert_close(tc, transform.apply_forward(x=input_x, y=input_y).y, output_y, atol=out_atol_v)
-        assert_close(tc, transform.apply_inverse(x=output_x, y=output_y).x, input_x, atol=in_atol_v)
-        assert_close(tc, transform.apply_inverse(x=output_x, y=output_y).y, input_y, atol=in_atol_v)
+        assert_close(transform.apply_forward(x=input_x, y=input_y).x, output_x, atol=out_atol_v)
+        assert_close(transform.apply_forward(x=input_x, y=input_y).y, output_y, atol=out_atol_v)
+        assert_close(transform.apply_inverse(x=output_x, y=output_y).x, input_x, atol=in_atol_v)
+        assert_close(transform.apply_inverse(x=output_x, y=output_y).y, input_y, atol=in_atol_v)
     # Test quantity array interfaces.
     input_q_xy = XY(x=input_xy.x * transform.in_frame.unit, y=input_xy.y * transform.in_frame.unit)
     output_q_xy = XY(x=output_xy.x * transform.out_frame.unit, y=output_xy.y * transform.out_frame.unit)
     test_output_q_xy = transform.apply_forward_q(x=input_q_xy.x, y=input_q_xy.y)
-    assert_close(tc, test_output_q_xy.x, output_q_xy.x, atol=out_atol)
-    assert_close(tc, test_output_q_xy.y, output_q_xy.y, atol=out_atol)
+    assert_close(test_output_q_xy.x, output_q_xy.x, atol=out_atol)
+    assert_close(test_output_q_xy.y, output_q_xy.y, atol=out_atol)
     test_input_q_xy = transform.apply_inverse_q(x=output_q_xy.x, y=output_q_xy.y)
-    assert_close(tc, test_input_q_xy.x, input_q_xy.x, atol=in_atol)
-    assert_close(tc, test_input_q_xy.y, input_q_xy.y, atol=in_atol)
+    assert_close(test_input_q_xy.x, input_q_xy.x, atol=in_atol)
+    assert_close(test_input_q_xy.y, input_q_xy.y, atol=in_atol)
     # Test quantity scalar interfaces.
     for input_q_x, input_q_y, output_q_x, output_q_y in zip(
         input_q_xy.x, input_q_xy.y, output_q_xy.x, output_q_xy.y
     ):
-        assert_close(tc, transform.apply_forward_q(x=input_q_x, y=input_q_y).x, output_q_x, atol=out_atol)
-        assert_close(tc, transform.apply_forward_q(x=input_q_x, y=input_q_y).y, output_q_y, atol=out_atol)
-        assert_close(tc, transform.apply_inverse_q(x=output_q_x, y=output_q_y).x, input_q_x, atol=in_atol)
-        assert_close(tc, transform.apply_inverse_q(x=output_q_x, y=output_q_y).y, input_q_y, atol=in_atol)
+        assert_close(transform.apply_forward_q(x=input_q_x, y=input_q_y).x, output_q_x, atol=out_atol)
+        assert_close(transform.apply_forward_q(x=input_q_x, y=input_q_y).y, output_q_y, atol=out_atol)
+        assert_close(transform.apply_inverse_q(x=output_q_x, y=output_q_y).x, input_q_x, atol=in_atol)
+        assert_close(transform.apply_inverse_q(x=output_q_x, y=output_q_y).y, input_q_y, atol=in_atol)
     if check_inverted:
         # Test the inverse transform.
         check_transform(
-            tc,
             transform.inverted(),
             output_xy,
             input_xy,
@@ -1097,7 +1013,6 @@ def check_transform[I: Frame, O: Frame](
 
 
 def check_projection[P: Frame](
-    tc: unittest.TestCase,
     sky_projection: SkyProjection[P],
     pixel_xy: XY[np.ndarray],
     sky_coords: SkyCoord,
@@ -1111,8 +1026,6 @@ def check_projection[P: Frame](
 
     Parameters
     ----------
-    tc
-        Test case object with assert methods to use.
     sky_projection
         Projection to test.
     pixel_xy
@@ -1126,29 +1039,26 @@ def check_projection[P: Frame](
     sky_atol
         Expected absolute precision of sky coordinates.
     """
-    tc.assertEqual(sky_projection.pixel_frame, pixel_frame)
-    tc.assertEqual(sky_projection.sky_frame, SkyFrame.ICRS)
+    assert sky_projection.pixel_frame == pixel_frame
+    assert sky_projection.sky_frame == SkyFrame.ICRS
     sky_atol_v = sky_atol.to_value(SkyFrame.ICRS.unit) if sky_atol is not None else None
     pixel_atol_q = pixel_atol * u.pix if pixel_atol is not None else None
     # Test array interfaces.
     test_pixel_xy = cast(XY[np.ndarray], sky_projection.sky_to_pixel(sky_coords))
-    assert_close(tc, test_pixel_xy.x, pixel_xy.x, atol=pixel_atol)
-    assert_close(tc, test_pixel_xy.y, pixel_xy.y, atol=pixel_atol)
+    assert_close(test_pixel_xy.x, pixel_xy.x, atol=pixel_atol)
+    assert_close(test_pixel_xy.y, pixel_xy.y, atol=pixel_atol)
     test_sky_astropy = sky_projection.pixel_to_sky(x=pixel_xy.x, y=pixel_xy.y)
-    assert_close(tc, test_sky_astropy.ra, sky_coords.ra, atol=sky_atol_v)
-    assert_close(tc, test_sky_astropy.dec, sky_coords.dec, atol=sky_atol_v)
+    assert_close(test_sky_astropy.ra, sky_coords.ra, atol=sky_atol_v)
+    assert_close(test_sky_astropy.dec, sky_coords.dec, atol=sky_atol_v)
     # Test scalar interfaces.
     for pixel_x, pixel_y, sky_single in zip(pixel_xy.x, pixel_xy.y, sky_coords):
-        assert_close(tc, sky_projection.sky_to_pixel(sky_single).x, pixel_x, atol=pixel_atol)
-        assert_close(tc, sky_projection.sky_to_pixel(sky_single).y, pixel_y, atol=pixel_atol)
-        assert_close(tc, sky_projection.pixel_to_sky(x=pixel_x, y=pixel_y).ra, sky_single.ra, atol=sky_atol_v)
-        assert_close(
-            tc, sky_projection.pixel_to_sky(x=pixel_x, y=pixel_y).dec, sky_single.dec, atol=sky_atol_v
-        )
+        assert_close(sky_projection.sky_to_pixel(sky_single).x, pixel_x, atol=pixel_atol)
+        assert_close(sky_projection.sky_to_pixel(sky_single).y, pixel_y, atol=pixel_atol)
+        assert_close(sky_projection.pixel_to_sky(x=pixel_x, y=pixel_y).ra, sky_single.ra, atol=sky_atol_v)
+        assert_close(sky_projection.pixel_to_sky(x=pixel_x, y=pixel_y).dec, sky_single.dec, atol=sky_atol_v)
     # Test the underlying Transform object.
     sky_xy = XY(x=sky_coords.ra.to_value(u.rad), y=sky_coords.dec.to_value(u.rad))
     check_transform(
-        tc,
         sky_projection.pixel_to_sky_transform,
         pixel_xy,
         sky_xy,
@@ -1159,7 +1069,6 @@ def check_projection[P: Frame](
         out_atol=sky_atol,
     )
     check_transform(
-        tc,
         sky_projection.sky_to_pixel_transform,
         sky_xy,
         pixel_xy,
@@ -1171,12 +1080,11 @@ def check_projection[P: Frame](
     )
     # Test the Astropy interface adapter.
     check_astropy_wcs_interface(
-        tc, sky_projection.as_astropy(), pixel_xy, sky_coords, pixel_atol=pixel_atol, sky_atol=sky_atol
+        sky_projection.as_astropy(), pixel_xy, sky_coords, pixel_atol=pixel_atol, sky_atol=sky_atol
     )
 
 
 def assert_sky_projections_equal(
-    tc: unittest.TestCase,
     a: SkyProjection[Any] | None,
     b: SkyProjection[Any] | None,
     expect_identity: bool | None = None,
@@ -1185,8 +1093,6 @@ def assert_sky_projections_equal(
 
     Parameters
     ----------
-    tc
-        Test case providing the assertion methods to use.
     a
         First sky projection to compare.
     b
@@ -1199,17 +1105,16 @@ def assert_sky_projections_equal(
     assert a is not None and b is not None
     match expect_identity:
         case True:
-            tc.assertIs(a, b)
+            assert a is b
             return
         case False:
-            tc.assertIsNot(a, b)
+            assert a is not b
         case None if a is b:
             return
-    tc.assertEqual(a, b)
+    assert a == b
 
 
 def check_astropy_wcs_interface(
-    tc: unittest.TestCase,
     wcs: astropy.wcs.wcsapi.BaseHighLevelWCS,
     pixel_xy: XY[np.ndarray],
     sky_coords: SkyCoord,
@@ -1222,8 +1127,6 @@ def check_astropy_wcs_interface(
 
     Parameters
     ----------
-    tc
-        Test case object with assert methods to use.
     wcs
         Astropy WCS object to test.
     pixel_xy
@@ -1236,11 +1139,11 @@ def check_astropy_wcs_interface(
         Expected absolute precision of sky coordinates.
     """
     test_x, test_y = wcs.world_to_pixel(sky_coords)
-    assert_close(tc, test_x, pixel_xy.x, atol=pixel_atol)
-    assert_close(tc, test_y, pixel_xy.y, atol=pixel_atol)
+    assert_close(test_x, pixel_xy.x, atol=pixel_atol)
+    assert_close(test_y, pixel_xy.y, atol=pixel_atol)
     test_sky_coords = wcs.pixel_to_world(pixel_xy.x, pixel_xy.y)
-    assert_close(tc, test_sky_coords.ra, sky_coords.ra, atol=sky_atol)
-    assert_close(tc, test_sky_coords.dec, sky_coords.dec, atol=sky_atol)
+    assert_close(test_sky_coords.ra, sky_coords.ra, atol=sky_atol)
+    assert_close(test_sky_coords.dec, sky_coords.dec, atol=sky_atol)
 
 
 def legacy_points_to_xy_array(legacy_points: list[Any]) -> XY[np.ndarray]:
@@ -1285,7 +1188,6 @@ def arrays_to_legacy_points(x: np.ndarray, y: np.ndarray) -> list[Any]:
 
 
 def compare_amplifier_to_legacy(
-    tc: unittest.TestCase,
     amplifier: Amplifier,
     legacy_amplifier: Any,
     *,
@@ -1297,8 +1199,6 @@ def compare_amplifier_to_legacy(
 
     Parameters
     ----------
-    tc
-        Test case providing the assertion methods to use.
     amplifier
         Amplifier to compare.
     legacy_amplifier
@@ -1309,45 +1209,40 @@ def compare_amplifier_to_legacy(
     expect_nominal_calibrations
         Whether the amplifier is expected to carry nominal calibrations.
     """
-    tc.assertEqual(legacy_amplifier.getName(), amplifier.name)
-    tc.assertEqual(Box.from_legacy(legacy_amplifier.getBBox()), amplifier.bbox)
+    assert legacy_amplifier.getName() == amplifier.name
+    assert Box.from_legacy(legacy_amplifier.getBBox()) == amplifier.bbox
     if is_raw_assembled:
         raw_geom = amplifier.assembled_raw_geometry
     else:
         raw_geom = amplifier.unassembled_raw_geometry
     assert raw_geom is not None
-    tc.assertEqual(ReadoutCorner.from_legacy(legacy_amplifier.getReadoutCorner()), raw_geom.readout_corner)
-    tc.assertEqual(Box.from_legacy(legacy_amplifier.getRawBBox()), raw_geom.bbox)
-    tc.assertEqual(Box.from_legacy(legacy_amplifier.getRawDataBBox()), raw_geom.data_bbox)
-    tc.assertEqual(legacy_amplifier.getRawFlipX(), raw_geom.flip_x)
-    tc.assertEqual(legacy_amplifier.getRawFlipY(), raw_geom.flip_y)
-    tc.assertEqual(legacy_amplifier.getRawXYOffset().getX(), raw_geom.x_offset)
-    tc.assertEqual(legacy_amplifier.getRawXYOffset().getY(), raw_geom.y_offset)
-    tc.assertEqual(
-        Box.from_legacy(legacy_amplifier.getRawHorizontalOverscanBBox()), raw_geom.horizontal_overscan_bbox
+    assert ReadoutCorner.from_legacy(legacy_amplifier.getReadoutCorner()) == raw_geom.readout_corner
+    assert Box.from_legacy(legacy_amplifier.getRawBBox()) == raw_geom.bbox
+    assert Box.from_legacy(legacy_amplifier.getRawDataBBox()) == raw_geom.data_bbox
+    assert legacy_amplifier.getRawFlipX() == raw_geom.flip_x
+    assert legacy_amplifier.getRawFlipY() == raw_geom.flip_y
+    assert legacy_amplifier.getRawXYOffset().getX() == raw_geom.x_offset
+    assert legacy_amplifier.getRawXYOffset().getY() == raw_geom.y_offset
+    assert (
+        Box.from_legacy(legacy_amplifier.getRawHorizontalOverscanBBox()) == raw_geom.horizontal_overscan_bbox
     )
-    tc.assertEqual(
-        Box.from_legacy(legacy_amplifier.getRawVerticalOverscanBBox()), raw_geom.vertical_overscan_bbox
-    )
-    tc.assertEqual(Box.from_legacy(legacy_amplifier.getRawPrescanBBox()), raw_geom.horizontal_prescan_bbox)
+    assert Box.from_legacy(legacy_amplifier.getRawVerticalOverscanBBox()) == raw_geom.vertical_overscan_bbox
+    assert Box.from_legacy(legacy_amplifier.getRawPrescanBBox()) == raw_geom.horizontal_prescan_bbox
     if expect_nominal_calibrations:
         assert amplifier.nominal_calibrations is not None
-        assert_equal_allow_nan(tc, legacy_amplifier.getGain(), amplifier.nominal_calibrations.gain)
-        assert_equal_allow_nan(tc, legacy_amplifier.getReadNoise(), amplifier.nominal_calibrations.read_noise)
+        assert_equal_allow_nan(legacy_amplifier.getGain(), amplifier.nominal_calibrations.gain)
+        assert_equal_allow_nan(legacy_amplifier.getReadNoise(), amplifier.nominal_calibrations.read_noise)
+        assert_equal_allow_nan(legacy_amplifier.getSaturation(), amplifier.nominal_calibrations.saturation)
         assert_equal_allow_nan(
-            tc, legacy_amplifier.getSaturation(), amplifier.nominal_calibrations.saturation
-        )
-        assert_equal_allow_nan(
-            tc, legacy_amplifier.getSuspectLevel(), amplifier.nominal_calibrations.suspect_level
+            legacy_amplifier.getSuspectLevel(), amplifier.nominal_calibrations.suspect_level
         )
         np.testing.assert_array_equal(
             legacy_amplifier.getLinearityCoeffs(), amplifier.nominal_calibrations.linearity_coefficients
         )
-        tc.assertEqual(legacy_amplifier.getLinearityType(), amplifier.nominal_calibrations.linearity_type)
+        assert legacy_amplifier.getLinearityType() == amplifier.nominal_calibrations.linearity_type
 
 
 def compare_detector_to_legacy(
-    tc: unittest.TestCase,
     detector: Detector,
     legacy_detector: Any,
     *,
@@ -1358,8 +1253,6 @@ def compare_detector_to_legacy(
 
     Parameters
     ----------
-    tc
-        Test case providing the assertion methods to use.
     detector
         Detector to compare.
     legacy_detector
@@ -1373,25 +1266,24 @@ def compare_detector_to_legacy(
     """
     from lsst.afw.cameraGeom import FIELD_ANGLE, FOCAL_PLANE, PIXELS
 
-    tc.assertEqual(legacy_detector.getName(), detector.name)
-    tc.assertEqual(legacy_detector.getId(), detector.id)
-    tc.assertEqual(DetectorType.from_legacy(legacy_detector.getType()), detector.type)
-    tc.assertEqual(Box.from_legacy(legacy_detector.getBBox()), detector.bbox)
-    tc.assertEqual(legacy_detector.getSerial(), detector.serial)
+    assert legacy_detector.getName() == detector.name
+    assert legacy_detector.getId() == detector.id
+    assert DetectorType.from_legacy(legacy_detector.getType()) == detector.type
+    assert Box.from_legacy(legacy_detector.getBBox()) == detector.bbox
+    assert legacy_detector.getSerial() == detector.serial
     legacy_orientation = legacy_detector.getOrientation()
-    tc.assertEqual(legacy_orientation.getFpPosition3().getX(), detector.orientation.focal_plane_x)
-    tc.assertEqual(legacy_orientation.getFpPosition3().getY(), detector.orientation.focal_plane_y)
-    tc.assertEqual(legacy_orientation.getFpPosition3().getZ(), detector.orientation.focal_plane_z)
-    tc.assertEqual(legacy_orientation.getReferencePoint().getX(), detector.orientation.pixel_reference_x)
-    tc.assertEqual(legacy_orientation.getReferencePoint().getY(), detector.orientation.pixel_reference_y)
-    tc.assertEqual(legacy_orientation.getYaw().asRadians(), detector.orientation.yaw.to_value(u.rad))
-    tc.assertEqual(legacy_orientation.getPitch().asRadians(), detector.orientation.pitch.to_value(u.rad))
-    tc.assertEqual(legacy_orientation.getRoll().asRadians(), detector.orientation.roll.to_value(u.rad))
-    tc.assertEqual(legacy_detector.getPixelSize().getX(), detector.pixel_size)
-    tc.assertEqual(legacy_detector.getPhysicalType(), detector.physical_type)
+    assert legacy_orientation.getFpPosition3().getX() == detector.orientation.focal_plane_x
+    assert legacy_orientation.getFpPosition3().getY() == detector.orientation.focal_plane_y
+    assert legacy_orientation.getFpPosition3().getZ() == detector.orientation.focal_plane_z
+    assert legacy_orientation.getReferencePoint().getX() == detector.orientation.pixel_reference_x
+    assert legacy_orientation.getReferencePoint().getY() == detector.orientation.pixel_reference_y
+    assert legacy_orientation.getYaw().asRadians() == detector.orientation.yaw.to_value(u.rad)
+    assert legacy_orientation.getPitch().asRadians() == detector.orientation.pitch.to_value(u.rad)
+    assert legacy_orientation.getRoll().asRadians() == detector.orientation.roll.to_value(u.rad)
+    assert legacy_detector.getPixelSize().getX() == detector.pixel_size
+    assert legacy_detector.getPhysicalType() == detector.physical_type
     for amplifier, legacy_amplifier in zip(detector.amplifiers, legacy_detector.getAmplifiers(), strict=True):
         compare_amplifier_to_legacy(
-            tc,
             amplifier,
             legacy_amplifier,
             is_raw_assembled=is_raw_assembled,
@@ -1401,7 +1293,6 @@ def compare_detector_to_legacy(
     pixel_legacy_points = arrays_to_legacy_points(y=pixel_xy.y, x=pixel_xy.x)
     fp_legacy_points = legacy_detector.transform(pixel_legacy_points, PIXELS, FOCAL_PLANE)
     check_transform(
-        tc,
         detector.to_focal_plane,
         pixel_xy,
         legacy_points_to_xy_array(fp_legacy_points),
@@ -1412,7 +1303,6 @@ def compare_detector_to_legacy(
     )
     fa_legacy_points = legacy_detector.transform(pixel_legacy_points, PIXELS, FIELD_ANGLE)
     check_transform(
-        tc,
         detector.to_field_angle,
         pixel_xy,
         legacy_points_to_xy_array(fa_legacy_points),
@@ -1448,7 +1338,7 @@ def iter_concrete_archive_tree_subclasses() -> Iterator[type[ArchiveTree]]:
                 yield sub
 
 
-def check_archive_tree_class_invariants(tc: unittest.TestCase, cls: type[ArchiveTree]) -> None:
+def check_archive_tree_class_invariants(cls: type[ArchiveTree]) -> None:
     """Assert that one concrete `.serialization.ArchiveTree` subclass declares
     well-formed schema-version constants and an in-memory type.
 
@@ -1459,20 +1349,18 @@ def check_archive_tree_class_invariants(tc: unittest.TestCase, cls: type[Archive
 
     Parameters
     ----------
-    tc
-        Test case object with assert methods to use.
     cls
         The concrete `.serialization.ArchiveTree` subclass to check.
     """
-    tc.assertTrue(hasattr(cls, "SCHEMA_NAME"), f"{cls.__name__} lacks SCHEMA_NAME")
-    tc.assertTrue(hasattr(cls, "SCHEMA_VERSION"), f"{cls.__name__} lacks SCHEMA_VERSION")
-    tc.assertTrue(hasattr(cls, "MIN_READ_VERSION"), f"{cls.__name__} lacks MIN_READ_VERSION")
-    tc.assertTrue(hasattr(cls, "PUBLIC_TYPE"), f"{cls.__name__} lacks PUBLIC_TYPE")
-    tc.assertIsInstance(cls.SCHEMA_NAME, str)
-    tc.assertGreater(len(cls.SCHEMA_NAME), 0)
-    tc.assertRegex(cls.SCHEMA_VERSION, r"^\d+\.\d+\.\d+$")
-    tc.assertIsInstance(cls.MIN_READ_VERSION, int)
-    tc.assertGreaterEqual(cls.MIN_READ_VERSION, 1)
-    tc.assertIsInstance(cls.PUBLIC_TYPE, type)
+    assert hasattr(cls, "SCHEMA_NAME"), f"{cls.__name__} lacks SCHEMA_NAME"
+    assert hasattr(cls, "SCHEMA_VERSION"), f"{cls.__name__} lacks SCHEMA_VERSION"
+    assert hasattr(cls, "MIN_READ_VERSION"), f"{cls.__name__} lacks MIN_READ_VERSION"
+    assert hasattr(cls, "PUBLIC_TYPE"), f"{cls.__name__} lacks PUBLIC_TYPE"
+    assert isinstance(cls.SCHEMA_NAME, str)
+    assert len(cls.SCHEMA_NAME) > 0
+    assert re.fullmatch(r"^\d+\.\d+\.\d+$", cls.SCHEMA_VERSION)
+    assert isinstance(cls.MIN_READ_VERSION, int)
+    assert cls.MIN_READ_VERSION >= 1
+    assert isinstance(cls.PUBLIC_TYPE, type)
     major = int(cls.SCHEMA_VERSION.split(".")[0])
-    tc.assertLessEqual(cls.MIN_READ_VERSION, major)
+    assert cls.MIN_READ_VERSION <= major

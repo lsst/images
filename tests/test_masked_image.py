@@ -173,7 +173,7 @@ class MaskedImageTestCase(unittest.TestCase):
         np.testing.assert_array_equal(
             self.masked_image.image.array[subslices], self.masked_image.image[subbox].array
         )
-        with RoundtripFits(self, self.masked_image, "MaskedImageV2") as roundtrip:
+        with RoundtripFits(self.masked_image, "MaskedImageV2") as roundtrip:
             subimage = roundtrip.get(bbox=subbox)
             # Check that we used lossless compression (the default).
             fits = roundtrip.inspect()
@@ -188,11 +188,9 @@ class MaskedImageTestCase(unittest.TestCase):
                     raise unittest.SkipTest("afw could not be imported") from None
                 legacy_masked_image = roundtrip.get(storageClass="MaskedImage")
                 self.assertIsInstance(legacy_masked_image, lsst.afw.image.MaskedImage)
-                compare_masked_image_to_legacy(
-                    self, self.masked_image, legacy_masked_image, expect_view=False
-                )
-        assert_masked_images_equal(self, roundtrip.result, self.masked_image, expect_view=False)
-        assert_masked_images_equal(self, subimage, roundtrip.result[subbox], expect_view=False)
+                compare_masked_image_to_legacy(self.masked_image, legacy_masked_image, expect_view=False)
+        assert_masked_images_equal(roundtrip.result, self.masked_image, expect_view=False)
+        assert_masked_images_equal(subimage, roundtrip.result[subbox], expect_view=False)
 
     def test_fits_roundtrip_lossy(self) -> None:
         """Test that we can round-trip the MaskedImage through FITS, including
@@ -219,14 +217,14 @@ class MaskedImageTestCase(unittest.TestCase):
                 self.assertEqual(fits[1].header["ZCMPTYPE"], "RICE_1")
                 self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
                 self.assertEqual(fits[3].header["ZCMPTYPE"], "RICE_1")
-        assert_masked_images_equal(self, roundtripped, self.masked_image, expect_view=False, rtol=0.01)
-        assert_masked_images_equal(self, subimage, roundtripped[subbox], expect_view=False)
+        assert_masked_images_equal(roundtripped, self.masked_image, expect_view=False, rtol=0.01)
+        assert_masked_images_equal(subimage, roundtripped[subbox], expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_round_trip_ndf_compatible_mask(self):
         """NDF round-trip for the default-setup MaskedImage (2 planes ≤ 8)."""
-        with RoundtripNdf(self, self.masked_image, "MaskedImageV2") as roundtrip:
-            assert_masked_images_equal(self, roundtrip.result, self.masked_image, expect_view=False)
+        with RoundtripNdf(self.masked_image, "MaskedImageV2") as roundtrip:
+            assert_masked_images_equal(roundtrip.result, self.masked_image, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_round_trip_ndf_incompatible_mask(self):
@@ -245,8 +243,8 @@ class MaskedImageTestCase(unittest.TestCase):
             mask_schema=MaskSchema(planes),
         )
         wide.variance.array = rng.normal(64.0, 0.5, size=wide.bbox.shape)
-        with RoundtripNdf(self, wide, "MaskedImageV2") as roundtrip:
-            assert_masked_images_equal(self, roundtrip.result, wide, expect_view=False)
+        with RoundtripNdf(wide, "MaskedImageV2") as roundtrip:
+            assert_masked_images_equal(roundtrip.result, wide, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_round_trip_ndf_many_plane_mask(self):
@@ -266,29 +264,29 @@ class MaskedImageTestCase(unittest.TestCase):
         wide.mask.set("P17", wide.image.array < 95.0)
         wide.mask.set("P39", wide.image.array > 110.0)
         wide.variance.array = rng.normal(64.0, 0.5, size=wide.bbox.shape)
-        with RoundtripNdf(self, wide, "MaskedImageV2") as roundtrip:
-            assert_masked_images_equal(self, roundtrip.result, wide, expect_view=False)
+        with RoundtripNdf(wide, "MaskedImageV2") as roundtrip:
+            assert_masked_images_equal(roundtrip.result, wide, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_fits_ndf_consistency(self):
         """FITS and NDF backends produce equal MaskedImages on round-trip."""
         with (
-            RoundtripFits(self, self.masked_image) as fits_rt,
-            RoundtripNdf(self, self.masked_image) as ndf_rt,
+            RoundtripFits(self.masked_image) as fits_rt,
+            RoundtripNdf(self.masked_image) as ndf_rt,
         ):
-            assert_masked_images_equal(self, self.masked_image, fits_rt.result, expect_view=False)
-            assert_masked_images_equal(self, self.masked_image, ndf_rt.result, expect_view=False)
-            assert_masked_images_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
+            assert_masked_images_equal(self.masked_image, fits_rt.result, expect_view=False)
+            assert_masked_images_equal(self.masked_image, ndf_rt.result, expect_view=False)
+            assert_masked_images_equal(fits_rt.result, ndf_rt.result, expect_view=False)
 
     def test_fits_json_consistency(self):
         """FITS and JSON backends produce equal MaskedImages on round-trip."""
         with (
-            RoundtripFits(self, self.masked_image) as fits_rt,
-            RoundtripJson(self, self.masked_image) as json_rt,
+            RoundtripFits(self.masked_image) as fits_rt,
+            RoundtripJson(self.masked_image) as json_rt,
         ):
-            assert_masked_images_equal(self, self.masked_image, fits_rt.result, expect_view=False)
-            assert_masked_images_equal(self, self.masked_image, json_rt.result, expect_view=False)
-            assert_masked_images_equal(self, fits_rt.result, json_rt.result, expect_view=False)
+            assert_masked_images_equal(self.masked_image, fits_rt.result, expect_view=False)
+            assert_masked_images_equal(self.masked_image, json_rt.result, expect_view=False)
+            assert_masked_images_equal(fits_rt.result, json_rt.result, expect_view=False)
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
     def test_legacy(self) -> None:
@@ -306,17 +304,15 @@ class MaskedImageTestCase(unittest.TestCase):
         reader = MaskedImageFitsReader(filename)
         legacy_masked_image = reader.read()
         compare_masked_image_to_legacy(
-            self, masked_image, legacy_masked_image, plane_map=plane_map, expect_view=False
+            masked_image, legacy_masked_image, plane_map=plane_map, expect_view=False
         )
         compare_masked_image_to_legacy(
-            self,
             masked_image,
             masked_image.to_legacy(plane_map=plane_map),
             plane_map=plane_map,
             expect_view=True,
         )
         compare_masked_image_to_legacy(
-            self,
             MaskedImage.from_legacy(legacy_masked_image, plane_map=plane_map),
             legacy_masked_image,
             expect_view=True,

@@ -64,7 +64,7 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         self.assertGreater(stellar.array[center, center], stellar.array[center, center - 1])
         self.assertGreater(stellar.array[center, center], stellar.array[center - 1, center])
 
-        with RoundtripFits(self, psf) as roundtrip:
+        with RoundtripFits(psf) as roundtrip:
             self.assertEqual(roundtrip.result, psf, f"{roundtrip.result} != {psf}")
 
         with self.assertRaises(ValueError):
@@ -125,21 +125,21 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         self.assertIsInstance(psf, PiffWrapper)
         self.assertEqual(psf.bounds, bounds)
         self.assertIsInstance(psf.piff_psf, PSF)
-        compare_psf_to_legacy(self, psf, legacy_psf)
-        with RoundtripFits(self, psf) as roundtrip1:
+        compare_psf_to_legacy(psf, legacy_psf)
+        with RoundtripFits(psf) as roundtrip1:
             pass
-        compare_psf_to_legacy(self, roundtrip1.result, legacy_psf)
-        with RoundtripJson(self, psf) as roundtrip2:
+        compare_psf_to_legacy(roundtrip1.result, legacy_psf)
+        with RoundtripJson(psf) as roundtrip2:
             pass
-        compare_psf_to_legacy(self, roundtrip2.result, legacy_psf)
+        compare_psf_to_legacy(roundtrip2.result, legacy_psf)
         with self.subTest("NDF round-trip"):
             if not HAVE_H5PY:
                 raise unittest.SkipTest("h5py is not available.")
-            with RoundtripNdf(self, psf) as roundtrip3:
+            with RoundtripNdf(psf) as roundtrip3:
                 pass
-            compare_psf_to_legacy(self, roundtrip3.result, legacy_psf)
+            compare_psf_to_legacy(roundtrip3.result, legacy_psf)
         legacy_psf_2 = roundtrip1.result.to_legacy()
-        compare_psf_to_legacy(self, psf, legacy_psf_2)
+        compare_psf_to_legacy(psf, legacy_psf_2)
         self.assertEqual(legacy_psf.getAveragePosition(), legacy_psf_2.getAveragePosition())
 
     @unittest.skipUnless(DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
@@ -166,14 +166,14 @@ class PointSpreadFunctionTestCase(unittest.TestCase):
         self.assertIsInstance(psf, PSFExWrapper)
         self.assertEqual(psf.bounds, bounds)
         self.assertIsInstance(psf.legacy_psf, PsfexPsf)
-        compare_psf_to_legacy(self, psf, legacy_psf)
-        compare_psf_to_legacy(self, psf, legacy_psf)
-        with RoundtripFits(self, psf) as roundtrip1:
+        compare_psf_to_legacy(psf, legacy_psf)
+        compare_psf_to_legacy(psf, legacy_psf)
+        with RoundtripFits(psf) as roundtrip1:
             pass
-        compare_psf_to_legacy(self, roundtrip1.result, legacy_psf)
-        with RoundtripJson(self, psf) as roundtrip2:
+        compare_psf_to_legacy(roundtrip1.result, legacy_psf)
+        with RoundtripJson(psf) as roundtrip2:
             pass
-        compare_psf_to_legacy(self, roundtrip2.result, legacy_psf)
+        compare_psf_to_legacy(roundtrip2.result, legacy_psf)
 
 
 if __name__ == "__main__":

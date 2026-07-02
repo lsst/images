@@ -51,11 +51,11 @@ class CamerasTestCase(unittest.TestCase):
             instrument=DP2_VISIT_DETECTOR_DATA_ID["instrument"],
             visit=DP2_VISIT_DETECTOR_DATA_ID["visit"],
         )
-        compare_detector_to_legacy(self, detector, self.legacy_detector, is_raw_assembled=True)
-        with RoundtripFits(self, detector) as roundtrip:
+        compare_detector_to_legacy(detector, self.legacy_detector, is_raw_assembled=True)
+        with RoundtripFits(detector) as roundtrip:
             pass
-        compare_detector_to_legacy(self, roundtrip.result, self.legacy_detector, is_raw_assembled=True)
-        compare_detector_to_legacy(self, detector, roundtrip.result.to_legacy(), is_raw_assembled=True)
+        compare_detector_to_legacy(roundtrip.result, self.legacy_detector, is_raw_assembled=True)
+        compare_detector_to_legacy(detector, roundtrip.result.to_legacy(), is_raw_assembled=True)
 
     def test_camera_detector_legacy_conversions(self) -> None:
         """Test converting a detector extracted from a camera from its
@@ -73,12 +73,12 @@ class CamerasTestCase(unittest.TestCase):
                     legacy_detector_1,
                     instrument=DP2_VISIT_DETECTOR_DATA_ID["instrument"],
                 )
-                compare_detector_to_legacy(self, detector, legacy_detector_1, is_raw_assembled=False)
-                with RoundtripFits(self, detector) as roundtrip:
+                compare_detector_to_legacy(detector, legacy_detector_1, is_raw_assembled=False)
+                with RoundtripFits(detector) as roundtrip:
                     pass
-                compare_detector_to_legacy(self, roundtrip.result, legacy_detector_1, is_raw_assembled=False)
+                compare_detector_to_legacy(roundtrip.result, legacy_detector_1, is_raw_assembled=False)
                 legacy_detector_2 = roundtrip.result.to_legacy()
-                compare_detector_to_legacy(self, detector, legacy_detector_2, is_raw_assembled=False)
+                compare_detector_to_legacy(detector, legacy_detector_2, is_raw_assembled=False)
 
     def test_expanded_detector_roundtrip(self) -> None:
         """Test roudntripping a detector that holds both assembled and
@@ -99,10 +99,10 @@ class CamerasTestCase(unittest.TestCase):
             amplifier.assembled_raw_geometry = AmplifierRawGeometry.from_legacy_amplifier(
                 legacy_assembled_amplifier
             )
-        with RoundtripFits(self, detector) as roundtrip:
+        with RoundtripFits(detector) as roundtrip:
             pass
-        compare_detector_to_legacy(self, roundtrip.result, legacy_camera_detector, is_raw_assembled=False)
-        compare_detector_to_legacy(self, roundtrip.result, self.legacy_detector, is_raw_assembled=True)
+        compare_detector_to_legacy(roundtrip.result, legacy_camera_detector, is_raw_assembled=False)
+        compare_detector_to_legacy(roundtrip.result, self.legacy_detector, is_raw_assembled=True)
 
 
 class ReadoutCornerTestCase(unittest.TestCase):

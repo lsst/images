@@ -152,7 +152,7 @@ class FromHduListTestCase(unittest.TestCase):
         masked_image = self._build_masked_image()
         cutdown = self._cutdown(masked_image, ["IMAGE", "MASK", "VARIANCE"])
         result = MaskedImage.from_hdu_list(cutdown)
-        assert_masked_images_equal(self, result, masked_image)
+        assert_masked_images_equal(result, masked_image)
 
     def test_legacy_non_cell_coadd_from_hdu_list(self) -> None:
         """A cut-down afw-style non-cell coadd (``MP_`` cards, ``SENSOR_EDGE``
@@ -192,17 +192,17 @@ class FromHduListTestCase(unittest.TestCase):
         self.assertEqual(np.asarray(cutdown["MASK"].data).dtype.kind, "i")
         result = MaskedImage.from_hdu_list(cutdown)
         self.assertEqual(result.mask.schema.mask_size, 2)
-        assert_masked_images_equal(self, result, masked_image)
+        assert_masked_images_equal(result, masked_image)
 
     def test_image_from_hdu_list_reads_first_two_hdus(self) -> None:
         """Image.from_hdu_list reads PRIMARY+IMAGE and ignores later HDUs."""
         masked_image = self._build_masked_image()
         # A full four-HDU list: only PRIMARY and IMAGE are consulted.
         result = Image.from_hdu_list(self._cutdown(masked_image, ["IMAGE", "MASK", "VARIANCE"]))
-        assert_images_equal(self, result, masked_image.image)
+        assert_images_equal(result, masked_image.image)
         # A bare two-HDU list works too.
         two = self._cutdown(masked_image, ["IMAGE"])
-        assert_images_equal(self, Image.from_hdu_list(two), masked_image.image)
+        assert_images_equal(Image.from_hdu_list(two), masked_image.image)
 
     def test_missing_mask_schema_raises(self) -> None:
         """A MASK HDU without MSK* cards is rejected (for now)."""

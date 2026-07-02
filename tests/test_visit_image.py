@@ -294,30 +294,30 @@ class VisitImageTestCase(unittest.TestCase):
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_round_trip_ndf(self) -> None:
         """NDF round-trip for VisitImage."""
-        with RoundtripNdf(self, self.visit_image, "VisitImage") as roundtrip:
-            assert_visit_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
+        with RoundtripNdf(self.visit_image, "VisitImage") as roundtrip:
+            assert_visit_images_equal(roundtrip.result, self.visit_image, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_fits_ndf_consistency(self) -> None:
         """FITS and NDF backends produce equal VisitImages on round-trip."""
-        with RoundtripFits(self, self.visit_image) as fits_rt, RoundtripNdf(self, self.visit_image) as ndf_rt:
-            assert_visit_images_equal(self, self.visit_image, fits_rt.result, expect_view=False)
-            assert_visit_images_equal(self, self.visit_image, ndf_rt.result, expect_view=False)
-            assert_visit_images_equal(self, fits_rt.result, ndf_rt.result, expect_view=False)
+        with RoundtripFits(self.visit_image) as fits_rt, RoundtripNdf(self.visit_image) as ndf_rt:
+            assert_visit_images_equal(self.visit_image, fits_rt.result, expect_view=False)
+            assert_visit_images_equal(self.visit_image, ndf_rt.result, expect_view=False)
+            assert_visit_images_equal(fits_rt.result, ndf_rt.result, expect_view=False)
 
     def test_fits_json_consistency(self) -> None:
         """FITS and JSON backends produce equal VisitImages on round-trip."""
         with (
-            RoundtripFits(self, self.visit_image) as fits_rt,
-            RoundtripJson(self, self.visit_image) as json_rt,
+            RoundtripFits(self.visit_image) as fits_rt,
+            RoundtripJson(self.visit_image) as json_rt,
         ):
-            assert_visit_images_equal(self, self.visit_image, fits_rt.result, expect_view=False)
-            assert_visit_images_equal(self, self.visit_image, json_rt.result, expect_view=False)
-            assert_visit_images_equal(self, fits_rt.result, json_rt.result, expect_view=False)
+            assert_visit_images_equal(self.visit_image, fits_rt.result, expect_view=False)
+            assert_visit_images_equal(self.visit_image, json_rt.result, expect_view=False)
+            assert_visit_images_equal(fits_rt.result, json_rt.result, expect_view=False)
 
     def test_read_write(self) -> None:
         """Test that a visit can round trip through a FITS file."""
-        with RoundtripFits(self, self.visit_image, "VisitImage") as roundtrip:
+        with RoundtripFits(self.visit_image, "VisitImage") as roundtrip:
             # Check that we're still using the right compression, and that we
             # wrote WCSs.
             fits = roundtrip.inspect()
@@ -330,20 +330,18 @@ class VisitImageTestCase(unittest.TestCase):
             # Check a subimage read.
             subbox = Box.factory[8:13, 9:30]
             subimage = roundtrip.get(bbox=subbox)
-            assert_masked_images_equal(self, subimage, self.visit_image[subbox], expect_view=False)
+            assert_masked_images_equal(subimage, self.visit_image[subbox], expect_view=False)
 
             # Get an explicit masked image to compare with the subimage
             with self.subTest():
                 subimage_masked = roundtrip.get("masked_image", bbox=subbox)
-                assert_masked_images_equal(self, subimage_masked, subimage, expect_view=False)
+                assert_masked_images_equal(subimage_masked, subimage, expect_view=False)
 
                 # Get the same masked image in a multi-component get and ensure
                 # it is the same thing.
                 components = roundtrip.get("components", components=["masked_image", "psf"], bbox=subbox)
                 self.assertEqual(set(components), {"masked_image", "psf"})
-                assert_masked_images_equal(
-                    self, components["masked_image"], subimage_masked, expect_view=False
-                )
+                assert_masked_images_equal(components["masked_image"], subimage_masked, expect_view=False)
 
             with self.subTest():
                 self.assertEqual(roundtrip.get("bbox"), self.visit_image.bbox)
@@ -408,7 +406,7 @@ class VisitImageTestCase(unittest.TestCase):
                     # PSF does not know how to use bbox so this fails.
                     roundtrip.get("components", components="psf", bbox=subbox)
 
-        assert_visit_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
+        assert_visit_images_equal(roundtrip.result, self.visit_image, expect_view=False)
         # Check that the round-tripped headers are the same (up to card order).
         self.assertEqual(len(roundtrip.result._opaque_metadata.headers[ExtensionKey()]), 1)
         self.assertEqual(
@@ -479,14 +477,14 @@ class VisitImageTestCase(unittest.TestCase):
         EXTVERs rather than overwriting.
         """
         visit = self._make_sum_background_visit_image()
-        with RoundtripFits(self, visit) as roundtrip:
+        with RoundtripFits(visit) as roundtrip:
             self._check_sum_background_round_trip(roundtrip.result, visit)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_sum_background_round_trip_ndf(self) -> None:
         """NDF must disambiguate the repeated ``data`` leaf the same way."""
         visit = self._make_sum_background_visit_image()
-        with RoundtripNdf(self, visit) as roundtrip:
+        with RoundtripNdf(visit) as roundtrip:
             self._check_sum_background_round_trip(roundtrip.result, visit)
 
     def _check_sum_background_round_trip(self, result: VisitImage, original: VisitImage) -> None:
@@ -541,16 +539,16 @@ class VisitImageLegacyTestMixin:
         """Test reads of components from legacy file."""
         visit = VisitImage.read_legacy(self.filename)
         proj = VisitImage.read_legacy(self.filename, component="sky_projection")
-        assert_sky_projections_equal(self, proj, visit.sky_projection, expect_identity=False)
+        assert_sky_projections_equal(proj, visit.sky_projection, expect_identity=False)
         image = VisitImage.read_legacy(self.filename, component="image")
         self.assertEqual(image, visit.image)
-        assert_sky_projections_equal(self, proj, image.sky_projection, expect_identity=False)
+        assert_sky_projections_equal(proj, image.sky_projection, expect_identity=False)
         variance = VisitImage.read_legacy(self.filename, component="variance")
         self.assertEqual(variance, visit.variance)
-        assert_sky_projections_equal(self, proj, variance.sky_projection, expect_identity=False)
+        assert_sky_projections_equal(proj, variance.sky_projection, expect_identity=False)
         mask = VisitImage.read_legacy(self.filename, component="mask")
         self.assertEqual(mask, visit.mask)
-        assert_sky_projections_equal(self, proj, mask.sky_projection, expect_identity=False)
+        assert_sky_projections_equal(proj, mask.sky_projection, expect_identity=False)
         psf = VisitImage.read_legacy(self.filename, component="psf")
         self.assertIsInstance(psf, PointSpreadFunction)
         obs_info = VisitImage.read_legacy(self.filename, component="obs_info")
@@ -559,16 +557,14 @@ class VisitImageLegacyTestMixin:
         self.assertIsInstance(summary_stats, ObservationSummaryStats)
         self.assertEqual(summary_stats.nPsfStar, self.legacy_exposure.info.getSummaryStats().nPsfStar)
         compare_aperture_corrections_to_legacy(
-            self,
             VisitImage.read_legacy(self.filename, component="aperture_corrections"),
             self.legacy_exposure.info.getApCorrMap(),
             visit.bbox,
         )
         detector = VisitImage.read_legacy(self.filename, component="detector")
-        compare_detector_to_legacy(self, detector, self.legacy_exposure.getDetector(), is_raw_assembled=True)
+        compare_detector_to_legacy(detector, self.legacy_exposure.getDetector(), is_raw_assembled=True)
         photometric_scaling = VisitImage.read_legacy(self.filename, component="photometric_scaling")
         compare_photo_calib_to_legacy(
-            self,
             photometric_scaling,
             self.legacy_exposure.getPhotoCalib(),
             subimage_bbox=visit.bbox,
@@ -602,7 +598,7 @@ class VisitImageLegacyTestMixin:
         """
         legacy_ap_corr_map = aperture_corrections_to_legacy(self.visit_image.aperture_corrections)
         compare_aperture_corrections_to_legacy(
-            self, self.visit_image.aperture_corrections, legacy_ap_corr_map, self.visit_image.bbox
+            self.visit_image.aperture_corrections, legacy_ap_corr_map, self.visit_image.bbox
         )
 
     def test_read_legacy_headers(self) -> None:
@@ -644,7 +640,7 @@ class VisitImageLegacyTestMixin:
         """
         import lsst.afw.image
 
-        with RoundtripFits(self, self.visit_image, self.storage_class) as roundtrip:
+        with RoundtripFits(self.visit_image, self.storage_class) as roundtrip:
             # Check that we're still using the right compression, and that we
             # wrote WCSs.
             fits = roundtrip.inspect()
@@ -657,7 +653,7 @@ class VisitImageLegacyTestMixin:
             # Check a subimage read.
             subbox = Box.factory[8:13, 9:30]
             subimage = roundtrip.get(bbox=subbox)
-            assert_masked_images_equal(self, subimage, self.visit_image[subbox], expect_view=False)
+            assert_masked_images_equal(subimage, self.visit_image[subbox], expect_view=False)
             alternates: dict[str, Any] = {}
             with self.subTest():
                 self.assertEqual(roundtrip.get("bbox"), self.visit_image.bbox)
@@ -683,7 +679,6 @@ class VisitImageLegacyTestMixin:
                 # This covers most of the compnents, which have clean 1-1
                 # mappings from legacy to new:
                 compare_visit_image_to_legacy(
-                    self,
                     self.visit_image,
                     legacy_exposure,
                     expect_view=False,
@@ -697,7 +692,6 @@ class VisitImageLegacyTestMixin:
                     self.assertEqual(legacy_exposure.getPhotoCalib().getCalibrationMean(), 1.0)
                 else:
                     compare_photo_calib_to_legacy(
-                        self,
                         self.visit_image.photometric_scaling,
                         legacy_exposure.getPhotoCalib(),
                         subimage_bbox=subbox,
@@ -711,7 +705,7 @@ class VisitImageLegacyTestMixin:
                 self.assertIsInstance(visit_info, lsst.afw.image.VisitInfo)
                 self.assertEqual(visit_info.getInstrumentLabel(), "LSSTCam")
 
-        assert_visit_images_equal(self, roundtrip.result, self.visit_image, expect_view=False)
+        assert_visit_images_equal(roundtrip.result, self.visit_image, expect_view=False)
         # Check that the round-tripped headers are the same (up to card order).
         self.assertEqual(
             dict(self.visit_image._opaque_metadata.headers[ExtensionKey()]),
@@ -722,7 +716,6 @@ class VisitImageLegacyTestMixin:
         self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("VARIANCE")])
         self.assertEqual(roundtrip.result._opaque_metadata.headers[ExtensionKey()]["PLATFORM"], "lsstcam")
         compare_visit_image_to_legacy(
-            self,
             roundtrip.result,
             self.legacy_exposure,
             expect_view=False,
@@ -732,7 +725,6 @@ class VisitImageLegacyTestMixin:
         )
         # Check converting from the legacy object in-memory.
         compare_visit_image_to_legacy(
-            self,
             VisitImage.from_legacy(self.legacy_exposure, plane_map=self.plane_map),
             self.legacy_exposure,
             expect_view=True,
@@ -773,7 +765,6 @@ class VisitImageLegacyTestMixin:
                 for k in ["image", "mask", "variance", "bbox", "psf", "detector"]
             }
             compare_visit_image_to_legacy(
-                self,
                 visit_image,
                 self.legacy_exposure,
                 expect_view=False,
@@ -790,7 +781,6 @@ class VisitImageLegacyTestMixin:
             # Check that we can read *that* back in as a legacy exposure.
             legacy_exposure = helper.butler.get(helper.legacy)
             compare_visit_image_to_legacy(
-                self,
                 visit_image,
                 legacy_exposure,
                 expect_view=False,
@@ -802,7 +792,6 @@ class VisitImageLegacyTestMixin:
             # new metadata is preserved.
             visit_image_2 = helper.butler.get(visit_image_ref)
             compare_visit_image_to_legacy(
-                self,
                 visit_image_2,
                 legacy_exposure,
                 expect_view=False,
@@ -864,18 +853,18 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
             original.convert_unit(u.mJy, copy=False)
         visit_image_mJy = original.convert_unit(u.mJy, copy="as-needed")
         self.assertEqual(visit_image_mJy.unit, u.mJy)
-        assert_close(self, visit_image_mJy.image.array, original.image.array * 1e-6)
+        assert_close(visit_image_mJy.image.array, original.image.array * 1e-6)
         self.assertTrue(np.may_share_memory(visit_image_nJy.mask.array, original.mask.array))
-        assert_close(self, visit_image_mJy.variance.array, original.variance.array * 1e-12)
+        assert_close(visit_image_mJy.variance.array, original.variance.array * 1e-12)
         # Converting a mJy image to legacy should make a PhotoCalib that maps
         # mJy to nJy.
         legacy_exposure_mJy = visit_image_mJy.to_legacy()
-        assert_close(self, legacy_exposure_mJy.getPhotoCalib().getCalibrationMean(), 1e6)
+        assert_close(legacy_exposure_mJy.getPhotoCalib().getCalibrationMean(), 1e6)
         legacy_masked_image_nJy = legacy_exposure_mJy.getPhotoCalib().calibrateImage(
             legacy_exposure_mJy.maskedImage
         )
-        assert_close(self, visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
-        assert_close(self, visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)
+        assert_close(visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
+        assert_close(visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)
         # Test that we haven't dropped any component objects along the way,
         # and that they're all still the same objects or thin views.
         self.assertTrue(np.may_share_memory(visit_image_mJy.mask.array, original.mask.array))
@@ -897,7 +886,6 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
             legacy_photo_calib, bounds=original.detector.bbox, instrumental_unit=u.electron
         )
         compare_photo_calib_to_legacy(
-            self,
             visit_image_nJy.photometric_scaling,
             self.legacy_exposure.getPhotoCalib(),
             applied_legacy_photo_calib=legacy_photo_calib,
@@ -912,40 +900,39 @@ class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
             visit_image_nJy.convert_unit(u.electron, copy=False)
         legacy_masked_image_e = legacy_photo_calib.uncalibrateImage(self.legacy_exposure.maskedImage)
         visit_image_e = visit_image_nJy.convert_unit(u.electron)
-        assert_close(self, visit_image_e.image.array, legacy_masked_image_e.image.array)
-        assert_close(self, visit_image_e.variance.array, legacy_masked_image_e.variance.array)
+        assert_close(visit_image_e.image.array, legacy_masked_image_e.image.array)
+        assert_close(visit_image_e.variance.array, legacy_masked_image_e.variance.array)
         self.assertFalse(np.may_share_memory(visit_image_e.mask.array, visit_image_nJy.mask.array))
         # We can also uncalibrate if we start with an image that has units
         # that are compatible with the photometric_scaling but not identical
         # to it.
         visit_image_mJy.photometric_scaling = visit_image_nJy.photometric_scaling
         visit_image_e = visit_image_mJy.convert_unit(u.electron)
-        assert_close(self, visit_image_e.image.array, legacy_masked_image_e.image.array)
-        assert_close(self, visit_image_e.variance.array, legacy_masked_image_e.variance.array)
+        assert_close(visit_image_e.image.array, legacy_masked_image_e.image.array)
+        assert_close(visit_image_e.variance.array, legacy_masked_image_e.variance.array)
         # We can re-apply the scaling to go back to calibrated units.
         visit_image_nJy_2 = visit_image_e.convert_unit(u.nJy)
-        assert_close(self, visit_image_nJy_2.image.array, visit_image_nJy.image.array)
-        assert_close(self, visit_image_nJy_2.variance.array, original.variance.array)
+        assert_close(visit_image_nJy_2.image.array, visit_image_nJy.image.array)
+        assert_close(visit_image_nJy_2.variance.array, original.variance.array)
         # Try calibrating an image with a scaling that has units other than
         # nJy in the numerator.
         visit_image_e.photometric_scaling = visit_image_nJy.photometric_scaling * (1e-6 * u.mJy / u.nJy)
         visit_image_nJy_3 = visit_image_e.convert_unit(u.nJy)
-        assert_close(self, visit_image_nJy_3.image.array, visit_image_nJy.image.array)
-        assert_close(self, visit_image_nJy_3.variance.array, original.variance.array)
+        assert_close(visit_image_nJy_3.image.array, visit_image_nJy.image.array)
+        assert_close(visit_image_nJy_3.variance.array, original.variance.array)
         # Try converting that uncalibrated image to legacy; the extra mJy/nJy
         # factor should get included in the PhotoCalib to recover the original
         # PhotoCalib.
         legacy_exposure_e = visit_image_e.to_legacy()
         assert_close(
-            self,
             legacy_exposure_e.getPhotoCalib().getCalibrationMean(),
             legacy_photo_calib.getCalibrationMean(),
         )
         legacy_masked_image_nJy = legacy_exposure_e.getPhotoCalib().calibrateImage(
             legacy_exposure_e.maskedImage
         )
-        assert_close(self, visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
-        assert_close(self, visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)
+        assert_close(visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
+        assert_close(visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)
 
 
 @unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")

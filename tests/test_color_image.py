@@ -54,25 +54,22 @@ class ColorImageTestCase(unittest.TestCase):
         self.assertEqual(self.color_image.bbox, self.bbox)
         self.assertTrue(np.may_share_memory(self.color_image.array, self.array))
         assert_images_equal(
-            self,
             self.color_image.red,
             Image(self.array[:, :, 0], bbox=self.bbox, sky_projection=self.sky_projection),
             expect_view="array",
         )
         assert_images_equal(
-            self,
             self.color_image.green,
             Image(self.array[:, :, 1], bbox=self.bbox, sky_projection=self.sky_projection),
             expect_view="array",
         )
         assert_images_equal(
-            self,
             self.color_image.blue,
             Image(self.array[:, :, 2], bbox=self.bbox, sky_projection=self.sky_projection),
             expect_view="array",
         )
         assert_sky_projections_equal(
-            self, self.color_image.sky_projection, self.sky_projection, expect_identity=True
+            self.color_image.sky_projection, self.sky_projection, expect_identity=True
         )
 
     def test_constructor(self) -> None:
@@ -95,22 +92,22 @@ class ColorImageTestCase(unittest.TestCase):
 
     def test_fits_roundtrip(self) -> None:
         """Test round-tripping through FITS, via the butler if available."""
-        with RoundtripFits(self, self.color_image, "ColorImage") as roundtrip:
+        with RoundtripFits(self.color_image, "ColorImage") as roundtrip:
             pass
         self.assert_color_images_equal(roundtrip.result, self.color_image, expect_view=False)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_ndf_roundtrip(self) -> None:
         """Test round-tripping through NDF."""
-        with RoundtripNdf(self, self.color_image, "ColorImage") as roundtrip:
+        with RoundtripNdf(self.color_image, "ColorImage") as roundtrip:
             pass
         self.assert_color_images_equal(roundtrip.result, self.color_image, expect_view=False)
 
     def test_fits_json_consistency(self) -> None:
         """FITS and JSON backends produce equal ColorImages on round-trip."""
         with (
-            RoundtripFits(self, self.color_image) as fits_rt,
-            RoundtripJson(self, self.color_image) as json_rt,
+            RoundtripFits(self.color_image) as fits_rt,
+            RoundtripJson(self.color_image) as json_rt,
         ):
             self.assert_color_images_equal(fits_rt.result, self.color_image, expect_view=False)
             self.assert_color_images_equal(json_rt.result, self.color_image, expect_view=False)
@@ -119,7 +116,7 @@ class ColorImageTestCase(unittest.TestCase):
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_ndf_layout(self) -> None:
         """ColorImage writes a top-level container with RGB child NDFs."""
-        with RoundtripNdf(self, self.color_image, "ColorImage") as roundtrip:
+        with RoundtripNdf(self.color_image, "ColorImage") as roundtrip:
             f = roundtrip.inspect()
             self.assertEqual(_cls(f["/"]), "EXT")
             self.assertIn("LSST", f)
@@ -144,7 +141,7 @@ class ColorImageTestCase(unittest.TestCase):
         """Check that the given ColorImage matches the nominal one constructed
         in setUp.
         """
-        assert_sky_projections_equal(self, a.sky_projection, b.sky_projection)
+        assert_sky_projections_equal(a.sky_projection, b.sky_projection)
         if expect_view is not None:
             self.assertEqual(np.may_share_memory(a.array, b.array), expect_view)
         if not expect_view:

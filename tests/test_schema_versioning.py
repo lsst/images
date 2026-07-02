@@ -139,7 +139,7 @@ class ArchiveTreeClassInvariantsTestCase(unittest.TestCase):
         self.assertGreater(len(found), 0)
         for sub in found:
             with self.subTest(cls=sub.__name__):
-                check_archive_tree_class_invariants(self, sub)
+                check_archive_tree_class_invariants(sub)
 
     def test_schema_names_unique(self):
         """All SCHEMA_NAME values across concrete subclasses are unique."""

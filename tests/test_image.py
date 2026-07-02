@@ -47,16 +47,16 @@ class ImageTestCase(unittest.TestCase):
     def test_basics(self):
         """Test basic constructor patterns."""
         image = Image(42, shape=(5, 5), metadata={"three": 3})
-        assert_close(self, image.array, np.zeros([5, 5], dtype=np.int64) + 42)
+        assert_close(image.array, np.zeros([5, 5], dtype=np.int64) + 42)
         self.assertEqual(image.metadata["three"], 3)
 
         data = np.array([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]])
         image = Image(data)
         subset = image[Box.factory[:3, 1:3]]
         subset2 = image.absolute[:3, 1:3]
-        assert_images_equal(self, subset2, subset, expect_view=True)
+        assert_images_equal(subset2, subset, expect_view=True)
 
-        assert_images_equal(self, image.copy(), image, expect_view=False)
+        assert_images_equal(image.copy(), image, expect_view=False)
 
         # Add an explicit bounding box and then slice it.
         image = Image(data, bbox=Box.factory[-2:1, 10:14])
@@ -65,9 +65,9 @@ class ImageTestCase(unittest.TestCase):
             # moved origin.
             image.absolute[:3, 1:3]
         # That slice does still work in local coordinates.
-        assert_close(self, image.local[:3, 1:3].array, subset2.array)
+        assert_close(image.local[:3, 1:3].array, subset2.array)
         # And we can write an equivalent slice in absolute coordinates.
-        assert_close(self, image.absolute[:0, 11:13].array, np.array([[2, 3], [6, 7]]))
+        assert_close(image.absolute[:0, 11:13].array, np.array([[2, 3], [6, 7]]))
 
         # Test __eq__ behavior.
         self.assertEqual(image[...], image)
@@ -96,9 +96,9 @@ class ImageTestCase(unittest.TestCase):
             np.arange(15).reshape(5, 3),
             yx0=(2, -1),
         )
-        with RoundtripJson(self, image, "ImageV2") as roundtrip:
+        with RoundtripJson(image, "ImageV2") as roundtrip:
             pass
-        assert_images_equal(self, image, roundtrip.result)
+        assert_images_equal(image, roundtrip.result)
 
     def test_fits_roundtrip(self) -> None:
         """Test saving a tiny image to FITS generically."""
@@ -106,10 +106,10 @@ class ImageTestCase(unittest.TestCase):
             np.arange(15).reshape(5, 3),
             yx0=(2, -1),
         )
-        with RoundtripFits(self, image, "ImageV2") as roundtrip:
+        with RoundtripFits(image, "ImageV2") as roundtrip:
             subbox = Box.factory[3:5, 0:1]
-            assert_images_equal(self, image[subbox], roundtrip.get(bbox=subbox))
-        assert_images_equal(self, image, roundtrip.result)
+            assert_images_equal(image[subbox], roundtrip.get(bbox=subbox))
+        assert_images_equal(image, roundtrip.result)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_ndf_roundtrip(self) -> None:
@@ -118,9 +118,9 @@ class ImageTestCase(unittest.TestCase):
             np.arange(15).reshape(5, 3),
             yx0=(2, -1),
         )
-        with RoundtripNdf(self, image, "ImageV2") as roundtrip:
+        with RoundtripNdf(image, "ImageV2") as roundtrip:
             pass
-        assert_images_equal(self, image, roundtrip.result)
+        assert_images_equal(image, roundtrip.result)
 
     @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
     def test_fits_ndf_consistency(self):
@@ -134,10 +134,10 @@ class ImageTestCase(unittest.TestCase):
             unit=u.nJy,
             yx0=(0, 0),
         )
-        with RoundtripFits(self, image) as fits_rt, RoundtripNdf(self, image) as ndf_rt:
-            assert_images_equal(self, image, fits_rt.result)
-            assert_images_equal(self, image, ndf_rt.result)
-            assert_images_equal(self, fits_rt.result, ndf_rt.result)
+        with RoundtripFits(image) as fits_rt, RoundtripNdf(image) as ndf_rt:
+            assert_images_equal(image, fits_rt.result)
+            assert_images_equal(image, ndf_rt.result)
+            assert_images_equal(fits_rt.result, ndf_rt.result)
 
     def test_fits_json_consistency(self):
         """Writing via FITS and via JSON, then reading back, produces equal
@@ -150,10 +150,10 @@ class ImageTestCase(unittest.TestCase):
             unit=u.nJy,
             yx0=(0, 0),
         )
-        with RoundtripFits(self, image) as fits_rt, RoundtripJson(self, image) as json_rt:
-            assert_images_equal(self, image, fits_rt.result)
-            assert_images_equal(self, image, json_rt.result)
-            assert_images_equal(self, fits_rt.result, json_rt.result)
+        with RoundtripFits(image) as fits_rt, RoundtripJson(image) as json_rt:
+            assert_images_equal(image, fits_rt.result)
+            assert_images_equal(image, json_rt.result)
+            assert_images_equal(fits_rt.result, json_rt.result)
 
     def test_quantity(self):
         """Test quantities."""
@@ -170,7 +170,6 @@ class ImageTestCase(unittest.TestCase):
         image2 = Image(data2, unit=u.Jy)
         image[Box.factory[-1:0, 5:7]] = image2.local[1:2, 2:4]
         assert_close(
-            self,
             image.array,
             np.array([[0.01, 0.02, 0.03, 0.04], [0.05, 0.06, 14000.0, 16000.0], [0.09, 0.1, 0.11, 0.12]]),
         )
@@ -204,9 +203,7 @@ class ImageTestCase(unittest.TestCase):
             # __eq__ does not test all components.
             self.assertEqual(new.metadata, image.metadata)
             self.maxDiff = None
-            assert_sky_projections_equal(
-                self, new.sky_projection, image.sky_projection, expect_identity=False
-            )
+            assert_sky_projections_equal(new.sky_projection, image.sky_projection, expect_identity=False)
 
             # Read subset.
             subset = Image.read(tmpFile, bbox=Box.factory[-2:0, 5:7])
@@ -238,19 +235,19 @@ class ImageTestCase(unittest.TestCase):
             raise unittest.SkipTest("'lsst.afw.image' could not be imported.") from None
         reader = MaskedImageFitsReader(filename)
         legacy_image = reader.readImage()
-        compare_image_to_legacy(self, image, legacy_image, expect_view=False)
+        compare_image_to_legacy(image, legacy_image, expect_view=False)
         # Converting back to afw will not share memory, because
         # preserve_quantization=True makes the array read-only and to_legacy
         # has to copy in that case.
-        compare_image_to_legacy(self, image, image.to_legacy(), expect_view=False)
+        compare_image_to_legacy(image, image.to_legacy(), expect_view=False)
         # Converting from afw will always share memory.
         image_view = Image.from_legacy(legacy_image)
-        compare_image_to_legacy(self, image_view, legacy_image, expect_view=True)
+        compare_image_to_legacy(image_view, legacy_image, expect_view=True)
         # Converting back to afw from the in-memory view will be another view.
-        compare_image_to_legacy(self, image_view, image_view.to_legacy(), expect_view=True)
+        compare_image_to_legacy(image_view, image_view.to_legacy(), expect_view=True)
         # Write the image out in the new format, and test that we can read it
         # back either way.
-        with RoundtripFits(self, image, storage_class="ImageV2") as roundtrip:
+        with RoundtripFits(image, storage_class="ImageV2") as roundtrip:
             with self.subTest():
                 try:
                     import lsst.afw.image
@@ -258,8 +255,8 @@ class ImageTestCase(unittest.TestCase):
                     raise unittest.SkipTest("afw could not be imported") from None
                 legacy_image = roundtrip.get(storageClass="Image")
                 self.assertIsInstance(legacy_image, lsst.afw.image.Image)
-                compare_image_to_legacy(self, image, legacy_image, expect_view=False)
-        assert_images_equal(self, roundtrip.result, image, expect_view=False)
+                compare_image_to_legacy(image, legacy_image, expect_view=False)
+        assert_images_equal(roundtrip.result, image, expect_view=False)
 
 
 if __name__ == "__main__":

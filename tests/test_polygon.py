@@ -85,12 +85,12 @@ class SimplePolygonTestCase(unittest.TestCase):
         t = Transform.affine(GeneralFrame(unit=u.pix), GeneralFrame(unit=u.pix), matrix)
         tp = self.polygon.transform(t)
         self.assertIsInstance(tp, Polygon)
-        assert_close(self, tp.area, self.polygon.area * np.linalg.det(matrix))
+        assert_close(tp.area, self.polygon.area * np.linalg.det(matrix))
         xyt = t.apply_forward(x=self.polygon.x_vertices, y=self.polygon.y_vertices)
         # Slicing below is because shapely sometimes adds a duplicate closing
         # vertex.
-        assert_close(self, tp.x_vertices[: len(xyt.x)], xyt.x)
-        assert_close(self, tp.y_vertices[: len(xyt.y)], xyt.y)
+        assert_close(tp.x_vertices[: len(xyt.x)], xyt.x)
+        assert_close(tp.y_vertices[: len(xyt.y)], xyt.y)
 
     def test_contains_points(self) -> None:
         """Test the 'contains' method with points."""
