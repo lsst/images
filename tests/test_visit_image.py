@@ -11,15 +11,16 @@
 
 from __future__ import annotations
 
+import dataclasses
 import os
-import unittest
 import warnings
-from typing import Any, ClassVar
+from typing import Any, Literal
 
 import astropy.io.fits
 import astropy.units as u
 import astropy.wcs
 import numpy as np
+import pytest
 from astro_metadata_translator import ObservationInfo
 
 from lsst.images import (
@@ -68,928 +69,892 @@ try:
 except ImportError:
     HAVE_H5PY = False
 
+try:
+    from lsst.afw.image import Exposure as LegacyExposure
+    from lsst.afw.image import VisitInfo as LegacyVisitInfo
+except ImportError:
+    type LegacyExposure = Any  # type: ignore[no-redef]
+    type LegacyVisitInfo = Any  # type: ignore[no-redef]
+
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
+skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
 
-class VisitImageTestCase(unittest.TestCase):
-    """Basic Tests for VisitImage."""
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.rng = np.random.default_rng(500)
-        det_frame = DetectorFrame(instrument="Inst", visit=1234, detector=1, bbox=Box.factory[1:4096, 1:4096])
-        cls.mask_schema = MaskSchema([MaskPlane("M1", "D1")])
-        cls.obs_info = ObservationInfo(instrument="LSSTCam", detector_num=4, physical_filter="r1")
-        cls.summary_stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4)
-        cls.gaussian_psf = GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13])
-        cls.aperture_corrections: ApertureCorrectionMap = {
-            "flux1": ChebyshevField(det_frame.bbox, np.array([0.75])),
-            "flux2": ChebyshevField(det_frame.bbox, np.array([0.625])),
+@pytest.fixture(scope="session")
+def visit_image_components() -> dict[str, Any]:
+    """Return a dictionary of VisitImage components."""
+    rng = np.random.default_rng(500)
+    det_frame = DetectorFrame(instrument="Inst", visit=1234, detector=1, bbox=Box.factory[1:4096, 1:4096])
+    mask_schema = MaskSchema([MaskPlane("M1", "D1")])
+    obs_info = ObservationInfo(instrument="LSSTCam", detector_num=4, physical_filter="r1")
+    summary_stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4)
+    gaussian_psf = GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13])
+    aperture_corrections: ApertureCorrectionMap = {
+        "flux1": ChebyshevField(det_frame.bbox, np.array([0.75])),
+        "flux2": ChebyshevField(det_frame.bbox, np.array([0.625])),
+    }
+    detector = read_archive(os.path.join(LOCAL_DATA_DIR, "detector.json"), Detector)
+    image = Image(42, shape=(1024, 1024), unit=u.nJy)
+    variance = Image(5.0, shape=(1024, 1024), unit=u.nJy * u.nJy)
+    # polygon is the lower triangle of the image.
+    polygon = Polygon(x_vertices=[-0.5, 1023.5, -0.5], y_vertices=[-0.5, -0.5, 1023.5])
+    sky_projection = make_random_sky_projection(rng, det_frame, det_frame.bbox)
+    return {
+        "mask_schema": mask_schema,
+        "obs_info": obs_info,
+        "summary_stats": summary_stats,
+        "gaussian_psf": gaussian_psf,
+        "aperture_corrections": aperture_corrections,
+        "detector": detector,
+        "image": image,
+        "variance": variance,
+        "polygon": polygon,
+        "sky_projection": sky_projection,
+    }
+
+
+def make_visit_image(components: dict[str, Any]) -> VisitImage:
+    """Construct a new VisitImage with most components populated."""
+    det_frame = components["sky_projection"].pixel_frame
+    opaque = FitsOpaqueMetadata()
+    hdr = astropy.io.fits.Header()
+    with warnings.catch_warnings():
+        # Silence warnings about long keys becoming HIERARCH.
+        warnings.simplefilter("ignore", category=astropy.io.fits.verify.VerifyWarning)
+        hdr.update({"PLATFORM": "lsstcam", "LSST BUTLER ID": "123456789"})
+    opaque.extract_legacy_primary_header(hdr)
+    # API signature suggests sky_projection and obs_info can be None but
+    # they are required (unless you pass them in via the image plane).
+    vi = VisitImage(
+        components["image"],
+        variance=components["variance"],
+        psf=GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13]),
+        mask_schema=components["mask_schema"],
+        sky_projection=components["sky_projection"],
+        obs_info=components["obs_info"],
+        summary_stats=components["summary_stats"],
+        detector=components["detector"],
+        bounds=components["polygon"],
+        aperture_corrections=components["aperture_corrections"],
+        band="r",
+    )
+    vi.backgrounds.add(
+        "standard",
+        ChebyshevField(det_frame.bbox, np.array([[2.0]])),
+        description="Background subtracted from the image.",
+        is_subtracted=True,
+    )
+    vi._opaque_metadata = opaque
+    return vi
+
+
+def make_simplest_visit_image(components: dict[str, Any]) -> VisitImage:
+    """Construct a VisitImage with the minimal set of components populated."""
+    return VisitImage(
+        components["image"],
+        psf=GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13]),
+        mask_schema=components["mask_schema"],
+        sky_projection=components["sky_projection"],
+        detector=components["detector"],
+        obs_info=components["obs_info"],
+        band="r",
+    )
+
+
+def _make_sum_background_visit_image(components: dict[str, Any], visit_image: VisitImage) -> VisitImage:
+    """Return a VisitImage whose subtracted background is a SumField."""
+    rng = np.random.default_rng(42)
+    bbox = visit_image.image.sky_projection.pixel_frame.bbox
+    bin_y = bbox.y.linspace(6)
+    bin_x = bbox.x.linspace(7)
+    spline_a = SplineField(
+        bbox,
+        rng.standard_normal(size=(bin_y.size, bin_x.size)),
+        y=bin_y,
+        x=bin_x,
+    )
+    spline_b = SplineField(
+        bbox,
+        rng.standard_normal(size=(bin_y.size, bin_x.size)),
+        y=bin_y,
+        x=bin_x,
+    )
+    sum_field = SumField([spline_a, spline_b])
+    bg_map = BackgroundMap()
+    bg_map.add(
+        "stacked",
+        sum_field,
+        description="Two-operand SumField subtracted background.",
+        is_subtracted=True,
+    )
+    return VisitImage(
+        components["image"],
+        variance=components["variance"],
+        psf=components["gaussian_psf"],
+        mask_schema=components["mask_schema"],
+        sky_projection=components["sky_projection"],
+        obs_info=components["obs_info"],
+        summary_stats=components["summary_stats"],
+        detector=components["detector"],
+        band="r",
+        backgrounds=bg_map,
+    )
+
+
+def _check_sum_background_round_trip(result: VisitImage, original: VisitImage) -> None:
+    """Assert that a round-tripped SumField background matches the original."""
+    subtracted = result.backgrounds.subtracted
+    assert subtracted is not None
+    assert isinstance(subtracted.field, SumField)
+    original_subtracted = original.backgrounds.subtracted
+    assert original_subtracted is not None
+    original_field = original_subtracted.field
+    assert isinstance(original_field, SumField)
+    round_field = subtracted.field
+    assert isinstance(round_field, SumField)
+    assert len(round_field.operands) == len(original_field.operands)
+    for round_op, orig_op in zip(round_field.operands, original_field.operands, strict=True):
+        assert round_op == orig_op
+
+
+def test_basics(visit_image_components: dict[str, Any]) -> None:
+    """Verify VisitImage constructor patterns and required-argument checks."""
+    c = visit_image_components
+    # Test default fill of variance.
+    visit = make_simplest_visit_image(c)
+    assert visit.variance.array[0, 0] == 1.0
+    assert visit[...] is visit
+    assert str(visit) == "VisitImage(Image([y=0:1024, x=0:1024], int64), ['M1'])"
+    assert repr(visit) == (
+        "VisitImage(Image(..., bbox=Box(y=Interval(start=0, stop=1024), x=Interval(start=0, stop=1024)),"
+        " dtype=dtype('int64')), mask_schema=MaskSchema([MaskPlane(name='M1', description='D1')],"
+        " dtype=dtype('uint8')))"
+    )
+
+    astropy_wcs = visit.astropy_wcs
+    assert isinstance(astropy_wcs, SkyProjectionAstropyView)
+    approx_wcs = visit.fits_wcs
+    assert isinstance(approx_wcs, astropy.wcs.WCS)
+
+    with pytest.raises(TypeError):
+        # Requires a PSF.
+        VisitImage(
+            c["image"],
+            mask_schema=c["mask_schema"],
+            sky_projection=c["sky_projection"],
+            obs_info=c["obs_info"],
+            detector=c["detector"],
+            band="r",
+        )
+
+    with pytest.raises(TypeError):
+        # Requires ObservationInfo.
+        VisitImage(
+            c["image"],
+            psf=c["gaussian_psf"],
+            mask_schema=c["mask_schema"],
+            sky_projection=c["sky_projection"],
+            detector=c["detector"],
+            band="r",
+        )
+
+    with pytest.raises(TypeError):
+        # Requires a sky_projection.
+        VisitImage(
+            c["image"],
+            psf=c["gaussian_psf"],
+            mask_schema=c["mask_schema"],
+            obs_info=c["obs_info"],
+            detector=c["detector"],
+            band="r",
+        )
+
+    with pytest.raises(TypeError):
+        # Requires a detector.
+        VisitImage(
+            c["image"],
+            psf=c["gaussian_psf"],
+            mask_schema=c["mask_schema"],
+            sky_projection=c["sky_projection"],
+            obs_info=c["obs_info"],
+            band="r",
+        )
+
+    with pytest.raises(TypeError):
+        # Requires some form of mask.
+        VisitImage(
+            c["image"],
+            psf=c["gaussian_psf"],
+            sky_projection=c["sky_projection"],
+            obs_info=c["obs_info"],
+            detector=c["detector"],
+            band="r",
+        )
+
+    with pytest.raises(TypeError):
+        VisitImage(
+            Image(42, shape=(5, 5)),
+            psf=c["gaussian_psf"],
+            mask_schema=c["mask_schema"],
+            sky_projection=c["sky_projection"],
+            obs_info=c["obs_info"],
+            detector=c["detector"],
+            band="r",
+        )
+
+    # Requires a DetectorFrame.
+    rng = np.random.default_rng(501)
+    tract_frame = TractFrame(skymap="Skymap", tract=1, bbox=Box.factory[1:10, 1:10])
+    tract_proj = make_random_sky_projection(rng, tract_frame, Box.factory[1:4096, 1:4096])
+    with pytest.raises(TypeError):
+        VisitImage(
+            c["image"],
+            sky_projection=tract_proj,
+            psf=c["gaussian_psf"],
+            mask_schema=c["mask_schema"],
+            obs_info=c["obs_info"],
+            detector=c["detector"],
+            band="r",
+        )
+
+    # Variance unit mismatch.
+    with pytest.raises(ValueError):
+        VisitImage(
+            c["image"],
+            variance=c["image"],
+            psf=c["gaussian_psf"],
+            mask_schema=c["mask_schema"],
+            sky_projection=c["sky_projection"],
+            obs_info=c["obs_info"],
+            detector=c["detector"],
+            band="r",
+        )
+
+
+def test_copy_and_slice(visit_image_components: dict[str, Any]) -> None:
+    """Verify that copy deep-copies arrays and components while slice shares
+    them.
+    """
+    c = visit_image_components
+    visit_image = make_visit_image(c)
+    copy = visit_image.copy()
+    copy.image.array[0, 0] = 30.0
+    assert visit_image.image.array[0, 0] == 42.0
+    assert copy.image.array[0, 0] == 30.0
+    subvisit = visit_image[Box.factory[0:5, 0:5]]
+    # Check summary stats.
+    assert copy.summary_stats == visit_image.summary_stats
+    assert copy.summary_stats is not visit_image.summary_stats
+    assert subvisit.summary_stats == visit_image.summary_stats
+    assert subvisit.summary_stats is visit_image.summary_stats
+    # Check aperture corrections.
+    assert copy.aperture_corrections.keys() == visit_image.aperture_corrections.keys()
+    assert copy.aperture_corrections is not visit_image.aperture_corrections
+    assert subvisit.aperture_corrections.keys() == visit_image.aperture_corrections.keys()
+    assert subvisit.aperture_corrections is visit_image.aperture_corrections
+    # Check backgrounds.
+    assert copy.backgrounds.keys() == visit_image.backgrounds.keys()
+    assert copy.backgrounds is not visit_image.backgrounds
+    assert subvisit.backgrounds.keys() == visit_image.backgrounds.keys()
+    assert subvisit.backgrounds is visit_image.backgrounds
+    # Check bounds.
+    assert copy.bounds is c["polygon"]
+    assert subvisit.bounds == subvisit.bbox  # original polygon wholly encloses subvisit.bbox
+
+
+def test_obs_info(visit_image_components: dict[str, Any]) -> None:
+    """Verify that ObservationInfo is present and carries the expected
+    instrument.
+    """
+    visit_image = make_visit_image(visit_image_components)
+    assert visit_image.obs_info is not None
+    assert visit_image.obs_info.instrument == "LSSTCam"
+
+
+def test_summary_stats(visit_image_components: dict[str, Any]) -> None:
+    """Verify ObservationSummaryStats equality and inequality comparisons."""
+    summary_stats = visit_image_components["summary_stats"]
+    assert summary_stats == ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4)
+    assert summary_stats != ObservationSummaryStats(psfSigma=2.5)
+    assert summary_stats != ObservationSummaryStats(psfSigma=2.5, raCorners=(5.2, 5.4, 5.4, 5.2))
+
+
+@skip_no_h5py
+def test_round_trip_ndf(visit_image_components: dict[str, Any]) -> None:
+    """Verify NDF round-trip produces a VisitImage equal to the original."""
+    visit_image = make_visit_image(visit_image_components)
+    with RoundtripNdf(visit_image, "VisitImage") as roundtrip:
+        assert_visit_images_equal(roundtrip.result, visit_image, expect_view=False)
+
+
+@skip_no_h5py
+def test_fits_ndf_consistency(visit_image_components: dict[str, Any]) -> None:
+    """Verify FITS and NDF backends produce equal VisitImages on round-trip."""
+    visit_image = make_visit_image(visit_image_components)
+    with RoundtripFits(visit_image) as fits_rt, RoundtripNdf(visit_image) as ndf_rt:
+        assert_visit_images_equal(visit_image, fits_rt.result, expect_view=False)
+        assert_visit_images_equal(visit_image, ndf_rt.result, expect_view=False)
+        assert_visit_images_equal(fits_rt.result, ndf_rt.result, expect_view=False)
+
+
+def test_fits_json_consistency(visit_image_components: dict[str, Any]) -> None:
+    """Verify FITS and JSON backends produce equal VisitImages."""
+    visit_image = make_visit_image(visit_image_components)
+    with (
+        RoundtripFits(visit_image) as fits_rt,
+        RoundtripJson(visit_image) as json_rt,
+    ):
+        assert_visit_images_equal(visit_image, fits_rt.result, expect_view=False)
+        assert_visit_images_equal(visit_image, json_rt.result, expect_view=False)
+        assert_visit_images_equal(fits_rt.result, json_rt.result, expect_view=False)
+
+
+def test_read_write(visit_image_components: dict[str, Any]) -> None:
+    """Verify a VisitImage round-trips through FITS with correct compression.
+
+    Checks compression headers, subimage reads, equality, and opaque
+    metadata.  Contains only butler-free assertions; component reads live
+    in `test_read_write_components`.
+    """
+    visit_image = make_visit_image(visit_image_components)
+    with RoundtripFits(visit_image, "VisitImage") as roundtrip:
+        # Check that we're still using the right compression, and that we
+        # wrote WCSs.
+        fits = roundtrip.inspect()
+        assert fits[1].header["ZCMPTYPE"] == "GZIP_2"
+        assert fits[1].header["CTYPE1"] == "RA---TAN"
+        assert fits[2].header["ZCMPTYPE"] == "GZIP_2"
+        assert fits[2].header["CTYPE1"] == "RA---TAN"
+        assert fits[3].header["ZCMPTYPE"] == "GZIP_2"
+        assert fits[3].header["CTYPE1"] == "RA---TAN"
+        # Check a subimage read (no component arg — does not trigger a skip).
+        subbox = Box.factory[8:13, 9:30]
+        subimage = roundtrip.get(bbox=subbox)
+        assert_masked_images_equal(subimage, visit_image[subbox], expect_view=False)
+
+    assert_visit_images_equal(roundtrip.result, visit_image, expect_view=False)
+    # Check that the round-tripped headers are the same (up to card order).
+    assert len(roundtrip.result._opaque_metadata.headers[ExtensionKey()]) == 1
+    assert dict(visit_image._opaque_metadata.headers[ExtensionKey()]) == dict(
+        roundtrip.result._opaque_metadata.headers[ExtensionKey()]
+    )
+    assert not roundtrip.result._opaque_metadata.headers[ExtensionKey("IMAGE")]
+    assert not roundtrip.result._opaque_metadata.headers[ExtensionKey("MASK")]
+    assert not roundtrip.result._opaque_metadata.headers[ExtensionKey("VARIANCE")]
+    # Spot-check the concrete background contents (names, field types,
+    # subtracted entry) against the known fixture, so the equality check
+    # above is not vacuously satisfied by empty background maps.
+    assert isinstance(roundtrip.result.backgrounds, BackgroundMap)
+    assert roundtrip.result.backgrounds.keys() == {"standard"}
+    assert isinstance(roundtrip.result.backgrounds["standard"].field, ChebyshevField)
+    assert roundtrip.result.backgrounds.subtracted.name == "standard"
+    assert roundtrip.result.backgrounds.subtracted.description == "Background subtracted from the image."
+
+
+def test_read_write_components(visit_image_components: dict[str, Any]) -> None:
+    """Verify component reads and storage-class overrides round-trip correctly.
+
+    Requires a butler; skips when `lsst.daf.butler` is absent.
+    Butler-free assertions live in `test_read_write`.
+    """
+    c = visit_image_components
+    visit_image = make_visit_image(c)
+    with RoundtripFits(visit_image, "VisitImage") as roundtrip:
+        subbox = Box.factory[8:13, 9:30]
+        subimage = roundtrip.get(bbox=subbox)
+
+        # Get an explicit masked image to compare with the subimage.
+        subimage_masked = roundtrip.get("masked_image", bbox=subbox)
+        assert_masked_images_equal(subimage_masked, subimage, expect_view=False)
+
+        # Get the same masked image in a multi-component get and ensure
+        # it is the same thing.
+        components = roundtrip.get("components", components=["masked_image", "psf"], bbox=subbox)
+        assert set(components) == {"masked_image", "psf"}
+        assert_masked_images_equal(components["masked_image"], subimage_masked, expect_view=False)
+
+        assert roundtrip.get("bbox") == visit_image.bbox
+
+        obs_info = roundtrip.get("obs_info")
+        assert isinstance(obs_info, ObservationInfo)
+        assert obs_info == visit_image.obs_info
+
+        summary_stats = roundtrip.get("summary_stats")
+        assert isinstance(summary_stats, ObservationSummaryStats)
+        assert summary_stats == visit_image.summary_stats
+
+        psf = roundtrip.get("psf")
+        assert isinstance(psf, GaussianPointSpreadFunction)
+        assert psf.kernel_bbox == c["gaussian_psf"].kernel_bbox
+
+        backgrounds = roundtrip.get("backgrounds")
+        assert isinstance(backgrounds, BackgroundMap)
+        assert backgrounds.keys() == {"standard"}
+        assert isinstance(backgrounds["standard"].field, ChebyshevField)
+        assert backgrounds.subtracted.name == "standard"
+        assert roundtrip.result.backgrounds.subtracted.description == "Background subtracted from the image."
+
+        # Test some components get edge cases.
+        components = roundtrip.get("components", components="image")
+        assert isinstance(components["image"], Image)
+
+        components = roundtrip.get("components")
+        assert set(components) == {
+            "image",
+            "variance",
+            "psf",
+            "bbox",
+            "mask",
+            "obs_info",
+            "backgrounds",
+            "detector",
+            "aperture_corrections",
+            "sky_projection",
+            "summary_stats",
+            "photometric_scaling",
         }
-        cls.detector = read_archive(os.path.join(LOCAL_DATA_DIR, "detector.json"), Detector)
 
-        opaque = FitsOpaqueMetadata()
-        hdr = astropy.io.fits.Header()
-        with warnings.catch_warnings():
-            # Silence warnings about long keys becoming HIERARCH.
-            warnings.simplefilter("ignore", category=astropy.io.fits.verify.VerifyWarning)
-            hdr.update({"PLATFORM": "lsstcam", "LSST BUTLER ID": "123456789"})
-        opaque.extract_legacy_primary_header(hdr)
+        # Butler morphs RuntimeError to ValueError.
+        with pytest.raises(ValueError):
+            roundtrip.get("components", components=["image", "nonexistent"])
 
-        cls.image = Image(42, shape=(1024, 1024), unit=u.nJy)
-        cls.variance = Image(5.0, shape=(1024, 1024), unit=u.nJy * u.nJy)
-        # polygon is the lower triangle of the image.
-        cls.polygon = Polygon(x_vertices=[-0.5, 1023.5, -0.5], y_vertices=[-0.5, -0.5, 1023.5])
-        cls.sky_projection = make_random_sky_projection(cls.rng, det_frame, Box.factory[1:4096, 1:4096])
-        # API signature suggests sky_projection and obs_info can be None but
-        # they are required (unless you pass them in via the image plane).
-        cls.visit_image = VisitImage(
-            cls.image,
-            variance=cls.variance,
-            psf=GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13]),
-            mask_schema=cls.mask_schema,
-            sky_projection=cls.sky_projection,
-            obs_info=cls.obs_info,
-            summary_stats=cls.summary_stats,
-            detector=cls.detector,
-            bounds=cls.polygon,
-            aperture_corrections=cls.aperture_corrections,
-            band="r",
-        )
-        cls.visit_image.backgrounds.add(
-            "standard",
-            ChebyshevField(det_frame.bbox, np.array([[2.0]])),
-            description="Background subtracted from the image.",
-            is_subtracted=True,
-        )
-        cls.visit_image._opaque_metadata = opaque
-        cls.simplest_visit_image = VisitImage(
-            cls.image,
-            psf=GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13]),
-            mask_schema=cls.mask_schema,
-            sky_projection=cls.sky_projection,
-            detector=cls.detector,
-            obs_info=cls.obs_info,
-            band="r",
-        )
+        with pytest.raises(ValueError):
+            roundtrip.get("components", components=["image", "components"])
 
-    def test_basics(self) -> None:
-        """Test basic constructor patterns."""
-        # Test default fill of variance.
-        visit = self.simplest_visit_image
-        self.assertEqual(visit.variance.array[0, 0], 1.0)
-        self.assertIs(visit[...], visit)
-        self.assertEqual(str(visit), "VisitImage(Image([y=0:1024, x=0:1024], int64), ['M1'])")
-        self.assertEqual(
-            repr(visit),
-            "VisitImage(Image(..., bbox=Box(y=Interval(start=0, stop=1024), x=Interval(start=0, stop=1024)),"
-            " dtype=dtype('int64')), mask_schema=MaskSchema([MaskPlane(name='M1', description='D1')],"
-            " dtype=dtype('uint8')))",
-        )
+        with pytest.raises(ValueError):
+            roundtrip.get("components", components=[])
 
-        astropy_wcs = visit.astropy_wcs
-        self.assertIsInstance(astropy_wcs, SkyProjectionAstropyView)
-        approx_wcs = visit.fits_wcs
-        self.assertIsInstance(approx_wcs, astropy.wcs.WCS)
-
-        with self.assertRaises(TypeError):
-            # Requires a PSF.
-            VisitImage(
-                self.image,
-                mask_schema=self.mask_schema,
-                sky_projection=self.sky_projection,
-                obs_info=self.obs_info,
-                detector=self.detector,
-                band="r",
-            )
-
-        with self.assertRaises(TypeError):
-            # Requires ObservationInfo.
-            VisitImage(
-                self.image,
-                psf=self.gaussian_psf,
-                mask_schema=self.mask_schema,
-                sky_projection=self.sky_projection,
-                detector=self.detector,
-                band="r",
-            )
-
-        with self.assertRaises(TypeError):
-            # Requires a sky_projection.
-            VisitImage(
-                self.image,
-                psf=self.gaussian_psf,
-                mask_schema=self.mask_schema,
-                obs_info=self.obs_info,
-                detector=self.detector,
-                band="r",
-            )
-
-        with self.assertRaises(TypeError):
-            # Requires a detector.
-            VisitImage(
-                self.image,
-                psf=self.gaussian_psf,
-                mask_schema=self.mask_schema,
-                sky_projection=self.sky_projection,
-                obs_info=self.obs_info,
-                band="r",
-            )
-
-        with self.assertRaises(TypeError):
-            # Requires some form of mask.
-            VisitImage(
-                self.image,
-                psf=self.gaussian_psf,
-                sky_projection=self.sky_projection,
-                obs_info=self.obs_info,
-                detector=self.detector,
-                band="r",
-            )
-
-        with self.assertRaises(TypeError):
-            VisitImage(
-                Image(42, shape=(5, 5)),
-                psf=self.gaussian_psf,
-                mask_schema=self.mask_schema,
-                sky_projection=self.sky_projection,
-                obs_info=self.obs_info,
-                detector=self.detector,
-                band="r",
-            )
-
-        # Requires a DetectorFrame.
-        tract_frame = TractFrame(skymap="Skymap", tract=1, bbox=Box.factory[1:10, 1:10])
-        tract_proj = make_random_sky_projection(self.rng, tract_frame, Box.factory[1:4096, 1:4096])
-        with self.assertRaises(TypeError):
-            VisitImage(
-                self.image,
-                sky_projection=tract_proj,
-                psf=self.gaussian_psf,
-                mask_schema=self.mask_schema,
-                obs_info=self.obs_info,
-                detector=self.detector,
-                band="r",
-            )
-
-        # Variance unit mismatch.
-        with self.assertRaises(ValueError):
-            VisitImage(
-                self.image,
-                variance=self.image,
-                psf=self.gaussian_psf,
-                mask_schema=self.mask_schema,
-                sky_projection=self.sky_projection,
-                obs_info=self.obs_info,
-                detector=self.detector,
-                band="r",
-            )
-
-    def test_copy_and_slice(self) -> None:
-        """Test that arrays and components are copied (when not immutable) by
-        'copy' and referenced by 'slice'.
-        """
-        visit = self.visit_image
-        copy = visit.copy()
-        copy.image.array[0, 0] = 30.0
-        self.assertEqual(visit.image.array[0, 0], 42.0)
-        self.assertEqual(copy.image.array[0, 0], 30.0)
-        subvisit = visit[Box.factory[0:5, 0:5]]
-        # Check summary stats.
-        self.assertEqual(copy.summary_stats, visit.summary_stats)
-        self.assertIsNot(copy.summary_stats, visit.summary_stats)
-        self.assertEqual(subvisit.summary_stats, visit.summary_stats)
-        self.assertIs(subvisit.summary_stats, visit.summary_stats)
-        # Check aperture corrections.
-        self.assertEqual(copy.aperture_corrections.keys(), visit.aperture_corrections.keys())
-        self.assertIsNot(copy.aperture_corrections, visit.aperture_corrections)
-        self.assertEqual(subvisit.aperture_corrections.keys(), visit.aperture_corrections.keys())
-        self.assertIs(subvisit.aperture_corrections, visit.aperture_corrections)
-        # Check backgrounds.
-        self.assertEqual(copy.backgrounds.keys(), visit.backgrounds.keys())
-        self.assertIsNot(copy.backgrounds, visit.backgrounds)
-        self.assertEqual(subvisit.backgrounds.keys(), visit.backgrounds.keys())
-        self.assertIs(subvisit.backgrounds, visit.backgrounds)
-        # Check bounds.
-        self.assertIs(copy.bounds, self.polygon)
-        self.assertEqual(subvisit.bounds, subvisit.bbox)  # original polygon wholly encloses subvisit.bbox
-
-    def test_obs_info(self) -> None:
-        """Check that ObservationInfo has been constructed."""
-        visit = self.visit_image
-        self.assertIsNotNone(visit.obs_info)
-        self.maxDiff = None
-        assert visit.obs_info is not None  # for mypy.
-        self.assertEqual(visit.obs_info.instrument, "LSSTCam")
-
-    def test_summary_stats(self) -> None:
-        """Test the comparisons and attributes of ObservationSummaryStats."""
-        self.assertEqual(self.summary_stats, ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4))
-        self.assertNotEqual(self.summary_stats, ObservationSummaryStats(psfSigma=2.5))
-        self.assertNotEqual(
-            self.summary_stats, ObservationSummaryStats(psfSigma=2.5, raCorners=(5.2, 5.4, 5.4, 5.2))
-        )
-
-    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
-    def test_round_trip_ndf(self) -> None:
-        """NDF round-trip for VisitImage."""
-        with RoundtripNdf(self.visit_image, "VisitImage") as roundtrip:
-            assert_visit_images_equal(roundtrip.result, self.visit_image, expect_view=False)
-
-    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
-    def test_fits_ndf_consistency(self) -> None:
-        """FITS and NDF backends produce equal VisitImages on round-trip."""
-        with RoundtripFits(self.visit_image) as fits_rt, RoundtripNdf(self.visit_image) as ndf_rt:
-            assert_visit_images_equal(self.visit_image, fits_rt.result, expect_view=False)
-            assert_visit_images_equal(self.visit_image, ndf_rt.result, expect_view=False)
-            assert_visit_images_equal(fits_rt.result, ndf_rt.result, expect_view=False)
-
-    def test_fits_json_consistency(self) -> None:
-        """FITS and JSON backends produce equal VisitImages on round-trip."""
-        with (
-            RoundtripFits(self.visit_image) as fits_rt,
-            RoundtripJson(self.visit_image) as json_rt,
-        ):
-            assert_visit_images_equal(self.visit_image, fits_rt.result, expect_view=False)
-            assert_visit_images_equal(self.visit_image, json_rt.result, expect_view=False)
-            assert_visit_images_equal(fits_rt.result, json_rt.result, expect_view=False)
-
-    def test_read_write(self) -> None:
-        """Test that a visit can round trip through a FITS file."""
-        with RoundtripFits(self.visit_image, "VisitImage") as roundtrip:
-            # Check that we're still using the right compression, and that we
-            # wrote WCSs.
-            fits = roundtrip.inspect()
-            self.assertEqual(fits[1].header["ZCMPTYPE"], "GZIP_2")
-            self.assertEqual(fits[1].header["CTYPE1"], "RA---TAN")
-            self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
-            self.assertEqual(fits[2].header["CTYPE1"], "RA---TAN")
-            self.assertEqual(fits[3].header["ZCMPTYPE"], "GZIP_2")
-            self.assertEqual(fits[3].header["CTYPE1"], "RA---TAN")
-            # Check a subimage read.
-            subbox = Box.factory[8:13, 9:30]
-            subimage = roundtrip.get(bbox=subbox)
-            assert_masked_images_equal(subimage, self.visit_image[subbox], expect_view=False)
-
-            # Get an explicit masked image to compare with the subimage
-            with self.subTest():
-                subimage_masked = roundtrip.get("masked_image", bbox=subbox)
-                assert_masked_images_equal(subimage_masked, subimage, expect_view=False)
-
-                # Get the same masked image in a multi-component get and ensure
-                # it is the same thing.
-                components = roundtrip.get("components", components=["masked_image", "psf"], bbox=subbox)
-                self.assertEqual(set(components), {"masked_image", "psf"})
-                assert_masked_images_equal(components["masked_image"], subimage_masked, expect_view=False)
-
-            with self.subTest():
-                self.assertEqual(roundtrip.get("bbox"), self.visit_image.bbox)
-            with self.subTest():
-                obs_info = roundtrip.get("obs_info")
-                self.assertIsInstance(obs_info, ObservationInfo)
-                self.assertEqual(obs_info, self.visit_image.obs_info)
-            with self.subTest():
-                summary_stats = roundtrip.get("summary_stats")
-                self.assertIsInstance(summary_stats, ObservationSummaryStats)
-                self.assertEqual(summary_stats, self.visit_image.summary_stats)
-            with self.subTest():
-                psf = roundtrip.get("psf")
-                self.assertIsInstance(psf, GaussianPointSpreadFunction)
-                self.assertEqual(psf.kernel_bbox, self.gaussian_psf.kernel_bbox)
-            with self.subTest():
-                backgrounds = roundtrip.get("backgrounds")
-                self.assertIsInstance(backgrounds, BackgroundMap)
-                self.assertEqual(backgrounds.keys(), {"standard"})
-                self.assertIsInstance(backgrounds["standard"].field, ChebyshevField)
-                self.assertEqual(backgrounds.subtracted.name, "standard")
-                self.assertEqual(
-                    roundtrip.result.backgrounds.subtracted.description,
-                    "Background subtracted from the image.",
-                )
-
-            with self.subTest(components="components edge cases"):
-                # Test some components get edge cases.
-                components = roundtrip.get("components", components="image")
-                self.assertIsInstance(components["image"], Image)
-
-                components = roundtrip.get("components")
-                self.assertEqual(
-                    set(components),
-                    {
-                        "image",
-                        "variance",
-                        "psf",
-                        "bbox",
-                        "mask",
-                        "obs_info",
-                        "backgrounds",
-                        "detector",
-                        "aperture_corrections",
-                        "sky_projection",
-                        "summary_stats",
-                        "photometric_scaling",
-                    },
-                )
-
-                # Butler morphs RuntimeError to ValueError.
-                with self.assertRaises(ValueError):
-                    roundtrip.get("components", components=["image", "nonexistent"])
-
-                with self.assertRaises(ValueError):
-                    roundtrip.get("components", components=["image", "components"])
-
-                with self.assertRaises(ValueError):
-                    roundtrip.get("components", components=[])
-
-                with self.assertRaises(ValueError):
-                    # PSF does not know how to use bbox so this fails.
-                    roundtrip.get("components", components="psf", bbox=subbox)
-
-        assert_visit_images_equal(roundtrip.result, self.visit_image, expect_view=False)
-        # Check that the round-tripped headers are the same (up to card order).
-        self.assertEqual(len(roundtrip.result._opaque_metadata.headers[ExtensionKey()]), 1)
-        self.assertEqual(
-            dict(self.visit_image._opaque_metadata.headers[ExtensionKey()]),
-            dict(roundtrip.result._opaque_metadata.headers[ExtensionKey()]),
-        )
-        self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("IMAGE")])
-        self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("MASK")])
-        self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("VARIANCE")])
-        # Spot-check the concrete background contents (names, field types,
-        # subtracted entry) against the known fixture, so the equality check
-        # above is not vacuously satisfied by empty background maps.
-        self.assertIsInstance(roundtrip.result.backgrounds, BackgroundMap)
-        self.assertEqual(roundtrip.result.backgrounds.keys(), {"standard"})
-        self.assertIsInstance(roundtrip.result.backgrounds["standard"].field, ChebyshevField)
-        self.assertEqual(roundtrip.result.backgrounds.subtracted.name, "standard")
-        self.assertEqual(
-            roundtrip.result.backgrounds.subtracted.description, "Background subtracted from the image."
-        )
-
-    def _make_sum_background_visit_image(self) -> VisitImage:
-        """Return a VisitImage whose subtracted background is a SumField.
-
-        Each operand of the SumField calls ``add_array(name="data")`` from
-        the same nested archive, exercising the per-name disambiguation
-        the output archives perform via `_register_name`.
-        """
-        det_frame = self.visit_image.image.sky_projection.pixel_frame
-        bbox = det_frame.bbox
-        bin_y = bbox.y.linspace(6)
-        bin_x = bbox.x.linspace(7)
-        spline_a = SplineField(
-            bbox,
-            self.rng.standard_normal(size=(bin_y.size, bin_x.size)),
-            y=bin_y,
-            x=bin_x,
-        )
-        spline_b = SplineField(
-            bbox,
-            self.rng.standard_normal(size=(bin_y.size, bin_x.size)),
-            y=bin_y,
-            x=bin_x,
-        )
-        sum_field = SumField([spline_a, spline_b])
-        bg_map = BackgroundMap()
-        bg_map.add(
-            "stacked",
-            sum_field,
-            description="Two-operand SumField subtracted background.",
-            is_subtracted=True,
-        )
-        return VisitImage(
-            self.image,
-            variance=self.variance,
-            psf=self.gaussian_psf,
-            mask_schema=self.mask_schema,
-            sky_projection=self.sky_projection,
-            obs_info=self.obs_info,
-            summary_stats=self.summary_stats,
-            detector=self.detector,
-            band="r",
-            backgrounds=bg_map,
-        )
-
-    def test_sum_background_round_trip_fits(self) -> None:
-        """Two operands of a SumField background each call ``add_array``
-        with the same name; the FITS backend must keep them as distinct
-        EXTVERs rather than overwriting.
-        """
-        visit = self._make_sum_background_visit_image()
-        with RoundtripFits(visit) as roundtrip:
-            self._check_sum_background_round_trip(roundtrip.result, visit)
-
-    @unittest.skipUnless(HAVE_H5PY, "h5py is not installed")
-    def test_sum_background_round_trip_ndf(self) -> None:
-        """NDF must disambiguate the repeated ``data`` leaf the same way."""
-        visit = self._make_sum_background_visit_image()
-        with RoundtripNdf(visit) as roundtrip:
-            self._check_sum_background_round_trip(roundtrip.result, visit)
-
-    def _check_sum_background_round_trip(self, result: VisitImage, original: VisitImage) -> None:
-        subtracted = result.backgrounds.subtracted
-        assert subtracted is not None
-        self.assertIsInstance(subtracted.field, SumField)
-        original_subtracted = original.backgrounds.subtracted
-        assert original_subtracted is not None
-        original_field = original_subtracted.field
-        assert isinstance(original_field, SumField)
-        round_field = subtracted.field
-        assert isinstance(round_field, SumField)
-        self.assertEqual(len(round_field.operands), len(original_field.operands))
-        for round_op, orig_op in zip(round_field.operands, original_field.operands, strict=True):
-            self.assertEqual(round_op, orig_op)
+        with pytest.raises(ValueError):
+            # PSF does not know how to use bbox so this fails.
+            roundtrip.get("components", components="psf", bbox=subbox)
 
 
-class VisitImageLegacyTestMixin:
-    """Tests for the VisitImage class and the basics of the archive, to be
-    specialized for a particular test image.
-
-    `setUp` or `setUpClass` must be implemented to set the attributes declared
-    in the class.
+def test_sum_background_round_trip_fits(visit_image_components: dict[str, Any]) -> None:
+    """Verify FITS backend keeps two same-named SumField operands as distinct
+    EXTVERs.
     """
+    visit_image = make_visit_image(visit_image_components)
+    visit = _make_sum_background_visit_image(visit_image_components, visit_image)
+    with RoundtripFits(visit) as roundtrip:
+        _check_sum_background_round_trip(roundtrip.result, visit)
 
+
+@skip_no_h5py
+def test_sum_background_round_trip_ndf(visit_image_components: dict[str, Any]) -> None:
+    """Verify NDF backend disambiguates the repeated ``data`` leaf, just as
+    the FITS backend does.
+    """
+    visit_image = make_visit_image(visit_image_components)
+    visit = _make_sum_background_visit_image(visit_image_components, visit_image)
+    with RoundtripNdf(visit) as roundtrip:
+        _check_sum_background_round_trip(roundtrip.result, visit)
+
+
+@dataclasses.dataclass
+class _LegacyTestData:
     filename: str
-    legacy_exposure: Any
-    plane_map: dict[str, MaskPlane]
-    visit_image: VisitImage
-    unit: u.UnitBase
-    storage_class: ClassVar[str] = "VisitImage"
+    plane_map: dict[str, MaskPlane] = dataclasses.field(default_factory=get_legacy_visit_image_mask_planes)
+    unit: u.Unit = u.nJy
+    storage_class: str = "VisitImage"
+    read_cls: type[VisitImage] = VisitImage
+    legacy_exposure: LegacyExposure = dataclasses.field(init=False)
 
-    def test_legacy_errors(self) -> None:
-        """Legacy read failure modes."""
-        with self.assertRaises(ValueError):
-            VisitImage.from_legacy(self.legacy_exposure, instrument="HSC")
-        with self.assertRaises(ValueError):
-            VisitImage.from_legacy(self.legacy_exposure, visit=123456)
-        with self.assertRaises(ValueError):
-            VisitImage.from_legacy(self.legacy_exposure, unit=u.mJy)
-        visit = VisitImage.from_legacy(
-            self.legacy_exposure, instrument="LSSTCam", unit=self.unit, visit=2025052000177
+    @classmethod
+    def get(
+        cls, which: Literal["visit_image", "preliminary_visit_image", "difference_image"]
+    ) -> _LegacyTestData:
+        if EXTERNAL_DATA_DIR is None:
+            pytest.skip("TESTDATA_IMAGES is not set up.")
+        result = cls(
+            os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", f"{which}.fits"),
         )
-        self.assertEqual(visit.unit, self.unit)
+        match which:
+            case "preliminary_visit_image":
+                result.unit = u.electron
+            case "difference_image":
+                result.storage_class = "DifferenceImage"
+                result.read_cls = DifferenceImage
+                result.plane_map = get_legacy_difference_image_mask_planes()
+            case "visit_image":
+                pass
+        try:
+            from lsst.afw.image import ExposureFitsReader
 
-        with self.assertRaises(ValueError):
-            VisitImage.read_legacy(self.filename, instrument="HSC")
-        with self.assertRaises(ValueError):
-            VisitImage.read_legacy(self.filename, visit=123456)
-
-    def test_component_reads(self) -> None:
-        """Test reads of components from legacy file."""
-        visit = VisitImage.read_legacy(self.filename)
-        proj = VisitImage.read_legacy(self.filename, component="sky_projection")
-        assert_sky_projections_equal(proj, visit.sky_projection, expect_identity=False)
-        image = VisitImage.read_legacy(self.filename, component="image")
-        self.assertEqual(image, visit.image)
-        assert_sky_projections_equal(proj, image.sky_projection, expect_identity=False)
-        variance = VisitImage.read_legacy(self.filename, component="variance")
-        self.assertEqual(variance, visit.variance)
-        assert_sky_projections_equal(proj, variance.sky_projection, expect_identity=False)
-        mask = VisitImage.read_legacy(self.filename, component="mask")
-        self.assertEqual(mask, visit.mask)
-        assert_sky_projections_equal(proj, mask.sky_projection, expect_identity=False)
-        psf = VisitImage.read_legacy(self.filename, component="psf")
-        self.assertIsInstance(psf, PointSpreadFunction)
-        obs_info = VisitImage.read_legacy(self.filename, component="obs_info")
-        self.check_legacy_obs_info(obs_info)
-        summary_stats = VisitImage.read_legacy(self.filename, component="summary_stats")
-        self.assertIsInstance(summary_stats, ObservationSummaryStats)
-        self.assertEqual(summary_stats.nPsfStar, self.legacy_exposure.info.getSummaryStats().nPsfStar)
-        compare_aperture_corrections_to_legacy(
-            VisitImage.read_legacy(self.filename, component="aperture_corrections"),
-            self.legacy_exposure.info.getApCorrMap(),
-            visit.bbox,
+            result.legacy_exposure = ExposureFitsReader(result.filename).read()
+        except ImportError:
+            pytest.skip("lsst.afw.image is not available; cannot read legacy exposures")
+        result.visit_image = result.read_cls.read_legacy(
+            result.filename, preserve_quantization=True, plane_map=result.plane_map
         )
-        detector = VisitImage.read_legacy(self.filename, component="detector")
-        compare_detector_to_legacy(detector, self.legacy_exposure.getDetector(), is_raw_assembled=True)
-        photometric_scaling = VisitImage.read_legacy(self.filename, component="photometric_scaling")
-        compare_photo_calib_to_legacy(
-            photometric_scaling,
-            self.legacy_exposure.getPhotoCalib(),
-            subimage_bbox=visit.bbox,
-        )
+        return result
 
-    def check_legacy_obs_info(self, obs_info: ObservationInfo | None) -> None:
-        """Check that an `ObservationInfo` instance is not `None`, and that it
-        matches the one in the legacy test data file.
-        """
-        self.assertIsInstance(obs_info, ObservationInfo)
-        self.assertEqual(obs_info.instrument, "LSSTCam")
-        self.assertEqual(obs_info.detector_num, 85, obs_info)
-        self.assertEqual(obs_info.detector_unique_name, "R21_S11", obs_info)
-        self.assertEqual(obs_info.physical_filter, "r_57", obs_info)
 
-    def test_obs_info(self) -> None:
-        """Check that ObservationInfo has been constructed."""
-        legacy = VisitImage.from_legacy(self.legacy_exposure, plane_map=self.plane_map)
-        self.assertIsNotNone(legacy.obs_info)
-        self.maxDiff = None
-        self.assertEqual(legacy.obs_info, self.visit_image.obs_info)
-        assert legacy.obs_info is not None  # for mypy.
-        self.assertEqual(legacy.obs_info.instrument, "LSSTCam")
-        self.assertEqual(legacy.obs_info.detector_num, 85, legacy.obs_info)
-        self.assertEqual(legacy.obs_info.detector_unique_name, "R21_S11", legacy.obs_info)
-        self.assertEqual(legacy.obs_info.physical_filter, "r_57", legacy.obs_info)
+@pytest.fixture(scope="session", params=["visit_image", "preliminary_visit_image", "difference_image"])
+def legacy_test_data(request: pytest.FixtureRequest) -> _LegacyTestData:
+    """Return legacy test data.
 
-    def test_aperture_corrections_to_legacy(self) -> None:
-        """Test that we can convert an aperture correction map back to a
-        legacy `lsst.afw.image.ApCorrMap`.
-        """
-        legacy_ap_corr_map = aperture_corrections_to_legacy(self.visit_image.aperture_corrections)
-        compare_aperture_corrections_to_legacy(
-            self.visit_image.aperture_corrections, legacy_ap_corr_map, self.visit_image.bbox
-        )
+    Tests that depend on this parameterized fixture run on all of the legacy
+    test images.
+    """
+    return _LegacyTestData.get(request.param)
 
-    def test_read_legacy_headers(self) -> None:
-        """Test that headers were correctly stripped and interpreted in
-        `VisitImage.read_legacy`.
-        """
-        # Check that we read the units from BUNIT.
-        self.assertEqual(self.visit_image.unit, self.unit)
-        # Check that the primary header has the keys we want, and none of the
-        # keys we don't want.
-        header = self.visit_image._opaque_metadata.headers[ExtensionKey()]
-        self.assertIn("EXPTIME", header)
-        self.assertEqual(header["PLATFORM"], "lsstcam")
-        self.assertNotIn("LSST BUTLER ID", header)
-        self.assertNotIn("AR HDU", header)
-        self.assertNotIn("A_ORDER", header)
-        # Check that the extension HDUs do not have any custom headers.
-        self.assertFalse(self.visit_image._opaque_metadata.headers[ExtensionKey("IMAGE")])
-        self.assertFalse(self.visit_image._opaque_metadata.headers[ExtensionKey("MASK")])
-        self.assertFalse(self.visit_image._opaque_metadata.headers[ExtensionKey("VARIANCE")])
 
-    def test_from_legacy_headers(self) -> None:
-        """Test that from_legacy handles headers properly."""
-        legacy = VisitImage.from_legacy(self.legacy_exposure, plane_map=self.plane_map)
-        header = legacy._opaque_metadata.headers[ExtensionKey()]
-        self.assertIn("EXPTIME", header)
-        self.assertEqual(header["PLATFORM"], "lsstcam")
-        self.assertNotIn("LSST BUTLER ID", header)
-        self.assertNotIn("AR HDU", header)
-        self.assertNotIn("A_ORDER", header)
-        # Check that the extension HDUs do not have any custom headers.
-        self.assertFalse(self.visit_image._opaque_metadata.headers[ExtensionKey("IMAGE")])
-        self.assertFalse(self.visit_image._opaque_metadata.headers[ExtensionKey("MASK")])
-        self.assertFalse(self.visit_image._opaque_metadata.headers[ExtensionKey("VARIANCE")])
+@pytest.fixture(scope="session", params=["visit_image", "difference_image"])
+def legacy_test_data_calibrated(request: pytest.FixtureRequest) -> _LegacyTestData:
+    """Return legacy test data for calibrated images only.
 
-    def test_rewrite(self) -> None:
-        """Test that we can rewrite the visit image and preserve both
-        lossy-compressed pixel values and components exactly.
-        """
-        import lsst.afw.image
+    Tests that depend on this parameterized fixture do not run on
+    preliminary_visit_image, since that has 'electron' pixel units
+    """
+    return _LegacyTestData.get(request.param)
 
-        with RoundtripFits(self.visit_image, self.storage_class) as roundtrip:
-            # Check that we're still using the right compression, and that we
-            # wrote WCSs.
-            fits = roundtrip.inspect()
-            self.assertEqual(fits[1].header["ZCMPTYPE"], "RICE_1")
-            self.assertEqual(fits[1].header["CTYPE1"], "RA---TAN-SIP")
-            self.assertEqual(fits[2].header["ZCMPTYPE"], "GZIP_2")
-            self.assertEqual(fits[2].header["CTYPE1"], "RA---TAN-SIP")
-            self.assertEqual(fits[3].header["ZCMPTYPE"], "RICE_1")
-            self.assertEqual(fits[3].header["CTYPE1"], "RA---TAN-SIP")
-            # Check a subimage read.
-            subbox = Box.factory[8:13, 9:30]
-            subimage = roundtrip.get(bbox=subbox)
-            assert_masked_images_equal(subimage, self.visit_image[subbox], expect_view=False)
-            alternates: dict[str, Any] = {}
-            with self.subTest():
-                self.assertEqual(roundtrip.get("bbox"), self.visit_image.bbox)
-                alternates = {
-                    k: roundtrip.get(k)
-                    for k in [
-                        "sky_projection",
-                        "image",
-                        "mask",
-                        "variance",
-                        "psf",
-                        "obs_info",
-                        "summary_stats",
-                        "aperture_corrections",
-                        "detector",
-                        "photometric_scaling",
-                    ]
-                }
-            # Test reading back in as an Exposure.
-            with self.subTest():
-                legacy_exposure = roundtrip.get(storageClass="Exposure")
-                self.assertIsInstance(legacy_exposure, lsst.afw.image.Exposure)
-                # This covers most of the compnents, which have clean 1-1
-                # mappings from legacy to new:
-                compare_visit_image_to_legacy(
-                    self.visit_image,
-                    legacy_exposure,
-                    expect_view=False,
-                    plane_map=self.plane_map,
-                    **DP2_VISIT_DETECTOR_DATA_ID,
-                )
-                # A few components are different enough to merit extra
-                # attention:
-                if self.visit_image.unit == u.nJy:
-                    self.assertTrue(legacy_exposure.getPhotoCalib()._isConstant)
-                    self.assertEqual(legacy_exposure.getPhotoCalib().getCalibrationMean(), 1.0)
-                else:
-                    compare_photo_calib_to_legacy(
-                        self.visit_image.photometric_scaling,
-                        legacy_exposure.getPhotoCalib(),
-                        subimage_bbox=subbox,
-                    )
-                self.assertEqual(legacy_exposure.info.getId(), self.legacy_exposure.info.getId())
-            # Try to do a butler get of a component with storage class
-            # override.
-            with self.subTest():
-                # We have VisitInfo available.
-                visit_info = roundtrip.get("obs_info", storageClass="VisitInfo")
-                self.assertIsInstance(visit_info, lsst.afw.image.VisitInfo)
-                self.assertEqual(visit_info.getInstrumentLabel(), "LSSTCam")
 
-        assert_visit_images_equal(roundtrip.result, self.visit_image, expect_view=False)
-        # Check that the round-tripped headers are the same (up to card order).
-        self.assertEqual(
-            dict(self.visit_image._opaque_metadata.headers[ExtensionKey()]),
-            dict(roundtrip.result._opaque_metadata.headers[ExtensionKey()]),
-        )
-        self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("IMAGE")])
-        self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("MASK")])
-        self.assertFalse(roundtrip.result._opaque_metadata.headers[ExtensionKey("VARIANCE")])
-        self.assertEqual(roundtrip.result._opaque_metadata.headers[ExtensionKey()]["PLATFORM"], "lsstcam")
+def _check_legacy_obs_info(obs_info: ObservationInfo | None) -> None:
+    """Assert obs_info carries expected LSSTCam/DP2 field values."""
+    assert isinstance(obs_info, ObservationInfo)
+    assert obs_info.instrument == "LSSTCam"
+    assert obs_info.detector_num == 85, obs_info
+    assert obs_info.detector_unique_name == "R21_S11", obs_info
+    assert obs_info.physical_filter == "r_57", obs_info
+
+
+def test_legacy_errors(legacy_test_data: _LegacyTestData) -> None:
+    """Verify that from_legacy and read_legacy raise ValueError on
+    conflicting arguments.
+    """
+    with pytest.raises(ValueError):
+        VisitImage.from_legacy(legacy_test_data.legacy_exposure, instrument="HSC")
+    with pytest.raises(ValueError):
+        VisitImage.from_legacy(legacy_test_data.legacy_exposure, visit=123456)
+    with pytest.raises(ValueError):
+        VisitImage.from_legacy(legacy_test_data.legacy_exposure, unit=u.mJy)
+    visit = VisitImage.from_legacy(
+        legacy_test_data.legacy_exposure,
+        instrument="LSSTCam",
+        unit=legacy_test_data.unit,
+        visit=2025052000177,
+    )
+    assert visit.unit == legacy_test_data.unit
+
+    with pytest.raises(ValueError):
+        legacy_test_data.read_cls.read_legacy(legacy_test_data.filename, instrument="HSC")
+    with pytest.raises(ValueError):
+        legacy_test_data.read_cls.read_legacy(legacy_test_data.filename, visit=123456)
+
+
+def test_component_reads(legacy_test_data: _LegacyTestData) -> None:
+    """Verify that individual components can be read from a legacy FITS
+    file.
+    """
+    visit = VisitImage.read_legacy(legacy_test_data.filename)
+    proj = VisitImage.read_legacy(legacy_test_data.filename, component="sky_projection")
+    assert_sky_projections_equal(proj, visit.sky_projection, expect_identity=False)
+    image = VisitImage.read_legacy(legacy_test_data.filename, component="image")
+    assert image == visit.image
+    assert_sky_projections_equal(proj, image.sky_projection, expect_identity=False)
+    variance = VisitImage.read_legacy(legacy_test_data.filename, component="variance")
+    assert variance == visit.variance
+    assert_sky_projections_equal(proj, variance.sky_projection, expect_identity=False)
+    mask = VisitImage.read_legacy(legacy_test_data.filename, component="mask")
+    assert mask == visit.mask
+    assert_sky_projections_equal(proj, mask.sky_projection, expect_identity=False)
+    psf = VisitImage.read_legacy(legacy_test_data.filename, component="psf")
+    assert isinstance(psf, PointSpreadFunction)
+    obs_info = VisitImage.read_legacy(legacy_test_data.filename, component="obs_info")
+    _check_legacy_obs_info(obs_info)
+    summary_stats = VisitImage.read_legacy(legacy_test_data.filename, component="summary_stats")
+    assert isinstance(summary_stats, ObservationSummaryStats)
+    assert summary_stats.nPsfStar == legacy_test_data.legacy_exposure.info.getSummaryStats().nPsfStar
+    compare_aperture_corrections_to_legacy(
+        VisitImage.read_legacy(legacy_test_data.filename, component="aperture_corrections"),
+        legacy_test_data.legacy_exposure.info.getApCorrMap(),
+        visit.bbox,
+    )
+    detector = VisitImage.read_legacy(legacy_test_data.filename, component="detector")
+    compare_detector_to_legacy(
+        detector, legacy_test_data.legacy_exposure.getDetector(), is_raw_assembled=True
+    )
+    photometric_scaling = VisitImage.read_legacy(legacy_test_data.filename, component="photometric_scaling")
+    compare_photo_calib_to_legacy(
+        photometric_scaling,
+        legacy_test_data.legacy_exposure.getPhotoCalib(),
+        subimage_bbox=visit.bbox,
+    )
+
+
+def test_legacy_obs_info(legacy_test_data: _LegacyTestData) -> None:
+    """Verify that ObservationInfo is constructed correctly from a legacy
+    exposure.
+    """
+    legacy = VisitImage.from_legacy(legacy_test_data.legacy_exposure, plane_map=legacy_test_data.plane_map)
+    assert legacy.obs_info is not None
+    assert legacy.obs_info == legacy_test_data.visit_image.obs_info
+    assert legacy.obs_info is not None  # for mypy
+    assert legacy.obs_info.instrument == "LSSTCam"
+    assert legacy.obs_info.detector_num == 85, legacy.obs_info
+    assert legacy.obs_info.detector_unique_name == "R21_S11", legacy.obs_info
+    assert legacy.obs_info.physical_filter == "r_57", legacy.obs_info
+
+
+def test_aperture_corrections_to_legacy(legacy_test_data: _LegacyTestData) -> None:
+    """Verify that aperture corrections round-trip through a legacy
+    ApCorrMap.
+    """
+    ap_corrections = legacy_test_data.visit_image.aperture_corrections
+    legacy_ap_corr_map = aperture_corrections_to_legacy(ap_corrections)
+    compare_aperture_corrections_to_legacy(
+        ap_corrections,
+        legacy_ap_corr_map,
+        legacy_test_data.visit_image.bbox,
+    )
+
+
+def _check_legacy_headers(visit_image: VisitImage) -> None:
+    """Assert that primary and extension headers are stripped correctly."""
+    header = visit_image._opaque_metadata.headers[ExtensionKey()]
+    assert "EXPTIME" in header
+    assert header["PLATFORM"] == "lsstcam"
+    assert "LSST BUTLER ID" not in header
+    assert "AR HDU" not in header
+    assert "A_ORDER" not in header
+    assert not visit_image._opaque_metadata.headers.get(ExtensionKey("IMAGE"), astropy.io.fits.Header())
+    assert not visit_image._opaque_metadata.headers.get(ExtensionKey("MASK"), astropy.io.fits.Header())
+    assert not visit_image._opaque_metadata.headers.get(ExtensionKey("VARIANCE"), astropy.io.fits.Header())
+
+
+def test_read_legacy_headers(legacy_test_data: _LegacyTestData) -> None:
+    """Verify that headers were stripped and interpreted correctly in
+    read_legacy.
+    """
+    assert legacy_test_data.visit_image.unit == legacy_test_data.unit
+    _check_legacy_headers(legacy_test_data.visit_image)
+
+
+def test_from_legacy_headers(legacy_test_data: _LegacyTestData) -> None:
+    """Verify that from_legacy handles primary and extension headers
+    correctly.
+    """
+    legacy = VisitImage.from_legacy(legacy_test_data.legacy_exposure, plane_map=legacy_test_data.plane_map)
+    assert legacy.unit == legacy_test_data.unit
+    _check_legacy_headers(legacy)
+
+
+def test_rewrite(legacy_test_data: _LegacyTestData) -> None:
+    """Verify that a legacy VisitImage can be rewritten and round-trips both
+    pixel values and all components.
+    """
+    with RoundtripFits(legacy_test_data.visit_image, legacy_test_data.storage_class) as roundtrip:
+        fits = roundtrip.inspect()
+        assert fits[1].header["ZCMPTYPE"] == "RICE_1"
+        assert fits[1].header["CTYPE1"] == "RA---TAN-SIP"
+        assert fits[2].header["ZCMPTYPE"] == "GZIP_2"
+        assert fits[2].header["CTYPE1"] == "RA---TAN-SIP"
+        assert fits[3].header["ZCMPTYPE"] == "RICE_1"
+        assert fits[3].header["CTYPE1"] == "RA---TAN-SIP"
+        subbox = Box.factory[8:13, 9:30]
+        subimage = roundtrip.get(bbox=subbox)
+        assert_masked_images_equal(subimage, legacy_test_data.visit_image[subbox], expect_view=False)
+        alternates: dict[str, Any] = {}
+        assert roundtrip.get("bbox") == legacy_test_data.visit_image.bbox
+        alternates = {
+            k: roundtrip.get(k)
+            for k in [
+                "sky_projection",
+                "image",
+                "mask",
+                "variance",
+                "psf",
+                "obs_info",
+                "summary_stats",
+                "aperture_corrections",
+                "detector",
+                "photometric_scaling",
+            ]
+        }
+        legacy_exposure = roundtrip.get(storageClass="Exposure")
+        assert isinstance(legacy_exposure, LegacyExposure)
         compare_visit_image_to_legacy(
-            roundtrip.result,
-            self.legacy_exposure,
+            legacy_test_data.visit_image,
+            legacy_exposure,
             expect_view=False,
-            plane_map=self.plane_map,
+            plane_map=legacy_test_data.plane_map,
             **DP2_VISIT_DETECTOR_DATA_ID,
-            alternates=alternates,
         )
-        # Check converting from the legacy object in-memory.
+        if legacy_test_data.visit_image.unit == u.nJy:
+            assert legacy_exposure.getPhotoCalib()._isConstant
+            assert legacy_exposure.getPhotoCalib().getCalibrationMean() == 1.0
+        else:
+            compare_photo_calib_to_legacy(
+                legacy_test_data.visit_image.photometric_scaling,
+                legacy_exposure.getPhotoCalib(),
+                subimage_bbox=subbox,
+            )
+        assert legacy_exposure.info.getId() == legacy_test_data.legacy_exposure.info.getId()
+        visit_info = roundtrip.get("obs_info", storageClass="VisitInfo")
+        assert isinstance(visit_info, LegacyVisitInfo)
+        assert visit_info.getInstrumentLabel() == "LSSTCam"
+
+    assert_visit_images_equal(roundtrip.result, legacy_test_data.visit_image, expect_view=False)
+    assert dict(legacy_test_data.visit_image._opaque_metadata.headers[ExtensionKey()]) == dict(
+        roundtrip.result._opaque_metadata.headers[ExtensionKey()]
+    )
+    assert not roundtrip.result._opaque_metadata.headers[ExtensionKey("IMAGE")]
+    assert not roundtrip.result._opaque_metadata.headers[ExtensionKey("MASK")]
+    assert not roundtrip.result._opaque_metadata.headers[ExtensionKey("VARIANCE")]
+    assert roundtrip.result._opaque_metadata.headers[ExtensionKey()]["PLATFORM"] == "lsstcam"
+    compare_visit_image_to_legacy(
+        roundtrip.result,
+        legacy_test_data.legacy_exposure,
+        expect_view=False,
+        plane_map=legacy_test_data.plane_map,
+        **DP2_VISIT_DETECTOR_DATA_ID,
+        alternates=alternates,
+    )
+    compare_visit_image_to_legacy(
+        legacy_test_data.read_cls.from_legacy(
+            legacy_test_data.legacy_exposure, plane_map=legacy_test_data.plane_map
+        ),
+        legacy_test_data.legacy_exposure,
+        expect_view=True,
+        plane_map=legacy_test_data.plane_map,
+        **DP2_VISIT_DETECTOR_DATA_ID,
+    )
+
+
+def test_butler_converters(legacy_test_data: _LegacyTestData) -> None:
+    """Verify that a VisitImage can be read from a Butler dataset written as
+    an Exposure.
+    """
+    try:
+        from lsst.daf.butler import FileDataset
+    except ImportError:
+        pytest.skip("lsst.daf.butler could not be imported.")
+
+    with TemporaryButler(legacy="ExposureF") as helper:
+        helper.butler.ingest(
+            FileDataset(path=legacy_test_data.filename, refs=[helper.legacy]), transfer="symlink"
+        )
+        visit_image_ref = helper.legacy.overrideStorageClass(legacy_test_data.storage_class)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=UserWarning)
+            visit_image = helper.butler.get(visit_image_ref)
+            assert visit_image._opaque_metadata.precompressed.keys() == set()
+            visit_image = helper.butler.get(visit_image_ref, parameters={"preserve_quantization": True})
+            assert visit_image._opaque_metadata.precompressed.keys() == {"IMAGE", "VARIANCE"}
+        bbox = helper.butler.get(visit_image_ref.makeComponentRef("bbox"))
+        assert bbox == visit_image.bbox
+        alternates = {
+            k: helper.butler.get(visit_image_ref.makeComponentRef(k))
+            for k in ["image", "mask", "variance", "bbox", "psf", "detector"]
+        }
         compare_visit_image_to_legacy(
-            VisitImage.from_legacy(self.legacy_exposure, plane_map=self.plane_map),
-            self.legacy_exposure,
-            expect_view=True,
-            plane_map=self.plane_map,
+            visit_image,
+            legacy_test_data.legacy_exposure,
+            expect_view=False,
+            plane_map=legacy_test_data.plane_map,
+            alternates=alternates,
             **DP2_VISIT_DETECTOR_DATA_ID,
         )
-
-    def test_butler_converters(self) -> None:
-        """Test that we can read a VisitImage and its components from a butler
-        dataset written as an `lsst.afw.image.Exposure`.
-        """
-        if self.legacy_exposure is None:
-            raise unittest.SkipTest("lsst.afw.image.afw could not be imported.")
-        with TemporaryButler(legacy="ExposureF") as helper:
-            from lsst.daf.butler import FileDataset
-
-            helper.butler.ingest(FileDataset(path=self.filename, refs=[helper.legacy]), transfer="symlink")
-            visit_image_ref = helper.legacy.overrideStorageClass(self.storage_class)
-            with warnings.catch_warnings():
-                # Silence warnings about data ID and filter label disagreeing.
-                warnings.simplefilter("ignore", category=UserWarning)
-                visit_image = helper.butler.get(visit_image_ref)
-                # We didn't ask for the quantization to be preserved, so it
-                # shouldn't be.
-                self.assertEqual(visit_image._opaque_metadata.precompressed.keys(), set())
-                # This time preserve the quantization
-                visit_image = helper.butler.get(visit_image_ref, parameters={"preserve_quantization": True})
-                self.assertEqual(visit_image._opaque_metadata.precompressed.keys(), {"IMAGE", "VARIANCE"})
-            bbox = helper.butler.get(visit_image_ref.makeComponentRef("bbox"))
-            self.assertEqual(bbox, visit_image.bbox)
-            alternates = {
-                k: helper.butler.get(visit_image_ref.makeComponentRef(k))
-                # TODO: including "sky_projection" or "obs_info" here fails
-                # because there's code in daf_butler that expects any component
-                # to be valid for the *internal* storage class, not the
-                # requested one, and that's difficult to fix because it's tied
-                # up with the data ID standardization logic.
-                for k in ["image", "mask", "variance", "bbox", "psf", "detector"]
-            }
-            compare_visit_image_to_legacy(
-                visit_image,
-                self.legacy_exposure,
-                expect_view=False,
-                plane_map=self.plane_map,
-                alternates=alternates,
-                **DP2_VISIT_DETECTOR_DATA_ID,
-            )
-            # Add some metadata to the new VisitImage and then do a converting
-            # `put` that should write to the old format (we have to delete the
-            # old one first, which just deletes a symlink).
-            helper.butler.pruneDatasets([helper.legacy], purge=True, unstore=True, disassociate=True)
-            visit_image.metadata["MixedCaseKey"] = 52
-            helper.butler.put(visit_image, visit_image_ref)
-            # Check that we can read *that* back in as a legacy exposure.
-            legacy_exposure = helper.butler.get(helper.legacy)
-            compare_visit_image_to_legacy(
-                visit_image,
-                legacy_exposure,
-                expect_view=False,
-                plane_map=self.plane_map,
-                alternates=alternates,
-                **DP2_VISIT_DETECTOR_DATA_ID,
-            )
-            # Check that we can read it back in as a VisitImage, and that the
-            # new metadata is preserved.
-            visit_image_2 = helper.butler.get(visit_image_ref)
-            compare_visit_image_to_legacy(
-                visit_image_2,
-                legacy_exposure,
-                expect_view=False,
-                plane_map=self.plane_map,
-                alternates=alternates,
-                **DP2_VISIT_DETECTOR_DATA_ID,
-            )
-            self.assertEqual(visit_image_2.metadata["MixedCaseKey"], 52)
+        helper.butler.pruneDatasets([helper.legacy], purge=True, unstore=True, disassociate=True)
+        visit_image.metadata["MixedCaseKey"] = 52
+        helper.butler.put(visit_image, visit_image_ref)
+        legacy_exposure = helper.butler.get(helper.legacy)
+        compare_visit_image_to_legacy(
+            visit_image,
+            legacy_exposure,
+            expect_view=False,
+            plane_map=legacy_test_data.plane_map,
+            alternates=alternates,
+            **DP2_VISIT_DETECTOR_DATA_ID,
+        )
+        visit_image_2 = helper.butler.get(visit_image_ref)
+        compare_visit_image_to_legacy(
+            visit_image_2,
+            legacy_exposure,
+            expect_view=False,
+            plane_map=legacy_test_data.plane_map,
+            alternates=alternates,
+            **DP2_VISIT_DETECTOR_DATA_ID,
+        )
+        assert visit_image_2.metadata["MixedCaseKey"] == 52
 
 
-@unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
-class VisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
-    """Tests for the VisitImage class using a DRP-final visit_image dataset.
-
-    Requires legacy code.
+def test_convert_unit(legacy_test_data_calibrated: _LegacyTestData) -> None:
+    """Verify convert_unit round-trips between nJy, mJy, and electron via
+    photometric_scaling.
     """
+    from lsst.afw.table import ExposureCatalog
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        assert EXTERNAL_DATA_DIR is not None, "Guaranteed by decorator."
-        cls.filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
-        try:
-            from lsst.afw.image import ExposureFitsReader
-
-            cls.legacy_exposure = ExposureFitsReader(cls.filename).read()
-        except ImportError:
-            raise unittest.SkipTest("afw not available; cannot read legacy visit images") from None
-        cls.plane_map = get_legacy_visit_image_mask_planes()
-        cls.visit_image = VisitImage.read_legacy(
-            cls.filename, preserve_quantization=True, plane_map=cls.plane_map
-        )
-        cls.unit = u.nJy
-
-    def test_convert_unit(self) -> None:
-        """Test using the ``photometric_scaling`` to swap between
-        calibrated and instrumental units.
-
-        This includes tests of the `VisitImage.to_legacy` logic for units that
-        don't map directly to `lsst.afw.image.PhotoCalib` conventions.
-        """
-        from lsst.afw.table import ExposureCatalog
-
-        assert EXTERNAL_DATA_DIR is not None, "Guaranteed by decorator."
-        # Make a copy of class state so we can modify it without breaking
-        # other tests.
-        original = self.visit_image.copy()
-        # We should not be able to convert to instrumental units when there is
-        # no photometric scaling.
-        with self.assertRaises(u.UnitConversionError):
-            original.convert_unit(u.electron)
-        # Converting to the current unit should be a no-op that does not need
-        # to copy.
-        visit_image_nJy = original.convert_unit(u.nJy, copy=False)
-        self.assertTrue(np.may_share_memory(visit_image_nJy.image.array, original.image.array))
-        self.assertTrue(np.may_share_memory(visit_image_nJy.variance.array, original.variance.array))
-        # Even without a photometric_scaling attached, we should be able to
-        # convert to a compatible unit, but only if we allow copies.
-        with self.assertRaises(u.UnitConversionError):
-            original.convert_unit(u.mJy, copy=False)
-        visit_image_mJy = original.convert_unit(u.mJy, copy="as-needed")
-        self.assertEqual(visit_image_mJy.unit, u.mJy)
-        assert_close(visit_image_mJy.image.array, original.image.array * 1e-6)
-        self.assertTrue(np.may_share_memory(visit_image_nJy.mask.array, original.mask.array))
-        assert_close(visit_image_mJy.variance.array, original.variance.array * 1e-12)
-        # Converting a mJy image to legacy should make a PhotoCalib that maps
-        # mJy to nJy.
-        legacy_exposure_mJy = visit_image_mJy.to_legacy()
-        assert_close(legacy_exposure_mJy.getPhotoCalib().getCalibrationMean(), 1e6)
-        legacy_masked_image_nJy = legacy_exposure_mJy.getPhotoCalib().calibrateImage(
-            legacy_exposure_mJy.maskedImage
-        )
-        assert_close(visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
-        assert_close(visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)
-        # Test that we haven't dropped any component objects along the way,
-        # and that they're all still the same objects or thin views.
-        self.assertTrue(np.may_share_memory(visit_image_mJy.mask.array, original.mask.array))
-        self.assertIs(visit_image_mJy.sky_projection, original.sky_projection)
-        self.assertIs(visit_image_mJy.obs_info, original.obs_info)
-        self.assertIs(visit_image_mJy.summary_stats, original.summary_stats)
-        self.assertIs(visit_image_mJy.psf, original.psf)
-        self.assertIs(visit_image_mJy.detector, original.detector)
-        self.assertIs(visit_image_mJy.bounds, original.bounds)
-        self.assertIs(visit_image_mJy.aperture_corrections, original.aperture_corrections)
-        self.assertIs(visit_image_mJy.photometric_scaling, original.photometric_scaling)
-        # Attach the final PhotoCalib (this isn't stored with the legacy file
-        # because that is the mapping to nJy, which is trivial).
-        visit_summary = ExposureCatalog.readFits(
-            os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_summary.fits")
-        )
-        legacy_photo_calib = visit_summary.find(DP2_VISIT_DETECTOR_DATA_ID["detector"]).getPhotoCalib()
-        visit_image_nJy.photometric_scaling = field_from_legacy_photo_calib(
-            legacy_photo_calib, bounds=original.detector.bbox, instrumental_unit=u.electron
-        )
-        compare_photo_calib_to_legacy(
-            visit_image_nJy.photometric_scaling,
-            self.legacy_exposure.getPhotoCalib(),
-            applied_legacy_photo_calib=legacy_photo_calib,
-            subimage_bbox=visit_image_nJy.bbox,
-        )
-        # We still can't convert to completely unrelated units.
-        with self.assertRaises(u.UnitConversionError):
-            visit_image_nJy.convert_unit(u.mm)
-        # Uncalibrating via the photometric_scaling matches what legacy code
-        # does, and by default it copies everything.
-        with self.assertRaises(u.UnitConversionError):
-            visit_image_nJy.convert_unit(u.electron, copy=False)
-        legacy_masked_image_e = legacy_photo_calib.uncalibrateImage(self.legacy_exposure.maskedImage)
-        visit_image_e = visit_image_nJy.convert_unit(u.electron)
-        assert_close(visit_image_e.image.array, legacy_masked_image_e.image.array)
-        assert_close(visit_image_e.variance.array, legacy_masked_image_e.variance.array)
-        self.assertFalse(np.may_share_memory(visit_image_e.mask.array, visit_image_nJy.mask.array))
-        # We can also uncalibrate if we start with an image that has units
-        # that are compatible with the photometric_scaling but not identical
-        # to it.
-        visit_image_mJy.photometric_scaling = visit_image_nJy.photometric_scaling
-        visit_image_e = visit_image_mJy.convert_unit(u.electron)
-        assert_close(visit_image_e.image.array, legacy_masked_image_e.image.array)
-        assert_close(visit_image_e.variance.array, legacy_masked_image_e.variance.array)
-        # We can re-apply the scaling to go back to calibrated units.
-        visit_image_nJy_2 = visit_image_e.convert_unit(u.nJy)
-        assert_close(visit_image_nJy_2.image.array, visit_image_nJy.image.array)
-        assert_close(visit_image_nJy_2.variance.array, original.variance.array)
-        # Try calibrating an image with a scaling that has units other than
-        # nJy in the numerator.
-        visit_image_e.photometric_scaling = visit_image_nJy.photometric_scaling * (1e-6 * u.mJy / u.nJy)
-        visit_image_nJy_3 = visit_image_e.convert_unit(u.nJy)
-        assert_close(visit_image_nJy_3.image.array, visit_image_nJy.image.array)
-        assert_close(visit_image_nJy_3.variance.array, original.variance.array)
-        # Try converting that uncalibrated image to legacy; the extra mJy/nJy
-        # factor should get included in the PhotoCalib to recover the original
-        # PhotoCalib.
-        legacy_exposure_e = visit_image_e.to_legacy()
-        assert_close(
-            legacy_exposure_e.getPhotoCalib().getCalibrationMean(),
-            legacy_photo_calib.getCalibrationMean(),
-        )
-        legacy_masked_image_nJy = legacy_exposure_e.getPhotoCalib().calibrateImage(
-            legacy_exposure_e.maskedImage
-        )
-        assert_close(visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
-        assert_close(visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)
-
-
-@unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
-class PreliminaryVisitImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
-    """Tests for the VisitImage class using a DRP preliminary_visit_image
-    dataset.
-
-    Requires legacy code.
-    """
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        assert EXTERNAL_DATA_DIR is not None, "Guaranteed by decorator."
-        cls.filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "preliminary_visit_image.fits")
-        try:
-            from lsst.afw.image import ExposureFitsReader
-
-            cls.legacy_exposure = ExposureFitsReader(cls.filename).read()
-        except ImportError:
-            raise unittest.SkipTest("afw not available; cannot read legacy visit images") from None
-        cls.plane_map = get_legacy_visit_image_mask_planes()
-        cls.visit_image = VisitImage.read_legacy(
-            cls.filename, preserve_quantization=True, plane_map=cls.plane_map
-        )
-        cls.unit = u.electron
-
-
-@unittest.skipUnless(EXTERNAL_DATA_DIR is not None, "TESTDATA_IMAGES_DIR is not in the environment.")
-class DifferenceImageLegacyTestCase(unittest.TestCase, VisitImageLegacyTestMixin):
-    """Tests for the DifferenceImage class using a DRP difference_image
-    dataset.
-
-    Because DifferenceImage is a trivial subclass of VisitImage (it may be
-    extended in the future), we run the VisitImage tests to make sure nothing
-    has gone wrong in anything that wasn't trivially inherited.
-
-    Requires legacy code.
-    """
-
-    storage_class: ClassVar[str] = "DifferenceImage"
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        assert EXTERNAL_DATA_DIR is not None, "Guaranteed by decorator."
-        cls.filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "difference_image.fits")
-        try:
-            from lsst.afw.image import ExposureFitsReader
-
-            cls.legacy_exposure = ExposureFitsReader(cls.filename).read()
-        except ImportError:
-            raise unittest.SkipTest("afw not available; cannot read legacy visit images") from None
-        cls.plane_map = get_legacy_difference_image_mask_planes()
-        cls.visit_image = DifferenceImage.read_legacy(
-            cls.filename, preserve_quantization=True, plane_map=cls.plane_map
-        )
-        cls.unit = u.nJy
-
-
-if __name__ == "__main__":
-    unittest.main()
+    legacy_test_data = legacy_test_data_calibrated
+    original = legacy_test_data.visit_image.copy()
+    with pytest.raises(u.UnitConversionError):
+        original.convert_unit(u.electron)
+    visit_image_nJy = original.convert_unit(u.nJy, copy=False)
+    assert np.may_share_memory(visit_image_nJy.image.array, original.image.array)
+    assert np.may_share_memory(visit_image_nJy.variance.array, original.variance.array)
+    with pytest.raises(u.UnitConversionError):
+        original.convert_unit(u.mJy, copy=False)
+    visit_image_mJy = original.convert_unit(u.mJy, copy="as-needed")
+    assert visit_image_mJy.unit == u.mJy
+    assert_close(visit_image_mJy.image.array, original.image.array * 1e-6)
+    assert np.may_share_memory(visit_image_nJy.mask.array, original.mask.array)
+    assert_close(visit_image_mJy.variance.array, original.variance.array * 1e-12)
+    legacy_exposure_mJy = visit_image_mJy.to_legacy()
+    assert_close(legacy_exposure_mJy.getPhotoCalib().getCalibrationMean(), 1e6)
+    legacy_masked_image_nJy = legacy_exposure_mJy.getPhotoCalib().calibrateImage(
+        legacy_exposure_mJy.maskedImage
+    )
+    assert_close(visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
+    assert_close(visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)
+    assert np.may_share_memory(visit_image_mJy.mask.array, original.mask.array)
+    assert visit_image_mJy.sky_projection is original.sky_projection
+    assert visit_image_mJy.obs_info is original.obs_info
+    assert visit_image_mJy.summary_stats is original.summary_stats
+    assert visit_image_mJy.psf is original.psf
+    assert visit_image_mJy.detector is original.detector
+    assert visit_image_mJy.bounds is original.bounds
+    assert visit_image_mJy.aperture_corrections is original.aperture_corrections
+    assert visit_image_mJy.photometric_scaling is original.photometric_scaling
+    visit_summary = ExposureCatalog.readFits(
+        os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_summary.fits")
+    )
+    legacy_photo_calib = visit_summary.find(DP2_VISIT_DETECTOR_DATA_ID["detector"]).getPhotoCalib()
+    visit_image_nJy.photometric_scaling = field_from_legacy_photo_calib(
+        legacy_photo_calib, bounds=original.detector.bbox, instrumental_unit=u.electron
+    )
+    compare_photo_calib_to_legacy(
+        visit_image_nJy.photometric_scaling,
+        legacy_test_data.legacy_exposure.getPhotoCalib(),
+        applied_legacy_photo_calib=legacy_photo_calib,
+        subimage_bbox=visit_image_nJy.bbox,
+    )
+    with pytest.raises(u.UnitConversionError):
+        visit_image_nJy.convert_unit(u.mm)
+    with pytest.raises(u.UnitConversionError):
+        visit_image_nJy.convert_unit(u.electron, copy=False)
+    legacy_masked_image_e = legacy_photo_calib.uncalibrateImage(legacy_test_data.legacy_exposure.maskedImage)
+    visit_image_e = visit_image_nJy.convert_unit(u.electron)
+    assert_close(visit_image_e.image.array, legacy_masked_image_e.image.array)
+    assert_close(visit_image_e.variance.array, legacy_masked_image_e.variance.array)
+    assert not np.may_share_memory(visit_image_e.mask.array, visit_image_nJy.mask.array)
+    visit_image_mJy.photometric_scaling = visit_image_nJy.photometric_scaling
+    visit_image_e = visit_image_mJy.convert_unit(u.electron)
+    assert_close(visit_image_e.image.array, legacy_masked_image_e.image.array)
+    assert_close(visit_image_e.variance.array, legacy_masked_image_e.variance.array)
+    visit_image_nJy_2 = visit_image_e.convert_unit(u.nJy)
+    assert_close(visit_image_nJy_2.image.array, visit_image_nJy.image.array)
+    assert_close(visit_image_nJy_2.variance.array, original.variance.array)
+    visit_image_e.photometric_scaling = visit_image_nJy.photometric_scaling * (1e-6 * u.mJy / u.nJy)
+    visit_image_nJy_3 = visit_image_e.convert_unit(u.nJy)
+    assert_close(visit_image_nJy_3.image.array, visit_image_nJy.image.array)
+    assert_close(visit_image_nJy_3.variance.array, original.variance.array)
+    legacy_exposure_e = visit_image_e.to_legacy()
+    assert_close(
+        legacy_exposure_e.getPhotoCalib().getCalibrationMean(),
+        legacy_photo_calib.getCalibrationMean(),
+    )
+    legacy_masked_image_nJy = legacy_exposure_e.getPhotoCalib().calibrateImage(legacy_exposure_e.maskedImage)
+    assert_close(visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
+    assert_close(visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)

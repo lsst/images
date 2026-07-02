@@ -13,68 +13,16 @@ from __future__ import annotations
 import builtins
 import contextlib
 import os
-import tempfile
-import unittest
+from pathlib import Path
 
+import pytest
+
+from lsst.images import VisitImage
 from lsst.images import fits as images_fits
 from lsst.images import json as images_json
 from lsst.images.fits import FitsInputArchive
 from lsst.images.json import JsonInputArchive
 from lsst.images.serialization import ArchiveTree, read_archive
-
-
-@contextlib.contextmanager
-def count_opens(path: str):
-    """Count how many times ``path`` is physically opened for reading.
-
-    Yields a one-element list whose single entry is the running open count;
-    read it after the ``with`` block.
-    """
-    count = [0]
-    real_open = builtins.open
-
-    def counting_open(file, *args, **kwargs):
-        if isinstance(file, (str, bytes, os.PathLike)) and os.fspath(file) == path:
-            count[0] += 1
-        return real_open(file, *args, **kwargs)
-
-    builtins.open = counting_open
-    try:
-        yield count
-    finally:
-        builtins.open = real_open
-
-
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
-
-
-def _visit_image():
-    """Load a VisitImage from the committed JSON fixture."""
-    return read_archive(os.path.join(DATA_DIR, "visit_image.json"))
-
-
-class FitsOpenTreeTestCase(unittest.TestCase):
-    """InputArchive.open_tree yields a live (archive, tree) pair."""
-
-    def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.path = os.path.join(tmp.name, "v.fits")
-        images_fits.write(_visit_image(), self.path)
-
-    def test_open_tree_yields_archive_tree_and_info(self) -> None:
-        with FitsInputArchive.open_tree(self.path) as (archive, tree, info):
-            self.assertIsInstance(tree, ArchiveTree)
-            self.assertEqual(info.schema_name, "visit_image")
-            proj = tree.deserialize_component("sky_projection", archive)
-            self.assertIsNotNone(proj)
-
-    def test_read_still_works(self) -> None:
-        # read_archive() returns the deserialized object directly, via
-        # open_archive().
-        result = read_archive(self.path)
-        self.assertEqual(type(result).__name__, "VisitImage")
-
 
 try:
     import h5py  # noqa: F401
@@ -86,131 +34,212 @@ try:
 except ImportError:
     HAVE_H5PY = False
 
+skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
 
-@unittest.skipUnless(HAVE_H5PY, "h5py is not available.")
-class NdfOpenTreeTestCase(unittest.TestCase):
-    """open_tree works for the NDF backend."""
-
-    def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.path = os.path.join(tmp.name, "v.sdf")
-        images_ndf.write(_visit_image(), self.path)
-
-    def test_open_tree_yields_archive_tree_and_info(self) -> None:
-        with NdfInputArchive.open_tree(self.path) as (archive, tree, info):
-            self.assertIsInstance(tree, ArchiveTree)
-            self.assertEqual(info.schema_name, "visit_image")
-            self.assertIsNotNone(tree.deserialize_component("obs_info", archive))
-
-    def test_read_still_works(self) -> None:
-        self.assertEqual(type(read_archive(self.path)).__name__, "VisitImage")
+LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
 
 
-class JsonOpenTreeTestCase(unittest.TestCase):
-    """open_tree works for the JSON backend."""
-
-    def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.path = os.path.join(tmp.name, "v.json")
-        images_json.write(_visit_image(), self.path)
-
-    def test_open_tree_yields_archive_tree_and_info(self) -> None:
-        with JsonInputArchive.open_tree(self.path) as (archive, tree, info):
-            self.assertIsInstance(tree, ArchiveTree)
-            self.assertEqual(info.schema_name, "visit_image")
-            self.assertIsNotNone(tree.deserialize_component("sky_projection", archive))
-
-    def test_read_still_works(self) -> None:
-        self.assertEqual(type(read_archive(self.path)).__name__, "VisitImage")
+@pytest.fixture(scope="session")
+def visit_image() -> VisitImage:
+    """Return a VisitImage loaded once from the committed JSON fixture."""
+    return read_archive(os.path.join(LOCAL_DATA_DIR, "visit_image.json"))  # type: ignore[return-value]
 
 
-class ReaderApiTestCase(unittest.TestCase):
-    """The user-facing serialization.open_archive() / Reader interface."""
+@contextlib.contextmanager
+def count_opens(path: Path | str):
+    """Return a one-element list that counts how many times ``path`` is
+    opened.
+    """
+    count = [0]
+    real_open = builtins.open
 
-    def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.tmp = tmp.name
-        self.vi = _visit_image()
-        self.fits = os.path.join(self.tmp, "v.fits")
-        images_fits.write(self.vi, self.fits)
+    def counting_open(file, *args, **kwargs):
+        if isinstance(file, (str, bytes, os.PathLike)) and os.fspath(file) == os.fspath(path):
+            count[0] += 1
+        return real_open(file, *args, **kwargs)
 
-    def _check_components_and_read(self, path: str) -> None:
-        import lsst.images.serialization as ser
+    builtins.open = counting_open
+    try:
+        yield count
+    finally:
+        builtins.open = real_open
 
-        with ser.open_archive(path) as reader:
-            self.assertIsNotNone(reader.get_component("sky_projection"))
-            self.assertIsNotNone(reader.get_component("obs_info"))
-            full = reader.read()
-            self.assertEqual(type(full).__name__, "VisitImage")
 
-    def test_components_and_read_fits(self) -> None:
-        self._check_components_and_read(self.fits)
+def test_fits_open_tree_yields_archive_tree_and_info(visit_image: VisitImage, tmp_path: Path) -> None:
+    """Verify FitsInputArchive.open_tree yields a live archive/tree/info
+    triple.
+    """
+    path = tmp_path / "v.fits"
+    images_fits.write(visit_image, path)
+    with FitsInputArchive.open_tree(path) as (archive, tree, info):
+        assert isinstance(tree, ArchiveTree)
+        assert info.schema_name == "visit_image"
+        proj = tree.deserialize_component("sky_projection", archive)
+        assert proj is not None
 
-    def test_components_and_read_json(self) -> None:
-        path = os.path.join(self.tmp, "v.json")
-        images_json.write(self.vi, path)
-        self._check_components_and_read(path)
 
-    @unittest.skipUnless(HAVE_H5PY, "h5py is not available.")
-    def test_components_and_read_ndf(self) -> None:
-        path = os.path.join(self.tmp, "v.sdf")
-        images_ndf.write(self.vi, path)
-        self._check_components_and_read(path)
+def test_fits_read_still_works(visit_image: VisitImage, tmp_path: Path) -> None:
+    """Verify read_archive() returns the deserialized object directly
+    from a FITS file.
+    """
+    path = tmp_path / "v.fits"
+    images_fits.write(visit_image, path)
+    result = read_archive(path)
+    assert type(result).__name__ == "VisitImage"
 
-    def test_info(self) -> None:
-        import lsst.images.serialization as ser
 
-        with ser.open_archive(self.fits) as reader:
-            self.assertEqual(reader.info.schema_name, "visit_image")
-            self.assertEqual(reader.info.schema_version, "1.0.0")
-            self.assertIsInstance(reader.metadata, dict)
+@skip_no_h5py
+def test_ndf_open_tree_yields_archive_tree_and_info(visit_image: VisitImage, tmp_path: Path) -> None:
+    """Verify NdfInputArchive.open_tree yields a live archive/tree/info
+    triple.
+    """
+    path = tmp_path / "v.sdf"
+    images_ndf.write(visit_image, path)
+    with NdfInputArchive.open_tree(path) as (archive, tree, info):
+        assert isinstance(tree, ArchiveTree)
+        assert info.schema_name == "visit_image"
+        assert tree.deserialize_component("obs_info", archive) is not None
 
-    def test_cls_match(self) -> None:
-        import lsst.images.serialization as ser
-        from lsst.images import VisitImage
 
-        with ser.open_archive(self.fits, cls=VisitImage) as reader:
-            self.assertIsInstance(reader.read(), VisitImage)
+@skip_no_h5py
+def test_ndf_read_still_works(visit_image: VisitImage, tmp_path: Path) -> None:
+    """Verify read_archive() returns the deserialized object directly
+    from an NDF file.
+    """
+    path = tmp_path / "v.sdf"
+    images_ndf.write(visit_image, path)
+    assert type(read_archive(path)).__name__ == "VisitImage"
 
-    def test_cls_mismatch_raises(self) -> None:
-        import lsst.images.serialization as ser
-        from lsst.images import Mask
 
-        with self.assertRaises(TypeError):
-            with ser.open_archive(self.fits, cls=Mask):
-                pass
+def test_json_open_tree_yields_archive_tree_and_info(visit_image: VisitImage, tmp_path: Path) -> None:
+    """Verify JsonInputArchive.open_tree yields a live archive/tree/info
+    triple.
+    """
+    path = tmp_path / "v.json"
+    images_json.write(visit_image, path)
+    with JsonInputArchive.open_tree(path) as (archive, tree, info):
+        assert isinstance(tree, ArchiveTree)
+        assert info.schema_name == "visit_image"
+        assert tree.deserialize_component("sky_projection", archive) is not None
 
-    def test_unknown_component(self) -> None:
-        import lsst.images.serialization as ser
-        from lsst.images.serialization import InvalidComponentError
 
-        with ser.open_archive(self.fits) as reader:
-            with self.assertRaises(InvalidComponentError):
-                reader.get_component("does_not_exist")
+def test_json_read_still_works(visit_image: VisitImage, tmp_path: Path) -> None:
+    """Verify read_archive() returns the deserialized object directly
+    from a JSON file.
+    """
+    path = tmp_path / "v.json"
+    images_json.write(visit_image, path)
+    assert type(read_archive(path)).__name__ == "VisitImage"
 
-    def test_use_after_close_raises(self) -> None:
-        import lsst.images.serialization as ser
 
-        with ser.open_archive(self.fits) as reader:
+def _check_components_and_read(path: Path | str) -> None:
+    """Assert that serialization.open_archive() exposes components and a
+    full read on ``path``.
+    """
+    import lsst.images.serialization as ser
+
+    with ser.open_archive(path) as reader:
+        assert reader.get_component("sky_projection") is not None
+        assert reader.get_component("obs_info") is not None
+        full = reader.read()
+        assert type(full).__name__ == "VisitImage"
+
+
+def test_reader_api_components_and_read_fits(visit_image: VisitImage, tmp_path: Path) -> None:
+    """Verify the Reader API exposes components and a full read for FITS."""
+    path = tmp_path / "v.fits"
+    images_fits.write(visit_image, path)
+    _check_components_and_read(path)
+
+
+def test_reader_api_components_and_read_json(visit_image: VisitImage, tmp_path: Path) -> None:
+    """Verify the Reader API exposes components and a full read for JSON."""
+    path = tmp_path / "v.json"
+    images_json.write(visit_image, path)
+    _check_components_and_read(path)
+
+
+@skip_no_h5py
+def test_reader_api_components_and_read_ndf(visit_image: VisitImage, tmp_path: Path) -> None:
+    """Verify the Reader API exposes components and a full read for NDF."""
+    path = tmp_path / "v.sdf"
+    images_ndf.write(visit_image, path)
+    _check_components_and_read(path)
+
+
+def test_reader_api_info(visit_image: VisitImage, tmp_path: Path) -> None:
+    """Verify the Reader API exposes correct schema info for a FITS file."""
+    import lsst.images.serialization as ser
+
+    path = tmp_path / "v.fits"
+    images_fits.write(visit_image, path)
+    with ser.open_archive(path) as reader:
+        assert reader.info.schema_name == "visit_image"
+        assert reader.info.schema_version == "1.0.0"
+        assert isinstance(reader.metadata, dict)
+
+
+def test_reader_api_cls_match(visit_image: VisitImage, tmp_path: Path) -> None:
+    """Verify the Reader API accepts cls= when the type matches."""
+    import lsst.images.serialization as ser
+    from lsst.images import VisitImage
+
+    path = tmp_path / "v.fits"
+    images_fits.write(visit_image, path)
+    with ser.open_archive(path, cls=VisitImage) as reader:
+        assert isinstance(reader.read(), VisitImage)
+
+
+def test_reader_api_cls_mismatch_raises(visit_image: VisitImage, tmp_path: Path) -> None:
+    """Verify the Reader API raises TypeError when cls= does not match the
+    schema.
+    """
+    import lsst.images.serialization as ser
+    from lsst.images import Mask
+
+    path = tmp_path / "v.fits"
+    images_fits.write(visit_image, path)
+    with pytest.raises(TypeError):
+        with ser.open_archive(path, cls=Mask):
             pass
-        with self.assertRaises(RuntimeError):
+
+
+def test_reader_api_unknown_component(visit_image: VisitImage, tmp_path: Path) -> None:
+    """Verify the Reader API raises InvalidComponentError for an unknown
+    component name.
+    """
+    import lsst.images.serialization as ser
+    from lsst.images.serialization import InvalidComponentError
+
+    path = tmp_path / "v.fits"
+    images_fits.write(visit_image, path)
+    with ser.open_archive(path) as reader:
+        with pytest.raises(InvalidComponentError):
+            reader.get_component("does_not_exist")
+
+
+def test_reader_api_use_after_close_raises(visit_image: VisitImage, tmp_path: Path) -> None:
+    """Verify the Reader API raises RuntimeError when used after closing."""
+    import lsst.images.serialization as ser
+
+    path = tmp_path / "v.fits"
+    images_fits.write(visit_image, path)
+    with ser.open_archive(path) as reader:
+        pass
+    with pytest.raises(RuntimeError):
+        reader.get_component("sky_projection")
+
+
+def test_fits_open_reads_file_once(visit_image: VisitImage, tmp_path: Path) -> None:
+    """Verify serialization.open_archive() opens a FITS file exactly once
+    regardless of component reads.
+    """
+    import lsst.images.serialization as ser
+
+    path = tmp_path / "v.fits"
+    images_fits.write(visit_image, path)
+    with count_opens(path) as count:
+        with ser.open_archive(path) as reader:
             reader.get_component("sky_projection")
-
-    def test_fits_open_reads_file_once(self) -> None:
-        # open() must not open the file a second time just to read the schema
-        # from the primary header: the archive it opens already parses that
-        # header, so the schema is identified from a single open.
-        import lsst.images.serialization as ser
-
-        with count_opens(self.fits) as count:
-            with ser.open_archive(self.fits) as reader:
-                reader.get_component("sky_projection")
-                reader.get_component("obs_info")
-        self.assertEqual(count[0], 1)
-
-
-if __name__ == "__main__":
-    unittest.main()
+            reader.get_component("obs_info")
+    assert count[0] == 1

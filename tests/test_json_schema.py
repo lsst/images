@@ -11,41 +11,40 @@
 
 from __future__ import annotations
 
-import unittest
 import warnings
+
+import pytest
 
 from lsst.images import VisitImageSerializationModel
 from lsst.images.cells import CellCoaddSerializationModel
 
 
-class JsonSchemaTestCase(unittest.TestCase):
-    """Test that pydantic JSON Schema generation succeeds without warnings
-    for the complex serialization models that compose many helpers from
-    `_asdf_utils` (Quantity, Unit, Time, InlineArray) and `_geom` (Box,
-    Interval).
+def _check_json_schema(model: type, mode: str) -> None:
+    """Assert that ``model.model_json_schema(mode=mode)`` succeeds without
+    warnings and returns a well-formed object schema dict.
     """
-
-    def _check(self, model: type, mode: str) -> None:
-        with warnings.catch_warnings():
-            # Any warning emitted during schema generation (e.g.
-            # PydanticJsonSchemaWarning for non-serializable defaults) is
-            # treated as a test failure.
-            warnings.simplefilter("error")
-            schema = model.model_json_schema(mode=mode)
-        self.assertIsInstance(schema, dict)
-        self.assertEqual(schema.get("type"), "object")
-        self.assertIn("properties", schema)
-
-    def test_visit_image(self) -> None:
-        for mode in ("validation", "serialization"):
-            with self.subTest(mode=mode):
-                self._check(VisitImageSerializationModel, mode)
-
-    def test_cell_coadd(self) -> None:
-        for mode in ("validation", "serialization"):
-            with self.subTest(mode=mode):
-                self._check(CellCoaddSerializationModel, mode)
+    with warnings.catch_warnings():
+        # Any warning emitted during schema generation (e.g.
+        # PydanticJsonSchemaWarning for non-serializable defaults) is
+        # treated as a test failure.
+        warnings.simplefilter("error")
+        schema = model.model_json_schema(mode=mode)
+    assert isinstance(schema, dict)
+    assert schema.get("type") == "object"
+    assert "properties" in schema
 
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.parametrize("mode", ["validation", "serialization"])
+def test_visit_image(mode: str) -> None:
+    """Test that pydantic JSON Schema generation succeeds without warnings
+    for VisitImageSerializationModel.
+    """
+    _check_json_schema(VisitImageSerializationModel, mode)
+
+
+@pytest.mark.parametrize("mode", ["validation", "serialization"])
+def test_cell_coadd(mode: str) -> None:
+    """Test that pydantic JSON Schema generation succeeds without warnings
+    for CellCoaddSerializationModel.
+    """
+    _check_json_schema(CellCoaddSerializationModel, mode)
