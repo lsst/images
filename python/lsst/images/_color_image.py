@@ -140,12 +140,10 @@ class ColorImage(GeneralizedImage):
         return self._red.sky_projection
 
     def __getitem__(self, bbox: Box | EllipsisType) -> ColorImage:
-        super().__getitem__(bbox)
-        if bbox is ...:
-            return self
+        bbox, indices = self._handle_getitem_args(bbox)
         return self._transfer_metadata(
             ColorImage(
-                self.array[bbox.slice_within(self.bbox) + (slice(None),)],
+                self.array[indices + (slice(None),)],
                 bbox=bbox,
                 sky_projection=self.sky_projection,
             ),

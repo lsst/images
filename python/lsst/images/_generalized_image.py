@@ -183,16 +183,11 @@ class GeneralizedImage(ABC):
     def metadata(self, value: dict[str, MetadataValue]) -> None:
         self._metadata = value
 
-    # Subclasses should delegate to super().__getitem__ for some user-friendly
+    # Subclasses should delegate to _handle_getitem_args for some user-friendly
     # argument type-checking before providing their own implementation.
     @abstractmethod
     def __getitem__(self, bbox: Box | EllipsisType) -> Self:
-        if not isinstance(bbox, Box):
-            raise TypeError(
-                "Only Box objects can be used to subset image objects directly; "
-                "use .local[y, x] or .absolute[y, x] proxies for slice-based subsets."
-            )
-        return self
+        raise NotImplementedError()
 
     @abstractmethod
     def copy(self) -> Self:
@@ -314,6 +309,17 @@ class GeneralizedImage(ABC):
         self._metadata = model.metadata
         self._butler_info = model.butler_info
         return self
+
+    def _handle_getitem_args(self, bbox: Box | EllipsisType) -> tuple[Box, YX[slice]]:
+        """Interpret the standard arguments to __getitem__."""
+        if bbox is ...:
+            return self.bbox, YX(y=slice(None), x=slice(None))
+        elif not isinstance(bbox, Box):
+            raise TypeError(
+                "Only Box objects can be used to subset image objects directly; "
+                "use .local[y, x] or .absolute[y, x] proxies for slice-based subsets."
+            )
+        return bbox, bbox.slice_within(self.bbox)
 
 
 class LocalSliceProxy[T: GeneralizedImage]:

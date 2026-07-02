@@ -509,12 +509,10 @@ class Mask(GeneralizedImage):
         return self._sky_projection
 
     def __getitem__(self, bbox: Box | EllipsisType) -> Mask:
-        if bbox is ...:
-            return self
-        super().__getitem__(bbox)
+        bbox, indices = self._handle_getitem_args(bbox)
         return self._transfer_metadata(
             Mask(
-                self.array[bbox.y.slice_within(self._bbox.y), bbox.x.slice_within(self._bbox.x), :],
+                self.array[indices + (slice(None),)],
                 bbox=bbox,
                 schema=self.schema,
                 sky_projection=self._sky_projection,

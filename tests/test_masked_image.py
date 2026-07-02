@@ -123,7 +123,7 @@ def test_construction() -> None:
     assert np.sum(mi.mask.array == mi.mask.schema.bitmask("HUNGRY")) > 0
     assert np.sum(mi.mask.array == mi.mask.schema.bitmask("BAD", "HUNGRY")) > 0
 
-    assert mi[...] is mi
+    assert mi[...] is not mi
     assert str(mi) == "MaskedImage(Image([y=5:205, x=8:259], float64), ['BAD', 'HUNGRY'])"
     assert (
         repr(mi)

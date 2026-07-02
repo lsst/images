@@ -225,7 +225,7 @@ def test_basics(visit_image_components: dict[str, Any]) -> None:
     # Test default fill of variance.
     visit = make_simplest_visit_image(c)
     assert visit.variance.array[0, 0] == 1.0
-    assert visit[...] is visit
+    assert visit[...] is not visit
     assert str(visit) == "VisitImage(Image([y=0:1024, x=0:1024], int64), ['M1'])"
     assert repr(visit) == (
         "VisitImage(Image(..., bbox=Box(y=Interval(start=0, stop=1024), x=Interval(start=0, stop=1024)),"

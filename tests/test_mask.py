@@ -165,7 +165,7 @@ def test_basics() -> None:
         metadata={"four_and_a_half": 4.5},
     )
 
-    assert mask[...] is mask
+    assert mask[...] is not mask
     assert mask.__eq__(42) == NotImplemented
     assert mask == mask
     assert (
