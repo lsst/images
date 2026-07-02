@@ -24,6 +24,7 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
     RoundtripNdf,
+    RoundtripZarr,
     assert_close,
     assert_images_equal,
     assert_sky_projections_equal,
@@ -37,6 +38,13 @@ try:
     HAVE_H5PY = True
 except ImportError:
     HAVE_H5PY = False
+
+try:
+    import zarr  # noqa: F401
+
+    HAVE_ZARR = True
+except ImportError:
+    HAVE_ZARR = False
 
 DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -138,6 +146,23 @@ class ImageTestCase(unittest.TestCase):
             assert_images_equal(self, image, fits_rt.result)
             assert_images_equal(self, image, ndf_rt.result)
             assert_images_equal(self, fits_rt.result, ndf_rt.result)
+
+    @unittest.skipUnless(HAVE_ZARR, "zarr is not installed")
+    def test_fits_zarr_consistency(self):
+        """Writing via FITS and via zarr, then reading back, produces equal
+        Images.
+        """
+        rng = np.random.default_rng(321)
+        image = Image(
+            rng.normal(100.0, 8.0, size=(60, 80)),
+            dtype=np.float64,
+            unit=u.nJy,
+            yx0=(0, 0),
+        )
+        with RoundtripFits(self, image) as fits_rt, RoundtripZarr(self, image) as zarr_rt:
+            assert_images_equal(self, image, fits_rt.result)
+            assert_images_equal(self, image, zarr_rt.result)
+            assert_images_equal(self, fits_rt.result, zarr_rt.result)
 
     def test_fits_json_consistency(self):
         """Writing via FITS and via JSON, then reading back, produces equal

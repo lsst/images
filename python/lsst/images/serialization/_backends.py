@@ -42,9 +42,10 @@ def backend_for_path(path: ResourcePathExpression) -> Backend:
     """Return the `Backend` for ``path`` based on its file extension.
 
     Supported extensions: ``.fits`` / ``.fits.gz`` (FITS), ``.h5`` /
-    ``.sdf`` (NDF), and ``.json`` (JSON).  The NDF and FITS backends are
-    imported lazily so optional dependencies (e.g. ``h5py``) are only
-    required when actually used.
+    ``.sdf`` (NDF), ``.json`` (JSON), and ``.zarr`` / ``.zarr.zip`` (zarr).
+    The NDF, FITS, and zarr backends are imported lazily so optional
+    dependencies (e.g. ``h5py``, ``zarr``) are only required when actually
+    used.
 
     Parameters
     ----------
@@ -73,8 +74,18 @@ def backend_for_path(path: ResourcePathExpression) -> Backend:
             from ..json import write as json_write
 
             return Backend("json", json_write, JsonInputArchive)
+        # A zip zarr store is a ``.zarr.zip`` path, but ``.zip`` is not a
+        # compression modifier that ``getExtension`` folds into a compound
+        # extension (the way it does for ``.fits.gz``), so a ``.zarr.zip``
+        # path reports its extension as ``.zip``.  Accept both here; the
+        # zarr store layer re-derives directory-vs-zip from the full path.
+        case ".zarr" | ".zarr.zip" | ".zip":
+            from ..zarr import ZarrInputArchive
+            from ..zarr import write as zarr_write
+
+            return Backend("zarr", zarr_write, ZarrInputArchive)
         case ext:
             raise ValueError(
                 f"Unrecognised file extension: {ext!r} from {uri!r}; "
-                "expected one of .fits, .fits.gz, .h5, .sdf, .json."
+                "expected one of .fits, .fits.gz, .h5, .sdf, .json, .zarr, .zarr.zip."
             )
