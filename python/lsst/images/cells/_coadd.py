@@ -510,6 +510,8 @@ class CellCoadd(MaskedImage):
             plane_map = get_legacy_deep_coadd_mask_planes()
         if self.unit != astropy.units.nJy:
             raise ValueError("CellCoadd.to_legacy requires nJy pixel units.")
+        if self.bbox != self.bounds.bbox:
+            raise ValueError("MultipleCellCoadd requires its bounding box to lie on the cell grid.")
         legacy_grid = self.grid.to_legacy()
         visit_polygons = self.provenance.to_legacy_polygon_map()
         legacy_common = LegacyCommonComponents(

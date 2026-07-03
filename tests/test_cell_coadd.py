@@ -281,6 +281,10 @@ def test_to_legacy(legacy_test_data: _LegacyTestData) -> None:
         plane_map=legacy_test_data.plane_map,
         psf_points=legacy_test_data.make_psf_points(),
     )
+    with pytest.raises(
+        ValueError, match="MultipleCellCoadd requires its bounding box to lie on the cell grid."
+    ):
+        legacy_test_data.cell_coadd[make_subbox(legacy_test_data.cell_coadd.bbox)].to_legacy()
 
 
 @skip_no_legacy
@@ -307,6 +311,13 @@ def test_to_legacy_exposure(legacy_test_data: _LegacyTestData) -> None:
         legacy_test_data.cell_coadd.sky_projection.pixel_frame,
         subimage_bbox=legacy_test_data.cell_coadd.bbox,
         is_fits=True,
+    )
+    subbox = make_subbox(legacy_test_data.cell_coadd.bbox)
+    compare_masked_image_to_legacy(
+        legacy_test_data.cell_coadd[subbox],
+        legacy_test_data.cell_coadd[subbox].to_legacy_exposure().maskedImage,
+        plane_map=legacy_test_data.plane_map,
+        expect_view=True,
     )
 
 
