@@ -14,14 +14,14 @@ from __future__ import annotations
 
 __all__ = ("Reader", "open")
 
-import io
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from typing import IO, Any, TypeVar, overload
 
-from lsst.resources import ResourcePath, ResourcePathExpression
+from lsst.resources import ResourcePathExpression
 
 from ._backends import (
+    _decompress_path_to_temp_file,
     _is_binary_stream,
     _maybe_decompress_stream,
     _path_is_compressed,
@@ -174,9 +174,12 @@ def open(
     from the file's schema, and returns a `Reader` context manager.
 
     gzip- and zstd-compressed input (detected from magic bytes for streams,
-    or a ``.gz``/``.zst`` path suffix) is decompressed in full into memory
-    first: compressed data has no random access, so ``partial`` is ignored
-    for it.  zstd requires Python >= 3.14 or the ``zstandard`` package.
+    or a ``.gz``/``.zst`` path suffix) is decompressed in full first:
+    compressed data has no random access, so ``partial`` is ignored for it.
+    Stream input, which is already in memory, decompresses into memory; a
+    compressed path stream-decompresses into an anonymous temporary file so
+    memory use stays bounded for large files.  zstd requires Python >= 3.14
+    or the ``zstandard`` package.
 
     Parameters
     ----------
@@ -211,29 +214,33 @@ def open(
         incompatible type.
     """
     source: ResourcePathExpression | IO[bytes]
+    temp_file: IO[bytes] | None = None
     if _is_binary_stream(path):
         source = _maybe_decompress_stream(path)
         backend = backend_for_name(format) if format is not None else backend_for_stream(source)
     else:
         backend = backend_for_name(format) if format is not None else backend_for_path(path)
         if _path_is_compressed(path):
-            source = _maybe_decompress_stream(io.BytesIO(ResourcePath(path).read()))
-        else:
-            source = path
-    with backend.input_archive.open_tree(source, partial=partial, **backend_kwargs) as (
-        archive,
-        tree,
-        info,
-    ):
-        if cls is not None:
-            resolved = public_type_for_schema(info.schema_name)
-            if resolved is not None and not issubclass(resolved, cls):
-                raise TypeError(
-                    f"{path!r} has schema {info.schema_name!r} (type {resolved.__name__}), "
-                    f"which is not a {cls.__name__}."
-                )
-        reader: Reader[Any] = Reader(archive, tree, info, cls)
-        try:
-            yield reader
-        finally:
-            reader._closed = True
+            temp_file = _decompress_path_to_temp_file(path)
+        source = temp_file if temp_file is not None else path
+    try:
+        with backend.input_archive.open_tree(source, partial=partial, **backend_kwargs) as (
+            archive,
+            tree,
+            info,
+        ):
+            if cls is not None:
+                resolved = public_type_for_schema(info.schema_name)
+                if resolved is not None and not issubclass(resolved, cls):
+                    raise TypeError(
+                        f"{path!r} has schema {info.schema_name!r} (type {resolved.__name__}), "
+                        f"which is not a {cls.__name__}."
+                    )
+            reader: Reader[Any] = Reader(archive, tree, info, cls)
+            try:
+                yield reader
+            finally:
+                reader._closed = True
+    finally:
+        if temp_file is not None:
+            temp_file.close()

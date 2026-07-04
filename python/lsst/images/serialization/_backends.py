@@ -17,8 +17,10 @@ import dataclasses
 import gzip
 import io
 import os
+import shutil
+import tempfile
 from collections.abc import Callable
-from typing import IO, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, cast
 
 from lsst.resources import ResourcePath, ResourcePathExpression
 
@@ -63,8 +65,8 @@ def _path_is_compressed(path: ResourcePathExpression) -> bool:
     return ResourcePath(path).basename().endswith(_COMPRESSION_SUFFIXES)
 
 
-def _decompress_zstd(data: bytes) -> bytes:
-    """Decompress zstd ``data``, preferring the stdlib decompressor.
+def _open_zstd_stream(raw: IO[bytes]) -> IO[bytes]:
+    """Wrap ``raw`` in a streaming zstd decompressor, preferring the stdlib.
 
     The imports are function-scoped optional-dependency guards:
     ``compression.zstd`` exists only on Python >= 3.14 and ``zstandard``
@@ -72,8 +74,8 @@ def _decompress_zstd(data: bytes) -> bytes:
 
     Parameters
     ----------
-    data
-        Complete zstd-compressed payload.
+    raw
+        Binary stream positioned at the start of a zstd frame.
 
     Raises
     ------
@@ -91,10 +93,72 @@ def _decompress_zstd(data: bytes) -> bytes:
                 "available; install the 'zstandard' package or use "
                 "Python >= 3.14."
             ) from None
-        # decompressobj() handles frames that do not record their
-        # decompressed size, unlike ZstdDecompressor.decompress().
-        return zstandard.ZstdDecompressor().decompressobj().decompress(data)
-    return zstd.decompress(data)
+        return cast(IO[bytes], zstandard.ZstdDecompressor().stream_reader(raw))
+    return cast(IO[bytes], zstd.ZstdFile(raw))
+
+
+def _decompress_zstd(data: bytes) -> bytes:
+    """Decompress zstd ``data`` in memory.
+
+    Parameters
+    ----------
+    data
+        Complete zstd-compressed payload.
+
+    Raises
+    ------
+    ValueError
+        If no zstd decompressor is available.
+    """
+    with _open_zstd_stream(io.BytesIO(data)) as reader:
+        return reader.read()
+
+
+def _decompress_path_to_temp_file(path: ResourcePathExpression) -> IO[bytes] | None:
+    """Stream-decompress a compressed file into an anonymous temporary file.
+
+    Unlike in-memory input, a compressed *file* may be arbitrarily large,
+    so its decompressed content goes to disk in bounded-memory chunks
+    rather than into a `io.BytesIO`.
+
+    Parameters
+    ----------
+    path
+        Path whose content to decompress; convertible to
+        `lsst.resources.ResourcePath`.
+
+    Returns
+    -------
+    `typing.IO` [ `bytes` ] or `None`
+        Open, seekable binary handle positioned at the start of the
+        decompressed data, or `None` when the file's leading bytes carry
+        no known compression magic.  The file is deleted when the handle
+        is closed; the caller owns closing it.
+
+    Raises
+    ------
+    ValueError
+        If the data is zstd-compressed and no zstd decompressor is
+        available.
+    """
+    with ResourcePath(path).open("rb") as raw:
+        magic = raw.read(4)
+        raw.seek(0)
+        if magic.startswith(_GZIP_MAGIC):
+            decompressor = cast(IO[bytes], gzip.GzipFile(fileobj=raw))
+        elif magic == _ZSTD_MAGIC:
+            decompressor = _open_zstd_stream(cast(IO[bytes], raw))
+        else:
+            return None
+        temp = tempfile.TemporaryFile()
+        try:
+            with decompressor:
+                shutil.copyfileobj(decompressor, temp, 1024 * 1024)
+            temp.seek(0)
+        except BaseException:
+            temp.close()
+            raise
+        return temp
 
 
 def _maybe_decompress_stream(stream: IO[bytes]) -> IO[bytes]:

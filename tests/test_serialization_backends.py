@@ -214,5 +214,50 @@ class DecompressionTestCase(unittest.TestCase):
         self.assertFalse(_path_is_compressed("a/b.fits"))
 
 
+class DecompressPathToTempFileTestCase(unittest.TestCase):
+    """Compressed paths stream-decompress into a temporary file on disk."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+        self.payload = b"SIMPLE  = fake fits payload " * 1000
+
+    def test_gzip(self) -> None:
+        from lsst.images.serialization._backends import _decompress_path_to_temp_file
+
+        path = os.path.join(self.tmp, "x.fits.gz")
+        with open(path, "wb") as f:
+            f.write(gzip.compress(self.payload))
+        handle = _decompress_path_to_temp_file(path)
+        self.assertIsNotNone(handle)
+        with handle:
+            # The decompressed data lives in a real file, not in memory.
+            self.assertNotIsInstance(handle, io.BytesIO)
+            self.assertTrue(hasattr(handle, "fileno"))
+            self.assertEqual(handle.read(), self.payload)
+
+    @unittest.skipUnless(ZSTD_AVAILABLE, "no zstd decompressor available.")
+    def test_zstd(self) -> None:
+        from lsst.images.serialization._backends import _decompress_path_to_temp_file
+
+        path = os.path.join(self.tmp, "x.fits.zst")
+        with open(path, "wb") as f:
+            f.write(_zstd_compress(self.payload))
+        handle = _decompress_path_to_temp_file(path)
+        self.assertIsNotNone(handle)
+        with handle:
+            self.assertEqual(handle.read(), self.payload)
+
+    def test_suffix_without_compression_returns_none(self) -> None:
+        from lsst.images.serialization._backends import _decompress_path_to_temp_file
+
+        # A .gz name whose content carries no compression magic.
+        path = os.path.join(self.tmp, "x.fits.gz")
+        with open(path, "wb") as f:
+            f.write(self.payload)
+        self.assertIsNone(_decompress_path_to_temp_file(path))
+
+
 if __name__ == "__main__":
     unittest.main()
