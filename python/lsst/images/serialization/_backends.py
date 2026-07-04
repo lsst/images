@@ -11,11 +11,12 @@
 
 from __future__ import annotations
 
-__all__ = ("Backend", "backend_for_path")
+__all__ = ("Backend", "backend_for_name", "backend_for_path", "backend_for_stream")
 
 import dataclasses
 import gzip
 import io
+import os
 from collections.abc import Callable
 from typing import IO, TYPE_CHECKING
 
@@ -34,6 +35,12 @@ _ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
 
 _COMPRESSION_SUFFIXES = (".gz", ".zst")
 """File name suffixes implying whole-file compression."""
+
+_FITS_MAGIC = b"SIMPLE  ="
+"""Leading bytes of a standard FITS primary header."""
+
+_HDF5_MAGIC = b"\x89HDF\r\n\x1a\n"
+"""Leading bytes of an HDF5 file."""
 
 
 def _is_binary_stream(obj: object) -> TypeIs[IO[bytes]]:
@@ -128,13 +135,58 @@ class Backend:
     input_archive: type[InputArchive]
 
 
+def _backend_for_format(name: str) -> Backend | None:
+    """Return the `Backend` registered under ``name``, or `None`.
+
+    Backends are imported lazily so optional dependencies (e.g. ``h5py``)
+    are only required when actually used.
+    """
+    match name:
+        case "fits":
+            from ..fits import FitsInputArchive
+            from ..fits import write as fits_write
+
+            return Backend("fits", fits_write, FitsInputArchive)
+        case "ndf":
+            from ..ndf import NdfInputArchive
+            from ..ndf import write as ndf_write
+
+            return Backend("ndf", ndf_write, NdfInputArchive)
+        case "json":
+            from ..json import JsonInputArchive
+            from ..json import write as json_write
+
+            return Backend("json", json_write, JsonInputArchive)
+    return None
+
+
+def backend_for_name(name: str) -> Backend:
+    """Return the `Backend` with the given format name.
+
+    Parameters
+    ----------
+    name
+        Backend format name: ``"fits"``, ``"ndf"``, or ``"json"``.
+
+    Raises
+    ------
+    ValueError
+        If ``name`` is not a recognized backend name.
+    """
+    backend = _backend_for_format(name)
+    if backend is None:
+        raise ValueError(f"Unrecognized format name: {name!r}; expected one of 'fits', 'ndf', 'json'.")
+    return backend
+
+
 def backend_for_path(path: ResourcePathExpression) -> Backend:
     """Return the `Backend` for ``path`` based on its file extension.
 
-    Supported extensions: ``.fits`` / ``.fits.gz`` (FITS), ``.h5`` /
-    ``.sdf`` (NDF), and ``.json`` (JSON).  The NDF and FITS backends are
-    imported lazily so optional dependencies (e.g. ``h5py``) are only
-    required when actually used.
+    Supported extensions: ``.fits`` (FITS), ``.h5`` / ``.sdf`` (NDF), and
+    ``.json`` (JSON), each optionally followed by a ``.gz`` or ``.zst``
+    compression suffix.  The NDF and FITS backends are imported lazily so
+    optional dependencies (e.g. ``h5py``) are only required when actually
+    used.
 
     Parameters
     ----------
@@ -144,27 +196,57 @@ def backend_for_path(path: ResourcePathExpression) -> Backend:
     Raises
     ------
     ValueError
-        If the extension is not recognised.
+        If the extension is not recognized.
     """
     uri = ResourcePath(path)
-    match uri.getExtension():
-        case ".fits" | ".fits.gz":
-            from ..fits import FitsInputArchive
-            from ..fits import write as fits_write
-
-            return Backend("fits", fits_write, FitsInputArchive)
+    name = uri.basename()
+    for suffix in _COMPRESSION_SUFFIXES:
+        if name.endswith(suffix):
+            name = name.removesuffix(suffix)
+            break
+    match os.path.splitext(name)[1]:
+        case ".fits":
+            return backend_for_name("fits")
         case ".h5" | ".sdf":
-            from ..ndf import NdfInputArchive
-            from ..ndf import write as ndf_write
-
-            return Backend("ndf", ndf_write, NdfInputArchive)
+            return backend_for_name("ndf")
         case ".json":
-            from ..json import JsonInputArchive
-            from ..json import write as json_write
-
-            return Backend("json", json_write, JsonInputArchive)
+            return backend_for_name("json")
         case ext:
             raise ValueError(
-                f"Unrecognised file extension: {ext!r} from {uri!r}; "
-                "expected one of .fits, .fits.gz, .h5, .sdf, .json."
+                f"Unrecognized file extension: {ext!r} from {uri!r}; "
+                "expected one of .fits, .h5, .sdf, .json, optionally with "
+                "a .gz or .zst compression suffix."
             )
+
+
+def backend_for_stream(stream: IO[bytes]) -> Backend:
+    """Return the `Backend` for ``stream`` based on its leading bytes.
+
+    The stream is restored to the position it was passed in with.
+    Compressed content is not recognized here; decompress first (see
+    `_maybe_decompress_stream`).
+
+    Parameters
+    ----------
+    stream
+        Seekable binary stream positioned at the start of the data.
+
+    Raises
+    ------
+    ValueError
+        If the leading bytes match no supported format.
+    """
+    start = stream.tell()
+    head = stream.read(512)
+    stream.seek(start)
+    if head.startswith(_FITS_MAGIC):
+        return backend_for_name("fits")
+    if head.startswith(_HDF5_MAGIC):
+        return backend_for_name("ndf")
+    if head.lstrip().startswith(b"{"):
+        return backend_for_name("json")
+    raise ValueError(
+        f"Could not identify a supported format from the leading bytes "
+        f"{head[:16]!r}; expected FITS, HDF5/NDF, or JSON content.  "
+        "Specify the format explicitly if it is known."
+    )

@@ -23,7 +23,7 @@ import numpy as np
 
 from lsst.images import Box, Image
 from lsst.images import fits as images_fits
-from lsst.images.serialization import Backend, backend_for_path
+from lsst.images.serialization import Backend, backend_for_name, backend_for_path, backend_for_stream
 
 try:
     from compression import zstd as _stdlib_zstd  # noqa: F401  -- detect zstd availability
@@ -97,6 +97,63 @@ class MinifyDispatchTestCase(unittest.TestCase):
         with self.assertRaises(NotImplementedError) as cm:
             minify(src, out)
         self.assertIn("image", str(cm.exception))
+
+
+class BackendForNameTestCase(unittest.TestCase):
+    """Explicit format-name -> backend resolution."""
+
+    def test_names(self) -> None:
+        self.assertEqual(backend_for_name("fits").name, "fits")
+        self.assertEqual(backend_for_name("ndf").name, "ndf")
+        self.assertEqual(backend_for_name("json").name, "json")
+
+    def test_unknown(self) -> None:
+        with self.assertRaises(ValueError) as cm:
+            backend_for_name("hdf")
+        self.assertIn("hdf", str(cm.exception))
+
+
+class BackendForStreamTestCase(unittest.TestCase):
+    """Content sniffing -> backend resolution."""
+
+    def test_fits_magic(self) -> None:
+        stream = io.BytesIO(b"SIMPLE  =                    T / conforms")
+        self.assertEqual(backend_for_stream(stream).name, "fits")
+        # Sniffing must not consume the stream.
+        self.assertEqual(stream.tell(), 0)
+
+    def test_hdf5_magic(self) -> None:
+        stream = io.BytesIO(b"\x89HDF\r\n\x1a\n" + b"\x00" * 8)
+        self.assertEqual(backend_for_stream(stream).name, "ndf")
+
+    def test_json(self) -> None:
+        self.assertEqual(backend_for_stream(io.BytesIO(b'{"schema_url": "x"}')).name, "json")
+
+    def test_json_leading_whitespace(self) -> None:
+        self.assertEqual(backend_for_stream(io.BytesIO(b'  \n\t {"a": 1}')).name, "json")
+
+    def test_unknown(self) -> None:
+        with self.assertRaises(ValueError) as cm:
+            backend_for_stream(io.BytesIO(b"not any known format"))
+        msg = str(cm.exception)
+        self.assertIn("FITS", msg)
+        self.assertIn("format", msg)
+
+
+class BackendForPathCompressionTestCase(unittest.TestCase):
+    """Compression suffixes are stripped before extension dispatch."""
+
+    def test_gz(self) -> None:
+        self.assertEqual(backend_for_path("c.json.gz").name, "json")
+        self.assertEqual(backend_for_path("c.h5.gz").name, "ndf")
+
+    def test_zst(self) -> None:
+        self.assertEqual(backend_for_path("c.fits.zst").name, "fits")
+        self.assertEqual(backend_for_path("c.sdf.zst").name, "ndf")
+
+    def test_bare_compression_suffix(self) -> None:
+        with self.assertRaises(ValueError):
+            backend_for_path("c.gz")
 
 
 class DecompressionTestCase(unittest.TestCase):
