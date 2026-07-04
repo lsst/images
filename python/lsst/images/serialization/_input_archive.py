@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from types import EllipsisType
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import IO, TYPE_CHECKING, Any, TypeVar
 
 import astropy.io.fits
 import astropy.table
@@ -134,7 +134,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
     @classmethod
     def open_tree(
         cls,
-        path: ResourcePathExpression,
+        path: ResourcePathExpression | IO[bytes],
         *,
         partial: bool = True,
         **backend_kwargs: Any,
@@ -145,7 +145,8 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         Parameters
         ----------
         path
-            File to be opened. Can be local or remote.
+            File to be opened (local or remote), or a seekable binary
+            stream containing the file's content.
         partial
             Whether the file should be opened for incremental reads or not.
             Can be ignored by a backend where not relevant.
