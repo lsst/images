@@ -17,6 +17,7 @@ __all__ = (
     "parameterize_tree",
     "public_type_for_schema",
     "read",
+    "read_from_bytes",
     "register_schema_class",
     "tree_class_for_info",
     "write",
@@ -24,7 +25,8 @@ __all__ = (
 
 import importlib
 import importlib.metadata
-from typing import TYPE_CHECKING, Any, overload
+import io
+from typing import IO, TYPE_CHECKING, Any, overload
 
 from lsst.resources import ResourcePathExpression
 
@@ -162,7 +164,7 @@ def _register_provider_object(obj: object) -> None:
         register_schema_class(obj)
 
 
-def tree_class_for_info(info: ArchiveInfo, path: ResourcePathExpression) -> type[ArchiveTree]:
+def tree_class_for_info(info: ArchiveInfo, path: ResourcePathExpression | IO[bytes]) -> type[ArchiveTree]:
     """Return the registered `ArchiveTree` subclass for ``info``'s schema.
 
     Parameters
@@ -170,7 +172,7 @@ def tree_class_for_info(info: ArchiveInfo, path: ResourcePathExpression) -> type
     info
         Basic archive info whose ``schema_name`` selects the tree class.
     path
-        Path being opened, used only for the error message.
+        Path or stream being opened, used only for the error message.
 
     Raises
     ------
@@ -226,17 +228,28 @@ def public_type_for_schema(schema_name: str) -> type | None:
 
 
 @overload
-def read[T](path: ResourcePathExpression, cls: type[T], **kwargs: Any) -> T: ...
+def read[T](
+    path: ResourcePathExpression | IO[bytes], cls: type[T], *, format: str | None = ..., **kwargs: Any
+) -> T: ...
 @overload
-def read(path: ResourcePathExpression, cls: None = ..., **kwargs: Any) -> Any: ...
-def read(path: ResourcePathExpression, cls: type[Any] | None = None, **kwargs: Any) -> Any:
+def read(
+    path: ResourcePathExpression | IO[bytes], cls: None = ..., *, format: str | None = ..., **kwargs: Any
+) -> Any: ...
+def read(
+    path: ResourcePathExpression | IO[bytes],
+    cls: type[Any] | None = None,
+    *,
+    format: str | None = None,
+    **kwargs: Any,
+) -> Any:
     """Read an archive whose in-memory type is inferred from its schema.
 
-    Dispatches to the appropriate backend based on ``path``'s extension,
-    resolves the registered in-memory type from the file's schema, and
-    returns the fully deserialized object.
+    Dispatches to the appropriate backend based on ``path``'s extension (or,
+    for stream input, its leading bytes), resolves the registered in-memory
+    type from the file's schema, and returns the fully deserialized object.
     Schema-version compatibility is enforced when the model validates the
     on-disk tree, via ``min_read_version``.
+    gzip- and zstd-compressed input is decompressed transparently.
 
     This is the convenient way to read a whole object.  To read individual
     components, or to reach the metadata and butler info stored alongside the
@@ -245,12 +258,17 @@ def read(path: ResourcePathExpression, cls: type[Any] | None = None, **kwargs: A
     Parameters
     ----------
     path
-        File to read; convertible to `lsst.resources.ResourcePath`.
+        File to read; convertible to `lsst.resources.ResourcePath`, or a
+        seekable binary stream containing the file's content.
     cls
         Optional expected in-memory type.
         When given, the file's schema is checked against ``cls`` and the
         deserialized object is validated with ``isinstance`` (raising
         `TypeError` otherwise), and the static return type is ``T``.
+    format
+        Optional backend name (``"fits"``, ``"ndf"``, or ``"json"``)
+        forcing the backend, instead of dispatching on the path's extension
+        or the stream's leading bytes.
     **kwargs
         Type-specific keyword arguments forwarded to the object's
         ``deserialize`` (e.g. ``bbox`` for an image subset read).
@@ -266,7 +284,10 @@ def read(path: ResourcePathExpression, cls: type[Any] | None = None, **kwargs: A
     Raises
     ------
     ValueError
-        Raised by `backend_for_path` if the file extension is not recognized.
+        Raised by `backend_for_path` if the file extension is not
+        recognized, by `backend_for_stream` if a stream's leading bytes are
+        not recognized, or by `backend_for_name` if ``format`` is not a
+        known backend name.
     ArchiveReadError
         Raised when the file's ``schema_name`` is not registered, or
         propagated from the model's ``min_read_version`` check on
@@ -283,8 +304,65 @@ def read(path: ResourcePathExpression, cls: type[Any] | None = None, **kwargs: A
     # a plain whole-object read may slurp the file up front.  This mirrors the
     # ``partial`` default the per-backend readers used.
     partial = any(value is not None for value in kwargs.values())
-    with open_archive(path, cls, partial=partial) as reader:
+    with open_archive(path, cls, format=format, partial=partial) as reader:
         return reader.read(**kwargs)
+
+
+@overload
+def read_from_bytes[T](
+    data: bytes | bytearray | memoryview, cls: type[T], *, format: str | None = ..., **kwargs: Any
+) -> T: ...
+@overload
+def read_from_bytes(
+    data: bytes | bytearray | memoryview, cls: None = ..., *, format: str | None = ..., **kwargs: Any
+) -> Any: ...
+def read_from_bytes(
+    data: bytes | bytearray | memoryview,
+    cls: type[Any] | None = None,
+    *,
+    format: str | None = None,
+    **kwargs: Any,
+) -> Any:
+    """Read an archive from in-memory data.
+
+    A convenience wrapper around `read` for callers holding a file's
+    content in memory (e.g. a VO cutout service response), avoiding a
+    round-trip through the filesystem.  The format is identified from the
+    leading bytes unless ``format`` is given; gzip- and zstd-compressed
+    content is decompressed transparently.
+
+    Parameters
+    ----------
+    data
+        In-memory content of an ``lsst.images`` file; any buffer-protocol
+        object.
+    cls
+        Optional expected in-memory type, as for `read`.
+    format
+        Optional backend name (``"fits"``, ``"ndf"``, or ``"json"``)
+        overriding content sniffing.
+    **kwargs
+        Type-specific keyword arguments forwarded to the object's
+        ``deserialize``, as for `read` (e.g. ``bbox`` for an image subset
+        read).
+
+    Returns
+    -------
+    object
+        The deserialized object.
+
+    Raises
+    ------
+    ValueError
+        If no supported format matches the leading bytes and ``format`` was
+        not given, if ``format`` is not a known backend name, or if the
+        data is zstd-compressed and no zstd decompressor is available.
+    ArchiveReadError
+        As for `read`.
+    TypeError
+        As for `read`, when ``cls`` is given and incompatible.
+    """
+    return read(io.BytesIO(data), cls, format=format, **kwargs)
 
 
 def write(obj: Any, path: str, **kwargs: Any) -> Any:
