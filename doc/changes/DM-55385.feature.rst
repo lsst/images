@@ -1,0 +1,3 @@
+* Added ``lsst.images.serialization.read_from_bytes`` for reading an object from in-memory data (e.g. a VO cutout service response) without writing it to disk first.
+  The generic ``read`` and ``open`` APIs now also accept a seekable binary stream, identify the format from the content (with an optional ``format`` argument to override), and transparently decompress gzip- and zstd-compressed input for both paths and streams.
+  Reading zstd-compressed data requires Python 3.14 or the ``zstandard`` package.

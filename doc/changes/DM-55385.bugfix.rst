@@ -1,0 +1,1 @@
+* Fixed reading of ``.fits.gz`` files, which were dispatched to the FITS backend but handed to it still compressed.
