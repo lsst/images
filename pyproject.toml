@@ -223,7 +223,7 @@ warn_redundant_casts = true
 plugins = "pydantic.mypy"
 
 [[tool.mypy.overrides]]
-module = ["fsspec.*", "astropy.*", "frozendict.*", "galsim.*", "h5py.*", "piff.*", "lsst.*", "starlink.*"]
+module = ["fsspec.*", "astropy.*", "compression.*", "frozendict.*", "galsim.*", "h5py.*", "piff.*", "lsst.*", "starlink.*", "zstandard.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
