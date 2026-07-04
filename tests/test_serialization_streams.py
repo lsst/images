@@ -72,5 +72,20 @@ class JsonOpenTreeStreamTestCase(unittest.TestCase):
         np.testing.assert_array_equal(result.array, image.array)
 
 
+@unittest.skipUnless(H5PY_AVAILABLE, "h5py not available.")
+class NdfOpenTreeStreamTestCase(unittest.TestCase):
+    """NdfInputArchive.open_tree accepts a seekable binary stream."""
+
+    def test_open_tree_stream(self) -> None:
+        from lsst.images.ndf import NdfInputArchive
+
+        image = _test_image()
+        stream = io.BytesIO(_serialized_bytes(image, ".sdf"))
+        with NdfInputArchive.open_tree(stream) as (archive, tree, info):
+            result = tree.deserialize(archive)
+        self.assertIsInstance(result, Image)
+        np.testing.assert_array_equal(result.array, image.array)
+
+
 if __name__ == "__main__":
     unittest.main()
