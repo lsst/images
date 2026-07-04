@@ -11,15 +11,42 @@
 
 from __future__ import annotations
 
+import gzip
+import io
 import os
+import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 
 from lsst.images import Box, Image
 from lsst.images import fits as images_fits
 from lsst.images.serialization import Backend, backend_for_path
+
+try:
+    from compression import zstd as _stdlib_zstd  # noqa: F401  -- detect zstd availability
+
+    ZSTD_AVAILABLE = True
+except ImportError:
+    try:
+        import zstandard  # noqa: F401
+
+        ZSTD_AVAILABLE = True
+    except ImportError:
+        ZSTD_AVAILABLE = False
+
+
+def _zstd_compress(data: bytes) -> bytes:
+    """Compress with whichever zstd library is available."""
+    try:
+        from compression import zstd
+    except ImportError:
+        import zstandard
+
+        return zstandard.ZstdCompressor().compress(data)
+    return zstd.compress(data)
 
 
 class BackendForPathTestCase(unittest.TestCase):
@@ -70,6 +97,64 @@ class MinifyDispatchTestCase(unittest.TestCase):
         with self.assertRaises(NotImplementedError) as cm:
             minify(src, out)
         self.assertIn("image", str(cm.exception))
+
+
+class DecompressionTestCase(unittest.TestCase):
+    """Magic-number detection and in-memory decompression."""
+
+    def test_gzip(self) -> None:
+        from lsst.images.serialization._backends import _maybe_decompress_stream
+
+        stream = io.BytesIO(gzip.compress(b"payload"))
+        out = _maybe_decompress_stream(stream)
+        self.assertIsNot(out, stream)
+        self.assertEqual(out.read(), b"payload")
+
+    @unittest.skipUnless(ZSTD_AVAILABLE, "no zstd decompressor available.")
+    def test_zstd(self) -> None:
+        from lsst.images.serialization._backends import _maybe_decompress_stream
+
+        stream = io.BytesIO(_zstd_compress(b"payload"))
+        out = _maybe_decompress_stream(stream)
+        self.assertIsNot(out, stream)
+        self.assertEqual(out.read(), b"payload")
+
+    def test_passthrough(self) -> None:
+        from lsst.images.serialization._backends import _maybe_decompress_stream
+
+        stream = io.BytesIO(b"SIMPLE  = plain uncompressed data")
+        out = _maybe_decompress_stream(stream)
+        self.assertIs(out, stream)
+        # The stream must be left at the position it came in with.
+        self.assertEqual(out.tell(), 0)
+
+    def test_zstd_no_decompressor(self) -> None:
+        from lsst.images.serialization._backends import _maybe_decompress_stream
+
+        data = b"\x28\xb5\x2f\xfd" + b"pretend zstd frame"
+        # None entries make both import routes raise ImportError.
+        blocked = {"compression": None, "compression.zstd": None, "zstandard": None}
+        with mock.patch.dict(sys.modules, blocked):
+            with self.assertRaises(ValueError) as cm:
+                _maybe_decompress_stream(io.BytesIO(data))
+        self.assertIn("zstd", str(cm.exception))
+
+    def test_is_binary_stream(self) -> None:
+        from lsst.images.serialization._backends import _is_binary_stream
+        from lsst.resources import ResourcePath
+
+        self.assertTrue(_is_binary_stream(io.BytesIO(b"")))
+        self.assertFalse(_is_binary_stream("a.fits"))
+        # ResourcePath has read() but no seek(); it must not look like a
+        # stream.
+        self.assertFalse(_is_binary_stream(ResourcePath("a.fits", forceAbsolute=False)))
+
+    def test_path_is_compressed(self) -> None:
+        from lsst.images.serialization._backends import _path_is_compressed
+
+        self.assertTrue(_path_is_compressed("a/b.fits.gz"))
+        self.assertTrue(_path_is_compressed("a/b.json.zst"))
+        self.assertFalse(_path_is_compressed("a/b.fits"))
 
 
 if __name__ == "__main__":
