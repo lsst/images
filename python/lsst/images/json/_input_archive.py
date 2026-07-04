@@ -16,7 +16,7 @@ __all__ = ("JsonInputArchive",)
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from types import EllipsisType
-from typing import TYPE_CHECKING, Any, Self
+from typing import IO, TYPE_CHECKING, Any, Self
 
 import astropy.table
 import numpy as np
@@ -38,6 +38,7 @@ from ..serialization import (
     parameterize_tree,
     tree_class_for_info,
 )
+from ..serialization._backends import _is_binary_stream
 
 if TYPE_CHECKING:
     import astropy.io.fits
@@ -80,7 +81,7 @@ class JsonInputArchive(InputArchive[JsonRef]):
     @contextmanager
     def open_tree(
         cls,
-        path: ResourcePathExpression,
+        path: ResourcePathExpression | IO[bytes],
         *,
         partial: bool = True,
         **backend_kwargs: Any,
@@ -90,13 +91,17 @@ class JsonInputArchive(InputArchive[JsonRef]):
         Parameters
         ----------
         path
-            File resource to open.
+            File resource to open, or a seekable binary stream containing
+            the file's content.
         partial
             Ignored. The entire JSON file is always read into memory.
         **backend_kwargs
             No keyword parameters are supported by this backend.
         """
-        raw = ResourcePath(path).read()
+        if _is_binary_stream(path):
+            raw = path.read()
+        else:
+            raw = ResourcePath(path).read()
         parsed = from_json(raw)
         if not isinstance(parsed, dict) or not parsed.get("schema_url"):
             raise ArchiveReadError(f"{path!r} has no schema_url in its top-level JSON tree.")

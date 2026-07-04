@@ -58,5 +58,19 @@ class FitsOpenTreeStreamTestCase(unittest.TestCase):
         np.testing.assert_array_equal(result.array, image.array)
 
 
+class JsonOpenTreeStreamTestCase(unittest.TestCase):
+    """JsonInputArchive.open_tree accepts a seekable binary stream."""
+
+    def test_open_tree_stream(self) -> None:
+        from lsst.images.json import JsonInputArchive
+
+        image = _test_image()
+        stream = io.BytesIO(_serialized_bytes(image, ".json"))
+        with JsonInputArchive.open_tree(stream) as (archive, tree, info):
+            result = tree.deserialize(archive)
+        self.assertIsInstance(result, Image)
+        np.testing.assert_array_equal(result.array, image.array)
+
+
 if __name__ == "__main__":
     unittest.main()
