@@ -48,6 +48,9 @@ _SCHEMA_ENTRY_POINT_GROUP = "lsst.images.schemas"
 """Entry point group for third-party serialization-model providers."""
 
 _BUILTIN_SCHEMA_PROVIDERS: dict[str, str] = {
+    "cell_aperture_correction_map": (
+        "lsst.images.cells._aperture_corrections:CellApertureCorrectionMapSerializationModel"
+    ),
     "cell_coadd": "lsst.images.cells._coadd:CellCoaddSerializationModel",
     "cell_psf": "lsst.images.cells._psf:CellPointSpreadFunctionSerializationModel",
     "coadd_provenance": "lsst.images.cells._provenance:CoaddProvenanceSerializationModel",
