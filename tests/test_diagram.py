@@ -21,6 +21,7 @@ import pytest
 from click.testing import CliRunner
 
 from lsst.images import VisitImageSerializationModel
+from lsst.images.cells import CellCoaddSerializationModel
 from lsst.images.cli import main
 from lsst.images.diagram import (
     DEFAULT_LEAF_TYPES,
@@ -31,7 +32,7 @@ from lsst.images.diagram import (
     make_policy,
     render,
 )
-from lsst.images.serialization import ArrayReferenceModel
+from lsst.images.serialization import JsonRef
 
 TESTDIR = os.path.abspath(os.path.dirname(__file__))
 
@@ -260,10 +261,7 @@ def test_visit_image_real_model() -> None:
     """Test that build_graph handles the real VisitImageSerializationModel
     correctly.
     """
-    from lsst.images import VisitImageSerializationModel
-    from lsst.images.serialization._asdf_utils import ArrayReferenceModel
-
-    graph = build_graph(VisitImageSerializationModel[ArrayReferenceModel])
+    graph = build_graph(VisitImageSerializationModel[JsonRef])
     root = graph.nodes[graph.root]
     refs = {r.name: r for r in root.references}
 
@@ -283,10 +281,7 @@ def test_cell_coadd_real_model() -> None:
     """Test that build_graph handles the real CellCoaddSerializationModel
     correctly.
     """
-    from lsst.images.cells import CellCoaddSerializationModel
-    from lsst.images.serialization._asdf_utils import ArrayReferenceModel
-
-    graph = build_graph(CellCoaddSerializationModel[ArrayReferenceModel])
+    graph = build_graph(CellCoaddSerializationModel[JsonRef])
     refs = {r.name: r for r in graph.nodes[graph.root].references}
 
     assert refs["noise_realizations"].cardinality == "list"
@@ -357,18 +352,13 @@ def test_public_names_relabel_real_model() -> None:
     their PUBLIC_TYPE labels.
     """
     graph = build_graph(
-        # TODO[DM-54956]: VisitImageSerializationModel[ArrayReferenceModel] is
-        # a weird specialization we would never use in production. We should
-        # try to switch this to something like
-        # VisitImageSerializationModel[JsonRef] if that doesn't get in the way
-        # of testing what this (and similar) tests are trying to check.
-        VisitImageSerializationModel[ArrayReferenceModel],
+        VisitImageSerializationModel[JsonRef],
         policy=make_policy(public_names=True),
     )
     labels = {n.label for n in graph.nodes.values()}
     assert "VisitImage" in labels
     assert "SkyProjection" in labels
-    assert "VisitImageSerializationModel[ArrayReferenceModel]" not in labels
+    assert "VisitImageSerializationModel[JsonRef]" not in labels
     assert "ApertureCorrectionMapSerializationModel" in labels
 
 
@@ -377,7 +367,7 @@ def test_public_names_collapse_matches_either_name() -> None:
     or serialization name is used.
     """
     graph = build_graph(
-        VisitImageSerializationModel[ArrayReferenceModel],
+        VisitImageSerializationModel[JsonRef],
         policy=make_policy(public_names=True, collapse=["Image"]),
     )
     image = next(n for n in graph.nodes.values() if n.label == "Image")
@@ -406,7 +396,7 @@ def test_hide_type_matches_public_name() -> None:
     """Test that hide_types matches a node by its public name when
     public_names=True.
     """
-    model = VisitImageSerializationModel[ArrayReferenceModel]
+    model = VisitImageSerializationModel[JsonRef]
     graph = build_graph(model, policy=make_policy(public_names=True, hide_types=["Image"]))
     assert "Image" not in {n.label for n in graph.nodes.values()}
 
@@ -416,7 +406,7 @@ def test_default_collapses_asdf_helpers_in_real_model() -> None:
     reveals more nodes.
     """
     assert "ArrayReferenceModel" in DEFAULT_LEAF_TYPES
-    model = VisitImageSerializationModel[ArrayReferenceModel]
+    model = VisitImageSerializationModel[JsonRef]
     default_graph = build_graph(model)
     array_node = next(n for n in default_graph.nodes.values() if n.label == "ArrayReferenceModel")
     assert array_node.collapsed
@@ -549,11 +539,11 @@ def test_mermaid_real_model_is_bracket_safe() -> None:
     """Test that the mermaid emitter escapes square brackets that would break
     the parser.
     """
-    mermaid = render(build_graph(VisitImageSerializationModel[ArrayReferenceModel]), "mermaid")
+    mermaid = render(build_graph(VisitImageSerializationModel[JsonRef]), "mermaid")
     stripped = mermaid.replace('["', "").replace('"]', "")
     assert "[" not in stripped
     assert "]" not in stripped
-    assert "VisitImageSerializationModel~ArrayReferenceModel~" in mermaid
+    assert "VisitImageSerializationModel~JsonRef~" in mermaid
 
 
 def test_unknown_format_raises() -> None:
