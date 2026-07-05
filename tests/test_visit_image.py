@@ -838,7 +838,7 @@ def test_butler_converters(legacy_test_data: _LegacyTestData) -> None:
         )
         visit_image_ref = helper.legacy.overrideStorageClass(legacy_test_data.storage_class)
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=UserWarning)
+            warnings.filterwarnings("ignore", message=".*filter label mismatch.*", category=UserWarning)
             visit_image = helper.butler.get(visit_image_ref)
             assert visit_image._opaque_metadata.precompressed.keys() == set()
             visit_image = helper.butler.get(visit_image_ref, parameters={"preserve_quantization": True})
@@ -860,7 +860,9 @@ def test_butler_converters(legacy_test_data: _LegacyTestData) -> None:
         helper.butler.pruneDatasets([helper.legacy], purge=True, unstore=True, disassociate=True)
         visit_image.metadata["MixedCaseKey"] = 52
         helper.butler.put(visit_image, visit_image_ref)
-        legacy_exposure = helper.butler.get(helper.legacy)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*filter label mismatch.*", category=UserWarning)
+            legacy_exposure = helper.butler.get(helper.legacy)
         compare_visit_image_to_legacy(
             visit_image,
             legacy_exposure,
