@@ -19,6 +19,7 @@ __all__ = (
 import os
 from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, Self
 
 import astropy.io.fits
@@ -66,7 +67,7 @@ changes. Independent of any data-model ``SCHEMA_VERSION``.
 
 def write(
     obj: Any,
-    filename: str | None = None,
+    filename: str | Path | None = None,
     *,
     metadata: dict[str, MetadataValue] | None = None,
     butler_info: ButlerInfo | None = None,
@@ -321,7 +322,7 @@ class NdfOutputArchive(OutputArchive[NdfPointerModel]):
     @contextmanager
     def open(
         cls,
-        filename: str | None,
+        filename: str | Path | None,
         *,
         compression_options: Mapping[str, Any] | None = None,
         opaque_metadata: FitsOpaqueMetadata | None = None,

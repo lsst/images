@@ -16,6 +16,7 @@ __all__ = ("FitsOutputArchive", "write")
 import dataclasses
 from collections.abc import Callable, Hashable, Iterator, Mapping
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, Self
 
 import astropy.io.fits
@@ -76,7 +77,7 @@ def _set_creation_date(header: astropy.io.fits.Header) -> None:
 
 def write(
     obj: Any,
-    path: str,
+    path: Path | str,
     compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
     update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
     compression_seed: int | None = None,
@@ -189,7 +190,7 @@ class FitsOutputArchive(OutputArchive[PointerModel]):
     @contextmanager
     def open(
         cls,
-        filename: str,
+        filename: Path | str,
         compression_options: Mapping[str, FitsCompressionOptions | None] | None = None,
         opaque_metadata: Any = None,
         update_header: Callable[[astropy.io.fits.Header], None] = no_header_updates,
