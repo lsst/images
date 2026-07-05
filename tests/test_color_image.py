@@ -124,20 +124,12 @@ def test_ndf_roundtrip() -> None:
     assert_color_images_equal(roundtrip.result, color_image, expect_view=False)
 
 
-# TODO[DM-54956]: instead of checking for consistency, we should just have
-# an independent test of the JSON archive, as we do for the others.
-def test_fits_json_consistency() -> None:
-    """Test that the FITS and JSON backends produce equal ColorImages on
-    round-trip.
-    """
+def test_json_roundtrip() -> None:
+    """Test that ColorImage round-trips correctly through JSON."""
     color_image, _ = _make_color_image()
-    with (
-        RoundtripFits(color_image) as fits_rt,
-        RoundtripJson(color_image) as json_rt,
-    ):
-        assert_color_images_equal(fits_rt.result, color_image, expect_view=False)
-        assert_color_images_equal(json_rt.result, color_image, expect_view=False)
-        assert_color_images_equal(fits_rt.result, json_rt.result, expect_view=False)
+    with RoundtripJson(color_image) as roundtrip:
+        pass
+    assert_color_images_equal(roundtrip.result, color_image, expect_view=False)
 
 
 @skip_no_h5py

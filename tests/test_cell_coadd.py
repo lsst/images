@@ -264,17 +264,11 @@ def test_fits_compression(legacy_test_data: _LegacyTestData) -> None:
                     assert fits[extname].header["ZQUANTIZ"] == "SUBTRACTIVE_DITHER_2"
 
 
-# TODO[DM-54956]: instead of checking for consistency, we should just have
-# an independent test of the JSON archive, as we do for FITS.
-def test_fits_json_consistency(legacy_test_data: _LegacyTestData) -> None:
-    """Verify FITS and JSON backends produce equal CellCoadds on round-trip."""
-    with (
-        RoundtripFits(legacy_test_data.cell_coadd) as fits_rt,
-        RoundtripJson(legacy_test_data.cell_coadd) as json_rt,
-    ):
-        assert_cell_coadds_equal(legacy_test_data.cell_coadd, fits_rt.result, expect_view=False)
-        assert_cell_coadds_equal(legacy_test_data.cell_coadd, json_rt.result, expect_view=False)
-        assert_cell_coadds_equal(fits_rt.result, json_rt.result, expect_view=False)
+def test_json_roundtrip(legacy_test_data: _LegacyTestData) -> None:
+    """Verify a CellCoadd round-trips correctly through the JSON archive."""
+    with RoundtripJson(legacy_test_data.cell_coadd) as roundtrip:
+        pass
+    assert_cell_coadds_equal(roundtrip.result, legacy_test_data.cell_coadd, expect_view=False)
 
 
 def test_to_legacy(legacy_test_data: _LegacyTestData) -> None:
@@ -317,21 +311,7 @@ def test_to_legacy_exposure(legacy_test_data: _LegacyTestData) -> None:
 
 
 @skip_no_h5py
-def test_round_trip_ndf(legacy_test_data: _LegacyTestData) -> None:
+def test_ndf_roundtrip(legacy_test_data: _LegacyTestData) -> None:
     """Test that CellCoadd round-trips through NDF."""
     with RoundtripNdf(legacy_test_data.cell_coadd, "CellCoadd") as roundtrip:
         assert_cell_coadds_equal(roundtrip.result, legacy_test_data.cell_coadd, expect_view=False)
-
-
-# TODO[DM-54956]: instead of checking for consistency, we should just have
-# an independent test of the NDF archive, as we do for FITS.
-@skip_no_h5py
-def test_fits_ndf_consistency(legacy_test_data: _LegacyTestData) -> None:
-    """Verify FITS and NDF backends produce equal CellCoadds on round-trip."""
-    with (
-        RoundtripFits(legacy_test_data.cell_coadd) as fits_rt,
-        RoundtripNdf(legacy_test_data.cell_coadd) as ndf_rt,
-    ):
-        assert_cell_coadds_equal(legacy_test_data.cell_coadd, fits_rt.result, expect_view=False)
-        assert_cell_coadds_equal(legacy_test_data.cell_coadd, ndf_rt.result, expect_view=False)
-        assert_cell_coadds_equal(fits_rt.result, ndf_rt.result, expect_view=False)
