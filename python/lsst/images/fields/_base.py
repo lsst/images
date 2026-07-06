@@ -14,15 +14,17 @@ from __future__ import annotations
 __all__ = ("BaseField",)
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Literal, Self, overload
+from typing import TYPE_CHECKING, Any, Literal, Self, assert_type, cast, overload
 
 import astropy.units
 import numpy as np
 
-from .._geom import Bounds, Box
+from .._geom import XY, YX, Bounds, Box
 from .._image import Image
 
 if TYPE_CHECKING:
+    import numpy.typing as npt
+
     try:
         from lsst.afw.image import PhotoCalib as LegacyPhotoCalib
         from lsst.afw.math import BoundedField as LegacyBoundedField
@@ -70,22 +72,61 @@ class BaseField(ABC):
         raise NotImplementedError()
 
     @overload
-    def __call__(self, *, x: np.ndarray, y: np.ndarray, quantity: Literal[False] = False) -> np.ndarray: ...
+    def __call__(
+        self, point: XY[int | float] | YX[int | float], /, *, quantity: Literal[False] = False
+    ) -> float: ...
 
     @overload
     def __call__(
-        self, *, x: np.ndarray, y: np.ndarray, quantity: Literal[True]
+        self, point: XY[int | float] | YX[int | float], /, *, quantity: Literal[True]
     ) -> astropy.units.Quantity: ...
 
     @overload
     def __call__(
-        self, *, x: np.ndarray, y: np.ndarray, quantity: bool
+        self, point: XY[npt.ArrayLike] | YX[npt.ArrayLike], /, *, quantity: bool = ...
+    ) -> np.ndarray | astropy.units.Quantity: ...
+
+    @overload
+    def __call__(self, /, *, x: int | float, y: int | float, quantity: Literal[False] = False) -> float: ...
+
+    @overload
+    def __call__(
+        self, /, *, x: int | float, y: int | float, quantity: Literal[True]
+    ) -> astropy.units.Quantity: ...
+
+    @overload
+    def __call__(
+        self, /, *, x: npt.ArrayLike, y: npt.ArrayLike, quantity: bool = ...
     ) -> np.ndarray | astropy.units.Quantity: ...
 
     def __call__(
-        self, *, x: np.ndarray, y: np.ndarray, quantity: bool = False
-    ) -> np.ndarray | astropy.units.Quantity:
-        return self.evaluate(x=x, y=y, quantity=quantity)
+        self,
+        point: XY[Any] | YX[Any] | None = None,
+        /,
+        *,
+        x: Any = None,
+        y: Any = None,
+        quantity: bool = False,
+    ) -> float | np.ndarray | astropy.units.Quantity:
+        match point:
+            case None:
+                if x is None or y is None:
+                    raise TypeError("Pass either a point or both x= and y= to field call.")
+            case XY() | YX():
+                if x is not None or y is not None:
+                    raise TypeError("Field call point argument is mutually exclusive with x= and y=.")
+                x, y = point.x, point.y
+            case _:
+                raise TypeError(f"Unexpected positional argument type: {type(point)!r}.")
+        x = np.asarray(x)
+        y = np.asarray(y)
+        scalar = not np.broadcast(x, y).shape
+        result = self.evaluate(x=x, y=y, quantity=quantity)
+        if scalar:
+            if quantity:
+                return result  # 0-d Quantity
+            return float(result)
+        return result
 
     @abstractmethod
     def render(
@@ -246,3 +287,20 @@ class BaseField(ABC):
             else:
                 unit *= factor_unit
         return factor, unit
+
+
+if TYPE_CHECKING:
+
+    def _test_types() -> None:
+        field = cast(BaseField, None)
+        arr = np.zeros(3)
+
+        # Scalar inputs without quantity → float
+        assert_type(field(x=1.0, y=2.0), float)
+        assert_type(field(x=1.0, y=2.0, quantity=False), float)
+
+        # Scalar inputs with quantity=True → astropy.units.Quantity
+        assert_type(field(x=1.0, y=2.0, quantity=True), astropy.units.Quantity)
+
+        # Array-like inputs → np.ndarray | astropy.units.Quantity
+        assert_type(field(x=arr, y=arr), np.ndarray | astropy.units.Quantity)

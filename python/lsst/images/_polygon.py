@@ -13,7 +13,7 @@ from __future__ import annotations
 
 __all__ = ("Polygon", "Region", "RegionSerializationModel")
 
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, assert_type, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -22,10 +22,11 @@ import pydantic_core.core_schema as pcs
 import shapely
 from pydantic.json_schema import JsonSchemaValue
 
-from ._geom import XY, Bounds, Box
+from ._geom import XY, YX, Bounds, Box
 from .utils import round_half_down, round_half_up
 
 if TYPE_CHECKING:
+    from ._geom import Bounds
     from ._transforms import Transform
 
     try:
@@ -98,23 +99,27 @@ class Region:
         return NotImplemented
 
     @overload
-    def contains(self, other: Polygon) -> bool: ...
+    def contains(self, point: XY[int | float] | YX[int | float], /) -> bool: ...
 
     @overload
-    def contains(self, *, x: int, y: int) -> bool: ...
+    def contains(self, point: XY[npt.ArrayLike] | YX[npt.ArrayLike], /) -> np.ndarray: ...
 
     @overload
-    def contains(self, *, x: float, y: float) -> bool: ...
+    def contains(self, /, *, x: int | float, y: int | float) -> bool: ...
 
     @overload
-    def contains(self, *, x: np.ndarray, y: np.ndarray) -> np.ndarray: ...
+    def contains(self, /, *, x: npt.ArrayLike, y: npt.ArrayLike) -> np.ndarray: ...
+
+    @overload
+    def contains(self, other: Polygon, /) -> bool: ...
 
     def contains(
         self,
-        other: Region | None = None,
+        other: Region | XY[Any] | YX[Any] | None = None,
+        /,
         *,
-        x: float | int | np.ndarray | None = None,
-        y: float | int | np.ndarray | None = None,
+        x: Any = None,
+        y: Any = None,
     ) -> bool | np.ndarray:
         """Test whether the geometry contains the given points or another
         geometry.
@@ -122,24 +127,32 @@ class Region:
         Parameters
         ----------
         other
-            Another geometry to compare to.  Not compatible with the ``y`` and
-            ``x`` arguments.
+            Another geometry, or an `XY` or `YX` coordinate pair, to compare
+            to.  Mutually exclusive with ``x`` and ``y``.
         x
-            One or more floating-point or integer X coordinates to test for
-            containment.  If an array, an array of results will be returned.
+            One or more X coordinates to test for containment, as a scalar or
+            any array-like.  Results are broadcast against ``y``.
+            Mutually exclusive with ``other``.
         y
-            One or more floating-point or integer Y coordinates to test for
-            containment.  If an array, an array of results will be returned.
+            One or more Y coordinates to test for containment, as a scalar or
+            any array-like.  Results are broadcast against ``x``.
+            Mutually exclusive with ``other``.
         """
-        if other is not None:
-            if x is not None or y is not None:
-                raise TypeError("Too many arguments to 'Region.contains'.")
-            return self._impl.contains(other._impl)
-        elif x is None or y is None:
-            raise TypeError("Not enough arguments to 'Region.contains'.")
-        else:
-            # Quibbles about bool vs numpy.bool_ as the return type.
-            return shapely.contains_xy(self._impl, x=x, y=y)  # type: ignore[return-value]
+        match other:
+            case None:
+                if x is None or y is None:
+                    raise TypeError("Pass either a point or both x= and y= to 'Region.contains'.")
+            case Region():
+                if x is not None or y is not None:
+                    raise TypeError("'Region.contains' point argument is mutually exclusive with x= and y=.")
+                return self._impl.contains(other._impl)
+            case XY() | YX():
+                if x is not None or y is not None:
+                    raise TypeError("'Region.contains' point argument is mutually exclusive with x= and y=.")
+                x, y = other.x, other.y
+            case _:
+                raise TypeError(f"Unexpected positional argument type: {type(other)!r}.")
+        return shapely.contains_xy(self._impl, x=x, y=y)
 
     @overload
     def intersection(self, other: Region) -> Region: ...
@@ -397,3 +410,29 @@ class RegionSerializationModel(pydantic.BaseModel):
             "Other geometry types are not used."
         )
         return Region(region_impl).try_to_polygon()
+
+
+if TYPE_CHECKING:
+
+    def _test_types() -> None:
+        region = Region(shapely.Point(0, 0).buffer(1.0))
+        arr = np.zeros(3)
+
+        # Region satisfies the Bounds Protocol.
+        bounds: Bounds = region
+
+        # Region.contains: XY/YX, scalar, array-like
+        assert_type(region.contains(x=1.0, y=2.0), bool)
+        assert_type(region.contains(x=arr, y=arr), np.ndarray)
+        assert_type(region.contains(XY(1.0, 2.0)), bool)
+        assert_type(region.contains(YX(2.0, 1.0)), bool)
+        assert_type(region.contains(XY(arr, arr)), np.ndarray)
+        assert_type(region.contains(YX(arr, arr)), np.ndarray)
+
+        # Via the Bounds Protocol view, same signatures hold.
+        assert_type(bounds.contains(x=1, y=1), bool)
+        assert_type(bounds.contains(x=arr, y=arr), np.ndarray)
+        assert_type(bounds.contains(XY(1, 1)), bool)
+        assert_type(bounds.contains(YX(1, 1)), bool)
+        assert_type(bounds.contains(XY(arr, arr)), np.ndarray)
+        assert_type(bounds.contains(YX(arr, arr)), np.ndarray)

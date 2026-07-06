@@ -224,7 +224,8 @@ class ChebyshevField(BaseField):
     def evaluate(
         self, *, x: np.ndarray, y: np.ndarray, quantity: bool
     ) -> np.ndarray | astropy.units.Quantity:
-        m = self._remap(x=x.copy(), y=y.copy())
+        y, x = np.broadcast_arrays(y, x)
+        m = self._remap(x=x.astype(np.float64, copy=True), y=y.astype(np.float64, copy=True))
         # We swap x and y relative to Numpy's docs because that's how our
         # coefficients are ordered.
         v = np.polynomial.chebyshev.chebval2d(m.y, m.x, self._coefficients)

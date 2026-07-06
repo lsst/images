@@ -24,6 +24,7 @@ __all__ = (
     "assert_visit_images_equal",
     "check_archive_tree_class_invariants",
     "check_astropy_wcs_interface",
+    "check_bounds_contains_broadcasting",
     "check_projection",
     "check_transform",
     "compare_amplifier_to_legacy",
@@ -56,7 +57,7 @@ import numpy as np
 import pytest
 from astropy.coordinates import SkyCoord
 
-from .._geom import XY, YX, Box
+from .._geom import XY, YX, Bounds, Box
 from .._image import Image
 from .._mask import Mask, MaskPlane
 from .._masked_image import MaskedImage
@@ -1336,6 +1337,82 @@ def iter_concrete_archive_tree_subclasses() -> Iterator[type[ArchiveTree]]:
             stack.append(sub)
             if not getattr(sub, "__abstractmethods__", None):
                 yield sub
+
+
+def check_bounds_contains_broadcasting(bounds: Bounds) -> None:
+    """Verify that `~lsst.images.Bounds.contains` accepts array-like inputs.
+
+    Uses the scalar overload as the reference and checks that 1-D arrays,
+    list inputs, mixed scalar-plus-array inputs, 2-D broadcast inputs, and
+    `.XY` / `.YX` positional-argument forms all produce results consistent
+    with calling the scalar overload on each ``(x, y)`` pair individually.
+
+    Parameters
+    ----------
+    bounds
+        The `~lsst.images.Bounds` implementation to exercise.
+    """
+    bbox = bounds.bbox
+    # One point outside each boundary, one on each boundary, one in the
+    # interior.  The boundary points (start and stop) straddle inside/outside
+    # (start is inside, stop is outside) so we are guaranteed a mix of True
+    # and False results without hard-coding expected values.
+    ys = np.array(
+        [
+            bbox.y.start - 1,
+            bbox.y.start,
+            (bbox.y.start + bbox.y.stop) // 2,
+            bbox.y.stop,
+        ]
+    )
+    xs = np.array(
+        [
+            bbox.x.start - 1,
+            bbox.x.start,
+            (bbox.x.start + bbox.x.stop) // 2,
+            bbox.x.stop,
+        ]
+    )
+    # 2-D reference: expected[i, j] == contains(x=xs[j], y=ys[i]).
+    expected = np.array(
+        [[bounds.contains(x=int(xi), y=int(yi)) for xi in xs] for yi in ys],
+        dtype=bool,
+    )
+    # 1-D ndarray (diagonal pairs).
+    np.testing.assert_array_equal(
+        bounds.contains(x=xs, y=ys),
+        np.diagonal(expected),
+    )
+    # list inputs (array-like).
+    np.testing.assert_array_equal(
+        bounds.contains(x=xs.tolist(), y=ys.tolist()),
+        np.diagonal(expected),
+    )
+    # Mixed: scalar y, 1-D array x — produces a 1-D result.
+    fixed_yi = 1  # index into ys; ys[1] == bbox.y.start (on the boundary)
+    np.testing.assert_array_equal(
+        bounds.contains(x=xs, y=int(ys[fixed_yi])),
+        expected[fixed_yi, :],
+    )
+    # Mixed: 1-D array y, scalar x.
+    fixed_xi = 1  # index into xs; xs[1] == bbox.x.start (on the boundary)
+    np.testing.assert_array_equal(
+        bounds.contains(x=int(xs[fixed_xi]), y=ys),
+        expected[:, fixed_xi],
+    )
+    # Float scalars: results must match the int-scalar reference.
+    assert bounds.contains(x=float(xs[fixed_xi]), y=float(ys[fixed_yi])) == expected[fixed_yi, fixed_xi]
+    # XY / YX scalar: results must match the keyword-scalar reference.
+    assert bounds.contains(XY(x=int(xs[fixed_xi]), y=int(ys[fixed_yi]))) == expected[fixed_yi, fixed_xi]
+    assert bounds.contains(YX(y=int(ys[fixed_yi]), x=int(xs[fixed_xi]))) == expected[fixed_yi, fixed_xi]
+    # XY / YX array: results must match the 1-D ndarray reference.
+    np.testing.assert_array_equal(bounds.contains(XY(x=xs, y=ys)), np.diagonal(expected))
+    np.testing.assert_array_equal(bounds.contains(YX(y=ys, x=xs)), np.diagonal(expected))
+    # 2-D broadcast: y shape (N, 1) × x shape (1, M) → (N, M).
+    np.testing.assert_array_equal(
+        bounds.contains(x=xs.reshape(1, -1), y=ys.reshape(-1, 1)),
+        expected,
+    )
 
 
 def check_archive_tree_class_invariants(cls: type[ArchiveTree]) -> None:

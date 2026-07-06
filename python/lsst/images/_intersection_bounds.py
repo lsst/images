@@ -13,13 +13,15 @@ from __future__ import annotations
 
 __all__ = ("IntersectionBounds",)
 
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, assert_type, overload
 
 import numpy as np
 
-from ._geom import Bounds, Box
+from ._geom import XY, YX, Bounds, Box
 
 if TYPE_CHECKING:
+    import numpy.typing as npt
+
     from ._concrete_bounds import IntersectionBoundsSerializationModel
 
 
@@ -47,30 +49,53 @@ class IntersectionBounds:
         return _intersect_box_box(self._a.bbox, self._b.bbox)
 
     @overload
-    def contains(self, *, x: int, y: int) -> bool: ...
+    def contains(self, point: XY[int | float] | YX[int | float], /) -> bool: ...
 
     @overload
-    def contains(self, *, x: np.ndarray, y: np.ndarray) -> np.ndarray: ...
+    def contains(self, point: XY[npt.ArrayLike] | YX[npt.ArrayLike], /) -> np.ndarray: ...
 
-    def contains(self, *, x: Any, y: Any) -> Any:
+    @overload
+    def contains(self, /, *, x: int | float, y: int | float) -> bool: ...
+
+    @overload
+    def contains(self, /, *, x: npt.ArrayLike, y: npt.ArrayLike) -> np.ndarray: ...
+
+    def contains(self, point: XY[Any] | YX[Any] | None = None, /, *, x: Any = None, y: Any = None) -> Any:
         """Test whether these bounds contain one or more points.
 
         Parameters
         ----------
+        point
+            An `XY` or `YX` coordinate pair to test for containment.
+            Mutually exclusive with ``x`` and ``y``.
         x
-            One or more integer X coordinates to test for containment.
-            If an array, an array of results will be returned.
+            One or more X coordinates to test for containment, as a scalar or
+            any array-like.  Results are broadcast against ``y``.
+            Mutually exclusive with ``point``.
         y
-            One or more integer Y coordinates to test for containment.
-            If an array, an array of results will be returned.
+            One or more Y coordinates to test for containment, as a scalar or
+            any array-like.  Results are broadcast against ``x``.
+            Mutually exclusive with ``point``.
 
         Returns
         -------
         `bool` | `numpy.ndarray`
             If ``x`` and ``y`` are both scalars, a single `bool` value.  If
-            ``x`` and ``y`` are arrays, a boolean array with their broadcasted
-            shape.
+            ``x`` and ``y`` are array-like, a boolean array with their
+            broadcasted shape.
         """
+        match point:
+            case None:
+                if x is None or y is None:
+                    raise TypeError("Pass either a point or both x= and y= to 'IntersectionBounds.contains'.")
+            case XY() | YX():
+                if x is not None or y is not None:
+                    raise TypeError(
+                        "'IntersectionBounds.contains' point argument is mutually exclusive with x= and y=."
+                    )
+                x, y = point.x, point.y
+            case _:
+                raise TypeError(f"Unexpected positional argument type: {type(point)!r}.")
         return np.logical_and(self._a.contains(x=x, y=y), self._b.contains(x=x, y=y))
 
     def intersection(self, other: Bounds) -> Bounds:
@@ -98,3 +123,32 @@ class IntersectionBounds:
         from ._concrete_bounds import IntersectionBoundsSerializationModel
 
         return IntersectionBoundsSerializationModel(a=self._a.serialize(), b=self._b.serialize())
+
+
+if TYPE_CHECKING:
+
+    def _test_types() -> None:
+        arr = np.zeros(3)
+        a = Box.from_shape((10, 20))
+        ib = IntersectionBounds(a, a)
+
+        # IntersectionBounds satisfies the Bounds Protocol.
+        bounds: Bounds = ib
+
+        # IntersectionBounds.contains: XY/YX, scalar, array-like
+        assert_type(ib.contains(x=1, y=2), bool)
+        assert_type(ib.contains(x=1.0, y=2.0), bool)
+        assert_type(ib.contains(x=arr, y=arr), np.ndarray)
+        assert_type(ib.contains(XY(1, 2)), bool)
+        assert_type(ib.contains(YX(2, 1)), bool)
+        assert_type(ib.contains(XY(arr, arr)), np.ndarray)
+        assert_type(ib.contains(YX(arr, arr)), np.ndarray)
+
+        # Via the Bounds Protocol view, same signatures hold.
+        assert_type(bounds.contains(x=1, y=1), bool)
+        assert_type(bounds.contains(x=1.0, y=1.0), bool)
+        assert_type(bounds.contains(x=arr, y=arr), np.ndarray)
+        assert_type(bounds.contains(XY(1, 1)), bool)
+        assert_type(bounds.contains(YX(1, 1)), bool)
+        assert_type(bounds.contains(XY(arr, arr)), np.ndarray)
+        assert_type(bounds.contains(YX(arr, arr)), np.ndarray)

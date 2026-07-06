@@ -22,6 +22,7 @@ import pytest
 from lsst.images import YX, Box, Interval, MaskPlane, get_legacy_deep_coadd_mask_planes
 from lsst.images.cells import CellCoadd, CellIJ
 from lsst.images.fits import FitsCompressionOptions
+from lsst.images.serialization import read_archive
 from lsst.images.tests import (
     DP2_COADD_DATA_ID,
     DP2_COADD_MISSING_CELL,
@@ -32,6 +33,7 @@ from lsst.images.tests import (
     assert_images_equal,
     assert_masked_images_equal,
     assert_psfs_equal,
+    check_bounds_contains_broadcasting,
     compare_cell_coadd_to_legacy,
     compare_masked_image_to_legacy,
     compare_psf_to_legacy,
@@ -55,6 +57,7 @@ except ImportError:
     type LegacyMultipleCellCoadd = Any  # type: ignore[no-redef]
 
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
+LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
 skip_no_legacy = pytest.mark.skipif(not HAVE_LEGACY, reason="lsst.afw (etc) could not be imported.")
@@ -122,6 +125,13 @@ def legacy_test_data() -> _LegacyTestData:
         legacy_cell_coadd=legacy_cell_coadd,
         cell_coadd=cell_coadd,
     )
+
+
+@pytest.fixture
+def minified_cell_coadd() -> CellCoadd:
+    """Return a tiny CellCoadd from JSON data stored in this package."""
+    path = os.path.join(LOCAL_DATA_DIR, "schema_v1", "legacy", "cell_coadd.json")
+    return read_archive(path, CellCoadd)
 
 
 def make_subbox(full_bbox: Box) -> Box:
@@ -326,3 +336,21 @@ def test_ndf_roundtrip(legacy_test_data: _LegacyTestData) -> None:
     """Test that CellCoadd round-trips through NDF."""
     with RoundtripNdf(legacy_test_data.cell_coadd, "CellCoadd") as roundtrip:
         assert_cell_coadds_equal(roundtrip.result, legacy_test_data.cell_coadd, expect_view=False)
+
+
+def test_cell_grid_bounds_contains_broadcasting(minified_cell_coadd: CellCoadd) -> None:
+    """Test that CellGridBounds.contains broadcasts like a numpy ufunc."""
+    assert minified_cell_coadd.bounds.missing, "fixture should retain a missing cell"
+    check_bounds_contains_broadcasting(minified_cell_coadd.bounds)
+
+
+def test_intersection_bounds_contains_broadcasting(minified_cell_coadd: CellCoadd) -> None:
+    """Test that IntersectionBounds.contains broadcasts like a numpy ufunc."""
+    # Clip the CellGridBounds with a Box offset by 1 pixel on each side so it
+    # does not snap to any cell boundary, forcing a lazy IntersectionBounds.
+    bounds = minified_cell_coadd.bounds
+    clip = Box.factory[
+        bounds.bbox.y.start + 1 : bounds.bbox.y.stop - 1,
+        bounds.bbox.x.start + 1 : bounds.bbox.x.stop - 1,
+    ]
+    check_bounds_contains_broadcasting(bounds.intersection(clip))

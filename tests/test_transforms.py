@@ -24,6 +24,7 @@ import pytest
 from lsst.images import (
     ICRS,
     XY,
+    YX,
     Box,
     CameraFrameSet,
     CameraFrameSetSerializationModel,
@@ -44,6 +45,7 @@ from lsst.images.tests import (
     check_transform,
     compare_sky_projection_to_legacy_wcs,
     legacy_points_to_xy_array,
+    make_random_sky_projection,
 )
 
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
@@ -423,3 +425,245 @@ class FrameSetTestHolderModel[P: pydantic.BaseModel](ArchiveTree):
         )
         pixels_to_fp = self.pixels_to_fp.deserialize(archive)
         return FrameSetTestHolder(frames, pixels_to_fp)
+
+
+@dataclasses.dataclass
+class _BroadcastTestData:
+    """Shared inputs for broadcasting/scalar tests on Transform and
+    SkyProjection.
+    """
+
+    in_frame: DetectorFrame
+    out_frame: GeneralFrame
+    matrix: np.ndarray
+    scalar_x: float
+    scalar_y: float
+    xv: list[int]
+    yv: list[int]
+    sky_proj: SkyProjection[DetectorFrame]
+
+
+@pytest.fixture
+def broadcast_test_data() -> _BroadcastTestData:
+    """Return shared inputs for broadcasting/scalar tests."""
+    in_frame = DetectorFrame(instrument="Inst", visit=1, detector=1, bbox=Box.factory[0:20, 0:20])
+    return _BroadcastTestData(
+        in_frame=in_frame,
+        out_frame=GeneralFrame(unit=u.pix),
+        matrix=np.array([[2.0, 0.5], [-0.3, 1.5]]),
+        scalar_x=3.0,
+        scalar_y=7.0,
+        xv=[1, 2, 3],
+        yv=[4, 5, 6],
+        sky_proj=make_random_sky_projection(np.random.default_rng(42), in_frame, in_frame.bbox),
+    )
+
+
+def test_apply_forward_scalar(broadcast_test_data: _BroadcastTestData) -> None:
+    """Verify that apply_forward and apply_inverse accept scalar x/y and return
+    scalar floats, and that the _q variants accept scalar Quantity inputs.
+    """
+    t = broadcast_test_data.sky_proj.pixel_to_sky_transform
+    # apply_forward with Python float scalars should return XY of floats.
+    result_fwd = t.apply_forward(x=broadcast_test_data.scalar_x, y=broadcast_test_data.scalar_y)
+    assert type(result_fwd.x) is float
+    assert type(result_fwd.y) is float
+    # Values must match the corresponding single-element array call.
+    ref_fwd = t.apply_forward(
+        x=np.array([broadcast_test_data.scalar_x]), y=np.array([broadcast_test_data.scalar_y])
+    )
+    assert result_fwd.x == ref_fwd.x[0]
+    assert result_fwd.y == ref_fwd.y[0]
+    # apply_inverse round-trips back to the original scalars.
+    result_inv = t.apply_inverse(x=result_fwd.x, y=result_fwd.y)
+    assert type(result_inv.x) is float
+    assert type(result_inv.y) is float
+    np.testing.assert_allclose(result_inv.x, broadcast_test_data.scalar_x, atol=1e-12)
+    np.testing.assert_allclose(result_inv.y, broadcast_test_data.scalar_y, atol=1e-12)
+    # apply_forward_q / apply_inverse_q with scalar Quantity inputs.
+    x_q = broadcast_test_data.scalar_x * t.in_frame.unit
+    y_q = broadcast_test_data.scalar_y * t.in_frame.unit
+    result_fwd_q = t.apply_forward_q(x=x_q, y=y_q)
+    assert result_fwd_q.x.shape == ()
+    assert result_fwd_q.y.shape == ()
+    np.testing.assert_allclose(result_fwd_q.x.to_value(t.out_frame.unit), result_fwd.x, atol=1e-12)
+    result_inv_q = t.apply_inverse_q(x=result_fwd_q.x, y=result_fwd_q.y)
+    assert result_inv_q.x.shape == ()
+    np.testing.assert_allclose(
+        result_inv_q.x.to_value(t.in_frame.unit), broadcast_test_data.scalar_x, atol=1e-12
+    )
+
+
+def test_apply_array_like_and_integer_input(broadcast_test_data: _BroadcastTestData) -> None:
+    """Verify that apply_forward accepts Python lists and integer-dtype
+    arrays, returning float64 ndarray results consistent with float64
+    array input.
+    """
+    t = broadcast_test_data.sky_proj.pixel_to_sky_transform
+    # Python list input should return an ndarray.
+    result_list = t.apply_forward(x=broadcast_test_data.xv, y=broadcast_test_data.yv)
+    assert isinstance(result_list.x, np.ndarray)
+    assert isinstance(result_list.y, np.ndarray)
+    ref = t.apply_forward(x=np.array(broadcast_test_data.xv), y=np.array(broadcast_test_data.yv))
+    np.testing.assert_array_equal(result_list.x, ref.x)
+    np.testing.assert_array_equal(result_list.y, ref.y)
+    # Integer dtype arrays should not raise and should return float64.
+    xi = np.array(broadcast_test_data.xv, dtype=np.int32)
+    yi = np.array(broadcast_test_data.yv, dtype=np.int32)
+    result_int = t.apply_forward(x=xi, y=yi)
+    assert result_int.x.dtype == np.float64
+    assert result_int.y.dtype == np.float64
+    np.testing.assert_array_equal(result_int.x, ref.x)
+    np.testing.assert_array_equal(result_int.y, ref.y)
+
+
+def test_apply_broadcast(broadcast_test_data: _BroadcastTestData) -> None:
+    """Verify that apply_forward and apply_inverse broadcast x and y like
+    a NumPy ufunc, in both 1-D and 2-D cases.
+    """
+    t = broadcast_test_data.sky_proj.pixel_to_sky_transform
+    xv = np.array(broadcast_test_data.xv)
+    yv = np.array(broadcast_test_data.yv + [7])
+    # 1-D broadcast: array x, scalar y.
+    result_1d = t.apply_forward(x=xv, y=broadcast_test_data.scalar_y)
+    assert isinstance(result_1d.x, np.ndarray)
+    assert result_1d.x.shape == xv.shape
+    ref_1d = t.apply_forward(x=xv, y=np.full_like(xv, broadcast_test_data.scalar_y))
+    np.testing.assert_array_equal(result_1d.x, ref_1d.x)
+    np.testing.assert_array_equal(result_1d.y, ref_1d.y)
+    # 2-D broadcast: column x (M,1) × row y (1,N) -> (M,N).
+    x2d = xv[:, np.newaxis]  # shape (3, 1)
+    y2d = yv[np.newaxis, :]  # shape (1, 4)
+    result_2d = t.apply_forward(x=x2d, y=y2d)
+    assert result_2d.x.shape == (3, 4)
+    assert result_2d.y.shape == (3, 4)
+    # Values must match the fully expanded meshgrid call.
+    xmesh, ymesh = np.meshgrid(xv, yv, indexing="ij")
+    ref_2d = t.apply_forward(x=xmesh, y=ymesh)
+    np.testing.assert_array_equal(result_2d.x, ref_2d.x)
+    np.testing.assert_array_equal(result_2d.y, ref_2d.y)
+    # apply_inverse also broadcasts.
+    result_inv_2d = t.apply_inverse(x=result_2d.x, y=result_2d.y)
+    assert result_inv_2d.x.shape == (3, 4)
+    np.testing.assert_allclose(result_inv_2d.x, xmesh, atol=1e-12)
+    np.testing.assert_allclose(result_inv_2d.y, ymesh, atol=1e-12)
+
+
+def test_sky_projection_broadcast(broadcast_test_data: _BroadcastTestData) -> None:
+    """Verify that SkyProjection.pixel_to_sky, sky_to_pixel, and the
+    Astropy view broadcast x and y like a NumPy ufunc.
+    """
+    p = broadcast_test_data
+    xv = np.array(p.xv)
+    yv = np.array(p.yv + [7])
+    # 1-D broadcast: array x, scalar y.
+    sc_1d = p.sky_proj.pixel_to_sky(x=xv, y=p.scalar_y)
+    assert sc_1d.shape == xv.shape
+    ref_1d = p.sky_proj.pixel_to_sky(x=xv, y=np.full_like(xv, p.scalar_y))
+    np.testing.assert_allclose(sc_1d.ra.rad, ref_1d.ra.rad, atol=1e-12)
+    np.testing.assert_allclose(sc_1d.dec.rad, ref_1d.dec.rad, atol=1e-12)
+    # 2-D broadcast: column x (M,1) × row y (1,N) -> (M,N).
+    x2d = xv[:, np.newaxis]  # shape (3, 1)
+    y2d = yv[np.newaxis, :]  # shape (1, 4)
+    sc_2d = p.sky_proj.pixel_to_sky(x=x2d, y=y2d)
+    assert sc_2d.shape == (3, 4)
+    xmesh, ymesh = np.meshgrid(xv, yv, indexing="ij")
+    ref_2d = p.sky_proj.pixel_to_sky(x=xmesh, y=ymesh)
+    np.testing.assert_allclose(sc_2d.ra.rad, ref_2d.ra.rad, atol=1e-12)
+    np.testing.assert_allclose(sc_2d.dec.rad, ref_2d.dec.rad, atol=1e-12)
+    # sky_to_pixel round-trips back to the original grid.
+    pix_2d = p.sky_proj.sky_to_pixel(sc_2d)
+    assert pix_2d.x.shape == (3, 4)
+    np.testing.assert_allclose(pix_2d.x, xmesh, atol=1e-9)
+    np.testing.assert_allclose(pix_2d.y, ymesh, atol=1e-9)
+    # SkyProjectionAstropyView.pixel_to_world_values also broadcasts.
+    view = p.sky_proj.as_astropy()
+    world_2d = view.pixel_to_world_values(x2d, y2d)
+    assert world_2d[0].shape == (3, 4)
+    assert world_2d[1].shape == (3, 4)
+    np.testing.assert_allclose(world_2d[0], ref_2d.ra.rad, atol=1e-12)
+    np.testing.assert_allclose(world_2d[1], ref_2d.dec.rad, atol=1e-12)
+    # SkyProjectionAstropyView.world_to_pixel_values also broadcasts.
+    ra_2d = ref_2d.ra.rad[:, np.newaxis, :]  # (3, 1, 4) — over-broadcast to check
+    dec_2d = ref_2d.dec.rad[np.newaxis, :, :]  # (1, 3, 4)
+    pix_world = view.world_to_pixel_values(ra_2d, dec_2d)
+    assert pix_world[0].shape == (3, 3, 4)
+
+
+def test_apply_xy_yx(broadcast_test_data: _BroadcastTestData) -> None:
+    """Verify that apply_forward, apply_inverse, and the _q variants accept
+    XY and YX positional arguments, producing results identical to the
+    equivalent x=/y= keyword calls.
+    """
+    p = broadcast_test_data
+    t = p.sky_proj.pixel_to_sky_transform
+    sx, sy = p.scalar_x, p.scalar_y
+    xv, yv = np.array(p.xv, dtype=float), np.array(p.yv, dtype=float)
+
+    # --- apply_forward: scalar ---
+    ref_fwd = t.apply_forward(x=sx, y=sy)
+    assert t.apply_forward(XY(sx, sy)) == ref_fwd
+    assert t.apply_forward(YX(sy, sx)) == ref_fwd
+
+    # --- apply_forward: array ---
+    ref_fwd_arr = t.apply_forward(x=xv, y=yv)
+    np.testing.assert_array_equal(t.apply_forward(XY(xv, yv)).x, ref_fwd_arr.x)
+    np.testing.assert_array_equal(t.apply_forward(YX(yv, xv)).x, ref_fwd_arr.x)
+
+    # --- apply_inverse: scalar ---
+    ref_inv = t.apply_inverse(x=ref_fwd.x, y=ref_fwd.y)
+    assert t.apply_inverse(XY(ref_fwd.x, ref_fwd.y)) == ref_inv
+    assert t.apply_inverse(YX(ref_fwd.y, ref_fwd.x)) == ref_inv
+
+    # --- apply_forward_q: scalar ---
+    x_q = sx * t.in_frame.unit
+    y_q = sy * t.in_frame.unit
+    ref_fwd_q = t.apply_forward_q(x=x_q, y=y_q)
+    result_q = t.apply_forward_q(XY(x_q, y_q))
+    np.testing.assert_allclose(result_q.x.value, ref_fwd_q.x.value, atol=1e-12)
+    result_q_yx = t.apply_forward_q(YX(y_q, x_q))
+    np.testing.assert_allclose(result_q_yx.x.value, ref_fwd_q.x.value, atol=1e-12)
+
+    # --- apply_inverse_q: scalar ---
+    ref_inv_q = t.apply_inverse_q(x=ref_fwd_q.x, y=ref_fwd_q.y)
+    result_inv_q = t.apply_inverse_q(XY(ref_fwd_q.x, ref_fwd_q.y))
+    np.testing.assert_allclose(result_inv_q.x.value, ref_inv_q.x.value, atol=1e-12)
+
+    # --- TypeError on bad combinations ---
+    with pytest.raises(TypeError):
+        t.apply_forward(XY(sx, sy), x=sx)
+    with pytest.raises(TypeError):
+        t.apply_forward(YX(sy, sx), y=sy)
+    with pytest.raises(TypeError):
+        t.apply_forward()
+
+
+def test_pixel_to_sky_xy_yx(broadcast_test_data: _BroadcastTestData) -> None:
+    """Verify that SkyProjection.pixel_to_sky accepts XY and YX positional
+    arguments, producing results identical to the x=/y= keyword form.
+    """
+    p = broadcast_test_data
+    sx, sy = p.scalar_x, p.scalar_y
+    xv, yv = np.array(p.xv, dtype=float), np.array(p.yv, dtype=float)
+
+    # Scalar XY and YX.
+    ref_scalar = p.sky_proj.pixel_to_sky(x=sx, y=sy)
+    result_xy = p.sky_proj.pixel_to_sky(XY(sx, sy))
+    result_yx = p.sky_proj.pixel_to_sky(YX(sy, sx))
+    np.testing.assert_allclose(result_xy.ra.rad, ref_scalar.ra.rad, atol=1e-12)
+    np.testing.assert_allclose(result_yx.ra.rad, ref_scalar.ra.rad, atol=1e-12)
+
+    # Array XY and YX.
+    ref_array = p.sky_proj.pixel_to_sky(x=xv, y=yv)
+    result_xy_arr = p.sky_proj.pixel_to_sky(XY(xv, yv))
+    result_yx_arr = p.sky_proj.pixel_to_sky(YX(yv, xv))
+    np.testing.assert_allclose(result_xy_arr.ra.rad, ref_array.ra.rad, atol=1e-12)
+    np.testing.assert_allclose(result_yx_arr.ra.rad, ref_array.ra.rad, atol=1e-12)
+
+    # TypeError on bad combinations.
+    with pytest.raises(TypeError):
+        p.sky_proj.pixel_to_sky(XY(sx, sy), x=sx)
+    with pytest.raises(TypeError):
+        p.sky_proj.pixel_to_sky(YX(sy, sx), y=sy)
+    with pytest.raises(TypeError):
+        p.sky_proj.pixel_to_sky()

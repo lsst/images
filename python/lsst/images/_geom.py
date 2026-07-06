@@ -33,6 +33,7 @@ from typing import (
     Protocol,
     TypedDict,
     TypeVar,
+    assert_type,
     final,
     overload,
 )
@@ -45,6 +46,8 @@ from pydantic.json_schema import JsonSchemaValue
 from .utils import round_half_down, round_half_up
 
 if TYPE_CHECKING:
+    import numpy.typing as npt
+
     from ._concrete_bounds import BoundsSerializationModel
     from ._polygon import Polygon, Region
     from ._transforms import Transform
@@ -412,22 +415,23 @@ class Interval:
     def contains(self, other: Interval | int | float) -> bool: ...
 
     @overload
-    def contains(self, other: np.ndarray) -> np.ndarray: ...
+    def contains(self, other: npt.ArrayLike) -> np.ndarray: ...
 
-    def contains(self, other: Interval | int | float | np.ndarray) -> bool | np.ndarray:
+    def contains(self, other: Interval | int | float | npt.ArrayLike) -> bool | np.ndarray:
         """Test whether this interval fully contains another or one or more
         points.
 
         Parameters
         ----------
         other
-            Another interval to compare to, or one or more position values.
+            Another interval to compare to, or one or more position values as
+            a scalar or any array-like.
 
         Returns
         -------
         `bool` | `numpy.ndarray`
             If a single interval or value was passed, a single `bool`.  If an
-            array was passed, an array with the same shape.
+            array-like was passed, an array with the broadcasted shape.
 
         Notes
         -----
@@ -440,6 +444,7 @@ class Interval:
         if isinstance(other, Interval):
             return self.start <= other.start and self.stop >= other.stop
         else:
+            other = np.asarray(other)
             result = np.logical_and(self.min - 0.5 <= other, other < self.max + 0.5)
             if not result.shape:
                 return bool(result)
@@ -862,37 +867,46 @@ class Box:
     def contains(self, other: Box, /) -> bool: ...
 
     @overload
-    def contains(self, *, y: int, x: int) -> bool: ...
+    def contains(self, point: XY[int | float] | YX[int | float], /) -> bool: ...
 
     @overload
-    def contains(self, *, y: np.ndarray, x: np.ndarray) -> np.ndarray: ...
+    def contains(self, point: XY[npt.ArrayLike] | YX[npt.ArrayLike], /) -> np.ndarray: ...
+
+    @overload
+    def contains(self, /, *, y: int | float, x: int | float) -> bool: ...
+
+    @overload
+    def contains(self, /, *, y: npt.ArrayLike, x: npt.ArrayLike) -> np.ndarray: ...
 
     def contains(
         self,
-        other: Box | None = None,
+        other: Box | XY[Any] | YX[Any] | None = None,
+        /,
         *,
-        y: int | np.ndarray | None = None,
-        x: int | np.ndarray | None = None,
+        y: Any = None,
+        x: Any = None,
     ) -> bool | np.ndarray:
         """Test whether this box fully contains another or one or more points.
 
         Parameters
         ----------
         other
-            Another box to compare to.  Not compatible with the ``y`` and ``x``
-            arguments.
+            Another box, or an `XY` or `YX` coordinate pair, to compare to.
+            Mutually exclusive with ``x`` and ``y``.
         y
-            One or more integer Y coordinates to test for containment.
-            If an array, an array of results will be returned.
+            One or more Y coordinates to test for containment, as a scalar or
+            any array-like.  Results are broadcast against ``x``.
+            Mutually exclusive with ``other``.
         x
-            One or more integer X coordinates to test for containment.
-            If an array, an array of results will be returned.
+            One or more X coordinates to test for containment, as a scalar or
+            any array-like.  Results are broadcast against ``y``.
+            Mutually exclusive with ``other``.
 
         Returns
         -------
         `bool` | `numpy.ndarray`
             If ``other`` was passed or ``x`` and ``y`` are both scalars, a
-            single `bool` value.  If ``x`` and ``y`` are arrays, a boolean
+            single `bool` value.  If ``x`` and ``y`` are array-like, a boolean
             array with their broadcasted shape.
 
         Notes
@@ -903,17 +917,24 @@ class Box:
         (but beyond the centers of those pixels, which have integer positions)
         appear "on the image".
         """
-        if other is not None:
-            if x is not None or y is not None:
-                raise TypeError("Too many arguments to 'Box.contains'.")
-            return all(a.contains(b) for a, b in zip(self._intervals, other._intervals, strict=True))
-        elif x is None or y is None:
-            raise TypeError("Not enough arguments to 'Box.contains'.")
-        else:
-            result = np.logical_and(self.x.contains(x), self.y.contains(y))
-            if not result.shape:
-                return bool(result)
-            return result
+        match other:
+            case None:
+                if x is None or y is None:
+                    raise TypeError("Pass a box, a point, or both x= and y= to 'Box.contains'.")
+            case Box():
+                if x is not None or y is not None:
+                    raise TypeError("'Box.contains' other argument is mutually exclusive with x= and y=.")
+                return all(a.contains(b) for a, b in zip(self._intervals, other._intervals, strict=True))
+            case XY() | YX():
+                if x is not None or y is not None:
+                    raise TypeError("'Box.contains' other argument is mutually exclusive with x= and y=.")
+                x, y = other.x, other.y
+            case _:
+                raise TypeError(f"Unexpected positional argument type: {type(other)!r}.")
+        result = np.logical_and(self.x.contains(x), self.y.contains(y))
+        if not result.shape:
+            return bool(result)
+        return result
 
     @overload
     def intersection(self, other: Box) -> Box: ...
@@ -1160,29 +1181,47 @@ class Bounds(Protocol):
     def bbox(self) -> Box: ...
 
     @overload
-    def contains(self, *, x: int, y: int) -> bool: ...
+    def contains(self, point: XY[int | float] | YX[int | float], /) -> bool: ...
 
     @overload
-    def contains(self, *, x: np.ndarray, y: np.ndarray) -> np.ndarray: ...
+    def contains(self, point: XY[npt.ArrayLike] | YX[npt.ArrayLike], /) -> np.ndarray: ...
 
-    def contains(self, *, x: int | np.ndarray, y: int | np.ndarray) -> bool | np.ndarray:
-        """Test whether this box fully contains another or one or more points.
+    @overload
+    def contains(self, /, *, x: int | float, y: int | float) -> bool: ...
+
+    @overload
+    def contains(self, /, *, x: npt.ArrayLike, y: npt.ArrayLike) -> np.ndarray: ...
+
+    def contains(
+        self,
+        point: XY[Any] | YX[Any] | None = None,
+        /,
+        *,
+        x: int | float | npt.ArrayLike | None = None,
+        y: int | float | npt.ArrayLike | None = None,
+    ) -> bool | np.ndarray:
+        """Test whether one or more points fall within these bounds.
 
         Parameters
         ----------
+        point
+            An `XY` or `YX` coordinate pair to test for containment.
+            Mutually exclusive with ``x`` and ``y``.
         x
-            One or more integer X coordinates to test for containment.
-            If an array, an array of results will be returned.
+            One or more X coordinates to test for containment, as a scalar or
+            any array-like.  Results are broadcast against ``y``.
+            Mutually exclusive with ``point``.
         y
-            One or more integer Y coordinates to test for containment.
-            If an array, an array of results will be returned.
+            One or more Y coordinates to test for containment, as a scalar or
+            any array-like.  Results are broadcast against ``x``.
+            Mutually exclusive with ``point``.
 
         Returns
         -------
         `bool` | `numpy.ndarray`
             If ``x`` and ``y`` are both scalars, a single `bool` value.  If
-            ``x`` and ``y`` are arrays, a boolean array with their broadcasted
-            shape.
+            ``x`` and ``y`` are array-like, a boolean array with their
+            broadcasted shape.
         """
         ...
 
@@ -1216,3 +1255,35 @@ class BoundsError(ValueError):
 
 class NoOverlapError(ValueError):
     """Exception raised when intervals or bounds do not overlap."""
+
+
+if TYPE_CHECKING:
+
+    def _test_types() -> None:
+        interval = Interval(0, 10)
+        box = Box(y=Interval(0, 10), x=Interval(0, 10))
+        arr = np.zeros(3)
+
+        # Interval.contains: scalar → bool, array-like → np.ndarray
+        assert_type(interval.contains(5), bool)
+        assert_type(interval.contains(arr), np.ndarray)
+
+        # Box.contains: Box/XY/YX or scalar x/y → bool; array-like → np.ndarray
+        assert_type(box.contains(box), bool)
+        assert_type(box.contains(y=3, x=4), bool)
+        assert_type(box.contains(y=3.0, x=4.0), bool)
+        assert_type(box.contains(y=arr, x=arr), np.ndarray)
+        assert_type(box.contains(XY(3, 4)), bool)
+        assert_type(box.contains(YX(4, 3)), bool)
+        assert_type(box.contains(XY(arr, arr)), np.ndarray)
+        assert_type(box.contains(YX(arr, arr)), np.ndarray)
+
+        # Bounds.contains (Protocol): XY/YX, scalar, array-like
+        bounds: Bounds = box
+        assert_type(bounds.contains(x=1, y=1), bool)
+        assert_type(bounds.contains(x=1.0, y=1.0), bool)
+        assert_type(bounds.contains(x=arr, y=arr), np.ndarray)
+        assert_type(bounds.contains(XY(1, 1)), bool)
+        assert_type(bounds.contains(YX(1, 1)), bool)
+        assert_type(bounds.contains(XY(arr, arr)), np.ndarray)
+        assert_type(bounds.contains(YX(arr, arr)), np.ndarray)
