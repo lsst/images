@@ -27,14 +27,16 @@ import dataclasses
 import math
 from collections.abc import Iterator
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, assert_type, overload
 
 import numpy as np
 import pydantic
 
-from ._geom import YX, Bounds, Box
+from ._geom import XY, YX, Bounds, Box
 
 if TYPE_CHECKING:
+    import numpy.typing as npt
+
     try:
         from lsst.cell_coadds import UniformGrid as LegacyUniformGrid
         from lsst.skymap import Index2D as LegacyIndex2D
@@ -227,30 +229,53 @@ class CellGridBounds(pydantic.BaseModel, frozen=True):
         return self.subgrid_stop - self.subgrid_start
 
     @overload
-    def contains(self, *, x: int, y: int) -> bool: ...
+    def contains(self, point: XY[int | float] | YX[int | float], /) -> bool: ...
 
     @overload
-    def contains(self, *, x: np.ndarray, y: np.ndarray) -> np.ndarray: ...
+    def contains(self, point: XY[npt.ArrayLike] | YX[npt.ArrayLike], /) -> np.ndarray: ...
 
-    def contains(self, *, x: Any, y: Any) -> Any:
+    @overload
+    def contains(self, *, x: int | float, y: int | float) -> bool: ...
+
+    @overload
+    def contains(self, *, x: npt.ArrayLike, y: npt.ArrayLike) -> np.ndarray: ...
+
+    def contains(self, point: XY[Any] | YX[Any] | None = None, /, *, x: Any = None, y: Any = None) -> Any:  # type: ignore[misc]
         """Test whether these bounds contain one or more points.
 
         Parameters
         ----------
+        point
+            An `XY` or `YX` coordinate pair to test for containment.
+            Mutually exclusive with ``x`` and ``y``.
         x
-            One or more integer X coordinates to test for containment.
-            If an array, an array of results will be returned.
+            One or more X coordinates to test for containment, as a scalar or
+            any array-like.  Results are broadcast against ``y``.
+            Mutually exclusive with ``point``.
         y
-            One or more integer Y coordinates to test for containment.
-            If an array, an array of results will be returned.
+            One or more Y coordinates to test for containment, as a scalar or
+            any array-like.  Results are broadcast against ``x``.
+            Mutually exclusive with ``point``.
 
         Returns
         -------
         `bool` | `numpy.ndarray`
             If ``x`` and ``y`` are both scalars, a single `bool` value.  If
-            ``x`` and ``y`` are arrays, a boolean array with their broadcasted
-            shape.
+            ``x`` and ``y`` are array-like, a boolean array with their
+            broadcasted shape.
         """
+        match point:
+            case None:
+                if x is None or y is None:
+                    raise TypeError("Pass either a point or both x= and y= to 'CellGridBounds.contains'.")
+            case XY() | YX():
+                if x is not None or y is not None:
+                    raise TypeError(
+                        "'CellGridBounds.contains' point argument is mutually exclusive with x= and y=."
+                    )
+                x, y = point.x, point.y
+            case _:
+                raise TypeError(f"Unexpected positional argument type: {type(point)!r}.")
         result = self.bbox.contains(x=x, y=y)
         if not self.missing:
             return result
@@ -346,3 +371,33 @@ class PatchDefinition(pydantic.BaseModel, frozen=True):
     def outer_bbox(self) -> Box:
         """The outer bounding box of this patch (`.Box`)."""
         return self.cells.bbox
+
+
+if TYPE_CHECKING:
+
+    def _test_types() -> None:
+        arr = np.zeros(3)
+        bbox = Box.from_shape((100, 200))
+        grid = CellGrid(bbox=bbox, cell_shape=YX(10, 20))
+        cgb = CellGridBounds(grid=grid, bbox=bbox)
+
+        # CellGridBounds satisfies the Bounds Protocol.
+        bounds: Bounds = cgb
+
+        # CellGridBounds.contains: XY/YX, scalar, array-like
+        assert_type(cgb.contains(x=1, y=2), bool)
+        assert_type(cgb.contains(x=1.0, y=2.0), bool)
+        assert_type(cgb.contains(x=arr, y=arr), np.ndarray)
+        assert_type(cgb.contains(XY(1, 2)), bool)
+        assert_type(cgb.contains(YX(2, 1)), bool)
+        assert_type(cgb.contains(XY(arr, arr)), np.ndarray)
+        assert_type(cgb.contains(YX(arr, arr)), np.ndarray)
+
+        # Via the Bounds Protocol view, same signatures hold.
+        assert_type(bounds.contains(x=1, y=1), bool)
+        assert_type(bounds.contains(x=1.0, y=1.0), bool)
+        assert_type(bounds.contains(x=arr, y=arr), np.ndarray)
+        assert_type(bounds.contains(XY(1, 1)), bool)
+        assert_type(bounds.contains(YX(1, 1)), bool)
+        assert_type(bounds.contains(XY(arr, arr)), np.ndarray)
+        assert_type(bounds.contains(YX(arr, arr)), np.ndarray)

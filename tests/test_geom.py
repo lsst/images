@@ -18,7 +18,7 @@ import pydantic
 import pytest
 
 from lsst.images import XY, YX, Box, Interval, NoOverlapError
-from lsst.images.tests import assert_close
+from lsst.images.tests import assert_close, check_bounds_contains_broadcasting
 
 
 class IntervalModel(pydantic.BaseModel):
@@ -125,6 +125,28 @@ def test_interval_contains() -> None:
     with pytest.raises(NoOverlapError):
         i.intersection(Interval.factory[20:30])
     assert i != []
+
+
+def test_interval_contains_broadcasting() -> None:
+    """Test that Interval.contains accepts array-like inputs and broadcasts."""
+    interval = Interval(start=2, stop=8)
+    # One point outside each end, one on each boundary, one in the interior.
+    xs = np.array(
+        [
+            interval.start - 1,
+            interval.start,
+            (interval.start + interval.stop) // 2,
+            interval.stop - 1,
+            interval.stop,
+        ]
+    )
+    expected_1d = np.array([interval.contains(int(x)) for x in xs])
+    # 1-D ndarray.
+    np.testing.assert_array_equal(interval.contains(xs), expected_1d)
+    # list input (array-like).
+    np.testing.assert_array_equal(interval.contains(xs.tolist()), expected_1d)
+    # 2-D array: same values reshaped to (len, 1).
+    np.testing.assert_array_equal(interval.contains(xs.reshape(-1, 1)), expected_1d.reshape(-1, 1))
 
 
 def test_interval_slice() -> None:
@@ -307,6 +329,31 @@ def test_box_contains() -> None:
         box.contains(box, x=3, y=2)
     with pytest.raises(TypeError):
         box.contains()
+
+
+def test_box_contains_xy_yx() -> None:
+    """Verify that Box.contains accepts XY and YX positional arguments."""
+    box = Box.factory[0:20, 10:40]
+    # Scalar XY and YX — results must match the keyword form.
+    assert box.contains(XY(x=15, y=4)) == box.contains(x=15, y=4)
+    assert box.contains(YX(y=4, x=15)) == box.contains(x=15, y=4)
+    assert not box.contains(XY(x=4, y=15))
+    assert not box.contains(YX(y=15, x=4))
+    # Array XY and YX.
+    xv = np.array([-1, 10, 20, 30, 40, 41])
+    yv = np.array([-1, 5, 19, 20, 20, 20])
+    np.testing.assert_array_equal(box.contains(XY(xv, yv)), box.contains(x=xv, y=yv))
+    np.testing.assert_array_equal(box.contains(YX(yv, xv)), box.contains(x=xv, y=yv))
+    # Mixing positional point with keyword x= or y= must raise TypeError.
+    with pytest.raises(TypeError):
+        box.contains(XY(x=15, y=4), x=15)
+    with pytest.raises(TypeError):
+        box.contains(YX(y=4, x=15), y=4)
+
+
+def test_box_contains_broadcasting() -> None:
+    """Test that Box.contains broadcasts like a numpy ufunc."""
+    check_bounds_contains_broadcasting(Box.factory[0:20, 10:40])
 
 
 def test_box_intersection() -> None:

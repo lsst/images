@@ -20,6 +20,7 @@ import pytest
 
 from lsst.images import (
     XY,
+    YX,
     Box,
     GeneralFrame,
     NoOverlapError,
@@ -28,7 +29,7 @@ from lsst.images import (
     RegionSerializationModel,
     Transform,
 )
-from lsst.images.tests import assert_close
+from lsst.images.tests import assert_close, check_bounds_contains_broadcasting
 
 try:
     import lsst.afw.geom  # noqa: F401
@@ -142,6 +143,31 @@ def test_contains_points() -> None:
         polygon.contains(x=np.array([40.0, 0.0, 40.0]), y=np.array([0.0, 0.0, 10.0])),
         np.array([True, False, False]),
     )
+
+
+def test_contains_points_xy_yx() -> None:
+    """Verify that Region.contains accepts XY and YX positional arguments."""
+    polygon = _make_polygon()
+    # Scalar XY and YX — results must match the keyword form.
+    assert polygon.contains(XY(x=40.0, y=0.0)) == polygon.contains(x=40.0, y=0.0)
+    assert polygon.contains(YX(y=0.0, x=40.0)) == polygon.contains(x=40.0, y=0.0)
+    assert not polygon.contains(XY(x=0.0, y=0.0))
+    assert not polygon.contains(YX(y=0.0, x=0.0))
+    # Array XY and YX.
+    xv = np.array([40.0, 0.0, 40.0])
+    yv = np.array([0.0, 0.0, 10.0])
+    np.testing.assert_array_equal(polygon.contains(XY(xv, yv)), polygon.contains(x=xv, y=yv))
+    np.testing.assert_array_equal(polygon.contains(YX(yv, xv)), polygon.contains(x=xv, y=yv))
+    # Mixing positional point with keyword x= or y= must raise TypeError.
+    with pytest.raises(TypeError):
+        polygon.contains(XY(x=40.0, y=0.0), x=40.0)
+    with pytest.raises(TypeError):
+        polygon.contains(YX(y=0.0, x=40.0), y=0.0)
+
+
+def test_region_contains_broadcasting() -> None:
+    """Test that Region.contains broadcasts like a numpy ufunc."""
+    check_bounds_contains_broadcasting(_make_polygon())
 
 
 def test_polygon_io() -> None:

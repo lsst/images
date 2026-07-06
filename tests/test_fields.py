@@ -19,7 +19,7 @@ import astropy.units as u
 import numpy as np
 import pytest
 
-from lsst.images import Box, Image
+from lsst.images import XY, YX, Box, Image
 from lsst.images.fields import (
     BaseField,
     ChebyshevField,
@@ -408,3 +408,169 @@ def test_visit_background(legacy_visit_background: LegacyBackgroundList) -> None
     """
     bg_field = field_from_legacy_background(legacy_visit_background)
     assert_images_equal(bg_field.render(), Image.from_legacy(legacy_visit_background.getImage()), rtol=1e-6)
+
+
+# Scalar x/y inside TEST_BOX used by the broadcasting/scalar tests below.
+_SCALAR_X = 9.0
+_SCALAR_Y = 18.5
+_SCALAR_X_INT = 9
+_SCALAR_Y_INT = 18
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        _make_test_chebyshev_field,
+        _make_test_spline_field,
+        _make_test_product_field,
+        _make_test_sum_field,
+    ],
+)
+def test_call_scalar(factory: Callable[[], BaseField]) -> None:
+    """Verify that __call__ accepts scalar x/y and returns a scalar float,
+    and returns a 0-d Quantity when quantity=True.
+    """
+    field = factory()
+    # quantity=False: Python int and float scalars should return float.
+    result_float = field(x=_SCALAR_X, y=_SCALAR_Y)
+    assert type(result_float) is float
+    result_int = field(x=_SCALAR_X_INT, y=_SCALAR_Y_INT)
+    assert type(result_int) is float
+    # Values must match the corresponding single-element array call.
+    ref_float = field(x=np.array([_SCALAR_X]), y=np.array([_SCALAR_Y]))[0]
+    assert result_float == ref_float
+    ref_int = field(x=np.array([float(_SCALAR_X_INT)]), y=np.array([float(_SCALAR_Y_INT)]))[0]
+    assert result_int == ref_int
+    # quantity=True: scalar input should yield a 0-d Quantity.
+    field_with_units = field * u.nJy
+    result_q = field_with_units(x=_SCALAR_X, y=_SCALAR_Y, quantity=True)
+    assert isinstance(result_q, u.Quantity)
+    assert result_q.shape == ()
+    assert result_q.unit == u.nJy
+    ref_q = field_with_units(x=np.array([_SCALAR_X]), y=np.array([_SCALAR_Y]), quantity=True)
+    assert result_q.value == ref_q[0].value
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        _make_test_chebyshev_field,
+        _make_test_spline_field,
+        _make_test_product_field,
+        _make_test_sum_field,
+    ],
+)
+def test_call_array_like_and_integer_input(factory: Callable[[], BaseField]) -> None:
+    """Verify that __call__ accepts Python lists and integer arrays, returning
+    float64 ndarray results consistent with float64 array input.
+    """
+    field = factory()
+    xv = [_SCALAR_X, _SCALAR_X + 2.0, _SCALAR_X + 4.0]
+    yv = [_SCALAR_Y, _SCALAR_Y + 1.0, _SCALAR_Y + 2.0]
+    # Python list input should return an ndarray.
+    result_list = field(x=xv, y=yv)
+    assert isinstance(result_list, np.ndarray)
+    ref = field(x=np.array(xv), y=np.array(yv))
+    np.testing.assert_array_equal(result_list, ref)
+    # Integer array input should not raise and should return float64.
+    xi = np.array([_SCALAR_X_INT, _SCALAR_X_INT + 2, _SCALAR_X_INT + 4], dtype=np.int32)
+    yi = np.array([_SCALAR_Y_INT, _SCALAR_Y_INT + 1, _SCALAR_Y_INT + 2], dtype=np.int32)
+    result_int = field(x=xi, y=yi)
+    assert isinstance(result_int, np.ndarray)
+    assert result_int.dtype == np.float64
+    ref_int = field(x=xi.astype(np.float64), y=yi.astype(np.float64))
+    np.testing.assert_array_equal(result_int, ref_int)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        _make_test_chebyshev_field,
+        _make_test_spline_field,
+        _make_test_product_field,
+        _make_test_sum_field,
+    ],
+)
+def test_call_broadcast(factory: Callable[[], BaseField]) -> None:
+    """Verify that __call__ broadcasts x and y like a NumPy ufunc, in both
+    1-D and 2-D cases.
+    """
+    field = factory()
+    xv = np.linspace(_SCALAR_X, _SCALAR_X + 4.0, 5)
+    yv = np.linspace(_SCALAR_Y, _SCALAR_Y + 3.0, 4)
+    # 1-D broadcast: array x, scalar y.
+    result_1d = field(x=xv, y=_SCALAR_Y)
+    assert isinstance(result_1d, np.ndarray)
+    assert result_1d.shape == xv.shape
+    ref_1d = field(x=xv, y=np.full_like(xv, _SCALAR_Y))
+    np.testing.assert_array_equal(result_1d, ref_1d)
+    # 2-D broadcast: column x (M,1), row y (1,N) -> (M,N).
+    x2d = xv[:, np.newaxis]  # shape (5, 1)
+    y2d = yv[np.newaxis, :]  # shape (1, 4)
+    result_2d = field(x=x2d, y=y2d)
+    assert isinstance(result_2d, np.ndarray)
+    assert result_2d.shape == (xv.size, yv.size)
+    # Values must match the fully expanded meshgrid call.
+    xmesh, ymesh = np.meshgrid(xv, yv, indexing="ij")
+    ref_2d = field(x=xmesh, y=ymesh)
+    np.testing.assert_array_equal(result_2d, ref_2d)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        _make_test_chebyshev_field,
+        _make_test_spline_field,
+        _make_test_product_field,
+        _make_test_sum_field,
+    ],
+)
+def test_call_float32_input(factory: Callable[[], BaseField]) -> None:
+    """Verify that float32 inputs produce float64 output with correct values,
+    without silent precision loss.
+    """
+    field = factory()
+    x32 = np.array([_SCALAR_X, _SCALAR_X + 2.0, _SCALAR_X + 4.0], dtype=np.float32)
+    y32 = np.array([_SCALAR_Y, _SCALAR_Y + 1.0, _SCALAR_Y + 2.0], dtype=np.float32)
+    result = field(x=x32, y=y32)
+    assert isinstance(result, np.ndarray)
+    assert result.dtype == np.float64
+    ref = field(x=x32.astype(np.float64), y=y32.astype(np.float64))
+    np.testing.assert_array_equal(result, ref)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        _make_test_chebyshev_field,
+        _make_test_spline_field,
+        _make_test_product_field,
+        _make_test_sum_field,
+    ],
+)
+def test_call_xy_yx(factory: Callable[[], BaseField]) -> None:
+    """Verify that __call__ accepts XY and YX positional arguments, producing
+    results identical to the equivalent x=/y= keyword call.
+    """
+    field = factory()
+    # Scalar XY and YX — return type must be float and values must match.
+    ref_scalar = field(x=_SCALAR_X, y=_SCALAR_Y)
+    assert field(XY(x=_SCALAR_X, y=_SCALAR_Y)) == ref_scalar
+    assert field(YX(y=_SCALAR_Y, x=_SCALAR_X)) == ref_scalar
+    # Array XY and YX — return type must be ndarray and values must match.
+    xv = np.array([_SCALAR_X, _SCALAR_X + 2.0, _SCALAR_X + 4.0])
+    yv = np.array([_SCALAR_Y, _SCALAR_Y + 1.0, _SCALAR_Y + 2.0])
+    ref_array = field(x=xv, y=yv)
+    np.testing.assert_array_equal(field(XY(xv, yv)), ref_array)
+    np.testing.assert_array_equal(field(YX(yv, xv)), ref_array)
+    # quantity=True still works alongside an XY positional argument.
+    field_with_units = field * u.nJy
+    ref_q = field_with_units(x=_SCALAR_X, y=_SCALAR_Y, quantity=True)
+    result_q = field_with_units(XY(x=_SCALAR_X, y=_SCALAR_Y), quantity=True)
+    assert isinstance(result_q, u.Quantity)
+    assert result_q.value == ref_q.value
+    # Mixing a positional point with explicit x= or y= must raise TypeError.
+    with pytest.raises(TypeError):
+        field(XY(x=_SCALAR_X, y=_SCALAR_Y), x=_SCALAR_X)
+    with pytest.raises(TypeError):
+        field(YX(y=_SCALAR_Y, x=_SCALAR_X), y=_SCALAR_Y)

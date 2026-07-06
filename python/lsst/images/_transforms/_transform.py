@@ -19,7 +19,7 @@ __all__ = (
 
 import textwrap
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, final
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, assert_type, cast, final, overload
 
 import astropy.io.fits.header
 import astropy.units as u
@@ -27,12 +27,14 @@ import numpy as np
 import pydantic
 
 from .._concrete_bounds import BoundsSerializationModel
-from .._geom import XY, Bounds, Box
+from .._geom import XY, YX, Bounds, Box
 from ..serialization import ArchiveReadError, ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 from . import _ast as astshim
 from ._frames import Frame, SerializableFrame, SkyFrame
 
 if TYPE_CHECKING:
+    import numpy.typing as npt
+
     try:
         from lsst.afw.geom import TransformPoint2ToPoint2 as LegacyTransform
     except ImportError:
@@ -263,21 +265,54 @@ class Transform[I: Frame, O: Frame]:
             ast_mapping = ast_mapping.simplified()
         return ast_mapping.show(comments)
 
-    def apply_forward[T: np.ndarray | float](self, *, x: T, y: T) -> XY[T]:
+    @overload
+    def apply_forward(self, point: XY[int | float] | YX[int | float], /) -> XY[float]: ...
+
+    @overload
+    def apply_forward(self, point: XY[npt.ArrayLike] | YX[npt.ArrayLike], /) -> XY[np.ndarray]: ...
+
+    @overload
+    def apply_forward(self, /, *, x: int | float, y: int | float) -> XY[float]: ...
+
+    @overload
+    def apply_forward(self, /, *, x: npt.ArrayLike, y: npt.ArrayLike) -> XY[np.ndarray]: ...
+
+    def apply_forward(
+        self, point: XY[Any] | YX[Any] | None = None, /, *, x: Any = None, y: Any = None
+    ) -> XY[float] | XY[np.ndarray]:
         """Apply the forward transform to one or more points.
 
         Parameters
         ----------
-        x : `numpy.ndarray` | `float`
-            ``x`` values of the points to transform.
-        y : `numpy.ndarray` | `float`
-            ``y`` values of the points to transform.
+        point
+            An `XY` or `YX` coordinate pair to transform.  Mutually exclusive
+            with ``x`` and ``y``.
+        x : `float` | array-like
+            ``x`` values of the points to transform, as a scalar or any
+            array-like.  Results are broadcast against ``y``.
+            Mutually exclusive with ``point``.
+        y : `float` | array-like
+            ``y`` values of the points to transform, as a scalar or any
+            array-like.  Results are broadcast against ``x``.
+            Mutually exclusive with ``point``.
 
         Returns
         -------
-        `XY` [`numpy.ndarray` | `float`]
-            The transformed point or points.
+        `XY` [`float` | `numpy.ndarray`]
+            The transformed point or points.  A scalar input pair returns
+            `XY` of `float`; array-like inputs return `XY` of
+            `numpy.ndarray` with the broadcast shape of ``x`` and ``y``.
         """
+        match point:
+            case None:
+                if x is None or y is None:
+                    raise TypeError("Pass either a point or both x= and y= to 'apply_forward'.")
+            case XY() | YX():
+                if x is not None or y is not None:
+                    raise TypeError("'apply_forward' point argument is mutually exclusive with x= and y=.")
+                x, y = point.x, point.y
+            case _:
+                raise TypeError(f"Unexpected positional argument type: {type(point)!r}.")
         return _standardize_xy(
             _ast_apply(
                 self._ast_mapping.applyForward,
@@ -287,21 +322,54 @@ class Transform[I: Frame, O: Frame]:
             self._out_frame,
         )
 
-    def apply_inverse[T: np.ndarray | float](self, *, x: T, y: T) -> XY[T]:
+    @overload
+    def apply_inverse(self, point: XY[int | float] | YX[int | float], /) -> XY[float]: ...
+
+    @overload
+    def apply_inverse(self, point: XY[npt.ArrayLike] | YX[npt.ArrayLike], /) -> XY[np.ndarray]: ...
+
+    @overload
+    def apply_inverse(self, /, *, x: int | float, y: int | float) -> XY[float]: ...
+
+    @overload
+    def apply_inverse(self, /, *, x: npt.ArrayLike, y: npt.ArrayLike) -> XY[np.ndarray]: ...
+
+    def apply_inverse(
+        self, point: XY[Any] | YX[Any] | None = None, /, *, x: Any = None, y: Any = None
+    ) -> XY[float] | XY[np.ndarray]:
         """Apply the inverse transform to one or more points.
 
         Parameters
         ----------
-        x : `numpy.ndarray` | `float`
-            ``x`` values of the points to transform.
-        y : `numpy.ndarray` | `float`
-            ``y`` values of the points to transform.
+        point
+            An `XY` or `YX` coordinate pair to transform.  Mutually exclusive
+            with ``x`` and ``y``.
+        x : `float` | array-like
+            ``x`` values of the points to transform, as a scalar or any
+            array-like.  Results are broadcast against ``y``.
+            Mutually exclusive with ``point``.
+        y : `float` | array-like
+            ``y`` values of the points to transform, as a scalar or any
+            array-like.  Results are broadcast against ``x``.
+            Mutually exclusive with ``point``.
 
         Returns
         -------
-        `XY` [`numpy.ndarray` | `float`]
-            The transformed point or points.
+        `XY` [`float` | `numpy.ndarray`]
+            The transformed point or points.  A scalar input pair returns
+            `XY` of `float`; array-like inputs return `XY` of
+            `numpy.ndarray` with the broadcast shape of ``x`` and ``y``.
         """
+        match point:
+            case None:
+                if x is None or y is None:
+                    raise TypeError("Pass either a point or both x= and y= to 'apply_inverse'.")
+            case XY() | YX():
+                if x is not None or y is not None:
+                    raise TypeError("'apply_inverse' point argument is mutually exclusive with x= and y=.")
+                x, y = point.x, point.y
+            case _:
+                raise TypeError(f"Unexpected positional argument type: {type(point)!r}.")
         return _standardize_xy(
             _ast_apply(
                 self._ast_mapping.applyInverse,
@@ -311,39 +379,85 @@ class Transform[I: Frame, O: Frame]:
             self._in_frame,
         )
 
-    def apply_forward_q(self, *, x: u.Quantity, y: u.Quantity) -> XY[u.Quantity]:
+    @overload
+    def apply_forward_q(self, point: XY[u.Quantity] | YX[u.Quantity], /) -> XY[u.Quantity]: ...
+
+    @overload
+    def apply_forward_q(self, /, *, x: u.Quantity, y: u.Quantity) -> XY[u.Quantity]: ...
+
+    def apply_forward_q(
+        self, point: XY[u.Quantity] | YX[u.Quantity] | None = None, /, *, x: Any = None, y: Any = None
+    ) -> XY[u.Quantity]:
         """Apply the forward transform to one or more unit-aware points.
 
         Parameters
         ----------
+        point
+            An `XY` or `YX` coordinate pair of `~astropy.units.Quantity` to
+            transform.  Mutually exclusive with ``x`` and ``y``.
         x
             ``x`` values of the points to transform.
+            Mutually exclusive with ``point``.
         y
             ``y`` values of the points to transform.
+            Mutually exclusive with ``point``.
 
         Returns
         -------
         `XY` [`astropy.units.Quantity`]
             The transformed point or points.
         """
+        match point:
+            case None:
+                if x is None or y is None:
+                    raise TypeError("Pass either a point or both x= and y= to 'apply_forward_q'.")
+            case XY() | YX():
+                if x is not None or y is not None:
+                    raise TypeError("'apply_forward_q' point argument is mutually exclusive with x= and y=.")
+                x, y = point.x, point.y
+            case _:
+                raise TypeError(f"Unexpected positional argument type: {type(point)!r}.")
         xy = self.apply_forward(x=x.to_value(self._in_frame.unit), y=y.to_value(self._in_frame.unit))
         return XY(xy.x * self._out_frame.unit, xy.y * self._out_frame.unit)
 
-    def apply_inverse_q(self, *, x: u.Quantity, y: u.Quantity) -> XY[u.Quantity]:
+    @overload
+    def apply_inverse_q(self, point: XY[u.Quantity] | YX[u.Quantity], /) -> XY[u.Quantity]: ...
+
+    @overload
+    def apply_inverse_q(self, /, *, x: u.Quantity, y: u.Quantity) -> XY[u.Quantity]: ...
+
+    def apply_inverse_q(
+        self, point: XY[u.Quantity] | YX[u.Quantity] | None = None, /, *, x: Any = None, y: Any = None
+    ) -> XY[u.Quantity]:
         """Apply the inverse transform to one or more unit-aware points.
 
         Parameters
         ----------
+        point
+            An `XY` or `YX` coordinate pair of `~astropy.units.Quantity` to
+            transform.  Mutually exclusive with ``x`` and ``y``.
         x
             ``x`` values of the points to transform.
+            Mutually exclusive with ``point``.
         y
             ``y`` values of the points to transform.
+            Mutually exclusive with ``point``.
 
         Returns
         -------
         `XY` [`astropy.units.Quantity`]
             The transformed point or points.
         """
+        match point:
+            case None:
+                if x is None or y is None:
+                    raise TypeError("Pass either a point or both x= and y= to 'apply_inverse_q'.")
+            case XY() | YX():
+                if x is not None or y is not None:
+                    raise TypeError("'apply_inverse_q' point argument is mutually exclusive with x= and y=.")
+                x, y = point.x, point.y
+            case _:
+                raise TypeError(f"Unexpected positional argument type: {type(point)!r}.")
         xy = self.apply_inverse(x=x.to_value(self._out_frame.unit), y=y.to_value(self._out_frame.unit))
         return XY(xy.x * self._in_frame.unit, xy.y * self._in_frame.unit)
 
@@ -535,12 +649,18 @@ class Transform[I: Frame, O: Frame]:
         return ast_frame_set
 
 
-def _ast_apply[T: np.ndarray | float](method: Any, *, x: T, y: T) -> XY[T]:
+def _ast_apply(method: Any, *, x: Any, y: Any) -> XY[float] | XY[np.ndarray]:
     # TODO: add bounds argument and check inputs
-    # TODO: broadcast arrays with different shapes.
-    xy_in = np.vstack([x, y]).astype(np.float64)
+    xa = np.asarray(x)
+    ya = np.asarray(y)
+    broadcast_shape = np.broadcast(xa, ya).shape
+    scalar = not broadcast_shape
+    xb, yb = np.broadcast_arrays(xa, ya)
+    xy_in = np.vstack([xb.ravel(), yb.ravel()]).astype(np.float64)
     xy_out = method(xy_in)
-    return XY(xy_out[0, :], xy_out[1, :])
+    if scalar:
+        return XY(float(xy_out[0, 0]), float(xy_out[1, 0]))
+    return XY(xy_out[0].reshape(broadcast_shape), xy_out[1].reshape(broadcast_shape))
 
 
 def _prepend_ast_shift(ast_frame_set: Any, x: float, y: float, ast_domain: str) -> None:
@@ -567,7 +687,7 @@ def _make_ast_frame(frame: Frame) -> Any:
     return ast_frame
 
 
-def _standardize_xy[T: np.ndarray | float](xy: XY[T], frame: Frame) -> XY[T]:
+def _standardize_xy(xy: XY[Any], frame: Frame) -> XY[Any]:
     return XY(x=frame.standardize_x(xy.x), y=frame.standardize_y(xy.y))
 
 
@@ -669,3 +789,22 @@ class TransformSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         if transform is None:
             transform = Transform.identity(self.frames[0].deserialize())
         return transform
+
+
+if TYPE_CHECKING:
+
+    def _test_types() -> None:
+        t = cast(Transform, None)
+        arr = np.zeros(3)
+
+        # Scalar inputs → XY[float]
+        assert_type(t.apply_forward(x=1.0, y=2.0), XY[float])
+        assert_type(t.apply_inverse(x=1.0, y=2.0), XY[float])
+
+        # Array inputs → XY[np.ndarray]
+        assert_type(t.apply_forward(x=arr, y=arr), XY[np.ndarray])
+        assert_type(t.apply_inverse(x=arr, y=arr), XY[np.ndarray])
+
+        # Array-like (list) inputs → XY[np.ndarray]
+        assert_type(t.apply_forward(x=[1.0, 2.0], y=[3.0, 4.0]), XY[np.ndarray])
+        assert_type(t.apply_inverse(x=[1.0, 2.0], y=[3.0, 4.0]), XY[np.ndarray])
