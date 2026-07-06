@@ -155,7 +155,7 @@ class SplineField(BaseField):
         # We really do want an exact floating-point comparison here.
         return (self._data == self._data[0, 0]).all()
 
-    def evaluate(
+    def _evaluate(
         self, *, x: np.ndarray, y: np.ndarray, quantity: bool = False
     ) -> np.ndarray | astropy.units.Quantity:
         y, x = np.broadcast_arrays(y, x)
@@ -201,7 +201,7 @@ class SplineField(BaseField):
         rendered_array = x_interpolator(bbox.x.arange)
         return Image(rendered_array.transpose().copy(), bbox=bbox, unit=self._unit, dtype=dtype)
 
-    def multiply_constant(
+    def _multiply_constant(
         self, factor: float | astropy.units.Quantity | astropy.units.UnitBase
     ) -> SplineField:
         factor, unit = self._handle_factor_units(factor)

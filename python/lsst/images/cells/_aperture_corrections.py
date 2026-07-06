@@ -126,7 +126,7 @@ class CellField(BaseField):
         """
         return astropy.units.Quantity(self.value_in_cell(key), self._unit)
 
-    def evaluate(
+    def _evaluate(
         self, *, x: np.ndarray, y: np.ndarray, quantity: bool
     ) -> np.ndarray | astropy.units.Quantity:
         # This implementation is optimized for the case where there are many
@@ -153,7 +153,9 @@ class CellField(BaseField):
             result[cell_bbox].array = self.value_in_cell(cell_index)
         return result
 
-    def multiply_constant(self, factor: float | astropy.units.Quantity | astropy.units.UnitBase) -> CellField:
+    def _multiply_constant(
+        self, factor: float | astropy.units.Quantity | astropy.units.UnitBase
+    ) -> CellField:
         factor, unit = self._handle_factor_units(factor)
         return CellField(self._bounds, self._array * factor, unit=unit)
 
