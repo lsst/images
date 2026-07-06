@@ -88,7 +88,7 @@ class ProductField(BaseField):
     def is_constant(self) -> bool:
         return all(operand.is_constant for operand in self._operands)
 
-    def evaluate(
+    def _evaluate(
         self, *, x: np.ndarray, y: np.ndarray, quantity: bool = False
     ) -> np.ndarray | astropy.units.Quantity:
         iterator = iter(self._operands)
@@ -108,7 +108,7 @@ class ProductField(BaseField):
             result.array *= operand.render(bbox, dtype=dtype).array
         return result
 
-    def multiply_constant(
+    def _multiply_constant(
         self, factor: float | astropy.units.Quantity | astropy.units.UnitBase
     ) -> ProductField:
         new_operands = list(self._operands[:-1])

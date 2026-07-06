@@ -121,7 +121,7 @@ class BaseField(ABC):
         x = np.asarray(x)
         y = np.asarray(y)
         scalar = not np.broadcast(x, y).shape
-        result = self.evaluate(x=x, y=y, quantity=quantity)
+        result = self._evaluate(x=x, y=y, quantity=quantity)
         if scalar:
             if quantity:
                 return result  # 0-d Quantity
@@ -148,16 +148,16 @@ class BaseField(ABC):
         raise NotImplementedError()
 
     def __mul__(self, factor: float | astropy.units.Quantity | astropy.units.UnitBase) -> Self:
-        return self.multiply_constant(factor)
+        return self._multiply_constant(factor)
 
     def __rmul__(self, factor: float | astropy.units.Quantity | astropy.units.UnitBase) -> Self:
-        return self.multiply_constant(factor)
+        return self._multiply_constant(factor)
 
     def __truediv__(self, factor: float | astropy.units.Quantity | astropy.units.UnitBase) -> Self:
-        return self.multiply_constant(1.0 / factor)
+        return self._multiply_constant(1.0 / factor)
 
     @abstractmethod
-    def evaluate(
+    def _evaluate(
         self, *, x: np.ndarray, y: np.ndarray, quantity: bool
     ) -> np.ndarray | astropy.units.Quantity:
         """Evaluate at non-gridded points.
@@ -177,7 +177,7 @@ class BaseField(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def multiply_constant(self, factor: float | astropy.units.Quantity | astropy.units.UnitBase) -> Self:
+    def _multiply_constant(self, factor: float | astropy.units.Quantity | astropy.units.UnitBase) -> Self:
         """Multiply by a constant, returning a new field of the same type.
 
         Parameters
@@ -210,7 +210,7 @@ class BaseField(ABC):
         factor = image_unit.to(astropy.units.nJy / self.unit)
         if factor != 1.0:
             # TODO[DM-54556]: make sure this shouldn't be 1/factor.
-            field = self.multiply_constant(factor)  # this lies about units, but we'll discard them anyway.
+            field = self._multiply_constant(factor)  # this lies about units, but we'll discard them anyway.
         (field_at_center,) = field(
             x=np.array([field.bounds.bbox.x.center]),
             y=np.array([field.bounds.bbox.y.center]),

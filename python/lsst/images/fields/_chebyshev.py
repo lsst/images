@@ -221,7 +221,7 @@ class ChebyshevField(BaseField):
     def is_constant(self) -> bool:
         return self.x_order == 0 and self.y_order == 0
 
-    def evaluate(
+    def _evaluate(
         self, *, x: np.ndarray, y: np.ndarray, quantity: bool
     ) -> np.ndarray | astropy.units.Quantity:
         y, x = np.broadcast_arrays(y, x)
@@ -245,7 +245,7 @@ class ChebyshevField(BaseField):
         v = np.polynomial.chebyshev.chebgrid2d(m.y, m.x, self._coefficients)
         return Image(v, bbox=bbox, unit=self.unit, dtype=dtype)
 
-    def multiply_constant(
+    def _multiply_constant(
         self, factor: float | astropy.units.Quantity | astropy.units.UnitBase
     ) -> ChebyshevField:
         factor, unit = self._handle_factor_units(factor)
