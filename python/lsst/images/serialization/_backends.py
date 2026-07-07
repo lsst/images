@@ -13,9 +13,9 @@ from __future__ import annotations
 
 __all__ = ("Backend", "backend_for_name", "backend_for_path", "backend_for_stream")
 
+import contextlib
 import dataclasses
 import gzip
-import io
 import os
 import shutil
 import tempfile
@@ -30,10 +30,12 @@ if TYPE_CHECKING:
     from ._input_archive import InputArchive
 
 _GZIP_MAGIC = b"\x1f\x8b"
-"""Leading bytes of a gzip member."""
+"""Leading bytes of a gzip member (diagnostics only; compressed streams
+are the caller's responsibility to decompress)."""
 
 _ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
-"""Leading bytes of a zstd frame."""
+"""Leading bytes of a zstd frame (diagnostics only; compressed streams
+are the caller's responsibility to decompress)."""
 
 _COMPRESSION_SUFFIXES = (".gz", ".zst")
 """File name suffixes implying whole-file compression."""
@@ -97,91 +99,47 @@ def _open_zstd_stream(raw: IO[bytes]) -> IO[bytes]:
     return cast(IO[bytes], zstd.ZstdFile(raw))
 
 
-def _decompress_zstd(data: bytes) -> bytes:
-    """Decompress zstd ``data`` in memory.
-
-    Parameters
-    ----------
-    data
-        Complete zstd-compressed payload.
-
-    Raises
-    ------
-    ValueError
-        If no zstd decompressor is available.
-    """
-    with _open_zstd_stream(io.BytesIO(data)) as reader:
-        return reader.read()
-
-
-def _decompress_path_to_temp_file(path: ResourcePathExpression) -> IO[bytes] | None:
+def _decompress_path_to_temp_file(path: ResourcePathExpression) -> IO[bytes]:
     """Stream-decompress a compressed file into an anonymous temporary file.
 
-    Unlike in-memory input, a compressed *file* may be arbitrarily large,
-    so its decompressed content goes to disk in bounded-memory chunks
-    rather than into a `io.BytesIO`.
+    The decompressor is selected from the file name's compression suffix.
+    A compressed file may be arbitrarily large, so its decompressed
+    content goes to disk in bounded-memory chunks rather than into memory.
 
     Parameters
     ----------
     path
-        Path whose content to decompress; convertible to
+        Path whose file name ends in a compression suffix (see
+        `_path_is_compressed`); convertible to
         `lsst.resources.ResourcePath`.
 
     Returns
     -------
-    `typing.IO` [ `bytes` ] or `None`
+    `typing.IO` [ `bytes` ]
         Open, seekable binary handle positioned at the start of the
-        decompressed data, or `None` when the file's leading bytes carry
-        no known compression magic.  The file is deleted when the handle
-        is closed; the caller owns closing it.
+        decompressed data.  The file is deleted when the handle is
+        closed; the caller owns closing it.
 
     Raises
     ------
     ValueError
-        If the data is zstd-compressed and no zstd decompressor is
+        If the path is zstd-compressed and no zstd decompressor is
         available.
     """
-    with ResourcePath(path).open("rb") as raw:
-        magic = raw.read(4)
-        raw.seek(0)
-        if magic.startswith(_GZIP_MAGIC):
-            decompressor = cast(IO[bytes], gzip.GzipFile(fileobj=raw))
-        elif magic == _ZSTD_MAGIC:
-            decompressor = _open_zstd_stream(cast(IO[bytes], raw))
+    uri = ResourcePath(path)
+    with uri.open("rb") as raw:
+        if uri.basename().endswith(".gz"):
+            decompressor = cast(IO[bytes], gzip.GzipFile(fileobj=cast(IO[bytes], raw)))
         else:
-            return None
-        temp = tempfile.TemporaryFile()
-        try:
-            with decompressor:
-                shutil.copyfileobj(decompressor, temp, 1024 * 1024)
+            decompressor = _open_zstd_stream(cast(IO[bytes], raw))
+        with decompressor, contextlib.ExitStack() as stack:
+            temp = stack.enter_context(tempfile.TemporaryFile())
+            shutil.copyfileobj(decompressor, temp, 1024 * 1024)
             temp.seek(0)
-        except BaseException:
-            temp.close()
-            raise
-        return temp
-
-
-def _maybe_decompress_stream(stream: IO[bytes]) -> IO[bytes]:
-    """Return ``stream``, or an in-memory decompressed copy of it.
-
-    gzip and zstd content is detected from its magic number and
-    decompressed in full: the backends need random access, which
-    compressed streams cannot provide.  Anything else is returned
-    unchanged, positioned where it was passed in.
-
-    Parameters
-    ----------
-    stream
-        Seekable binary stream to inspect.
-    """
-    start = stream.tell()
-    magic = stream.read(4)
-    stream.seek(start)
-    if magic.startswith(_GZIP_MAGIC):
-        return io.BytesIO(gzip.decompress(stream.read()))
-    if magic == _ZSTD_MAGIC:
-        return io.BytesIO(_decompress_zstd(stream.read()))
-    return stream
+            # Success: ownership of the temporary file transfers to the
+            # caller; the stack no longer closes it.
+            stack.pop_all()
+    return temp
 
 
 @dataclasses.dataclass(frozen=True)
@@ -287,8 +245,8 @@ def backend_for_stream(stream: IO[bytes]) -> Backend:
     """Return the `Backend` for ``stream`` based on its leading bytes.
 
     The stream is restored to the position it was passed in with.
-    Compressed content is not recognized here; decompress first (see
-    `_maybe_decompress_stream`).
+    Compressed content is not accepted: whoever produced the stream knows
+    how it was compressed and decompresses it before handing it over.
 
     Parameters
     ----------
@@ -298,7 +256,8 @@ def backend_for_stream(stream: IO[bytes]) -> Backend:
     Raises
     ------
     ValueError
-        If the leading bytes match no supported format.
+        If the leading bytes match no supported format, including when
+        they carry gzip or zstd compression magic.
     """
     start = stream.tell()
     head = stream.read(512)
@@ -309,6 +268,10 @@ def backend_for_stream(stream: IO[bytes]) -> Backend:
         return backend_for_name("ndf")
     if head.lstrip().startswith(b"{"):
         return backend_for_name("json")
+    if head.startswith(_GZIP_MAGIC):
+        raise ValueError("The stream appears to be gzip-compressed; decompress it before reading.")
+    if head.startswith(_ZSTD_MAGIC):
+        raise ValueError("The stream appears to be zstd-compressed; decompress it before reading.")
     raise ValueError(
         f"Could not identify a supported format from the leading bytes "
         f"{head[:16]!r}; expected FITS, HDF5/NDF, or JSON content.  "

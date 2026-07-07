@@ -21,11 +21,15 @@ import unittest
 import numpy as np
 
 from lsst.images import Box, Image, Mask
+from lsst.images.fits import FitsInputArchive
+from lsst.images.json import JsonInputArchive
 from lsst.images.serialization import open as open_archive
-from lsst.images.serialization import read, read_from_bytes, write
+from lsst.images.serialization import read, write
 
 try:
     import h5py  # noqa: F401  -- detect availability for NDF stream skips
+
+    from lsst.images.ndf import NdfInputArchive
 
     H5PY_AVAILABLE = True
 except ImportError:
@@ -72,8 +76,6 @@ class FitsOpenTreeStreamTestCase(unittest.TestCase):
     """FitsInputArchive.open_tree accepts a seekable binary stream."""
 
     def test_open_tree_stream(self) -> None:
-        from lsst.images.fits import FitsInputArchive
-
         image = _test_image()
         stream = io.BytesIO(_serialized_bytes(image, ".fits"))
         with FitsInputArchive.open_tree(stream) as (archive, tree, info):
@@ -87,8 +89,6 @@ class JsonOpenTreeStreamTestCase(unittest.TestCase):
     """JsonInputArchive.open_tree accepts a seekable binary stream."""
 
     def test_open_tree_stream(self) -> None:
-        from lsst.images.json import JsonInputArchive
-
         image = _test_image()
         stream = io.BytesIO(_serialized_bytes(image, ".json"))
         with JsonInputArchive.open_tree(stream) as (archive, tree, info):
@@ -102,8 +102,6 @@ class NdfOpenTreeStreamTestCase(unittest.TestCase):
     """NdfInputArchive.open_tree accepts a seekable binary stream."""
 
     def test_open_tree_stream(self) -> None:
-        from lsst.images.ndf import NdfInputArchive
-
         image = _test_image()
         stream = io.BytesIO(_serialized_bytes(image, ".sdf"))
         with NdfInputArchive.open_tree(stream) as (archive, tree, info):
@@ -112,65 +110,66 @@ class NdfOpenTreeStreamTestCase(unittest.TestCase):
         np.testing.assert_array_equal(result.array, image.array)
 
 
-class ReadFromBytesTestCase(unittest.TestCase):
-    """read_from_bytes turns in-memory data into objects, all backends."""
+class ReadStreamTestCase(unittest.TestCase):
+    """read(io.BytesIO(data)) turns in-memory data into objects."""
 
     def setUp(self) -> None:
         self.image = _test_image()
 
     def test_fits(self) -> None:
-        result = read_from_bytes(_serialized_bytes(self.image, ".fits"))
+        result = read(io.BytesIO(_serialized_bytes(self.image, ".fits")))
         self.assertIsInstance(result, Image)
         np.testing.assert_array_equal(result.array, self.image.array)
 
     def test_json(self) -> None:
-        result = read_from_bytes(_serialized_bytes(self.image, ".json"))
+        result = read(io.BytesIO(_serialized_bytes(self.image, ".json")))
         self.assertIsInstance(result, Image)
         np.testing.assert_array_equal(result.array, self.image.array)
 
     @unittest.skipUnless(H5PY_AVAILABLE, "h5py not available.")
     def test_ndf(self) -> None:
-        result = read_from_bytes(_serialized_bytes(self.image, ".sdf"))
+        result = read(io.BytesIO(_serialized_bytes(self.image, ".sdf")))
         self.assertIsInstance(result, Image)
         np.testing.assert_array_equal(result.array, self.image.array)
 
-    def test_buffer_protocol_inputs(self) -> None:
-        data = _serialized_bytes(self.image, ".json")
-        for buffer in (bytearray(data), memoryview(data)):
-            with self.subTest(type=type(buffer).__name__):
-                result = read_from_bytes(buffer)
-                self.assertIsInstance(result, Image)
-
     def test_cls_match_and_mismatch(self) -> None:
         data = _serialized_bytes(self.image, ".fits")
-        result = read_from_bytes(data, cls=Image)
+        result = read(io.BytesIO(data), cls=Image)
         self.assertIsInstance(result, Image)
         with self.assertRaises(TypeError):
-            read_from_bytes(data, cls=Mask)
+            read(io.BytesIO(data), cls=Mask)
 
     def test_kwargs_forwarded(self) -> None:
         big = Image(np.arange(64, dtype=np.float32).reshape(8, 8), bbox=Box.factory[0:8, 0:8])
-        sub = read_from_bytes(_serialized_bytes(big, ".fits"), bbox=Box.factory[2:6, 2:6])
+        sub = read(io.BytesIO(_serialized_bytes(big, ".fits")), bbox=Box.factory[2:6, 2:6])
         self.assertEqual(sub.array.shape, (4, 4))
         np.testing.assert_array_equal(sub.array, big.array[2:6, 2:6])
 
     def test_format_override(self) -> None:
-        result = read_from_bytes(_serialized_bytes(self.image, ".json"), format="json")
+        result = read(io.BytesIO(_serialized_bytes(self.image, ".json")), format="json")
         self.assertIsInstance(result, Image)
 
     def test_wrong_format_override(self) -> None:
         # FITS bytes forced through the JSON backend fail in that backend.
         with self.assertRaises(ValueError):
-            read_from_bytes(_serialized_bytes(self.image, ".fits"), format="json")
+            read(io.BytesIO(_serialized_bytes(self.image, ".fits")), format="json")
 
     def test_unrecognized_bytes(self) -> None:
         with self.assertRaises(ValueError) as cm:
-            read_from_bytes(b"certainly not a supported format")
+            read(io.BytesIO(b"certainly not a supported format"))
         self.assertIn("FITS", str(cm.exception))
 
     def test_bad_format_name(self) -> None:
         with self.assertRaises(ValueError):
-            read_from_bytes(_serialized_bytes(self.image, ".json"), format="asdf")
+            read(io.BytesIO(_serialized_bytes(self.image, ".json")), format="asdf")
+
+    def test_compressed_stream_raises(self) -> None:
+        # Compressed streams are the caller's responsibility to decompress;
+        # the sniff error says what to do.
+        data = gzip.compress(_serialized_bytes(self.image, ".fits"))
+        with self.assertRaises(ValueError) as cm:
+            read(io.BytesIO(data))
+        self.assertIn("gzip", str(cm.exception))
 
 
 class OpenStreamTestCase(unittest.TestCase):
@@ -187,50 +186,6 @@ class OpenStreamTestCase(unittest.TestCase):
             self.assertIsNotNone(reader.get_component("sky_projection"))
             full = reader.read()
         self.assertEqual(type(full).__name__, "VisitImage")
-
-
-class CompressedBytesTestCase(unittest.TestCase):
-    """Compressed in-memory data is decompressed transparently."""
-
-    def setUp(self) -> None:
-        self.image = _test_image()
-
-    def test_gzipped_fits(self) -> None:
-        data = gzip.compress(_serialized_bytes(self.image, ".fits"))
-        result = read_from_bytes(data)
-        self.assertIsInstance(result, Image)
-        np.testing.assert_array_equal(result.array, self.image.array)
-
-    def test_gzipped_json(self) -> None:
-        result = read_from_bytes(gzip.compress(_serialized_bytes(self.image, ".json")))
-        self.assertIsInstance(result, Image)
-
-    @unittest.skipUnless(H5PY_AVAILABLE, "h5py not available.")
-    def test_gzipped_ndf(self) -> None:
-        result = read_from_bytes(gzip.compress(_serialized_bytes(self.image, ".sdf")))
-        self.assertIsInstance(result, Image)
-
-    @unittest.skipUnless(ZSTD_AVAILABLE, "no zstd decompressor available.")
-    def test_zstd_fits(self) -> None:
-        result = read_from_bytes(_zstd_compress(_serialized_bytes(self.image, ".fits")))
-        self.assertIsInstance(result, Image)
-
-    @unittest.skipUnless(ZSTD_AVAILABLE, "no zstd decompressor available.")
-    def test_zstd_json(self) -> None:
-        result = read_from_bytes(_zstd_compress(_serialized_bytes(self.image, ".json")))
-        self.assertIsInstance(result, Image)
-
-    @unittest.skipUnless(H5PY_AVAILABLE and ZSTD_AVAILABLE, "h5py or zstd not available.")
-    def test_zstd_ndf(self) -> None:
-        result = read_from_bytes(_zstd_compress(_serialized_bytes(self.image, ".sdf")))
-        self.assertIsInstance(result, Image)
-
-    def test_gzip_with_format_override(self) -> None:
-        # Decompression happens before dispatch, so the override applies
-        # to the decompressed content.
-        data = gzip.compress(_serialized_bytes(self.image, ".fits"))
-        result = read_from_bytes(data, format="fits")
-        self.assertIsInstance(result, Image)
 
 
 class CompressedPathTestCase(unittest.TestCase):

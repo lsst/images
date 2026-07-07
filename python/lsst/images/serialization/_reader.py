@@ -23,7 +23,6 @@ from lsst.resources import ResourcePathExpression
 from ._backends import (
     _decompress_path_to_temp_file,
     _is_binary_stream,
-    _maybe_decompress_stream,
     _path_is_compressed,
     backend_for_name,
     backend_for_path,
@@ -173,13 +172,12 @@ def open(
     input, by the leading bytes), resolves the registered in-memory type
     from the file's schema, and returns a `Reader` context manager.
 
-    gzip- and zstd-compressed input (detected from magic bytes for streams,
-    or a ``.gz``/``.zst`` path suffix) is decompressed in full first:
-    compressed data has no random access, so ``partial`` is ignored for it.
-    Stream input, which is already in memory, decompresses into memory; a
-    compressed path stream-decompresses into an anonymous temporary file so
-    memory use stays bounded for large files.  zstd requires Python >= 3.14
-    or the ``zstandard`` package.
+    A path with a ``.gz``/``.zst`` compression suffix is stream-decompressed
+    into an anonymous temporary file first (in bounded-memory chunks, since
+    compressed data has no random access; ``partial`` is ignored for it).
+    zstd requires Python >= 3.14 or the ``zstandard`` package.
+    Stream input must already be decompressed: whoever produced the stream
+    knows how it was compressed.
 
     Parameters
     ----------
@@ -216,13 +214,15 @@ def open(
     source: ResourcePathExpression | IO[bytes]
     temp_file: IO[bytes] | None = None
     if _is_binary_stream(path):
-        source = _maybe_decompress_stream(path)
-        backend = backend_for_name(format) if format is not None else backend_for_stream(source)
+        source = path
+        backend = backend_for_name(format) if format is not None else backend_for_stream(path)
     else:
         backend = backend_for_name(format) if format is not None else backend_for_path(path)
         if _path_is_compressed(path):
             temp_file = _decompress_path_to_temp_file(path)
-        source = temp_file if temp_file is not None else path
+            source = temp_file
+        else:
+            source = path
     try:
         with backend.input_archive.open_tree(source, partial=partial, **backend_kwargs) as (
             archive,

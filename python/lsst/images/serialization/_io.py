@@ -17,7 +17,6 @@ __all__ = (
     "parameterize_tree",
     "public_type_for_schema",
     "read",
-    "read_from_bytes",
     "register_schema_class",
     "tree_class_for_info",
     "write",
@@ -25,7 +24,6 @@ __all__ = (
 
 import importlib
 import importlib.metadata
-import io
 from typing import IO, TYPE_CHECKING, Any, overload
 
 from lsst.resources import ResourcePathExpression
@@ -252,7 +250,8 @@ def read(
     type from the file's schema, and returns the fully deserialized object.
     Schema-version compatibility is enforced when the model validates the
     on-disk tree, via ``min_read_version``.
-    gzip- and zstd-compressed input is decompressed transparently.
+    A path with a ``.gz``/``.zst`` compression suffix is decompressed
+    transparently; stream input must already be decompressed.
 
     This is the convenient way to read a whole object.  To read individual
     components, or to reach the metadata and butler info stored alongside the
@@ -262,7 +261,8 @@ def read(
     ----------
     path
         File to read; convertible to `lsst.resources.ResourcePath`, or a
-        seekable binary stream containing the file's content.
+        seekable binary stream containing the file's content (e.g.
+        ``io.BytesIO(data)`` for in-memory bytes).
     cls
         Optional expected in-memory type.
         When given, the file's schema is checked against ``cls`` and the
@@ -309,63 +309,6 @@ def read(
     partial = any(value is not None for value in kwargs.values())
     with open_archive(path, cls, format=format, partial=partial) as reader:
         return reader.read(**kwargs)
-
-
-@overload
-def read_from_bytes[T](
-    data: bytes | bytearray | memoryview, cls: type[T], *, format: str | None = ..., **kwargs: Any
-) -> T: ...
-@overload
-def read_from_bytes(
-    data: bytes | bytearray | memoryview, cls: None = ..., *, format: str | None = ..., **kwargs: Any
-) -> Any: ...
-def read_from_bytes(
-    data: bytes | bytearray | memoryview,
-    cls: type[Any] | None = None,
-    *,
-    format: str | None = None,
-    **kwargs: Any,
-) -> Any:
-    """Read an archive from in-memory data.
-
-    A convenience wrapper around `read` for callers holding a file's
-    content in memory (e.g. a VO cutout service response), avoiding a
-    round-trip through the filesystem.  The format is identified from the
-    leading bytes unless ``format`` is given; gzip- and zstd-compressed
-    content is decompressed transparently.
-
-    Parameters
-    ----------
-    data
-        In-memory content of an ``lsst.images`` file; any buffer-protocol
-        object.
-    cls
-        Optional expected in-memory type, as for `read`.
-    format
-        Optional backend name (``"fits"``, ``"ndf"``, or ``"json"``)
-        overriding content sniffing.
-    **kwargs
-        Type-specific keyword arguments forwarded to the object's
-        ``deserialize``, as for `read` (e.g. ``bbox`` for an image subset
-        read).
-
-    Returns
-    -------
-    object
-        The deserialized object.
-
-    Raises
-    ------
-    ValueError
-        If no supported format matches the leading bytes and ``format`` was
-        not given, if ``format`` is not a known backend name, or if the
-        data is zstd-compressed and no zstd decompressor is available.
-    ArchiveReadError
-        As for `read`.
-    TypeError
-        As for `read`, when ``cls`` is given and incompatible.
-    """
-    return read(io.BytesIO(data), cls, format=format, **kwargs)
 
 
 def write(obj: Any, path: str, **kwargs: Any) -> Any:
