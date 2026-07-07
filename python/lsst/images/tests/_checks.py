@@ -1415,7 +1415,7 @@ def check_bounds_contains_broadcasting(bounds: Bounds) -> None:
     )
 
 
-def check_archive_tree_class_invariants(cls: type[ArchiveTree]) -> None:
+def check_archive_tree_class_invariants(tree_type: type[ArchiveTree]) -> None:
     """Assert that one concrete `.serialization.ArchiveTree` subclass declares
     well-formed schema-version constants and an in-memory type.
 
@@ -1426,18 +1426,18 @@ def check_archive_tree_class_invariants(cls: type[ArchiveTree]) -> None:
 
     Parameters
     ----------
-    cls
+    tree_type
         The concrete `.serialization.ArchiveTree` subclass to check.
     """
-    assert hasattr(cls, "SCHEMA_NAME"), f"{cls.__name__} lacks SCHEMA_NAME"
-    assert hasattr(cls, "SCHEMA_VERSION"), f"{cls.__name__} lacks SCHEMA_VERSION"
-    assert hasattr(cls, "MIN_READ_VERSION"), f"{cls.__name__} lacks MIN_READ_VERSION"
-    assert hasattr(cls, "PUBLIC_TYPE"), f"{cls.__name__} lacks PUBLIC_TYPE"
-    assert isinstance(cls.SCHEMA_NAME, str)
-    assert len(cls.SCHEMA_NAME) > 0
-    assert re.fullmatch(r"^\d+\.\d+\.\d+$", cls.SCHEMA_VERSION)
-    assert isinstance(cls.MIN_READ_VERSION, int)
-    assert cls.MIN_READ_VERSION >= 1
-    assert isinstance(cls.PUBLIC_TYPE, type)
-    major = int(cls.SCHEMA_VERSION.split(".")[0])
-    assert cls.MIN_READ_VERSION <= major
+    assert hasattr(tree_type, "SCHEMA_NAME"), f"{tree_type.__name__} lacks SCHEMA_NAME"
+    assert hasattr(tree_type, "SCHEMA_VERSION"), f"{tree_type.__name__} lacks SCHEMA_VERSION"
+    assert hasattr(tree_type, "MIN_READ_VERSION"), f"{tree_type.__name__} lacks MIN_READ_VERSION"
+    assert hasattr(tree_type, "PUBLIC_TYPE"), f"{tree_type.__name__} lacks PUBLIC_TYPE"
+    assert isinstance(tree_type.SCHEMA_NAME, str)
+    assert len(tree_type.SCHEMA_NAME) > 0
+    assert re.fullmatch(r"^\d+\.\d+\.\d+$", tree_type.SCHEMA_VERSION)
+    assert isinstance(tree_type.MIN_READ_VERSION, int)
+    assert tree_type.MIN_READ_VERSION >= 1
+    assert isinstance(tree_type.PUBLIC_TYPE, type)
+    major = int(tree_type.SCHEMA_VERSION.split(".")[0])
+    assert tree_type.MIN_READ_VERSION <= major
