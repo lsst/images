@@ -17,7 +17,7 @@ import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from types import EllipsisType
-from typing import Any, Self
+from typing import IO, Any, Self
 
 import astropy.io.fits
 import astropy.table
@@ -47,6 +47,7 @@ from ..serialization import (
     parameterize_tree,
     tree_class_for_info,
 )
+from ..serialization._backends import _is_binary_stream
 from ..serialization._common import _check_format_version
 from . import _hds
 from ._common import NdfPointerModel
@@ -169,7 +170,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
     @contextmanager
     def open_tree(
         cls,
-        path: ResourcePathExpression,
+        path: ResourcePathExpression | IO[bytes],
         *,
         partial: bool = True,
         **backend_kwargs: Any,
@@ -184,7 +185,8 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         Parameters
         ----------
         path
-            The file resource to open.
+            The file resource to open, or a seekable binary stream
+            containing the file's content.
         partial
             Accepted for interface compatibility but not meaningful; h5py
             reads lazily regardless.
@@ -204,7 +206,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
 
     @classmethod
     @contextmanager
-    def open(cls, path: ResourcePathExpression) -> Iterator[Self]:
+    def open(cls, path: ResourcePathExpression | IO[bytes]) -> Iterator[Self]:
         """Open an NDF file for reading and yield an `NdfInputArchive`.
 
         Remote ResourcePaths are materialised locally first; fsspec-direct
@@ -213,8 +215,13 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         Parameters
         ----------
         path
-            Path to the NDF file to open.
+            Path to the NDF file to open, or a seekable binary stream
+            containing the file's content.
         """
+        if _is_binary_stream(path):
+            with h5py.File(path, "r") as f:
+                yield cls(f)
+            return
         rp = ResourcePath(path)
         with rp.as_local() as local:
             with h5py.File(local.ospath, "r") as f:

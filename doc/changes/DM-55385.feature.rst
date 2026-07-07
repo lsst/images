@@ -1,0 +1,4 @@
+* The generic ``read`` and ``open`` APIs now accept a seekable binary stream in addition to a path, so in-memory data (e.g. a VO cutout service response) can be read without writing it to disk first: ``read(io.BytesIO(data))``.
+  The format is identified from the stream's leading bytes, with an optional ``format`` argument to override; compressed streams are rejected with an error telling the caller to decompress first.
+  Paths with a ``.gz`` or ``.zst`` compression suffix are decompressed transparently through a temporary file for all supported formats.
+  Reading zstd-compressed files requires Python 3.14 or the ``zstandard`` package.

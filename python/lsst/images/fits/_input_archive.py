@@ -46,6 +46,7 @@ from ..serialization import (
     parameterize_tree,
     tree_class_for_info,
 )
+from ..serialization._backends import _is_binary_stream
 from ..serialization._common import _check_format_version
 from ._common import (
     JSON_COLUMN,
@@ -144,7 +145,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
     @contextmanager
     def open_tree(
         cls,
-        path: ResourcePathExpression,
+        path: ResourcePathExpression | IO[bytes],
         *,
         partial: bool = True,
         **backend_kwargs: Any,
@@ -154,7 +155,8 @@ class FitsInputArchive(InputArchive[PointerModel]):
         Parameters
         ----------
         path
-            The file resource to open.
+            The file resource to open, or a seekable binary stream
+            containing the file's content.
         partial
             If `True` the file is opened without reading it all into memory.
         **backend_kwargs
@@ -220,7 +222,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
     @contextmanager
     def open(
         cls,
-        path: ResourcePathExpression,
+        path: ResourcePathExpression | IO[bytes],
         *,
         page_size: int = DEFAULT_PAGE_SIZE,
         partial: bool = False,
@@ -230,7 +232,10 @@ class FitsInputArchive(InputArchive[PointerModel]):
         Parameters
         ----------
         path
-            File to read; convertible to `lsst.resources.ResourcePath`.
+            File to read; convertible to `lsst.resources.ResourcePath`,
+            or a seekable binary stream containing the file's content.
+            For stream input ``page_size`` and ``partial`` are ignored:
+            the data is already in memory and needs no paging.
         page_size
             Size of the fsspec read block for partial (remote) reads, in
             bytes; a multiple of the FITS block size (2880) is recommended.
@@ -245,6 +250,9 @@ class FitsInputArchive(InputArchive[PointerModel]):
         `contextlib.AbstractContextManager` [`FitsInputArchive`]
             A context manager that returns a `FitsInputArchive` when entered.
         """
+        if _is_binary_stream(path):
+            yield cls(path)
+            return
         path = ResourcePath(path)
         stream: IO[bytes]
         if not partial:

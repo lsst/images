@@ -1,0 +1,2 @@
+* Fixed reading of ``.fits.gz`` files, which were dispatched to the FITS backend but handed to it still compressed.
+* Fixed reading of ``cell_aperture_correction_map`` archives in a process that has not otherwise imported ``lsst.images.cells``: the schema was missing from the built-in provider table and the ``lsst.images.schemas`` entry points, so the schema-driven lazy import could not find it.

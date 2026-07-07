@@ -16,11 +16,18 @@ __all__ = ("Reader", "open")
 
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
-from typing import Any, TypeVar, overload
+from typing import IO, Any, TypeVar, overload
 
 from lsst.resources import ResourcePathExpression
 
-from ._backends import backend_for_path
+from ._backends import (
+    _decompress_path_to_temp_file,
+    _is_binary_stream,
+    _path_is_compressed,
+    backend_for_name,
+    backend_for_path,
+    backend_for_stream,
+)
 from ._common import ArchiveTree, ButlerInfo, MetadataValue
 from ._input_archive import ArchiveInfo, InputArchive
 from ._io import public_type_for_schema
@@ -134,63 +141,106 @@ class Reader[T]:
 
 @overload
 def open[T](
-    path: ResourcePathExpression, cls: type[T], *, partial: bool = ..., **backend_kwargs: Any
+    path: ResourcePathExpression | IO[bytes],
+    cls: type[T],
+    *,
+    format: str | None = ...,
+    partial: bool = ...,
+    **backend_kwargs: Any,
 ) -> AbstractContextManager[Reader[T]]: ...
 @overload
 def open(
-    path: ResourcePathExpression, cls: None = ..., *, partial: bool = ..., **backend_kwargs: Any
+    path: ResourcePathExpression | IO[bytes],
+    cls: None = ...,
+    *,
+    format: str | None = ...,
+    partial: bool = ...,
+    **backend_kwargs: Any,
 ) -> AbstractContextManager[Reader[Any]]: ...
 @contextmanager
 def open(
-    path: ResourcePathExpression, cls: type[Any] | None = None, *, partial: bool = True, **backend_kwargs: Any
+    path: ResourcePathExpression | IO[bytes],
+    cls: type[Any] | None = None,
+    *,
+    format: str | None = None,
+    partial: bool = True,
+    **backend_kwargs: Any,
 ) -> Iterator[Reader]:
     """Open an ``lsst.images`` file for incremental, component-wise reads.
 
-    Dispatches to the appropriate backend by file extension, resolves the
-    registered in-memory type from the file's schema, and returns a `Reader`
-    context manager.
+    Dispatches to the appropriate backend by file extension (or, for stream
+    input, by the leading bytes), resolves the registered in-memory type
+    from the file's schema, and returns a `Reader` context manager.
+
+    A path with a ``.gz``/``.zst`` compression suffix is stream-decompressed
+    into an anonymous temporary file first (in bounded-memory chunks, since
+    compressed data has no random access; ``partial`` is ignored for it).
+    zstd requires Python >= 3.14 or the ``zstandard`` package.
+    Stream input must already be decompressed: whoever produced the stream
+    knows how it was compressed.
 
     Parameters
     ----------
     path
-        File to read; convertible to `lsst.resources.ResourcePath`.
+        File to read; convertible to `lsst.resources.ResourcePath`, or a
+        seekable binary stream containing the file's content.
     cls
         Optional expected in-memory type.
         When given, `open` validates that the file's schema resolves to a
         subclass of ``cls`` (raising `TypeError` otherwise) and the returned
         `Reader` is typed accordingly, so `Reader.read` needs no cast.
+    format
+        Optional backend name (``"fits"``, ``"ndf"``, or ``"json"``)
+        forcing the backend, instead of dispatching on the path's extension
+        or the stream's leading bytes.
     partial
         Forwarded to the backend ``open_tree``; defaults to `True` (a reader
         is for incremental access).
-        A no-op for the JSON and NDF backends.
+        A no-op for the JSON and NDF backends and for stream input.
     **backend_kwargs
         Backend-specific open options (e.g. ``page_size`` for FITS).
 
     Raises
     ------
     ValueError
-        If the file extension is not recognized.
+        If the file extension or the stream's leading bytes are not
+        recognized, or ``format`` is not a known backend name.
     ArchiveReadError
         If the file's schema is not registered.
     TypeError
         If ``cls`` is given and the file's schema resolves to an
         incompatible type.
     """
-    backend = backend_for_path(path)
-    with backend.input_archive.open_tree(path, partial=partial, **backend_kwargs) as (
-        archive,
-        tree,
-        info,
-    ):
-        if cls is not None:
-            resolved = public_type_for_schema(info.schema_name)
-            if resolved is not None and not issubclass(resolved, cls):
-                raise TypeError(
-                    f"{path!r} has schema {info.schema_name!r} (type {resolved.__name__}), "
-                    f"which is not a {cls.__name__}."
-                )
-        reader: Reader[Any] = Reader(archive, tree, info, cls)
-        try:
-            yield reader
-        finally:
-            reader._closed = True
+    source: ResourcePathExpression | IO[bytes]
+    temp_file: IO[bytes] | None = None
+    if _is_binary_stream(path):
+        source = path
+        backend = backend_for_name(format) if format is not None else backend_for_stream(path)
+    else:
+        backend = backend_for_name(format) if format is not None else backend_for_path(path)
+        if _path_is_compressed(path):
+            temp_file = _decompress_path_to_temp_file(path)
+            source = temp_file
+        else:
+            source = path
+    try:
+        with backend.input_archive.open_tree(source, partial=partial, **backend_kwargs) as (
+            archive,
+            tree,
+            info,
+        ):
+            if cls is not None:
+                resolved = public_type_for_schema(info.schema_name)
+                if resolved is not None and not issubclass(resolved, cls):
+                    raise TypeError(
+                        f"{path!r} has schema {info.schema_name!r} (type {resolved.__name__}), "
+                        f"which is not a {cls.__name__}."
+                    )
+            reader: Reader[Any] = Reader(archive, tree, info, cls)
+            try:
+                yield reader
+            finally:
+                reader._closed = True
+    finally:
+        if temp_file is not None:
+            temp_file.close()

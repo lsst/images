@@ -56,7 +56,7 @@ class RegistrationTestCase(unittest.TestCase):
                 SCHEMA_VERSION: ClassVar[str] = "1.0.0"
 
     def test_builtin_provider_loaded_on_miss(self) -> None:
-        schema_names = ("cell_coadd", "cell_psf", "coadd_provenance")
+        schema_names = ("cell_aperture_correction_map", "cell_coadd", "cell_psf", "coadd_provenance")
         saved = {schema_name: _REGISTRY.pop(schema_name, None) for schema_name in schema_names}
         try:
             for schema_name in schema_names:
