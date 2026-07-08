@@ -8,7 +8,9 @@
 #
 # Use of this source code is governed by a 3-clause BSD-style
 # license that can be found in the LICENSE file.
-"""Generic ``read`` / ``write`` dispatchers and the schema-name registry."""
+"""Generic ``read_archive`` / ``write_archive`` dispatchers and the
+schema-name registry.
+"""
 
 from __future__ import annotations
 
@@ -16,10 +18,10 @@ __all__ = (
     "class_for_schema",
     "parameterize_tree",
     "public_type_for_schema",
-    "read",
+    "read_archive",
     "register_schema_class",
     "tree_class_for_info",
-    "write",
+    "write_archive",
 )
 
 import importlib
@@ -229,14 +231,14 @@ def public_type_for_schema(schema_name: str) -> type | None:
 
 
 @overload
-def read[T](
+def read_archive[T](
     path: ResourcePathExpression | IO[bytes], cls: type[T], *, format: str | None = ..., **kwargs: Any
 ) -> T: ...
 @overload
-def read(
+def read_archive(
     path: ResourcePathExpression | IO[bytes], cls: None = ..., *, format: str | None = ..., **kwargs: Any
 ) -> Any: ...
-def read(
+def read_archive(
     path: ResourcePathExpression | IO[bytes],
     cls: type[Any] | None = None,
     *,
@@ -255,7 +257,7 @@ def read(
 
     This is the convenient way to read a whole object.  To read individual
     components, or to reach the metadata and butler info stored alongside the
-    object, use `open` instead.
+    object, use `open_archive` instead.
 
     Parameters
     ----------
@@ -277,7 +279,7 @@ def read(
         ``deserialize`` (e.g. ``bbox`` for an image subset read).
         Mis-targeted arguments surface as ``TypeError``.
         Backend-specific open options (e.g. ``page_size``) are not accepted
-        here; use `open` for those.
+        here; use `open_archive` for those.
 
     Returns
     -------
@@ -301,7 +303,7 @@ def read(
     """
     # Imported here to break the _io <-> _reader import cycle: _reader imports
     # class_for_schema / public_type_for_schema from this module at load time.
-    from ._reader import open as open_archive
+    from ._reader import open_archive
 
     # A subset read (any deserialize kwarg with a value) reads incrementally;
     # a plain whole-object read may slurp the file up front.  This mirrors the
@@ -311,7 +313,7 @@ def read(
         return reader.read(**kwargs)
 
 
-def write(obj: Any, path: str, **kwargs: Any) -> Any:
+def write_archive(obj: Any, path: str, **kwargs: Any) -> Any:
     """Write ``obj`` to ``path``, dispatching by file extension.
 
     Forwards ``**kwargs`` to the per-backend ``write`` (e.g.

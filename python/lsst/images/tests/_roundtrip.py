@@ -34,10 +34,7 @@ except ImportError:
     HAVE_BUTLER = False
 
 from .._generalized_image import GeneralizedImage
-from ..serialization import MetadataValue
-from ..serialization import open as open_archive
-from ..serialization import read as read_archive
-from ..serialization import write as write_archive
+from ..serialization import MetadataValue, open_archive, read_archive, write_archive
 
 # We need an old-style TypeVar for Sphinx.
 T = TypeVar("T")
@@ -264,8 +261,8 @@ class RoundtripBase[T](ABC):
             the get. Only used if a butler is active.
         **kwargs
             Keyword arguments either passed directly to
-            `~lsst.images.serialization.read` or used as ``parameters`` for a
-            `~lsst.daf.butler.Butler.get`.
+            `~lsst.images.serialization.read_archive` or used as
+            ``parameters`` for a `~lsst.daf.butler.Butler.get`.
 
         Return
         ------

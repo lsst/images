@@ -29,12 +29,8 @@ from .serialization import (
     ButlerInfo,
     MetadataValue,
     OpaqueArchiveMetadata,
-)
-from .serialization import (
-    read as read_archive,
-)
-from .serialization import (
-    write as write_archive,
+    read_archive,
+    write_archive,
 )
 
 if TYPE_CHECKING:
@@ -211,24 +207,26 @@ class GeneralizedImage(ABC):
     def read(cls, path: ResourcePathExpression, **kwargs: Any) -> Self:
         """Read an instance of this class from a file.
 
-        A thin convenience wrapper around `lsst.images.serialization.read`
-        that fixes the expected in-memory type to this class.  The container
-        format is inferred from ``path``'s extension.
+        A thin convenience wrapper around
+        `lsst.images.serialization.read_archive` that fixes the expected
+        in-memory type to this class.  The container format is inferred
+        from ``path``'s extension.
 
         Parameters
         ----------
         path
             File to read; convertible to `lsst.resources.ResourcePath`.
         **kwargs
-            Forwarded to `~lsst.images.serialization.read` (e.g. ``bbox`` to
-            read a subimage).
+            Forwarded to `~lsst.images.serialization.read_archive`
+            (e.g. ``bbox`` to read a subimage).
         """
         return read_archive(path, cls, **kwargs)
 
     def write(self, path: str, **kwargs: Any) -> None:
         """Write this object to a file.
 
-        A thin convenience wrapper around `lsst.images.serialization.write`.
+        A thin convenience wrapper around
+        `lsst.images.serialization.write_archive`.
         The container format is chosen from ``path``'s extension.
 
         Parameters
@@ -236,7 +234,7 @@ class GeneralizedImage(ABC):
         path
             Destination file path.  Must not already exist.
         **kwargs
-            Forwarded to `~lsst.images.serialization.write` (e.g.
+            Forwarded to `~lsst.images.serialization.write_archive` (e.g.
             ``compression_options`` and ``compression_seed`` for FITS).
         """
         write_archive(self, path, **kwargs)

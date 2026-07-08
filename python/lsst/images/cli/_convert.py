@@ -20,7 +20,7 @@ import astropy.io.fits
 import click
 from click.core import ParameterSource
 
-from ..serialization import backend_for_path, write
+from ..serialization import backend_for_path, write_archive
 
 if TYPE_CHECKING:
     from .. import VisitImage
@@ -205,6 +205,6 @@ def convert(
     output_dir = os.path.dirname(output_abs)
     with tempfile.TemporaryDirectory(dir=output_dir) as staging:
         staged = os.path.join(staging, os.path.basename(output_abs))
-        write(obj, staged)
+        write_archive(obj, staged)
         os.replace(staged, output_abs)
     click.echo(f"Wrote {output} ({backend.name}, {legacy_type}).")

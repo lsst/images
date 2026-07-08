@@ -17,8 +17,7 @@ import unittest.mock
 import numpy as np
 
 from lsst.images import Box
-from lsst.images.serialization import open as real_ser_open
-from lsst.images.serialization import read
+from lsst.images.serialization import open_archive, read_archive
 from lsst.images.tests import TemporaryButler
 
 try:
@@ -33,13 +32,13 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
 
 
 def _count_ser_opens() -> unittest.mock._patch:
-    """Patch lsst.images.serialization.open with a counting wrapper.
+    """Patch lsst.images.serialization.open_archive with a counting wrapper.
 
     The formatter resolves ``ser.open`` through the module object at call
     time, so patching the module attribute counts the opens it performs
     while delegating to the real implementation.
     """
-    return unittest.mock.patch("lsst.images.serialization.open", side_effect=real_ser_open)
+    return unittest.mock.patch("lsst.images.serialization.open_archive", side_effect=open_archive)
 
 
 @unittest.skipUnless(HAVE_BUTLER, "lsst.daf.butler could not be imported.")
@@ -47,7 +46,7 @@ class FormatterComponentCacheTestCase(unittest.TestCase):
     """Component reads through the butler reuse the cached tree."""
 
     def setUp(self) -> None:
-        self.visit_image = read(os.path.join(DATA_DIR, "visit_image.json"))
+        self.visit_image = read_archive(os.path.join(DATA_DIR, "visit_image.json"))
         self._reset_cache()
         self.addCleanup(self._reset_cache)
 

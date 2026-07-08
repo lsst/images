@@ -31,7 +31,7 @@ from pathlib import Path
 
 from lsst.images import VisitImage
 from lsst.images.cells import CellCoadd
-from lsst.images.serialization import ArchiveReadError, read
+from lsst.images.serialization import ArchiveReadError, read_archive
 
 SCHEMA_DIR = Path(__file__).parent / "data" / "schema_v1"
 LEGACY_DIR = SCHEMA_DIR / "legacy"
@@ -55,7 +55,7 @@ class LegacyFixtureReadBackTestCase(unittest.TestCase):
         if not path.exists():
             self.skipTest(f"{path} not present")
 
-        coadd = read(str(path), CellCoadd)
+        coadd = read_archive(str(path), CellCoadd)
 
         self.assertIsInstance(coadd.band, str)
         self.assertIsNotNone(coadd.image.unit)
@@ -84,7 +84,7 @@ class LegacyFixtureReadBackTestCase(unittest.TestCase):
                 if not path.exists():
                     self.skipTest(f"{path} not present")
 
-                visit_image = read(str(path), VisitImage)
+                visit_image = read_archive(str(path), VisitImage)
 
                 # Pixel planes were cropped to a small corner.
                 self.assertEqual(visit_image.image.array.ndim, 2)

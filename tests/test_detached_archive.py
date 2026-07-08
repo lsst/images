@@ -20,10 +20,10 @@ from lsst.images.serialization import (
     ArchiveTree,
     DetachedArchive,
     InvalidComponentError,
-    read,
-    write,
+    open_archive,
+    read_archive,
+    write_archive,
 )
-from lsst.images.serialization import open as ser_open
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
 
@@ -97,7 +97,7 @@ class ComponentProbeTestCase(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.tmpdir = tmp.name
-        self.visit_image = read(os.path.join(DATA_DIR, "visit_image.json"))
+        self.visit_image = read_archive(os.path.join(DATA_DIR, "visit_image.json"))
         self.archive = DetachedArchive()
 
     def _get_tree(self, extension: str) -> ArchiveTree:
@@ -107,8 +107,8 @@ class ComponentProbeTestCase(unittest.TestCase):
         how the formatter cache holds a tree with no open file.
         """
         path = os.path.join(self.tmpdir, "visit_image" + extension)
-        write(self.visit_image, path)
-        with ser_open(path) as reader:
+        write_archive(self.visit_image, path)
+        with open_archive(path) as reader:
             return reader.get_tree()
 
     def test_free_components(self) -> None:

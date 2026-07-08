@@ -28,7 +28,7 @@ from lsst.images.serialization import (
     ArrayReferenceModel,
     InlineArrayModel,
     NumberType,
-    read,
+    read_archive,
 )
 
 try:
@@ -257,7 +257,7 @@ class NdfReadFunctionTestCase(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".sdf", delete_on_close=False) as tmp:
             tmp.close()
             write(image, tmp.name)
-            result = read(tmp.name, Image)
+            result = read_archive(tmp.name, Image)
             self.assertIsInstance(result, Image)
             np.testing.assert_array_equal(result.array, image.array)
             self.assertEqual(result.bbox, image.bbox)

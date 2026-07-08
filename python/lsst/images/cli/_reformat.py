@@ -17,7 +17,7 @@ import tempfile
 
 import click
 
-from ..serialization import ArchiveReadError, backend_for_path, read, write
+from ..serialization import ArchiveReadError, backend_for_path, read_archive, write_archive
 
 
 @click.command(name="reformat")
@@ -44,7 +44,7 @@ def reformat(input: str, output: str, overwrite: bool) -> None:  # numpydoc igno
         raise click.ClickException(f"{output!r} already exists; pass --overwrite to replace it.")
 
     try:
-        obj = read(input)
+        obj = read_archive(input)
     except (ValueError, ArchiveReadError) as err:
         raise click.ClickException(f"Could not read {input!r}: {err}") from None
 
@@ -55,6 +55,6 @@ def reformat(input: str, output: str, overwrite: bool) -> None:  # numpydoc igno
     output_dir = os.path.dirname(output_abs)
     with tempfile.TemporaryDirectory(dir=output_dir) as staging:
         staged = os.path.join(staging, os.path.basename(output_abs))
-        write(obj, staged)
+        write_archive(obj, staged)
         os.replace(staged, output_abs)
     click.echo(f"Wrote {output} ({backend.name}).")

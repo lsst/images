@@ -23,8 +23,7 @@ import numpy as np
 from lsst.images import Box, Image, Mask
 from lsst.images.fits import FitsInputArchive
 from lsst.images.json import JsonInputArchive
-from lsst.images.serialization import open as open_archive
-from lsst.images.serialization import read, write
+from lsst.images.serialization import open_archive, read_archive, write_archive
 
 try:
     import h5py  # noqa: F401  -- detect availability for NDF stream skips
@@ -67,7 +66,7 @@ def _serialized_bytes(obj: object, extension: str) -> bytes:
     """Write ``obj`` to a temporary file and return the file's content."""
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, f"x{extension}")
-        write(obj, path)
+        write_archive(obj, path)
         with open(path, "rb") as f:
             return f.read()
 
@@ -111,64 +110,64 @@ class NdfOpenTreeStreamTestCase(unittest.TestCase):
 
 
 class ReadStreamTestCase(unittest.TestCase):
-    """read(io.BytesIO(data)) turns in-memory data into objects."""
+    """read_archive(io.BytesIO(data)) turns in-memory data into objects."""
 
     def setUp(self) -> None:
         self.image = _test_image()
 
     def test_fits(self) -> None:
-        result = read(io.BytesIO(_serialized_bytes(self.image, ".fits")))
+        result = read_archive(io.BytesIO(_serialized_bytes(self.image, ".fits")))
         self.assertIsInstance(result, Image)
         np.testing.assert_array_equal(result.array, self.image.array)
 
     def test_json(self) -> None:
-        result = read(io.BytesIO(_serialized_bytes(self.image, ".json")))
+        result = read_archive(io.BytesIO(_serialized_bytes(self.image, ".json")))
         self.assertIsInstance(result, Image)
         np.testing.assert_array_equal(result.array, self.image.array)
 
     @unittest.skipUnless(H5PY_AVAILABLE, "h5py not available.")
     def test_ndf(self) -> None:
-        result = read(io.BytesIO(_serialized_bytes(self.image, ".sdf")))
+        result = read_archive(io.BytesIO(_serialized_bytes(self.image, ".sdf")))
         self.assertIsInstance(result, Image)
         np.testing.assert_array_equal(result.array, self.image.array)
 
     def test_cls_match_and_mismatch(self) -> None:
         data = _serialized_bytes(self.image, ".fits")
-        result = read(io.BytesIO(data), cls=Image)
+        result = read_archive(io.BytesIO(data), cls=Image)
         self.assertIsInstance(result, Image)
         with self.assertRaises(TypeError):
-            read(io.BytesIO(data), cls=Mask)
+            read_archive(io.BytesIO(data), cls=Mask)
 
     def test_kwargs_forwarded(self) -> None:
         big = Image(np.arange(64, dtype=np.float32).reshape(8, 8), bbox=Box.factory[0:8, 0:8])
-        sub = read(io.BytesIO(_serialized_bytes(big, ".fits")), bbox=Box.factory[2:6, 2:6])
+        sub = read_archive(io.BytesIO(_serialized_bytes(big, ".fits")), bbox=Box.factory[2:6, 2:6])
         self.assertEqual(sub.array.shape, (4, 4))
         np.testing.assert_array_equal(sub.array, big.array[2:6, 2:6])
 
     def test_format_override(self) -> None:
-        result = read(io.BytesIO(_serialized_bytes(self.image, ".json")), format="json")
+        result = read_archive(io.BytesIO(_serialized_bytes(self.image, ".json")), format="json")
         self.assertIsInstance(result, Image)
 
     def test_wrong_format_override(self) -> None:
         # FITS bytes forced through the JSON backend fail in that backend.
         with self.assertRaises(ValueError):
-            read(io.BytesIO(_serialized_bytes(self.image, ".fits")), format="json")
+            read_archive(io.BytesIO(_serialized_bytes(self.image, ".fits")), format="json")
 
     def test_unrecognized_bytes(self) -> None:
         with self.assertRaises(ValueError) as cm:
-            read(io.BytesIO(b"certainly not a supported format"))
+            read_archive(io.BytesIO(b"certainly not a supported format"))
         self.assertIn("FITS", str(cm.exception))
 
     def test_bad_format_name(self) -> None:
         with self.assertRaises(ValueError):
-            read(io.BytesIO(_serialized_bytes(self.image, ".json")), format="asdf")
+            read_archive(io.BytesIO(_serialized_bytes(self.image, ".json")), format="asdf")
 
     def test_compressed_stream_raises(self) -> None:
         # Compressed streams are the caller's responsibility to decompress;
         # the sniff error says what to do.
         data = gzip.compress(_serialized_bytes(self.image, ".fits"))
         with self.assertRaises(ValueError) as cm:
-            read(io.BytesIO(data))
+            read_archive(io.BytesIO(data))
         self.assertIn("gzip", str(cm.exception))
 
 
@@ -178,7 +177,7 @@ class OpenStreamTestCase(unittest.TestCase):
     DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
 
     def test_open_stream_components(self) -> None:
-        visit_image = read(os.path.join(self.DATA_DIR, "visit_image.json"))
+        visit_image = read_archive(os.path.join(self.DATA_DIR, "visit_image.json"))
         stream = io.BytesIO(_serialized_bytes(visit_image, ".fits"))
         with open_archive(stream) as reader:
             self.assertEqual(reader.info.schema_name, "visit_image")
@@ -189,7 +188,7 @@ class OpenStreamTestCase(unittest.TestCase):
 
 
 class CompressedPathTestCase(unittest.TestCase):
-    """Compressed files read transparently through path-based read()."""
+    """Compressed files read transparently via path-based read_archive()."""
 
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
@@ -209,18 +208,18 @@ class CompressedPathTestCase(unittest.TestCase):
         # Regression: .fits.gz was dispatched to the FITS backend but
         # handed to it still compressed.
         path = self._write_compressed(".fits", gzip.compress)
-        result = read(path)
+        result = read_archive(path)
         self.assertIsInstance(result, Image)
         np.testing.assert_array_equal(result.array, self.image.array)
 
     def test_json_gz(self) -> None:
         path = self._write_compressed(".json", gzip.compress)
-        self.assertIsInstance(read(path), Image)
+        self.assertIsInstance(read_archive(path), Image)
 
     @unittest.skipUnless(ZSTD_AVAILABLE, "no zstd decompressor available.")
     def test_fits_zst(self) -> None:
         path = self._write_compressed(".fits", _zstd_compress)
-        self.assertIsInstance(read(path), Image)
+        self.assertIsInstance(read_archive(path), Image)
 
     def test_open_fits_gz(self) -> None:
         path = self._write_compressed(".fits", gzip.compress)
