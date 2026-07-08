@@ -20,7 +20,7 @@ import numpy as np
 
 from lsst.images import Box, Image
 from lsst.images.fits import write as fits_write
-from lsst.images.serialization import read as read_archive
+from lsst.images.serialization import read_archive
 
 try:
     import zarr  # noqa: F401

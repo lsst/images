@@ -16,7 +16,7 @@ __all__ = ("ZarrInputArchive",)
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from types import EllipsisType
-from typing import Any, Self
+from typing import IO, Any, Self
 
 import astropy.io.fits
 import astropy.table
@@ -38,6 +38,7 @@ from ..serialization import (
     parameterize_tree,
     tree_class_for_info,
 )
+from ..serialization._backends import _is_binary_stream
 from ..serialization._common import _check_format_version
 from ._common import LSST_VERSION, ZarrPointerModel
 from ._layout import deserialize_fits_opaque_metadata
@@ -107,7 +108,7 @@ class ZarrInputArchive(InputArchive[ZarrPointerModel]):
     @contextmanager
     def open_tree(
         cls,
-        path: ResourcePathExpression,
+        path: ResourcePathExpression | IO[bytes],
         *,
         partial: bool = True,
         **backend_kwargs: Any,
@@ -122,13 +123,19 @@ class ZarrInputArchive(InputArchive[ZarrPointerModel]):
         Parameters
         ----------
         path
-            URI or path of the zarr archive to open.
+            URI or path of the zarr archive to open.  Stream input is not
+            supported: a zarr store is a directory or zip file, not a
+            single byte stream.
         partial
             Accepted for interface compatibility; ignored because zarr
             reads are always lazy.
         **backend_kwargs
             Accepted for interface compatibility; ignored.
         """
+        if _is_binary_stream(path):
+            raise TypeError(
+                "The zarr backend reads directory or zip stores by path; stream input is not supported."
+            )
         with cls.open(path) as archive:
             info = archive.info
             tree_cls = tree_class_for_info(info, path)
