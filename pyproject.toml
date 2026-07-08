@@ -50,7 +50,7 @@ coadd_provenance = "lsst.images.cells._provenance:CoaddProvenanceSerializationMo
 
 [project.optional-dependencies]
 test = [
-    "pytest >= 3.2",
+    "pytest >= 7.4",
 ]
 # Also expose the optional dependencies of lsst-resources as optional
 # dependencies of lsst-images (lsst-daf-butler doe the same thing).
