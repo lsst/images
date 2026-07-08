@@ -23,8 +23,7 @@ import pydantic
 from lsst.images import Box, Image
 from lsst.images._image import ImageSerializationModel
 from lsst.images.fits._common import ExtensionKey, FitsOpaqueMetadata
-from lsst.images.serialization import ArchiveReadError
-from lsst.images.serialization import read as read_archive
+from lsst.images.serialization import ArchiveReadError, read_archive
 
 try:
     import zarr
