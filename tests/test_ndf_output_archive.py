@@ -26,8 +26,12 @@ from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema
 from lsst.images._transforms import FrameLookupError, FrameSet, Transform
 from lsst.images._transforms._frames import DetectorFrame, Frame
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
-from lsst.images.serialization import ArrayReferenceModel, InlineArrayModel, read
-from lsst.images.serialization import open as open_archive
+from lsst.images.serialization import (
+    ArrayReferenceModel,
+    InlineArrayModel,
+    open_archive,
+    read_archive,
+)
 from lsst.images.tests import make_random_sky_projection
 
 try:
@@ -595,7 +599,7 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
                 self.assertTrue(any(c.startswith("FOO") for c in cards))
                 self.assertTrue(any(c.startswith("CONTINUE") for c in cards))
                 self.assertTrue(all(len(c.encode("ascii")) <= 80 for c in cards))
-            result = read(tmp.name, Image)
+            result = read_archive(tmp.name, Image)
             recovered = result._opaque_metadata.headers[ExtensionKey()]
             self.assertEqual(recovered["LONGSTR"], long_value)
 
@@ -624,7 +628,7 @@ class NdfWriteFunctionTestCase(unittest.TestCase):
                 self.assertIn("UNITS", f)
                 self.assertEqual(f["/UNITS"].shape, ())
                 self.assertEqual(f["/UNITS"][()].decode("ascii").rstrip(" "), "count")
-            result = read(tmp.name, Image)
+            result = read_archive(tmp.name, Image)
             self.assertEqual(result.unit, u.ct)
 
     def test_write_propagates_metadata(self):

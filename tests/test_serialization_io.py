@@ -17,7 +17,7 @@ import unittest
 import numpy as np
 
 from lsst.images import Box, Image, VisitImage
-from lsst.images.serialization import ArchiveReadError, read, write
+from lsst.images.serialization import ArchiveReadError, read_archive, write_archive
 from lsst.utils.introspection import get_full_type_name
 
 try:
@@ -37,10 +37,10 @@ else:
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
 
 # Full Python type produced when each fixture is read through the generic
-# read() API, keyed by the fixture's file name.  These are pinned here rather
-# than derived from the schema registry so the test asserts the
-# externally-observable type instead of re-running read()'s own lookup against
-# itself.
+# read_archive() API, keyed by the fixture's file name.  These are pinned
+# here rather than derived from the schema registry so the test asserts
+# the externally-observable type instead of re-running read_archive()'s
+# own lookup against itself.
 EXPECTED_TYPES = {
     "aperture_correction_map.json": "dict",
     "background_map.json": "lsst.images.BackgroundMap",
@@ -68,16 +68,18 @@ EXPECTED_TYPES = {
 
 
 class GenericReadTestCase(unittest.TestCase):
-    """read(path) dispatches by extension and produces the registered type."""
+    """read_archive(path) dispatches by extension and produces the
+    registered type.
+    """
 
     def test_visit_image_json(self) -> None:
         path = os.path.join(DATA_DIR, "visit_image.json")
-        result = read(path)
+        result = read_archive(path)
         self.assertIsInstance(result, VisitImage)
 
     def test_image_json(self) -> None:
         path = os.path.join(DATA_DIR, "image.json")
-        result = read(path)
+        result = read_archive(path)
         self.assertIsInstance(result, Image)
 
 
@@ -93,9 +95,10 @@ class GenericReadErrorsTestCase(unittest.TestCase):
         path = os.path.join(self.tmp, "bogus.txt")
         with open(path, "w") as f:
             f.write("nope")
-        # backend_for_path raises ValueError; read() must let it through.
+        # backend_for_path raises ValueError; read_archive() must let it
+        # through.
         with self.assertRaises(ValueError):
-            read(path)
+            read_archive(path)
 
     def test_unregistered_schema(self) -> None:
         # Write a JSON file with a fabricated schema name not in the
@@ -107,7 +110,7 @@ class GenericReadErrorsTestCase(unittest.TestCase):
                 ' "schema_version": "99.0.0", "min_read_version": 1, "indirect": []}'
             )
         with self.assertRaises(ArchiveReadError) as ctx:
-            read(path)
+            read_archive(path)
         self.assertIn("no-such-schema", str(ctx.exception))
 
 
@@ -130,7 +133,7 @@ class FixtureSweepTestCase(unittest.TestCase):
                     continue
                 with self.subTest(entry=entry):
                     self.assertIn(entry, EXPECTED_TYPES, f"no expected type recorded for {entry!r}")
-                    result = read(os.path.join(root, entry))
+                    result = read_archive(os.path.join(root, entry))
                     self.assertEqual(get_full_type_name(type(result)), EXPECTED_TYPES[entry])
                 seen.add(entry)
         # Fail if EXPECTED_TYPES drifts from the fixtures actually on disk.
@@ -138,7 +141,7 @@ class FixtureSweepTestCase(unittest.TestCase):
 
 
 class GenericWriteRoundTripTestCase(unittest.TestCase):
-    """write(obj, path) dispatches by extension and round-trips."""
+    """write_archive(obj, path) dispatches by extension and round-trips."""
 
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
@@ -148,29 +151,29 @@ class GenericWriteRoundTripTestCase(unittest.TestCase):
 
     def test_round_trip_fits(self) -> None:
         path = os.path.join(self.tmp, "x.fits")
-        write(self.image, path)
-        result = read(path)
+        write_archive(self.image, path)
+        result = read_archive(path)
         self.assertIsInstance(result, Image)
         np.testing.assert_array_equal(result.array, self.image.array)
 
     def test_round_trip_json(self) -> None:
         path = os.path.join(self.tmp, "x.json")
-        write(self.image, path)
-        result = read(path)
+        write_archive(self.image, path)
+        result = read_archive(path)
         self.assertIsInstance(result, Image)
         np.testing.assert_array_equal(result.array, self.image.array)
 
     @unittest.skipUnless(H5PY_AVAILABLE, "h5py not available.")
     def test_round_trip_ndf(self) -> None:
         path = os.path.join(self.tmp, "x.sdf")
-        write(self.image, path)
-        result = read(path)
+        write_archive(self.image, path)
+        result = read_archive(path)
         self.assertIsInstance(result, Image)
         np.testing.assert_array_equal(result.array, self.image.array)
 
 
 class GenericReadKwargsTestCase(unittest.TestCase):
-    """**kwargs forwarded by read() reach the backend deserialize."""
+    """**kwargs forwarded by read_archive() reach the backend deserialize."""
 
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
@@ -180,20 +183,20 @@ class GenericReadKwargsTestCase(unittest.TestCase):
     def test_bbox_subset_fits(self) -> None:
         img = Image(np.arange(64, dtype=np.float32).reshape(8, 8), bbox=Box.factory[0:8, 0:8])
         path = os.path.join(self.tmp, "x.fits")
-        write(img, path)
+        write_archive(img, path)
         # Read a 4x4 subset.  bbox is the FITS-specific kwarg understood
         # by Image.deserialize; the generic read must forward it.
-        sub = read(path, bbox=Box.factory[2:6, 2:6])
+        sub = read_archive(path, bbox=Box.factory[2:6, 2:6])
         self.assertEqual(sub.array.shape, (4, 4))
         np.testing.assert_array_equal(sub.array, img.array[2:6, 2:6])
 
 
 class ReadClsTestCase(unittest.TestCase):
-    """read(path, cls=...) validates the deserialized type."""
+    """read_archive(path, cls=...) validates the deserialized type."""
 
     def test_read_cls_match(self) -> None:
         path = os.path.join(DATA_DIR, "image.json")
-        result = read(path, cls=Image)
+        result = read_archive(path, cls=Image)
         self.assertIsInstance(result, Image)
 
     def test_read_cls_mismatch_raises(self) -> None:
@@ -201,7 +204,7 @@ class ReadClsTestCase(unittest.TestCase):
 
         path = os.path.join(DATA_DIR, "image.json")
         with self.assertRaises(TypeError) as ctx:
-            read(path, cls=Mask)
+            read_archive(path, cls=Mask)
         msg = str(ctx.exception)
         self.assertIn("image", msg)  # path / schema name
         self.assertIn("Image", msg)  # actual deserialized type

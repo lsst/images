@@ -26,7 +26,7 @@ from lsst.images import Box, Image
 from lsst.images import fits as images_fits
 from lsst.images import json as images_json
 from lsst.images.cli import main
-from lsst.images.serialization import backend_for_path, read
+from lsst.images.serialization import backend_for_path, read_archive
 
 
 class CliSkeletonTestCase(unittest.TestCase):
@@ -138,7 +138,7 @@ class ReformatTestCase(unittest.TestCase):
         result = CliRunner().invoke(main, ["reformat", mid, out])
         self.assertEqual(result.exit_code, 0, result.output)
 
-        np.testing.assert_array_equal(read(out, Image).array, self.image.array)
+        np.testing.assert_array_equal(read_archive(out, Image).array, self.image.array)
 
     def test_reformat_refuses_existing_output(self) -> None:
         src = os.path.join(self.tmp, "in.json")

@@ -87,7 +87,7 @@ from .._transforms._ast import PolyMap
 from ..cells import CellCoadd, CellField, CellPointSpreadFunction, CoaddProvenance
 from ..convolution_kernels import ImageBasisConvolutionKernel
 from ..psfs import PiffWrapper
-from ..serialization import read
+from ..serialization import read_archive
 from ._creation import make_random_sky_projection
 
 # Default morph parameters for CellCoadd.  ``CELL_SIZE`` should divide the
@@ -137,7 +137,7 @@ def minify(in_path: str, out_path: str) -> None:
     NotImplementedError
         If the top-level type is not one this helper knows how to subset.
     """
-    obj = read(in_path)
+    obj = read_archive(in_path)
     subsetter = _dispatch(obj)
     subset = subsetter(obj)
 

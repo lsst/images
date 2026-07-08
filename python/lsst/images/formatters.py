@@ -38,7 +38,7 @@ from lsst.utils.iteration import ensure_iterable
 
 from . import fits as _fits
 from . import serialization as ser
-from .serialization import ButlerInfo, write
+from .serialization import ButlerInfo, write_archive
 
 
 class _TreeCache(NamedTuple):
@@ -125,9 +125,10 @@ class GenericFormatter(FormatterV2):
             kwargs["update_header"] = self._update_header
             kwargs["compression_options"] = self._get_compression_options()
             kwargs["compression_seed"] = self._get_compression_seed()
-        # The generic write() dispatches to the FITS / JSON / NDF backend by
-        # the file extension, which get_write_extension has already set on uri.
-        write(in_memory_dataset, uri.ospath, **kwargs)
+        # The generic write_archive() dispatches to the FITS / JSON / NDF
+        # backend by the file extension, which get_write_extension has
+        # already set on uri.
+        write_archive(in_memory_dataset, uri.ospath, **kwargs)
 
     def add_provenance(
         self,
@@ -347,7 +348,7 @@ class GenericFormatter(FormatterV2):
         if len(components_to_return) != len(component_kwargs):
             # Some components were not available in the cache, so open the file
             # to read the rest.
-            with ser.open(uri, cls=pytype, partial=True) as reader:
+            with ser.open_archive(uri, cls=pytype, partial=True) as reader:
                 tree = reader.get_tree()
                 self._cache_tree(tree)
                 for comp, params in component_kwargs.items():
@@ -392,7 +393,7 @@ class GenericFormatter(FormatterV2):
         # If this is not a component read but a full read with parameters,
         # do that now before we focus on the component logic.
         if component is None:
-            with ser.open(uri, cls=pytype, partial=bool(kwargs)) as reader:
+            with ser.open_archive(uri, cls=pytype, partial=bool(kwargs)) as reader:
                 tree = reader.get_tree()
                 self._cache_tree(tree)
                 # Cutout read.

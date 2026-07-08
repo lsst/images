@@ -20,7 +20,7 @@ from lsst.images import fits as images_fits
 from lsst.images import json as images_json
 from lsst.images.fits import FitsInputArchive
 from lsst.images.json import JsonInputArchive
-from lsst.images.serialization import ArchiveTree, read
+from lsst.images.serialization import ArchiveTree, read_archive
 
 
 @contextlib.contextmanager
@@ -50,7 +50,7 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
 
 def _visit_image():
     """Load a VisitImage from the committed JSON fixture."""
-    return read(os.path.join(DATA_DIR, "visit_image.json"))
+    return read_archive(os.path.join(DATA_DIR, "visit_image.json"))
 
 
 class FitsOpenTreeTestCase(unittest.TestCase):
@@ -70,8 +70,9 @@ class FitsOpenTreeTestCase(unittest.TestCase):
             self.assertIsNotNone(proj)
 
     def test_read_still_works(self) -> None:
-        # read() returns the deserialized object directly, via open().
-        result = read(self.path)
+        # read_archive() returns the deserialized object directly, via
+        # open_archive().
+        result = read_archive(self.path)
         self.assertEqual(type(result).__name__, "VisitImage")
 
 
@@ -103,7 +104,7 @@ class NdfOpenTreeTestCase(unittest.TestCase):
             self.assertIsNotNone(tree.deserialize_component("obs_info", archive))
 
     def test_read_still_works(self) -> None:
-        self.assertEqual(type(read(self.path)).__name__, "VisitImage")
+        self.assertEqual(type(read_archive(self.path)).__name__, "VisitImage")
 
 
 class JsonOpenTreeTestCase(unittest.TestCase):
@@ -122,11 +123,11 @@ class JsonOpenTreeTestCase(unittest.TestCase):
             self.assertIsNotNone(tree.deserialize_component("sky_projection", archive))
 
     def test_read_still_works(self) -> None:
-        self.assertEqual(type(read(self.path)).__name__, "VisitImage")
+        self.assertEqual(type(read_archive(self.path)).__name__, "VisitImage")
 
 
 class ReaderApiTestCase(unittest.TestCase):
-    """The user-facing serialization.open() / Reader interface."""
+    """The user-facing serialization.open_archive() / Reader interface."""
 
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
@@ -139,7 +140,7 @@ class ReaderApiTestCase(unittest.TestCase):
     def _check_components_and_read(self, path: str) -> None:
         import lsst.images.serialization as ser
 
-        with ser.open(path) as reader:
+        with ser.open_archive(path) as reader:
             self.assertIsNotNone(reader.get_component("sky_projection"))
             self.assertIsNotNone(reader.get_component("obs_info"))
             full = reader.read()
@@ -162,7 +163,7 @@ class ReaderApiTestCase(unittest.TestCase):
     def test_info(self) -> None:
         import lsst.images.serialization as ser
 
-        with ser.open(self.fits) as reader:
+        with ser.open_archive(self.fits) as reader:
             self.assertEqual(reader.info.schema_name, "visit_image")
             self.assertEqual(reader.info.schema_version, "1.0.0")
             self.assertIsInstance(reader.metadata, dict)
@@ -171,7 +172,7 @@ class ReaderApiTestCase(unittest.TestCase):
         import lsst.images.serialization as ser
         from lsst.images import VisitImage
 
-        with ser.open(self.fits, cls=VisitImage) as reader:
+        with ser.open_archive(self.fits, cls=VisitImage) as reader:
             self.assertIsInstance(reader.read(), VisitImage)
 
     def test_cls_mismatch_raises(self) -> None:
@@ -179,21 +180,21 @@ class ReaderApiTestCase(unittest.TestCase):
         from lsst.images import Mask
 
         with self.assertRaises(TypeError):
-            with ser.open(self.fits, cls=Mask):
+            with ser.open_archive(self.fits, cls=Mask):
                 pass
 
     def test_unknown_component(self) -> None:
         import lsst.images.serialization as ser
         from lsst.images.serialization import InvalidComponentError
 
-        with ser.open(self.fits) as reader:
+        with ser.open_archive(self.fits) as reader:
             with self.assertRaises(InvalidComponentError):
                 reader.get_component("does_not_exist")
 
     def test_use_after_close_raises(self) -> None:
         import lsst.images.serialization as ser
 
-        with ser.open(self.fits) as reader:
+        with ser.open_archive(self.fits) as reader:
             pass
         with self.assertRaises(RuntimeError):
             reader.get_component("sky_projection")
@@ -205,7 +206,7 @@ class ReaderApiTestCase(unittest.TestCase):
         import lsst.images.serialization as ser
 
         with count_opens(self.fits) as count:
-            with ser.open(self.fits) as reader:
+            with ser.open_archive(self.fits) as reader:
                 reader.get_component("sky_projection")
                 reader.get_component("obs_info")
         self.assertEqual(count[0], 1)

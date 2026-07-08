@@ -396,10 +396,10 @@ def read_starlink[T: Any](cls_: type[T], path: ResourcePathExpression) -> T:
     from a schema-less Starlink NDF.
 
     Files written by this package carry a ``/MORE/LSST/JSON`` tree and are
-    read through the generic `lsst.images.serialization.read` /
-    `lsst.images.serialization.open`.  A Starlink-produced NDF has no such
-    tree and therefore no schema, so it cannot go through that path; this
-    function auto-detects a minimal recognised-component set
+    read through the generic `lsst.images.serialization.read_archive` /
+    `lsst.images.serialization.open_archive`.  A Starlink-produced NDF has
+    no such tree and therefore no schema, so it cannot go through that
+    path; this function auto-detects a minimal recognised-component set
     (``DATA_ARRAY``, ``VARIANCE``, ``QUALITY``, ``MORE.FITS``) instead.
     ``WCS`` is reconstructed when possible; other components are
     logged-and-dropped.
@@ -421,13 +421,13 @@ def read_starlink[T: Any](cls_: type[T], path: ResourcePathExpression) -> T:
     Raises
     ------
     ArchiveReadError
-        If the file has an LSST JSON tree (use the generic ``read`` instead)
-        or no recognised ``DATA_ARRAY`` component.
+        If the file has an LSST JSON tree (use the generic ``read_archive``
+        instead) or no recognised ``DATA_ARRAY`` component.
     """
     with NdfInputArchive.open(path) as archive:
         if archive._get_main_json_path() is not None:
             raise ArchiveReadError(
-                f"{path!r} has an LSST JSON tree; read it with serialization.read()/open()."
+                f"{path!r} has an LSST JSON tree; read it with serialization.read_archive()/open_archive()."
             )
         return _read_auto_detect(cls_, archive)
 

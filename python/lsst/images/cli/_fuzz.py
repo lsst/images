@@ -25,7 +25,7 @@ from ..fits import (
     FitsDitherAlgorithm,
     FitsQuantizationOptions,
 )
-from ..serialization import ArchiveReadError, backend_for_path, read
+from ..serialization import ArchiveReadError, backend_for_path, read_archive
 
 
 def shuffle_blocks(
@@ -144,7 +144,7 @@ def _fuzz_file(
 ) -> None:
     """Read one file, shuffle its proprietary planes, write it, and verify."""
     try:
-        obj = read(str(in_path))
+        obj = read_archive(str(in_path))
     except (ValueError, ArchiveReadError) as err:
         raise click.ClickException(f"Could not read {in_path}: {err}") from None
 
@@ -168,7 +168,7 @@ def _fuzz_file(
         kwargs["compression_seed"] = compression_seed
 
     obj.write(str(out_path), **kwargs)
-    _verify(in_path, original, read(str(out_path)))
+    _verify(in_path, original, read_archive(str(out_path)))
     click.echo(f"Fuzzed {in_path} -> {out_path}")
 
 

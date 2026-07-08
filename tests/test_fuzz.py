@@ -21,7 +21,7 @@ from click.testing import CliRunner
 from lsst.images import Image, MaskedImage, MaskPlane, MaskSchema
 from lsst.images.cli import main
 from lsst.images.cli._fuzz import shuffle_blocks
-from lsst.images.serialization import read
+from lsst.images.serialization import read_archive
 
 
 class ShuffleBlocksTestCase(unittest.TestCase):
@@ -105,7 +105,7 @@ class FuzzMaskedImageCommandTestCase(unittest.TestCase):
 
         out = os.path.join(self.tmp, "mi.fuzzed.fits")
         self.assertTrue(os.path.exists(out))
-        check = read(out)
+        check = read_archive(out)
         finite = np.isfinite(original_image)
         changed = float(np.mean(check.image.array[finite] != original_image[finite]))
         self.assertGreaterEqual(changed, 0.5)

@@ -34,7 +34,7 @@ from typing import TypeAliasType, TypeGuard, Union, get_args, get_origin
 
 import pydantic
 
-from .serialization import open as open_archive
+from .serialization import open_archive
 
 #: Serialization-plumbing helper models collapsed to leaves by default; these
 #: carry array/table payloads rather than meaningful model composition.
