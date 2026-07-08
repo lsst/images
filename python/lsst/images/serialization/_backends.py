@@ -230,6 +230,11 @@ def backend_for_path(path: ResourcePathExpression) -> Backend:
     """
     uri = ResourcePath(path)
     name = uri.basename()
+    if not name:
+        # A directory store (e.g. a zarr directory) is a directory URI
+        # with a trailing slash and hence an empty basename; recover the
+        # directory's own name so its extension can be inspected.
+        name = uri.path.rstrip("/").rsplit("/", 1)[-1]
     for suffix in _COMPRESSION_SUFFIXES:
         if name.endswith(suffix):
             name = name.removesuffix(suffix)
