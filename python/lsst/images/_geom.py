@@ -39,6 +39,7 @@ from typing import (
 )
 
 import numpy as np
+import numpy.typing as npt
 import pydantic
 import pydantic_core.core_schema as pcs
 from pydantic.json_schema import JsonSchemaValue
@@ -46,8 +47,6 @@ from pydantic.json_schema import JsonSchemaValue
 from .utils import round_half_down, round_half_up
 
 if TYPE_CHECKING:
-    import numpy.typing as npt
-
     from ._concrete_bounds import BoundsSerializationModel
     from ._polygon import Polygon, Region
     from ._transforms import Transform

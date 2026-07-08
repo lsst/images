@@ -18,13 +18,12 @@ from typing import TYPE_CHECKING, Any, Literal, Self, assert_type, cast, overloa
 
 import astropy.units
 import numpy as np
+import numpy.typing as npt
 
 from .._geom import XY, YX, Bounds, Box
 from .._image import Image
 
 if TYPE_CHECKING:
-    import numpy.typing as npt
-
     try:
         from lsst.afw.image import PhotoCalib as LegacyPhotoCalib
         from lsst.afw.math import BoundedField as LegacyBoundedField

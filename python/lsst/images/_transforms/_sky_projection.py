@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeVar, assert_type, cas
 import astropy.units as u
 import astropy.wcs
 import numpy as np
+import numpy.typing as npt
 import pydantic
 from astropy.coordinates import ICRS, Latitude, Longitude, SkyCoord
 from astropy.wcs.wcsapi import BaseLowLevelWCS, HighLevelWCSMixin
@@ -31,8 +32,6 @@ from ._frames import Frame, SkyFrame
 from ._transform import Transform, TransformSerializationModel, _ast_apply
 
 if TYPE_CHECKING:
-    import numpy.typing as npt
-
     try:
         from lsst.afw.geom import SkyWcs as LegacySkyWcs
     except ImportError:

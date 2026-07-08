@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, assert_type, cast, fin
 import astropy.io.fits.header
 import astropy.units as u
 import numpy as np
+import numpy.typing as npt
 import pydantic
 
 from .._concrete_bounds import BoundsSerializationModel
@@ -33,8 +34,6 @@ from . import _ast as astshim
 from ._frames import Frame, SerializableFrame, SkyFrame
 
 if TYPE_CHECKING:
-    import numpy.typing as npt
-
     try:
         from lsst.afw.geom import TransformPoint2ToPoint2 as LegacyTransform
     except ImportError:

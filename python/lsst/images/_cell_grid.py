@@ -30,13 +30,12 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any, assert_type, overload
 
 import numpy as np
+import numpy.typing as npt
 import pydantic
 
 from ._geom import XY, YX, Bounds, Box
 
 if TYPE_CHECKING:
-    import numpy.typing as npt
-
     try:
         from lsst.cell_coadds import UniformGrid as LegacyUniformGrid
         from lsst.skymap import Index2D as LegacyIndex2D

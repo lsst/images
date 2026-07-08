@@ -16,12 +16,11 @@ __all__ = ("IntersectionBounds",)
 from typing import TYPE_CHECKING, Any, assert_type, overload
 
 import numpy as np
+import numpy.typing as npt
 
 from ._geom import XY, YX, Bounds, Box
 
 if TYPE_CHECKING:
-    import numpy.typing as npt
-
     from ._concrete_bounds import IntersectionBoundsSerializationModel
 
 
