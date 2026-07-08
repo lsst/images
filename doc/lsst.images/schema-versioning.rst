@@ -125,7 +125,7 @@ Schema discovery and entry points
 Concrete `~lsst.images.serialization.ArchiveTree` subclasses register themselves when their defining module is imported.
 Schemas whose model classes are imported unconditionally by ``lsst.images`` need no additional discovery metadata: for example, ``VisitImageSerializationModel`` is already imported by the core package and is registered before generic reads need it.
 
-Models in subpackages or external packages may not be imported before `lsst.images.serialization.read` inspects a file's ``schema_url``.
+Models in subpackages or external packages may not be imported before `lsst.images.serialization.read_archive` inspects a file's ``schema_url``.
 Those packages should expose a schema-specific entry point in the ``lsst.images.schemas`` group, with the entry point name matching ``SCHEMA_NAME`` and the value pointing at the serialization model class:
 
 .. code-block:: toml
