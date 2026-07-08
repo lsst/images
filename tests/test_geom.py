@@ -12,12 +12,13 @@
 from __future__ import annotations
 
 import pickle
+from typing import get_overloads, get_type_hints
 
 import numpy as np
 import pydantic
 import pytest
 
-from lsst.images import XY, YX, Box, Interval, NoOverlapError
+from lsst.images import XY, YX, Bounds, Box, Interval, NoOverlapError
 from lsst.images.tests import assert_close, check_bounds_contains_broadcasting
 
 
@@ -32,6 +33,13 @@ class BoxModel(pydantic.BaseModel):
     """Test Pydantic model with a box."""
 
     box: Box
+
+
+def _assert_type_hints_resolve(obj: object) -> None:
+    """Assert that runtime annotations and overload annotations resolve."""
+    get_type_hints(obj)
+    for overload in get_overloads(obj):
+        get_type_hints(overload)
 
 
 def test_yx() -> None:
@@ -147,6 +155,13 @@ def test_interval_contains_broadcasting() -> None:
     np.testing.assert_array_equal(interval.contains(xs.tolist()), expected_1d)
     # 2-D array: same values reshaped to (len, 1).
     np.testing.assert_array_equal(interval.contains(xs.reshape(-1, 1)), expected_1d.reshape(-1, 1))
+
+
+def test_runtime_type_hints_resolve() -> None:
+    """Public geometry annotations can be resolved at runtime."""
+    _assert_type_hints_resolve(Interval.contains)
+    _assert_type_hints_resolve(Box.contains)
+    _assert_type_hints_resolve(Bounds.contains)
 
 
 def test_interval_slice() -> None:
