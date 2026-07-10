@@ -15,11 +15,11 @@ import gzip
 import io
 import os
 import sys
-import tempfile
-import unittest
+from pathlib import Path
 from unittest import mock
 
 import numpy as np
+import pytest
 
 from lsst.images import Box, Image
 from lsst.images import fits as images_fits
@@ -55,186 +55,212 @@ def _zstd_compress(data: bytes) -> bytes:
     return zstd.compress(data)
 
 
-class BackendForPathTestCase(unittest.TestCase):
-    """Tests for suffix -> backend resolution."""
+def test_backend_for_path_fits() -> None:
+    """Verify that a .fits path resolves to the FITS backend."""
+    from lsst.images.fits import FitsInputArchive
 
-    def test_fits(self) -> None:
-        from lsst.images.fits import FitsInputArchive
-
-        b = backend_for_path("a/b/c.fits")
-        self.assertIsInstance(b, Backend)
-        self.assertEqual(b.name, "fits")
-        self.assertIs(b.input_archive, FitsInputArchive)
-        self.assertTrue(callable(b.write))
-
-    def test_fits_gz(self) -> None:
-        self.assertEqual(backend_for_path("c.fits.gz").name, "fits")
-        self.assertEqual(backend_for_path("file://a/b/c.fits.gz?param=2").name, "fits")
-
-    def test_json(self) -> None:
-        from lsst.images.json import JsonInputArchive
-
-        b = backend_for_path("c.json")
-        self.assertEqual(b.name, "json")
-        self.assertIs(b.input_archive, JsonInputArchive)
-
-    def test_ndf(self) -> None:
-        self.assertEqual(backend_for_path("c.sdf").name, "ndf")
-        self.assertEqual(backend_for_path("c.h5").name, "ndf")
-
-    def test_unknown(self) -> None:
-        with self.assertRaises(ValueError) as cm:
-            backend_for_path("c.txt")
-        self.assertIn(".fits", str(cm.exception))
+    b = backend_for_path("a/b/c.fits")
+    assert isinstance(b, Backend)
+    assert b.name == "fits"
+    assert b.input_archive is FitsInputArchive
+    assert callable(b.write)
 
 
-class MinifyDispatchTestCase(unittest.TestCase):
-    """minify resolves backend and schema via the shared APIs."""
-
-    def test_minify_unsupported_schema_uses_shared_dispatch(self) -> None:
-        from lsst.images.tests._minify_for_fixtures import minify
-
-        tmp = tempfile.mkdtemp()
-        src = os.path.join(tmp, "plain.fits")
-        out = os.path.join(tmp, "plain.json")
-        images_fits.write(Image(np.zeros((4, 4), dtype=np.float32), bbox=Box.factory[0:4, 0:4]), src)
-        # Reaching the "no subsetter" error proves backend_for_path and
-        # get_basic_info ran and detected schema_name "image".
-        with self.assertRaises(NotImplementedError) as cm:
-            minify(src, out)
-        self.assertIn("image", str(cm.exception))
+def test_backend_for_path_fits_gz() -> None:
+    """Verify that .fits.gz and URL-form .fits.gz both resolve to the
+    FITS backend.
+    """
+    assert backend_for_path("c.fits.gz").name == "fits"
+    assert backend_for_path("file://a/b/c.fits.gz?param=2").name == "fits"
 
 
-class BackendForNameTestCase(unittest.TestCase):
-    """Explicit format-name -> backend resolution."""
+def test_backend_for_path_json() -> None:
+    """Verify that a .json path resolves to the JSON backend."""
+    from lsst.images.json import JsonInputArchive
 
-    def test_names(self) -> None:
-        self.assertEqual(backend_for_name("fits").name, "fits")
-        self.assertEqual(backend_for_name("ndf").name, "ndf")
-        self.assertEqual(backend_for_name("json").name, "json")
-
-    def test_unknown(self) -> None:
-        with self.assertRaises(ValueError) as cm:
-            backend_for_name("hdf")
-        self.assertIn("hdf", str(cm.exception))
+    b = backend_for_path("c.json")
+    assert b.name == "json"
+    assert b.input_archive is JsonInputArchive
 
 
-class BackendForStreamTestCase(unittest.TestCase):
-    """Content sniffing -> backend resolution."""
-
-    def test_fits_magic(self) -> None:
-        stream = io.BytesIO(b"SIMPLE  =                    T / conforms")
-        self.assertEqual(backend_for_stream(stream).name, "fits")
-        # Sniffing must not consume the stream.
-        self.assertEqual(stream.tell(), 0)
-
-    def test_hdf5_magic(self) -> None:
-        stream = io.BytesIO(b"\x89HDF\r\n\x1a\n" + b"\x00" * 8)
-        self.assertEqual(backend_for_stream(stream).name, "ndf")
-
-    def test_json(self) -> None:
-        self.assertEqual(backend_for_stream(io.BytesIO(b'{"schema_url": "x"}')).name, "json")
-
-    def test_json_leading_whitespace(self) -> None:
-        self.assertEqual(backend_for_stream(io.BytesIO(b'  \n\t {"a": 1}')).name, "json")
-
-    def test_unknown(self) -> None:
-        with self.assertRaises(ValueError) as cm:
-            backend_for_stream(io.BytesIO(b"not any known format"))
-        msg = str(cm.exception)
-        self.assertIn("FITS", msg)
-        self.assertIn("format", msg)
-
-    def test_gzip_compressed_stream_raises(self) -> None:
-        with self.assertRaises(ValueError) as cm:
-            backend_for_stream(io.BytesIO(gzip.compress(b"SIMPLE  = whatever")))
-        self.assertIn("gzip", str(cm.exception))
-
-    def test_zstd_compressed_stream_raises(self) -> None:
-        with self.assertRaises(ValueError) as cm:
-            backend_for_stream(io.BytesIO(b"\x28\xb5\x2f\xfd" + b"frame"))
-        self.assertIn("zstd", str(cm.exception))
+def test_backend_for_path_ndf() -> None:
+    """Verify that .sdf and .h5 paths both resolve to the NDF backend."""
+    assert backend_for_path("c.sdf").name == "ndf"
+    assert backend_for_path("c.h5").name == "ndf"
 
 
-class BackendForPathCompressionTestCase(unittest.TestCase):
-    """Compression suffixes are stripped before extension dispatch."""
-
-    def test_gz(self) -> None:
-        self.assertEqual(backend_for_path("c.json.gz").name, "json")
-        self.assertEqual(backend_for_path("c.h5.gz").name, "ndf")
-
-    def test_zst(self) -> None:
-        self.assertEqual(backend_for_path("c.fits.zst").name, "fits")
-        self.assertEqual(backend_for_path("c.sdf.zst").name, "ndf")
-
-    def test_bare_compression_suffix(self) -> None:
-        with self.assertRaises(ValueError):
-            backend_for_path("c.gz")
+def test_backend_for_path_unknown_raises() -> None:
+    """Verify that an unrecognised suffix raises ValueError naming known
+    formats.
+    """
+    with pytest.raises(ValueError) as exc_info:
+        backend_for_path("c.txt")
+    assert ".fits" in str(exc_info.value)
 
 
-class StreamHelpersTestCase(unittest.TestCase):
-    """Stream detection and compression-suffix helpers."""
+def test_minify_unsupported_schema_uses_shared_dispatch(tmp_path: Path) -> None:
+    """Verify minify resolves backend and schema via the shared APIs.
 
-    def test_is_binary_stream(self) -> None:
-        self.assertTrue(_is_binary_stream(io.BytesIO(b"")))
-        self.assertFalse(_is_binary_stream("a.fits"))
-        # ResourcePath has read() but no seek(); it must not look like a
-        # stream.
-        self.assertFalse(_is_binary_stream(ResourcePath("a.fits", forceAbsolute=False)))
+    Reaching the 'no subsetter' error proves backend_for_path and
+    get_basic_info ran and detected schema_name 'image'.
+    """
+    from lsst.images.tests._minify_for_fixtures import minify
 
-    def test_path_is_compressed(self) -> None:
-        self.assertTrue(_path_is_compressed("a/b.fits.gz"))
-        self.assertTrue(_path_is_compressed("a/b.json.zst"))
-        self.assertFalse(_path_is_compressed("a/b.fits"))
-
-
-class DecompressPathToTempFileTestCase(unittest.TestCase):
-    """Compressed paths stream-decompress into a temporary file on disk."""
-
-    def setUp(self) -> None:
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.tmp = tmp.name
-        self.payload = b"SIMPLE  = fake fits payload " * 1000
-
-    def test_gzip(self) -> None:
-        path = os.path.join(self.tmp, "x.fits.gz")
-        with open(path, "wb") as f:
-            f.write(gzip.compress(self.payload))
-        with _decompress_path_to_temp_file(path) as handle:
-            # The decompressed data lives in a real file, not in memory.
-            self.assertNotIsInstance(handle, io.BytesIO)
-            self.assertTrue(hasattr(handle, "fileno"))
-            self.assertEqual(handle.read(), self.payload)
-
-    @unittest.skipUnless(ZSTD_AVAILABLE, "no zstd decompressor available.")
-    def test_zstd(self) -> None:
-        path = os.path.join(self.tmp, "x.fits.zst")
-        with open(path, "wb") as f:
-            f.write(_zstd_compress(self.payload))
-        with _decompress_path_to_temp_file(path) as handle:
-            self.assertEqual(handle.read(), self.payload)
-
-    def test_suffix_without_compression_raises(self) -> None:
-        # The suffix selects the decompressor, so a .gz name whose content
-        # is not gzip fails honestly.
-        path = os.path.join(self.tmp, "x.fits.gz")
-        with open(path, "wb") as f:
-            f.write(self.payload)
-        with self.assertRaises(gzip.BadGzipFile):
-            _decompress_path_to_temp_file(path)
-
-    def test_zstd_no_decompressor(self) -> None:
-        path = os.path.join(self.tmp, "x.fits.zst")
-        with open(path, "wb") as f:
-            f.write(b"\x28\xb5\x2f\xfd" + b"pretend zstd frame")
-        # None entries make both import routes raise ImportError.
-        blocked = {"compression": None, "compression.zstd": None, "zstandard": None}
-        with mock.patch.dict(sys.modules, blocked):
-            with self.assertRaises(ValueError) as cm:
-                _decompress_path_to_temp_file(path)
-        self.assertIn("zstd", str(cm.exception))
+    src = os.path.join(tmp_path, "plain.fits")
+    out = os.path.join(tmp_path, "plain.json")
+    images_fits.write(Image(np.zeros((4, 4), dtype=np.float32), bbox=Box.factory[0:4, 0:4]), src)
+    with pytest.raises(NotImplementedError) as exc_info:
+        minify(src, out)
+    assert "image" in str(exc_info.value)
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_backend_for_name() -> None:
+    """Verify explicit format names resolve to their backends."""
+    assert backend_for_name("fits").name == "fits"
+    assert backend_for_name("ndf").name == "ndf"
+    assert backend_for_name("json").name == "json"
+
+
+def test_backend_for_name_unknown_raises() -> None:
+    """Verify an unknown format name raises ValueError naming it."""
+    with pytest.raises(ValueError) as exc_info:
+        backend_for_name("hdf")
+    assert "hdf" in str(exc_info.value)
+
+
+def test_backend_for_stream_fits_magic() -> None:
+    """Verify FITS magic bytes resolve to the FITS backend without consuming
+    the stream.
+    """
+    stream = io.BytesIO(b"SIMPLE  =                    T / conforms")
+    assert backend_for_stream(stream).name == "fits"
+    # Sniffing must not consume the stream.
+    assert stream.tell() == 0
+
+
+def test_backend_for_stream_hdf5_magic() -> None:
+    """Verify the HDF5 signature resolves to the NDF backend."""
+    stream = io.BytesIO(b"\x89HDF\r\n\x1a\n" + b"\x00" * 8)
+    assert backend_for_stream(stream).name == "ndf"
+
+
+def test_backend_for_stream_json() -> None:
+    """Verify JSON content resolves to the JSON backend."""
+    assert backend_for_stream(io.BytesIO(b'{"schema_url": "x"}')).name == "json"
+
+
+def test_backend_for_stream_json_leading_whitespace() -> None:
+    """Verify JSON detection tolerates leading whitespace."""
+    assert backend_for_stream(io.BytesIO(b'  \n\t {"a": 1}')).name == "json"
+
+
+def test_backend_for_stream_unknown_raises() -> None:
+    """Verify unrecognized content raises ValueError naming known formats."""
+    with pytest.raises(ValueError) as exc_info:
+        backend_for_stream(io.BytesIO(b"not any known format"))
+    msg = str(exc_info.value)
+    assert "FITS" in msg
+    assert "format" in msg
+
+
+def test_backend_for_stream_gzip_compressed_raises() -> None:
+    """Verify a gzip-compressed stream raises ValueError naming gzip."""
+    with pytest.raises(ValueError) as exc_info:
+        backend_for_stream(io.BytesIO(gzip.compress(b"SIMPLE  = whatever")))
+    assert "gzip" in str(exc_info.value)
+
+
+def test_backend_for_stream_zstd_compressed_raises() -> None:
+    """Verify a zstd-compressed stream raises ValueError naming zstd."""
+    with pytest.raises(ValueError) as exc_info:
+        backend_for_stream(io.BytesIO(b"\x28\xb5\x2f\xfd" + b"frame"))
+    assert "zstd" in str(exc_info.value)
+
+
+def test_backend_for_path_strips_gz() -> None:
+    """Verify .gz compression suffixes are stripped before extension
+    dispatch.
+    """
+    assert backend_for_path("c.json.gz").name == "json"
+    assert backend_for_path("c.h5.gz").name == "ndf"
+
+
+def test_backend_for_path_strips_zst() -> None:
+    """Verify .zst compression suffixes are stripped before extension
+    dispatch.
+    """
+    assert backend_for_path("c.fits.zst").name == "fits"
+    assert backend_for_path("c.sdf.zst").name == "ndf"
+
+
+def test_backend_for_path_bare_compression_suffix_raises() -> None:
+    """Verify a bare compression suffix with no format extension raises
+    ValueError.
+    """
+    with pytest.raises(ValueError):
+        backend_for_path("c.gz")
+
+
+def test_is_binary_stream() -> None:
+    """Verify _is_binary_stream accepts streams and rejects path-like
+    inputs.
+    """
+    assert _is_binary_stream(io.BytesIO(b""))
+    assert not _is_binary_stream("a.fits")
+    # ResourcePath has read() but no seek(); it must not look like a
+    # stream.
+    assert not _is_binary_stream(ResourcePath("a.fits", forceAbsolute=False))
+
+
+def test_path_is_compressed() -> None:
+    """Verify _path_is_compressed recognizes .gz and .zst suffixes only."""
+    assert _path_is_compressed("a/b.fits.gz")
+    assert _path_is_compressed("a/b.json.zst")
+    assert not _path_is_compressed("a/b.fits")
+
+
+_DECOMPRESS_PAYLOAD = b"SIMPLE  = fake fits payload " * 1000
+
+
+def test_decompress_path_gzip(tmp_path: Path) -> None:
+    """Verify a .gz path stream-decompresses into a real temporary file."""
+    path = tmp_path / "x.fits.gz"
+    path.write_bytes(gzip.compress(_DECOMPRESS_PAYLOAD))
+    with _decompress_path_to_temp_file(str(path)) as handle:
+        # The decompressed data lives in a real file, not in memory.
+        assert not isinstance(handle, io.BytesIO)
+        assert hasattr(handle, "fileno")
+        assert handle.read() == _DECOMPRESS_PAYLOAD
+
+
+@pytest.mark.skipif(not ZSTD_AVAILABLE, reason="no zstd decompressor available")
+def test_decompress_path_zstd(tmp_path: Path) -> None:
+    """Verify a .zst path decompresses through the available zstd library."""
+    path = tmp_path / "x.fits.zst"
+    path.write_bytes(_zstd_compress(_DECOMPRESS_PAYLOAD))
+    with _decompress_path_to_temp_file(str(path)) as handle:
+        assert handle.read() == _DECOMPRESS_PAYLOAD
+
+
+def test_decompress_suffix_without_compression_raises(tmp_path: Path) -> None:
+    """Verify a .gz name whose content is not gzip fails honestly."""
+    # The suffix selects the decompressor, so a .gz name whose content
+    # is not gzip fails honestly.
+    path = tmp_path / "x.fits.gz"
+    path.write_bytes(_DECOMPRESS_PAYLOAD)
+    with pytest.raises(gzip.BadGzipFile):
+        _decompress_path_to_temp_file(str(path))
+
+
+def test_decompress_zstd_no_decompressor(tmp_path: Path) -> None:
+    """Verify a helpful ValueError when no zstd decompressor can be
+    imported.
+    """
+    path = tmp_path / "x.fits.zst"
+    path.write_bytes(b"\x28\xb5\x2f\xfd" + b"pretend zstd frame")
+    # None entries make both import routes raise ImportError.
+    blocked = {"compression": None, "compression.zstd": None, "zstandard": None}
+    with mock.patch.dict(sys.modules, blocked):
+        with pytest.raises(ValueError) as exc_info:
+            _decompress_path_to_temp_file(str(path))
+    assert "zstd" in str(exc_info.value)

@@ -1,5 +1,6 @@
 documenteer[guide] > 2.0, <3.0
 lsst-sphinxutils @ git+https://github.com/lsst/sphinxutils@main
 piff  # so type annotations translate to intersphinx links
+pytest  # for test utility functions that use pytest primitives
 shapely
 sphinx-click

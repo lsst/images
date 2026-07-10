@@ -14,12 +14,13 @@ from __future__ import annotations
 __all__ = ("BaseField",)
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Literal, Self, overload
+from typing import TYPE_CHECKING, Any, Literal, Self, assert_type, cast, overload
 
 import astropy.units
 import numpy as np
+import numpy.typing as npt
 
-from .._geom import Bounds, Box
+from .._geom import XY, YX, Bounds, Box
 from .._image import Image
 
 if TYPE_CHECKING:
@@ -70,22 +71,61 @@ class BaseField(ABC):
         raise NotImplementedError()
 
     @overload
-    def __call__(self, *, x: np.ndarray, y: np.ndarray, quantity: Literal[False] = False) -> np.ndarray: ...
+    def __call__(
+        self, point: XY[int | float] | YX[int | float], /, *, quantity: Literal[False] = False
+    ) -> float: ...
 
     @overload
     def __call__(
-        self, *, x: np.ndarray, y: np.ndarray, quantity: Literal[True]
+        self, point: XY[int | float] | YX[int | float], /, *, quantity: Literal[True]
     ) -> astropy.units.Quantity: ...
 
     @overload
     def __call__(
-        self, *, x: np.ndarray, y: np.ndarray, quantity: bool
+        self, point: XY[npt.ArrayLike] | YX[npt.ArrayLike], /, *, quantity: bool = ...
+    ) -> np.ndarray | astropy.units.Quantity: ...
+
+    @overload
+    def __call__(self, /, *, x: int | float, y: int | float, quantity: Literal[False] = False) -> float: ...
+
+    @overload
+    def __call__(
+        self, /, *, x: int | float, y: int | float, quantity: Literal[True]
+    ) -> astropy.units.Quantity: ...
+
+    @overload
+    def __call__(
+        self, /, *, x: npt.ArrayLike, y: npt.ArrayLike, quantity: bool = ...
     ) -> np.ndarray | astropy.units.Quantity: ...
 
     def __call__(
-        self, *, x: np.ndarray, y: np.ndarray, quantity: bool = False
-    ) -> np.ndarray | astropy.units.Quantity:
-        return self.evaluate(x=x, y=y, quantity=quantity)
+        self,
+        point: XY[Any] | YX[Any] | None = None,
+        /,
+        *,
+        x: Any = None,
+        y: Any = None,
+        quantity: bool = False,
+    ) -> float | np.ndarray | astropy.units.Quantity:
+        match point:
+            case None:
+                if x is None or y is None:
+                    raise TypeError("Pass either a point or both x= and y= to field call.")
+            case XY() | YX():
+                if x is not None or y is not None:
+                    raise TypeError("Field call point argument is mutually exclusive with x= and y=.")
+                x, y = point.x, point.y
+            case _:
+                raise TypeError(f"Unexpected positional argument type: {type(point)!r}.")
+        x = np.asarray(x)
+        y = np.asarray(y)
+        scalar = not np.broadcast(x, y).shape
+        result = self._evaluate(x=x, y=y, quantity=quantity)
+        if scalar:
+            if quantity:
+                return result  # 0-d Quantity
+            return float(result)
+        return result
 
     @abstractmethod
     def render(
@@ -107,16 +147,16 @@ class BaseField(ABC):
         raise NotImplementedError()
 
     def __mul__(self, factor: float | astropy.units.Quantity | astropy.units.UnitBase) -> Self:
-        return self.multiply_constant(factor)
+        return self._multiply_constant(factor)
 
     def __rmul__(self, factor: float | astropy.units.Quantity | astropy.units.UnitBase) -> Self:
-        return self.multiply_constant(factor)
+        return self._multiply_constant(factor)
 
     def __truediv__(self, factor: float | astropy.units.Quantity | astropy.units.UnitBase) -> Self:
-        return self.multiply_constant(1.0 / factor)
+        return self._multiply_constant(1.0 / factor)
 
     @abstractmethod
-    def evaluate(
+    def _evaluate(
         self, *, x: np.ndarray, y: np.ndarray, quantity: bool
     ) -> np.ndarray | astropy.units.Quantity:
         """Evaluate at non-gridded points.
@@ -136,7 +176,7 @@ class BaseField(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def multiply_constant(self, factor: float | astropy.units.Quantity | astropy.units.UnitBase) -> Self:
+    def _multiply_constant(self, factor: float | astropy.units.Quantity | astropy.units.UnitBase) -> Self:
         """Multiply by a constant, returning a new field of the same type.
 
         Parameters
@@ -169,7 +209,7 @@ class BaseField(ABC):
         factor = image_unit.to(astropy.units.nJy / self.unit)
         if factor != 1.0:
             # TODO[DM-54556]: make sure this shouldn't be 1/factor.
-            field = self.multiply_constant(factor)  # this lies about units, but we'll discard them anyway.
+            field = self._multiply_constant(factor)  # this lies about units, but we'll discard them anyway.
         (field_at_center,) = field(
             x=np.array([field.bounds.bbox.x.center]),
             y=np.array([field.bounds.bbox.y.center]),
@@ -246,3 +286,20 @@ class BaseField(ABC):
             else:
                 unit *= factor_unit
         return factor, unit
+
+
+if TYPE_CHECKING:
+
+    def _test_types() -> None:
+        field = cast(BaseField, None)
+        arr = np.zeros(3)
+
+        # Scalar inputs without quantity → float
+        assert_type(field(x=1.0, y=2.0), float)
+        assert_type(field(x=1.0, y=2.0, quantity=False), float)
+
+        # Scalar inputs with quantity=True → astropy.units.Quantity
+        assert_type(field(x=1.0, y=2.0, quantity=True), astropy.units.Quantity)
+
+        # Array-like inputs → np.ndarray | astropy.units.Quantity
+        assert_type(field(x=arr, y=arr), np.ndarray | astropy.units.Quantity)

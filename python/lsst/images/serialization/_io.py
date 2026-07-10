@@ -26,6 +26,7 @@ __all__ = (
 
 import importlib
 import importlib.metadata
+from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, overload
 
 from lsst.resources import ResourcePathExpression
@@ -313,7 +314,7 @@ def read_archive(
         return reader.read(**kwargs)
 
 
-def write_archive(obj: Any, path: str, **kwargs: Any) -> Any:
+def write_archive(obj: Any, path: Path | str, **kwargs: Any) -> Any:
     """Write ``obj`` to ``path``, dispatching by file extension.
 
     Forwards ``**kwargs`` to the per-backend ``write`` (e.g.

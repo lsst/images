@@ -93,7 +93,7 @@ class SumField(BaseField):
     def is_constant(self) -> bool:
         return all(operand.is_constant for operand in self._operands)
 
-    def evaluate(
+    def _evaluate(
         self, *, x: np.ndarray, y: np.ndarray, quantity: bool = False
     ) -> np.ndarray | astropy.units.Quantity:
         iterator = iter(self._operands)
@@ -120,7 +120,7 @@ class SumField(BaseField):
             result.quantity += operand.render(bbox, dtype=dtype).quantity
         return result
 
-    def multiply_constant(self, factor: float | astropy.units.Quantity | astropy.units.UnitBase) -> SumField:
+    def _multiply_constant(self, factor: float | astropy.units.Quantity | astropy.units.UnitBase) -> SumField:
         return SumField([operand * factor for operand in self._operands])
 
     def serialize(self, archive: OutputArchive[Any]) -> SumFieldSerializationModel:

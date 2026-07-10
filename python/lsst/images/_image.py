@@ -201,10 +201,7 @@ class Image(GeneralizedImage):
         return self._sky_projection
 
     def __getitem__(self, bbox: Box | EllipsisType) -> Image:
-        if bbox is ...:
-            return self
-        super().__getitem__(bbox)
-        indices = bbox.slice_within(self._bbox)
+        bbox, indices = self._handle_getitem_args(bbox)
         return self._transfer_metadata(
             Image(self._array[indices], bbox=bbox, unit=self._unit, sky_projection=self._sky_projection),
             bbox=bbox,

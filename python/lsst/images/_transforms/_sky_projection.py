@@ -14,11 +14,12 @@ from __future__ import annotations
 __all__ = ("SkyProjection", "SkyProjectionAstropyView", "SkyProjectionSerializationModel")
 
 import functools
-from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeVar, final
+from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeVar, assert_type, cast, final, overload
 
 import astropy.units as u
 import astropy.wcs
 import numpy as np
+import numpy.typing as npt
 import pydantic
 from astropy.coordinates import ICRS, Latitude, Longitude, SkyCoord
 from astropy.wcs.wcsapi import BaseLowLevelWCS, HighLevelWCSMixin
@@ -222,44 +223,88 @@ class SkyProjection[F: Frame]:
         """
         return self._pixel_to_sky.show(simplified=simplified, comments=comments)
 
-    def pixel_to_sky[T: np.ndarray | float](self, *, x: T, y: T) -> SkyCoord:
+    @overload
+    def pixel_to_sky(self, point: XY[int | float] | YX[int | float], /) -> SkyCoord: ...
+
+    @overload
+    def pixel_to_sky(self, point: XY[npt.ArrayLike] | YX[npt.ArrayLike], /) -> SkyCoord: ...
+
+    @overload
+    def pixel_to_sky(
+        self, /, *, x: int | float | npt.ArrayLike, y: int | float | npt.ArrayLike
+    ) -> SkyCoord: ...
+
+    def pixel_to_sky(
+        self,
+        point: XY[Any] | YX[Any] | None = None,
+        /,
+        *,
+        x: Any = None,
+        y: Any = None,
+    ) -> SkyCoord:
         """Transform one or more pixel points to sky coordinates.
 
         Parameters
         ----------
-        x : `numpy.ndarray` | `float`
-            ``x`` values of the pixel points to transform.
-        y : `numpy.ndarray` | `float`
-            ``y`` values of the pixel points to transform.
+        point
+            An `XY` or `YX` coordinate pair of pixel positions to transform.
+            Mutually exclusive with ``x`` and ``y``.
+        x : `float` | array-like
+            ``x`` values of the pixel points to transform, as a scalar or
+            any array-like.  Results are broadcast against ``y``.
+            Mutually exclusive with ``point``.
+        y : `float` | array-like
+            ``y`` values of the pixel points to transform, as a scalar or
+            any array-like.  Results are broadcast against ``x``.
+            Mutually exclusive with ``point``.
 
         Returns
         -------
         astropy.coordinates.SkyCoord
-            Transformed sky coordinates.
+            Transformed sky coordinates, with the broadcast shape of ``x``
+            and ``y``.
         """
+        match point:
+            case None:
+                if x is None or y is None:
+                    raise TypeError("Pass either a point or both x= and y= to 'pixel_to_sky'.")
+            case XY() | YX():
+                if x is not None or y is not None:
+                    raise TypeError("'pixel_to_sky' point argument is mutually exclusive with x= and y=.")
+                x, y = point.x, point.y
+            case _:
+                raise TypeError(f"Unexpected positional argument type: {type(point)!r}.")
         sky_rad = self._pixel_to_sky.apply_forward(x=x, y=y)
         return SkyCoord(ra=sky_rad.x, dec=sky_rad.y, unit=u.rad)
 
-    def sky_to_pixel(self, sky: SkyCoord) -> XY[np.ndarray | float]:
+    def sky_to_pixel(self, sky: SkyCoord) -> XY[Any]:
         """Transform one or more sky coordinates to pixels.
 
         Parameters
         ----------
         sky
-            Sky coordinates to transform.
+            Sky coordinates to transform.  Any shape is supported; the
+            result has the same shape as ``sky``.
 
         Returns
         -------
         `XY` [`numpy.ndarray` | `float`]
-            Transformed pixel coordinates.
+            Transformed pixel coordinates with the same shape as ``sky``.
         """
         if sky.frame.name != "icrs":
             sky = sky.transform_to("icrs")
         ra: Longitude = sky.ra
         dec: Latitude = sky.dec
-        return self._pixel_to_sky.apply_inverse(
-            x=ra.to_value(u.rad),
-            y=dec.to_value(u.rad),
+        # cast works around a mypy false positive specific to generic
+        # NamedTuple classes: returning XY[Any] from an overloaded function
+        # when called with Any-typed arguments produces "Incompatible return
+        # value type (got XY[Any], expected XY[Any])".
+        return cast(
+            XY[Any],
+            self._pixel_to_sky.apply_inverse(
+                x=ra.to_value(u.rad),
+                y=dec.to_value(u.rad),
+            ),
         )
 
     def as_astropy(self, bbox: Box | None = None) -> SkyProjectionAstropyView:
@@ -477,10 +522,10 @@ class SkyProjectionAstropyView(BaseLowLevelWCS, HighLevelWCSMixin):
     def world_n_dim(self) -> int:
         return 2
 
-    def pixel_to_world_values(self, x: np.ndarray, y: np.ndarray) -> XY[np.ndarray]:
+    def pixel_to_world_values(self, x: np.ndarray, y: np.ndarray) -> XY[Any]:
         return _ast_apply(self._ast_pixel_to_sky.applyForward, x=x, y=y)
 
-    def world_to_pixel_values(self, ra: np.ndarray, dec: np.ndarray) -> XY[np.ndarray]:
+    def world_to_pixel_values(self, ra: np.ndarray, dec: np.ndarray) -> XY[Any]:
         return _ast_apply(self._ast_pixel_to_sky.applyInverse, x=ra, y=dec)
 
 
@@ -521,3 +566,14 @@ class SkyProjectionSerializationModel[P: pydantic.BaseModel](ArchiveTree):
             self.fits_approximation.deserialize(archive) if self.fits_approximation is not None else None
         )
         return SkyProjection(pixel_to_sky, fits_approximation=fits_approximation)
+
+
+if TYPE_CHECKING:
+
+    def _test_types() -> None:
+        sp = cast(SkyProjection, None)
+        sky = cast(SkyCoord, None)
+
+        # sky_to_pixel returns XY[Any] so that callers need no cast regardless
+        # of whether sky is scalar or array-shaped.
+        assert_type(sp.sky_to_pixel(sky), XY[Any])
