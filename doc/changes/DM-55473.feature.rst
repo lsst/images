@@ -1,2 +1,3 @@
 Schema URLs such as ``https://images.lsst.io/schemas/image-1.0.0`` now resolve to generated documentation pages with field tables and composition diagrams, with the raw JSON Schema published alongside.
 The JSON schemas are frozen into the ``schemas/`` directory of the repository, kept current with ``lsst-images-admin schemas write`` and guarded by a regression test.
+External packages providing schemas can override ``ArchiveTree.SCHEMA_URL_BASE`` to mint schema URLs under their own documentation site, freeze them with ``lsst-images-admin schemas write --package``, and generate matching pages with `lsst.images.schema_docs.generate_schema_docs`; schema URL parsing on read now validates the URL shape instead of requiring the ``images.lsst.io`` host.

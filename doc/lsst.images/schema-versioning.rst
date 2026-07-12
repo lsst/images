@@ -58,8 +58,10 @@ URL scheme
 
 ``schema_url`` follows::
 
-   https://images.lsst.io/schemas/<schema-name>-<major>.<minor>.<patch>
+   {SCHEMA_URL_BASE}/<schema-name>-<major>.<minor>.<patch>
 
+where ``SCHEMA_URL_BASE`` is a class-level constant that defaults to ``https://images.lsst.io/schemas`` for the schemas this package owns.
+External packages providing their own schemas override it so their URLs are minted under a documentation site they control; readers accept any ``http(s)`` URL whose final directory is ``schemas``, without restricting the host.
 The same URL appears in the FITS ``DATAMODL`` keyword and the NDF ``.MORE.LSST.DATA_MODEL`` component so the data model is visible to tooling without parsing the JSON tree.
 The URL resolves to a generated documentation page for that schema version, with the raw JSON Schema document published alongside it at ``{schema_url}.json``; see :ref:`lsst.images-frozen-schemas`.
 Readers never fetch it: version compatibility is decided entirely by the ``schema_version`` / ``min_read_version`` stamps.
@@ -161,6 +163,12 @@ The entry point does not need to call `~lsst.images.serialization.register_schem
 
 The entry point is keyed by schema name only, not by ``SCHEMA_VERSION``.
 Version compatibility remains the responsibility of the selected model's ``schema_version`` / ``min_read_version`` validation.
+
+External packages that provide schemas should also:
+
+- Override the ``SCHEMA_URL_BASE`` class variable (once, on a shared intermediate base class) so their schema URLs are minted under a documentation site they control; ``images.lsst.io`` only hosts the schemas this package owns.
+- Freeze their schemas into their own repository with ``lsst-images-admin schemas write --package <their.package>``, and guard them with an equivalent of this package's ``test_committed_frozen_schemas_are_current`` test using `lsst.images.frozen_schemas.check_frozen_schemas`.
+- Generate documentation pages for their site with `lsst.images.schema_docs.generate_schema_docs`, which links any embedded ``lsst.images`` sub-schemas back to their canonical ``images.lsst.io`` URLs.
 
 ``lsst.images`` also maintains a small built-in lazy-provider table for schemas it owns but does not import unconditionally, such as the ``lsst.images.cells`` models.
 This mirrors the package's own ``lsst.images.schemas`` entry points while keeping source-tree development via ``PYTHONPATH=python`` working before the package is installed.
