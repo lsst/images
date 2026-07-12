@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -75,6 +76,18 @@ def test_recursive_schema_page_has_fields(generated: tuple[Path, Path]) -> None:
     text = (pf_dir / "index.rst").read_text()
     assert ".. list-table::" in text
     assert "``operands``" in text
+
+
+def test_python_references_become_literals(generated: tuple[Path, Path]) -> None:
+    """Verify single-backtick Python references from model docstrings are
+    rendered as inline literals, since they cannot resolve as py:obj targets
+    on the generated pages.
+    """
+    page_dir, _ = generated
+    (cfs_dir,) = [p for p in page_dir.glob("camera_frame_set-*") if p.is_dir()]
+    text = (cfs_dir / "index.rst").read_text()
+    assert "``CameraFrameSet``" in text
+    assert re.search(r"(?<!`)`CameraFrameSet`(?!`)", text) is None
 
 
 def test_raw_json_staged(generated: tuple[Path, Path]) -> None:

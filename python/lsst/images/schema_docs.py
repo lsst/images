@@ -23,6 +23,7 @@ from __future__ import annotations
 __all__ = ("generate_schema_docs",)
 
 import json
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -79,9 +80,33 @@ def _type_summary(prop: dict[str, Any], links: dict[str, str]) -> str:
     return "any"
 
 
+_DEFAULT_ROLE_RE = re.compile(r"(?<!`)`([^`]+)`(?!`)")
+"""Single-backtick (default-role) references in docstring-derived text."""
+
+
+def _reference_to_literal(match: re.Match[str]) -> str:
+    """Rewrite a default-role Python reference as an inline literal.
+
+    Model docstrings use `X`, `~pkg.mod.X`, and `.X` references that cannot
+    resolve as py:obj targets on the generated schema pages; render them as
+    code, applying the ``~`` convention of showing only the last component.
+    """
+    target = match.group(1)
+    if target.startswith("~"):
+        target = target[1:].rsplit(".", 1)[-1]
+    return f"``{target.lstrip('.')}``"
+
+
 def _one_line(text: str) -> str:
     """Collapse ``text`` to a single line safe for a list-table cell."""
     return " ".join(text.split())
+
+
+def _description_text(text: str) -> str:
+    """Return docstring-derived description text as a single rst line with
+    Python references neutralized.
+    """
+    return _DEFAULT_ROLE_RE.sub(_reference_to_literal, _one_line(text))
 
 
 def _root_body(schema: dict[str, Any]) -> dict[str, Any]:
@@ -118,7 +143,7 @@ def _field_table(body: dict[str, Any], links: dict[str, str]) -> list[str]:
         lines.append(f"   * - ``{name}``")
         lines.append(f"     - {_one_line(_type_summary(prop, links))}")
         lines.append(f"     - {'yes' if name in required else 'no'}")
-        lines.append(f"     - {_one_line(prop.get('description', ''))}")
+        lines.append(f"     - {_description_text(prop.get('description', ''))}")
     return lines
 
 
@@ -152,7 +177,7 @@ def _schema_page(name: str, version: str, schema: dict[str, Any], available_stem
         title,
         "#" * len(title),
         "",
-        _one_line(body.get("description", "")),
+        _description_text(body.get("description", "")),
         "",
         f"- Canonical URL: ``{SCHEMA_URL_BASE}/{name}-{version}``",
         f"- `Raw JSON schema <../{name}-{version}.json>`__",
