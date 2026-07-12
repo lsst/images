@@ -22,6 +22,7 @@ from ._fuzz import fuzz_masked_image
 from ._inspect import inspect
 from ._minify import minify
 from ._reformat import reformat
+from ._schemas import schemas
 
 
 @click.group(name="lsst-images-admin", context_settings={"help_option_names": ["-h", "--help"]})
@@ -34,6 +35,7 @@ main.add_command(diagram)
 main.add_command(inspect)
 main.add_command(minify)
 main.add_command(reformat)
+main.add_command(schemas)
 main.add_command(extract_test_data, name="extract-test-data")
 main.add_command(verify_rewrite, name="verify-rewrite")
 main.add_command(fuzz_masked_image, name="fuzz-masked-image")
