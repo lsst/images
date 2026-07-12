@@ -29,7 +29,6 @@ from lsst.resources import ResourcePath, ResourcePathExpression
 
 from ._asdf_utils import ArrayReferenceModel, InlineArrayModel
 from ._common import (
-    SCHEMA_URL_HOST,
     ArchiveAccessRequiredError,
     ArchiveTree,
     OpaqueArchiveMetadata,
@@ -68,11 +67,14 @@ class ArchiveInfo(pydantic.BaseModel, frozen=True):
     @classmethod
     def from_schema_url(cls, schema_url: str, *, format_version: int | None) -> ArchiveInfo:
         """Build an `ArchiveInfo` by parsing a schema URL of the form
-        ``https://images.lsst.io/schemas/{name}-{version}``.
+        ``https://{host}/.../schemas/{name}-{version}``.
 
-        The URL is parsed with `~lsst.resources.ResourcePath` and its
-        hostname must be ``images.lsst.io``, so a ``DATAMODL`` header written
-        by an unrelated tool cannot steer reads toward an arbitrary schema.
+        The URL is parsed with `~lsst.resources.ResourcePath` and must be an
+        ``http(s)`` URL whose final directory is ``schemas``, so a
+        ``DATAMODL`` header written by an unrelated tool cannot steer reads
+        toward an arbitrary schema.  The host is not restricted: external
+        packages mint schema URLs under their own documentation sites via
+        `ArchiveTree.SCHEMA_URL_BASE`.
 
         Parameters
         ----------
@@ -83,9 +85,16 @@ class ArchiveInfo(pydantic.BaseModel, frozen=True):
             separate container version.
         """
         parsed = ResourcePath(schema_url)
-        if parsed.netloc != SCHEMA_URL_HOST:
+        segments = parsed.path.rstrip("/").split("/")
+        if (
+            parsed.scheme not in ("http", "https")
+            or not parsed.netloc
+            or len(segments) < 2
+            or segments[-2] != "schemas"
+        ):
             raise ValueError(
-                f"Schema URL {schema_url!r} is not hosted at {SCHEMA_URL_HOST!r}; "
+                f"Schema URL {schema_url!r} does not have the required "
+                "https://{host}/.../schemas/{name}-{version} form; "
                 "this file was not written by lsst.images."
             )
         tail = parsed.basename()

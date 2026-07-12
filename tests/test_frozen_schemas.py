@@ -46,6 +46,32 @@ class _ForeignArchiveTree(ArchiveTree):
         raise NotImplementedError()
 
 
+class _CustomBaseArchiveTree(ArchiveTree):
+    """Concrete ArchiveTree with a third-party schema URL base."""
+
+    SCHEMA_URL_BASE: ClassVar[str] = "https://example.org/schemas"
+    SCHEMA_NAME: ClassVar[str] = "frozen_schemas_test_custom_base"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = object
+
+    def deserialize(
+        self, archive: InputArchive[Any], **kwargs: Any
+    ) -> Any:  # pragma: no cover - never invoked
+        raise NotImplementedError()
+
+
+def test_custom_schema_url_base() -> None:
+    """Verify a subclass can override SCHEMA_URL_BASE so its schema URL and
+    $id are minted under its own documentation site.
+    """
+    expected = "https://example.org/schemas/frozen_schemas_test_custom_base-1.0.0"
+    assert _CustomBaseArchiveTree().schema_url == expected
+    schema = dump_schema(_CustomBaseArchiveTree)
+    assert schema["$id"] == expected
+    assert schema["title"] == "frozen_schemas_test_custom_base"
+
+
 def test_available_schema_classes() -> None:
     """Verify enumeration finds the package's schemas, sorted by name."""
     classes = available_schema_classes()

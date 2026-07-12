@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 __all__ = (
+    "SCHEMA_URL_BASE",
     "ArchiveAccessRequiredError",
     "ArchiveReadError",
     "ArchiveTree",
@@ -51,11 +52,14 @@ type MetadataValue = (
     pydantic.StrictInt | pydantic.StrictFloat | pydantic.StrictStr | pydantic.StrictBool | None
 )
 
-SCHEMA_URL_HOST = "images.lsst.io"
-"""Canonical hostname for lsst.images schema URLs."""
+SCHEMA_URL_BASE = "https://images.lsst.io/schemas"
+"""Base for the schema URLs of this package's own schemas, used as
+``{SCHEMA_URL_BASE}/{name}-{version}``.
 
-SCHEMA_URL_BASE = f"https://{SCHEMA_URL_HOST}/schemas"
-"""Base for schema URLs, used as ``{SCHEMA_URL_BASE}/{name}-{version}``."""
+External packages providing their own schemas override
+`~lsst.images.serialization.ArchiveTree.SCHEMA_URL_BASE` instead, so their
+schema URLs are minted under a site they control.
+"""
 
 
 class ButlerInfo(pydantic.BaseModel):
@@ -93,6 +97,13 @@ class ArchiveTree(
     SCHEMA_NAME: ClassVar[str]
     SCHEMA_VERSION: ClassVar[str]
     MIN_READ_VERSION: ClassVar[int]
+    SCHEMA_URL_BASE: ClassVar[str] = SCHEMA_URL_BASE
+    """Base for this schema's URL, as ``{SCHEMA_URL_BASE}/{name}-{version}``.
+
+    External packages providing their own schemas should override this (once,
+    on a shared intermediate base class) so their schema URLs are minted
+    under a documentation site they control rather than images.lsst.io."""
+
     PUBLIC_TYPE: ClassVar[type]
     """In-memory Python type produced by this tree's ``deserialize`` (e.g.
     `dict` for a mapping return).  Declared explicitly by each concrete
@@ -129,7 +140,7 @@ class ArchiveTree(
         Computed from ``SCHEMA_NAME`` and ``SCHEMA_VERSION`` ClassVars.
         """
         cls = type(self)
-        return f"{SCHEMA_URL_BASE}/{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION}"
+        return f"{cls.SCHEMA_URL_BASE}/{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION}"
 
     @pydantic.model_validator(mode="after")
     def _check_and_normalize_schema_version(self) -> Self:
@@ -182,7 +193,7 @@ class ArchiveTree(
             # already-stamped values through the merged model_config, and
             # this hook only runs when the subclass declares its own
             # SCHEMA_NAME / SCHEMA_VERSION for these to be derived from.
-            existing["$id"] = f"{SCHEMA_URL_BASE}/{name}-{version}"
+            existing["$id"] = f"{cls.SCHEMA_URL_BASE}/{name}-{version}"
             existing["title"] = name
             cls.model_config = {**cls.model_config, "json_schema_extra": existing}
         # Local import to avoid the _io -> _common circular dependency at

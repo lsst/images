@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from .serialization._asdf_utils import ArrayReferenceModel
-from .serialization._common import SCHEMA_URL_BASE, ArchiveTree
+from .serialization._common import ArchiveTree
 from .serialization._io import (
     _BUILTIN_SCHEMA_PROVIDERS,
     _REGISTRY,
@@ -87,7 +87,7 @@ def dump_schema(tree_cls: type[ArchiveTree]) -> dict[str, Any]:
     # into $defs, with the class's json_schema_extra landing on the $def.
     # Hoist the canonical identity to the document root so every frozen
     # document self-identifies; $ref siblings are valid in draft 2020-12.
-    schema.setdefault("$id", f"{SCHEMA_URL_BASE}/{tree_cls.SCHEMA_NAME}-{tree_cls.SCHEMA_VERSION}")
+    schema.setdefault("$id", f"{tree_cls.SCHEMA_URL_BASE}/{tree_cls.SCHEMA_NAME}-{tree_cls.SCHEMA_VERSION}")
     schema.setdefault("title", tree_cls.SCHEMA_NAME)
     # Nested ArchiveTree definitions inherit their class's $id, but $id
     # starts a new resolution scope in draft 2020-12, which would break the
