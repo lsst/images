@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from .serialization._asdf_utils import ArrayReferenceModel
-from .serialization._common import ArchiveTree
+from .serialization._common import SCHEMA_URL_BASE, ArchiveTree
 from .serialization._io import (
     _BUILTIN_SCHEMA_PROVIDERS,
     _REGISTRY,
@@ -47,9 +47,10 @@ def available_schema_classes() -> list[type[ArchiveTree]]:
     """Return every `~lsst.images.serialization.ArchiveTree` subclass owned
     by this package, sorted by schema name.
 
-    Third-party schemas registered via the ``lsst.images.schemas`` entry
-    point group are deliberately excluded: this package only freezes and
-    publishes its own schemas.
+    Schemas registered from outside the ``lsst.images`` package — via the
+    ``lsst.images.schemas`` entry point group or by direct class creation
+    (e.g. test doubles) — are deliberately excluded: this package only
+    freezes and publishes its own schemas.
     """
     # Local import to avoid a circular import: this module is part of
     # lsst.images, and importing the package here (to register the
@@ -61,6 +62,8 @@ def available_schema_classes() -> list[type[ArchiveTree]]:
         cls = class_for_schema(name)
         if cls is None:
             raise RuntimeError(f"Schema {name!r} is registered but its class could not be loaded.")
+        if not cls.__module__.startswith("lsst.images."):
+            continue
         classes.append(cls)
     return classes
 
@@ -79,7 +82,23 @@ def dump_schema(tree_cls: type[ArchiveTree]) -> dict[str, Any]:
     `~lsst.images.serialization.ArrayReferenceModel`, matching the convention
     used by ``lsst-images-admin diagram``.
     """
-    return parameterize_tree(tree_cls, ArrayReferenceModel).model_json_schema()
+    schema = parameterize_tree(tree_cls, ArrayReferenceModel).model_json_schema()
+    # A recursive model (e.g. sum_field) produces a root that is just a $ref
+    # into $defs, with the class's json_schema_extra landing on the $def.
+    # Hoist the canonical identity to the document root so every frozen
+    # document self-identifies; $ref siblings are valid in draft 2020-12.
+    schema.setdefault("$id", f"{SCHEMA_URL_BASE}/{tree_cls.SCHEMA_NAME}-{tree_cls.SCHEMA_VERSION}")
+    schema.setdefault("title", tree_cls.SCHEMA_NAME)
+    # Nested ArchiveTree definitions inherit their class's $id, but $id
+    # starts a new resolution scope in draft 2020-12, which would break the
+    # root-relative "#/$defs/..." references pydantic generates inside them.
+    # Record the canonical URL under a non-reserved key instead, which
+    # validators ignore and documentation tooling can still use to identify
+    # published sub-schemas.
+    for definition in schema.get("$defs", {}).values():
+        if isinstance(definition, dict) and "$id" in definition:
+            definition["x-lsst-schema-url"] = definition.pop("$id")
+    return schema
 
 
 def frozen_schema_filename(tree_cls: type[ArchiveTree]) -> str:

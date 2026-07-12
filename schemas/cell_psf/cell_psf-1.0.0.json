@@ -1,0 +1,621 @@
+{
+  "$defs": {
+    "ArrayReferenceModel": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF 'ndarray' schema, in the case where the\narray data is stored elsewhere.",
+      "id": "http://stsci.edu/schemas/asdf/core/ndarray-1.1.0",
+      "properties": {
+        "byteorder": {
+          "const": "big",
+          "default": "big",
+          "description": "Byte order for the binary data.",
+          "title": "Byteorder",
+          "type": "string"
+        },
+        "datatype": {
+          "$ref": "#/$defs/NumberType",
+          "description": "Data type of the array."
+        },
+        "shape": {
+          "description": "Size of the array in each dimension.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Shape",
+          "type": "array"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Location of the underlying binary data.",
+          "title": "Source"
+        }
+      },
+      "required": [
+        "source",
+        "shape",
+        "datatype"
+      ],
+      "tag": "!core/ndarray-1.1.0",
+      "title": "ArrayReferenceModel",
+      "type": "object"
+    },
+    "ButlerInfo": {
+      "description": "Information about a butler dataset.",
+      "properties": {
+        "dataset": {
+          "$ref": "#/$defs/SerializedDatasetRef"
+        },
+        "provenance": {
+          "$ref": "#/$defs/DatasetProvenance"
+        }
+      },
+      "required": [
+        "dataset"
+      ],
+      "title": "ButlerInfo",
+      "type": "object"
+    },
+    "CellGrid": {
+      "description": "A grid of rectangular cells with no overlaps or space between cells.\n\nNotes\n-----\nA cell grid usually corresponds to a full patch, but we do not explicitly\nencode this in the type to permit full-tract grids, which would have to\ndrop the cells in patch overlap regions and re-label all cells.\n\nSubsets of grids are usually represented via `CellGridBounds`.",
+      "properties": {
+        "bbox": {
+          "description": "Bounding box of the grid of cells (snapped to cell boundaries. The cell with index (i=0, j=0) always has a corner at ``(y=bbox.y.min, x=bbox.x.min)`` but there is no expectation that ``(y=bbox.y.min, x=bbox.x.min)`` be ``(y=0, x=0)``.",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "cell_shape": {
+          "$ref": "#/$defs/YX_int_",
+          "description": "Shape of each cell in pixels."
+        }
+      },
+      "required": [
+        "bbox",
+        "cell_shape"
+      ],
+      "title": "CellGrid",
+      "type": "object"
+    },
+    "CellGridBounds": {
+      "description": "A region of pixels defined by a set of cells within a grid.\n\nNotes\n-----\nThis data structure is optimized for the case where a continguous\nrectangular region of the grid (the `bbox` attribute) is populated with\nonly a few exceptions (the `missing` set).\n\nSlicing a `CellGridBounds` with a `.Box` returns a new `CellGridBounds`\nwith just the cells that overlap that box.  As always,\n`CellGridBounds.bbox` will be snapped to the outer boundaries of those\ncells, so it will contain (and not generally equal) the given box.",
+      "properties": {
+        "bbox": {
+          "description": "Pixel bounding box of the region (snapped to cell boundaries).",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "grid": {
+          "$ref": "#/$defs/CellGrid",
+          "description": "Definition of the grid that defines the cells."
+        },
+        "missing": {
+          "default": [],
+          "description": "Indices of cells that are missing, where (i=0, j=0) is the cell that starts at grid.bbox.start.",
+          "items": {
+            "$ref": "#/$defs/CellIJ"
+          },
+          "title": "Missing",
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "grid",
+        "bbox"
+      ],
+      "title": "CellGridBounds",
+      "type": "object"
+    },
+    "CellIJ": {
+      "description": "An index in a grid of cells.\n\nNotes\n-----\nThis is deliberately not a `tuple` or other `~collections.abc.Sequence` in\norder to make it typing-incompatible with sequence-based pixel coordinate\npairs (e.g. `.YX`).  This also allows it to have addition and subtraction\noperators.",
+      "properties": {
+        "i": {
+          "title": "I",
+          "type": "integer"
+        },
+        "j": {
+          "title": "J",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "i",
+        "j"
+      ],
+      "title": "CellIJ",
+      "type": "object"
+    },
+    "DatasetProvenance": {
+      "description": "Provenance of a single `DatasetRef`.",
+      "properties": {
+        "extras": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "propertyNames": {
+            "format": "uuid"
+          },
+          "title": "Extras",
+          "type": "object"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/SerializedDatasetRef"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "quantum_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantum Id"
+        }
+      },
+      "title": "DatasetProvenance",
+      "type": "object"
+    },
+    "InlineArrayModel": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF 'ndarray' schema, in the case where the\narray data is stored inline.",
+      "id": "http://stsci.edu/schemas/asdf/core/ndarray-1.1.0",
+      "properties": {
+        "data": {
+          "items": {},
+          "title": "Data",
+          "type": "array"
+        },
+        "datatype": {
+          "$ref": "#/$defs/NumberType"
+        }
+      },
+      "required": [
+        "data",
+        "datatype"
+      ],
+      "tag": "!core/ndarray-1.1.0",
+      "title": "InlineArrayModel",
+      "type": "object"
+    },
+    "MetadataValue": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "NumberType": {
+      "description": "Enumeration of array values types supported by the library.",
+      "enum": [
+        "bool",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "float32",
+        "float64"
+      ],
+      "title": "NumberType",
+      "type": "string"
+    },
+    "SerializedDataCoordinate": {
+      "description": "Simplified model for serializing a `DataCoordinate`.",
+      "properties": {
+        "dataId": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Dataid",
+          "type": "object"
+        },
+        "records": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/SerializedDimensionRecord"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Records"
+        }
+      },
+      "required": [
+        "dataId"
+      ],
+      "title": "SerializedDataCoordinate",
+      "type": "object"
+    },
+    "SerializedDatasetRef": {
+      "description": "Simplified model of a `DatasetRef` suitable for serialization.",
+      "properties": {
+        "component": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component"
+        },
+        "dataId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SerializedDataCoordinate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "datasetType": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SerializedDatasetType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "run": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "SerializedDatasetRef",
+      "type": "object"
+    },
+    "SerializedDatasetType": {
+      "description": "Simplified model of a `DatasetType` suitable for serialization.",
+      "properties": {
+        "dimensions": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dimensions"
+        },
+        "isCalibration": {
+          "default": false,
+          "title": "Iscalibration",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parentStorageClass": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parentstorageclass"
+        },
+        "storageClass": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Storageclass"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "SerializedDatasetType",
+      "type": "object"
+    },
+    "SerializedDimensionRecord": {
+      "description": "Simplified model for serializing a `DimensionRecord`.",
+      "examples": [
+        {
+          "definition": "detector",
+          "record": {
+            "full_name": "0_01",
+            "id": 72,
+            "instrument": "HSC",
+            "name_in_raft": "01",
+            "purpose": "SCIENCE",
+            "raft": "0"
+          }
+        }
+      ],
+      "properties": {
+        "definition": {
+          "examples": [
+            "exposure"
+          ],
+          "title": "Name of dimension associated with this record.",
+          "type": "string"
+        },
+        "record": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/Timespan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "definition": "exposure",
+              "record": {
+                "exposure": 2021050300044,
+                "instrument": "LATISS",
+                "obs_id": "AT_O_20210503_00044"
+              }
+            }
+          ],
+          "title": "Dimension record keys and values.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "definition",
+        "record"
+      ],
+      "title": "SerializedDimensionRecord",
+      "type": "object"
+    },
+    "Timespan": {
+      "description": "A [begin, end) TAI timespan with bounds as integer nanoseconds since 1970-01-01 00:00:00.",
+      "properties": {
+        "nsec": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Nsec",
+          "type": "array"
+        }
+      },
+      "required": [
+        "nsec"
+      ],
+      "title": "Timespan",
+      "type": "object"
+    },
+    "YX_int_": {
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "title": "Y",
+          "type": "integer"
+        },
+        {
+          "title": "X",
+          "type": "integer"
+        }
+      ],
+      "type": "array"
+    },
+    "_SerializedInterval": {
+      "properties": {
+        "start": {
+          "title": "Start",
+          "type": "integer"
+        },
+        "stop": {
+          "title": "Stop",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start",
+        "stop"
+      ],
+      "title": "_SerializedInterval",
+      "type": "object"
+    }
+  },
+  "$id": "https://images.lsst.io/schemas/cell_psf-1.0.0",
+  "description": "Model used to serialize CellPointSpreadFunction objects.",
+  "properties": {
+    "array": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArrayReferenceModel"
+        },
+        {
+          "$ref": "#/$defs/InlineArrayModel"
+        }
+      ],
+      "description": "A 4-d array of PSF kernel images with with shape (n_cells_y, n_cells_x, psf_shape_y, psf_shape_x).",
+      "title": "Array"
+    },
+    "bounds": {
+      "$ref": "#/$defs/CellGridBounds",
+      "description": "Description of the cell grid and any missing cells.  Array entries for missing cells should be NaN."
+    },
+    "butler_info": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ButlerInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Information about the butler dataset backed by this file."
+    },
+    "indirect": {
+      "description": "Serialized nested objects that may be saved or read more than once.",
+      "items": {},
+      "title": "Indirect",
+      "type": "array"
+    },
+    "metadata": {
+      "additionalProperties": {
+        "$ref": "#/$defs/MetadataValue"
+      },
+      "description": "Additional unstructured metadata.",
+      "title": "Metadata",
+      "type": "object"
+    },
+    "min_read_version": {
+      "default": 1,
+      "description": "Smallest reader major that can interpret this tree.",
+      "title": "Min Read Version",
+      "type": "integer"
+    },
+    "schema_version": {
+      "default": "1.0.0",
+      "description": "Data-model schema version of this tree (major.minor.patch).",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "array",
+    "bounds"
+  ],
+  "title": "cell_psf",
+  "type": "object"
+}

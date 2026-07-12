@@ -1,0 +1,4362 @@
+{
+  "$defs": {
+    "Amplifier": {
+      "description": "A struct that holds information about an amplifier.",
+      "properties": {
+        "assembled_raw_geometry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AmplifierRawGeometry"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Geometry of this amplifier in an assembled but untrimmed raw image that has all amplifiers."
+        },
+        "bbox": {
+          "description": "Bounding box of the amplifier data region in a trimmed, assembled detector.",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "name": {
+          "description": "Name of the amplifier.",
+          "title": "Name",
+          "type": "string"
+        },
+        "nominal_calibrations": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AmplifierCalibrations"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nominal calibration information that may be superseded by separate calibration datasets."
+        },
+        "readout_corner": {
+          "$ref": "#/$defs/ReadoutCorner",
+          "description": "Readout corner of the amplifier in the final assembled, trimmed image (with x increasing to the right and y increasing up). "
+        },
+        "unassembled_raw_geometry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AmplifierRawGeometry"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Geometry of this amplifier in an unassembled, untrimmed raw image that has just this amplifier."
+        }
+      },
+      "required": [
+        "name",
+        "bbox",
+        "readout_corner"
+      ],
+      "title": "Amplifier",
+      "type": "object"
+    },
+    "AmplifierCalibrations": {
+      "description": "A struct that holds nominal information about an amplifier that is\noften superseded by separate calibration datasets.",
+      "properties": {
+        "gain": {
+          "title": "Gain",
+          "type": "number"
+        },
+        "linearity_coefficients": {
+          "$ref": "#/$defs/InlineArray"
+        },
+        "linearity_type": {
+          "title": "Linearity Type",
+          "type": "string"
+        },
+        "read_noise": {
+          "title": "Read Noise",
+          "type": "number"
+        },
+        "saturation": {
+          "title": "Saturation",
+          "type": "number"
+        },
+        "suspect_level": {
+          "title": "Suspect Level",
+          "type": "number"
+        }
+      },
+      "required": [
+        "gain",
+        "read_noise",
+        "saturation",
+        "suspect_level",
+        "linearity_coefficients",
+        "linearity_type"
+      ],
+      "title": "AmplifierCalibrations",
+      "type": "object"
+    },
+    "AmplifierRawGeometry": {
+      "description": "A struct that describes the geometry of an amplifire in a raw image.",
+      "properties": {
+        "bbox": {
+          "description": "Bounding box of the full untrimmed amplifier in the raw image.",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "data_bbox": {
+          "description": "Bounding box of the data section in the raw image.",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "flip_x": {
+          "default": false,
+          "description": "Whether to flip the X coordinates during assembly.",
+          "title": "Flip X",
+          "type": "boolean"
+        },
+        "flip_y": {
+          "default": false,
+          "description": "Whether to flip the Y coordinates during assembly.",
+          "title": "Flip Y",
+          "type": "boolean"
+        },
+        "parallel_overscan_bbox": {
+          "description": "Bounding box of the parallel (vertical) overscan region in the raw image.",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "prescan_bbox": {
+          "description": "Bounding box of the serial (horizontal) pre-scan region in the raw image.",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "readout_corner": {
+          "$ref": "#/$defs/ReadoutCorner",
+          "description": "Readout corner of the amplifier in the raw image (with x increasing to the right and y increasing up)."
+        },
+        "serial_overscan_bbox": {
+          "description": "Bounding box of the serial (horizontal) overscan region in the raw image.",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "x_offset": {
+          "default": 0,
+          "description": "X offset between the raw position of this amplifier and the trimmed, assembled position of the amplifier.",
+          "title": "X Offset",
+          "type": "integer"
+        },
+        "y_offset": {
+          "default": 0,
+          "description": "Y offset between the raw position of this amplifier and the trimmed, assembled position of the amplifier.",
+          "title": "Y Offset",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "bbox",
+        "data_bbox",
+        "serial_overscan_bbox",
+        "parallel_overscan_bbox",
+        "prescan_bbox",
+        "readout_corner"
+      ],
+      "title": "AmplifierRawGeometry",
+      "type": "object"
+    },
+    "ApertureCorrectionMapSerializationModel": {
+      "description": "Serialization model for aperture correction maps.\n\nNotes\n-----\nThe in-memory aperture correction map type is just a `dict` from `str`\nto `~.fields.BaseField`, so the `serialize` and `deserialize` methods are\ndefined here.",
+      "properties": {
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "fields": {
+          "additionalProperties": {
+            "$ref": "#/$defs/FieldSerializationModel"
+          },
+          "description": "Mapping from flux algorithm name to the aperture correction field for that algorithm.",
+          "title": "Fields",
+          "type": "object"
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "title": "aperture_correction_map",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/aperture_correction_map-1.0.0"
+    },
+    "ArrayReferenceModel": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF 'ndarray' schema, in the case where the\narray data is stored elsewhere.",
+      "id": "http://stsci.edu/schemas/asdf/core/ndarray-1.1.0",
+      "properties": {
+        "byteorder": {
+          "const": "big",
+          "default": "big",
+          "description": "Byte order for the binary data.",
+          "title": "Byteorder",
+          "type": "string"
+        },
+        "datatype": {
+          "$ref": "#/$defs/NumberType",
+          "description": "Data type of the array."
+        },
+        "shape": {
+          "description": "Size of the array in each dimension.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Shape",
+          "type": "array"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Location of the underlying binary data.",
+          "title": "Source"
+        }
+      },
+      "required": [
+        "source",
+        "shape",
+        "datatype"
+      ],
+      "tag": "!core/ndarray-1.1.0",
+      "title": "ArrayReferenceModel",
+      "type": "object"
+    },
+    "ArrayReferenceQuantityModel": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF 'quantity' schema for external arrays.",
+      "id": "http://stsci.edu/schemas/asdf/unit/quantity-1.2.0",
+      "properties": {
+        "unit": {
+          "$ref": "#/$defs/Unit"
+        },
+        "value": {
+          "$ref": "#/$defs/ArrayReferenceModel"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "tag": "!unit/quantity-1.2.0",
+      "title": "ArrayReferenceQuantityModel",
+      "type": "object"
+    },
+    "BackgroundMapSerializationModel": {
+      "description": "Serialization model for background maps.",
+      "properties": {
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "descriptions": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Mapping from background model name to its description.",
+          "title": "Descriptions",
+          "type": "object"
+        },
+        "fields": {
+          "additionalProperties": {
+            "$ref": "#/$defs/FieldSerializationModel"
+          },
+          "description": "Mapping from background model name to the model field itself.",
+          "title": "Fields",
+          "type": "object"
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "subtracted": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name of the background that was subtracted, or `None` if no background was subtracted.",
+          "title": "Subtracted"
+        }
+      },
+      "title": "background_map",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/background_map-1.0.0"
+    },
+    "BoundsSerializationModel": {
+      "anyOf": [
+        {
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/CellGridBounds"
+        },
+        {
+          "$ref": "#/$defs/RegionSerializationModel"
+        },
+        {
+          "$ref": "#/$defs/IntersectionBoundsSerializationModel"
+        }
+      ]
+    },
+    "ButlerInfo": {
+      "description": "Information about a butler dataset.",
+      "properties": {
+        "dataset": {
+          "$ref": "#/$defs/SerializedDatasetRef"
+        },
+        "provenance": {
+          "$ref": "#/$defs/DatasetProvenance"
+        }
+      },
+      "required": [
+        "dataset"
+      ],
+      "title": "ButlerInfo",
+      "type": "object"
+    },
+    "CameraFrameSetSerializationModel": {
+      "description": "Serialization model for `CameraFrameSet`.",
+      "properties": {
+        "ast": {
+          "description": "A serialized Starlink AST FrameSet, using the AST native encoding.",
+          "title": "Ast",
+          "type": "string"
+        },
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "instrument": {
+          "description": "Name of the instrument.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "instrument",
+        "ast"
+      ],
+      "title": "camera_frame_set",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/camera_frame_set-1.0.0"
+    },
+    "CellGrid": {
+      "description": "A grid of rectangular cells with no overlaps or space between cells.\n\nNotes\n-----\nA cell grid usually corresponds to a full patch, but we do not explicitly\nencode this in the type to permit full-tract grids, which would have to\ndrop the cells in patch overlap regions and re-label all cells.\n\nSubsets of grids are usually represented via `CellGridBounds`.",
+      "properties": {
+        "bbox": {
+          "description": "Bounding box of the grid of cells (snapped to cell boundaries. The cell with index (i=0, j=0) always has a corner at ``(y=bbox.y.min, x=bbox.x.min)`` but there is no expectation that ``(y=bbox.y.min, x=bbox.x.min)`` be ``(y=0, x=0)``.",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "cell_shape": {
+          "$ref": "#/$defs/YX_int_",
+          "description": "Shape of each cell in pixels."
+        }
+      },
+      "required": [
+        "bbox",
+        "cell_shape"
+      ],
+      "title": "CellGrid",
+      "type": "object"
+    },
+    "CellGridBounds": {
+      "description": "A region of pixels defined by a set of cells within a grid.\n\nNotes\n-----\nThis data structure is optimized for the case where a continguous\nrectangular region of the grid (the `bbox` attribute) is populated with\nonly a few exceptions (the `missing` set).\n\nSlicing a `CellGridBounds` with a `.Box` returns a new `CellGridBounds`\nwith just the cells that overlap that box.  As always,\n`CellGridBounds.bbox` will be snapped to the outer boundaries of those\ncells, so it will contain (and not generally equal) the given box.",
+      "properties": {
+        "bbox": {
+          "description": "Pixel bounding box of the region (snapped to cell boundaries).",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "grid": {
+          "$ref": "#/$defs/CellGrid",
+          "description": "Definition of the grid that defines the cells."
+        },
+        "missing": {
+          "default": [],
+          "description": "Indices of cells that are missing, where (i=0, j=0) is the cell that starts at grid.bbox.start.",
+          "items": {
+            "$ref": "#/$defs/CellIJ"
+          },
+          "title": "Missing",
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "grid",
+        "bbox"
+      ],
+      "title": "CellGridBounds",
+      "type": "object"
+    },
+    "CellIJ": {
+      "description": "An index in a grid of cells.\n\nNotes\n-----\nThis is deliberately not a `tuple` or other `~collections.abc.Sequence` in\norder to make it typing-incompatible with sequence-based pixel coordinate\npairs (e.g. `.YX`).  This also allows it to have addition and subtraction\noperators.",
+      "properties": {
+        "i": {
+          "title": "I",
+          "type": "integer"
+        },
+        "j": {
+          "title": "J",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "i",
+        "j"
+      ],
+      "title": "CellIJ",
+      "type": "object"
+    },
+    "ChebyshevFieldSerializationModel": {
+      "description": "Serialization model for `ChebyshevField`.",
+      "properties": {
+        "bounds": {
+          "$ref": "#/$defs/BoundsSerializationModel",
+          "description": "The region where this field can be evaluated. The bbox of this region is grown by half a pixel on all sides and then used to remap coordinates to [-1, 1]x[-1, 1], which is the natural domain of a 2-d Chebyshev polynomial."
+        },
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "coefficients": {
+          "$ref": "#/$defs/InlineArray",
+          "description": "Coefficients for a 2-d Chebyshev polynomial of the first kind, as a 2-d matrix in which element [p, q] corresponds to the coefficient of T_p(y) T_q(x)."
+        },
+        "field_type": {
+          "const": "CHEBYSHEV",
+          "default": "CHEBYSHEV",
+          "title": "Field Type",
+          "type": "string"
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Unit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Units of the field."
+        }
+      },
+      "required": [
+        "bounds",
+        "coefficients"
+      ],
+      "title": "chebyshev_field",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/chebyshev_field-1.0.0"
+    },
+    "ConvolutionKernelSerializationModel": {
+      "description": "The serialization model for `ImageBasisConvolutionKernel`.",
+      "properties": {
+        "basis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArrayReferenceModel"
+            },
+            {
+              "$ref": "#/$defs/InlineArrayModel"
+            }
+          ],
+          "description": "The basis images, with shape (n, h, w).",
+          "title": "Basis"
+        },
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "center_x": {
+          "description": "Center column of the kernel in the basis images.",
+          "title": "Center X",
+          "type": "integer"
+        },
+        "center_y": {
+          "description": "Center row of the kernel in the basis images.",
+          "title": "Center Y",
+          "type": "integer"
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "kernel_type": {
+          "const": "IMAGE_BASIS",
+          "default": "IMAGE_BASIS",
+          "title": "Kernel Type",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "spatial": {
+          "description": "The spatial variation of each basis function.",
+          "items": {
+            "$ref": "#/$defs/FieldSerializationModel"
+          },
+          "title": "Spatial",
+          "type": "array"
+        }
+      },
+      "required": [
+        "basis",
+        "spatial",
+        "center_y",
+        "center_x"
+      ],
+      "title": "image_basis_convolution_kernel",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/image_basis_convolution_kernel-1.0.0"
+    },
+    "DatasetProvenance": {
+      "description": "Provenance of a single `DatasetRef`.",
+      "properties": {
+        "extras": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "propertyNames": {
+            "format": "uuid"
+          },
+          "title": "Extras",
+          "type": "object"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/SerializedDatasetRef"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "quantum_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantum Id"
+        }
+      },
+      "title": "DatasetProvenance",
+      "type": "object"
+    },
+    "DetectorAttributes": {
+      "description": "Struct holding the plain-old-data attributes of a detector.",
+      "properties": {
+        "bbox": {
+          "description": "Bounding box of the detector's science data region after amplifier assembly.",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "id": {
+          "description": "ID of the detector.",
+          "title": "Id",
+          "type": "integer"
+        },
+        "name": {
+          "description": "Name of the detector.",
+          "title": "Name",
+          "type": "string"
+        },
+        "orientation": {
+          "$ref": "#/$defs/Orientation",
+          "description": "Nominal position and rotation of the detector."
+        },
+        "physical_type": {
+          "description": "Vendor name or technology type for this detector (may have a different interpretation for different cameras).",
+          "title": "Physical Type",
+          "type": "string"
+        },
+        "pixel_size": {
+          "description": "Nominal size of a pixel (assumed square) in focal plane coordinate units.",
+          "title": "Pixel Size",
+          "type": "number"
+        },
+        "serial": {
+          "description": "Serial number for the detector.",
+          "title": "Serial",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/DetectorType",
+          "description": "Enumerated type of the detector."
+        }
+      },
+      "required": [
+        "name",
+        "id",
+        "type",
+        "serial",
+        "bbox",
+        "orientation",
+        "pixel_size",
+        "physical_type"
+      ],
+      "title": "DetectorAttributes",
+      "type": "object"
+    },
+    "DetectorFrame": {
+      "description": "A coordinate frame for a particular detector's pixels.\n\nNotes\n-----\nThis frame is only used for post-assembly images (i.e. not those with\noverscan regions still present).",
+      "properties": {
+        "bbox": {
+          "description": "Bounding box of the detector.",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "detector": {
+          "description": "ID of the detector.",
+          "title": "Detector",
+          "type": "integer"
+        },
+        "frame_type": {
+          "const": "DETECTOR",
+          "default": "DETECTOR",
+          "description": "Discriminator for the frame type.",
+          "title": "Frame Type",
+          "type": "string"
+        },
+        "instrument": {
+          "description": "Name of the instrument.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "visit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID of the visit.  May be unset in contexts where there is no visit or only a single relevant visit.",
+          "title": "Visit"
+        }
+      },
+      "required": [
+        "instrument",
+        "detector",
+        "bbox"
+      ],
+      "title": "DetectorFrame",
+      "type": "object"
+    },
+    "DetectorSerializationModel": {
+      "description": "Serialization model for `Detector`.",
+      "properties": {
+        "amplifiers": {
+          "description": "Descriptions of the amplifiers.",
+          "items": {
+            "$ref": "#/$defs/Amplifier"
+          },
+          "title": "Amplifiers",
+          "type": "array"
+        },
+        "attributes": {
+          "$ref": "#/$defs/DetectorAttributes",
+          "description": "The simple plain-old-data attributes of the detector."
+        },
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "frames": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CameraFrameSetSerializationModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Mappings to other camera coordinate systems."
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "visit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the visit this detector is associated with.",
+          "title": "Visit"
+        }
+      },
+      "required": [
+        "attributes",
+        "visit"
+      ],
+      "title": "detector",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/detector-1.0.0"
+    },
+    "DetectorType": {
+      "description": "Enumeration of the types of a detector.",
+      "enum": [
+        "SCIENCE",
+        "FOCUS",
+        "GUIDER",
+        "WAVEFRONT"
+      ],
+      "title": "DetectorType",
+      "type": "string"
+    },
+    "DifferenceImageTemplateInfo": {
+      "description": "Information about how a template image contributed to a difference\nimage.",
+      "properties": {
+        "bounds": {
+          "description": "The approximate intersection of the template and the science image, in the science image's pixel coordinate system.",
+          "properties": {
+            "coordinates": {
+              "description": "Vertices of the polygon or polygons.",
+              "items": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "maxItems": 2,
+                      "minItems": 2,
+                      "prefixItems": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ],
+                      "type": "array"
+                    },
+                    {
+                      "items": {
+                        "maxItems": 2,
+                        "minItems": 2,
+                        "prefixItems": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ],
+                        "type": "array"
+                      },
+                      "type": "array"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "title": "Coordinates",
+              "type": "array"
+            },
+            "type": {
+              "description": "Geometry type.",
+              "enum": [
+                "Polygon",
+                "MultiPolygon"
+              ],
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "coordinates"
+          ],
+          "title": "RegionSerializationModel",
+          "type": "object"
+        },
+        "dataset_id": {
+          "description": "Universally unique butler identifier for this template.",
+          "format": "uuid",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "dataset_run": {
+          "description": "Name of the butler RUN collection for this template.",
+          "title": "Dataset Run",
+          "type": "string"
+        },
+        "patch": {
+          "description": "ID of the patch (all patches within a tract share a projection).",
+          "title": "Patch",
+          "type": "integer"
+        },
+        "psf_shape_flag": {
+          "description": "Flag set if the second moments of the effective template PSF could not be computed.",
+          "title": "Psf Shape Flag",
+          "type": "boolean"
+        },
+        "psf_shape_xx": {
+          "description": "Second moment of the effective PSF of the template.",
+          "title": "Psf Shape Xx",
+          "type": "number"
+        },
+        "psf_shape_xy": {
+          "description": "Second moment of the effective PSF of the template.",
+          "title": "Psf Shape Xy",
+          "type": "number"
+        },
+        "psf_shape_yy": {
+          "description": "Second moment of the effective PSF of the template.",
+          "title": "Psf Shape Yy",
+          "type": "number"
+        },
+        "skymap": {
+          "description": "Name of the skymap that defines the tract/patch tiling.",
+          "title": "Skymap",
+          "type": "string"
+        },
+        "tract": {
+          "description": "ID of the tract (each tract is a different projection).",
+          "title": "Tract",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "skymap",
+        "tract",
+        "patch",
+        "dataset_id",
+        "dataset_run",
+        "bounds",
+        "psf_shape_xx",
+        "psf_shape_yy",
+        "psf_shape_xy",
+        "psf_shape_flag"
+      ],
+      "title": "DifferenceImageTemplateInfo",
+      "type": "object"
+    },
+    "FieldAngleFrame": {
+      "description": "An angular coordinate frame that maps a camera onto the sky about its\nboresight.\n\nNotes\n-----\nThe transform between a `FocalPlaneFrame` and a `FieldAngleFrame` includes\noptical distortions but no rotation.  It may include a parity flip.",
+      "properties": {
+        "frame_type": {
+          "const": "FIELD_ANGLE",
+          "default": "FIELD_ANGLE",
+          "description": "Discriminator for the frame type.",
+          "title": "Frame Type",
+          "type": "string"
+        },
+        "instrument": {
+          "description": "Name of the instrument.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "visit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID of the visit.  May be unset in contexts where there is no visit or only a relevant single visit.",
+          "title": "Visit"
+        }
+      },
+      "required": [
+        "instrument"
+      ],
+      "title": "FieldAngleFrame",
+      "type": "object"
+    },
+    "FieldSerializationModel": {
+      "discriminator": {
+        "mapping": {
+          "CHEBYSHEV": "#/$defs/ChebyshevFieldSerializationModel",
+          "PRODUCT": "#/$defs/ProductFieldSerializationModel",
+          "SPLINE": "#/$defs/SplineFieldSerializationModel",
+          "SUM": "#/$defs/SumFieldSerializationModel"
+        },
+        "propertyName": "field_type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ChebyshevFieldSerializationModel"
+        },
+        {
+          "$ref": "#/$defs/ProductFieldSerializationModel"
+        },
+        {
+          "$ref": "#/$defs/SplineFieldSerializationModel"
+        },
+        {
+          "$ref": "#/$defs/SumFieldSerializationModel"
+        }
+      ]
+    },
+    "FocalPlaneFrame": {
+      "description": "A Euclidean coordinate frame for the focal plane of a camera.",
+      "properties": {
+        "frame_type": {
+          "const": "FOCAL_PLANE",
+          "default": "FOCAL_PLANE",
+          "description": "Discriminator for the frame type.",
+          "title": "Frame Type",
+          "type": "string"
+        },
+        "instrument": {
+          "description": "Name of the instrument.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "unit": {
+          "$ref": "#/$defs/Unit",
+          "description": "Units of the coordinates in this frame."
+        },
+        "visit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID of the visit.  May be unset in contexts where there is no visit or only a relevant single visit.",
+          "title": "Visit"
+        }
+      },
+      "required": [
+        "instrument",
+        "unit"
+      ],
+      "title": "FocalPlaneFrame",
+      "type": "object"
+    },
+    "GalSimLocalWcsModel": {
+      "discriminator": {
+        "mapping": {
+          "pixel_scale": "#/$defs/GalSimPixelScaleModel"
+        },
+        "propertyName": "wcs_type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/GalSimPixelScaleModel"
+        }
+      ]
+    },
+    "GalSimPixelScaleModel": {
+      "description": "Model used to serialize `galsim.wcs.PixelScale` instances.",
+      "properties": {
+        "scale": {
+          "title": "Scale",
+          "type": "number"
+        },
+        "wcs_type": {
+          "const": "pixel_scale",
+          "default": "pixel_scale",
+          "title": "Wcs Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scale"
+      ],
+      "title": "GalSimPixelScaleModel",
+      "type": "object"
+    },
+    "GaussianPSFSerializationModel": {
+      "properties": {
+        "bounds": {
+          "$ref": "#/$defs/BoundsSerializationModel",
+          "description": "The bounds object that represents the PSF's validity region."
+        },
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sigma": {
+          "description": "Gaussian sigma for the PSF.",
+          "title": "Sigma",
+          "type": "number"
+        },
+        "stamp_size": {
+          "description": "Width of the (square) images returned by this PSF's methods.",
+          "title": "Stamp Size",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sigma",
+        "stamp_size",
+        "bounds"
+      ],
+      "title": "gaussian_psf",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/gaussian_psf-1.0.0"
+    },
+    "GeneralFrame": {
+      "description": "An arbitrary Euclidean coordinate system.",
+      "properties": {
+        "frame_type": {
+          "const": "GENERAL",
+          "default": "GENERAL",
+          "description": "Discriminator for the frame type.",
+          "title": "Frame Type",
+          "type": "string"
+        },
+        "unit": {
+          "$ref": "#/$defs/Unit",
+          "description": "Units of the coordinates in this frame."
+        }
+      },
+      "required": [
+        "unit"
+      ],
+      "title": "GeneralFrame",
+      "type": "object"
+    },
+    "ImageSerializationModel_ArrayReferenceModel_": {
+      "properties": {
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArrayReferenceQuantityModel"
+            },
+            {
+              "$ref": "#/$defs/ArrayReferenceModel"
+            },
+            {
+              "$ref": "#/$defs/InlineArrayModel"
+            },
+            {
+              "$ref": "#/$defs/InlineArrayQuantityModel"
+            }
+          ],
+          "description": "Reference to pixel data.",
+          "title": "Data"
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sky_projection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SkyProjectionSerializationModel_ArrayReferenceModel_"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Projection that maps the logical pixel grid onto the sky."
+        },
+        "yx0": {
+          "description": "Coordinate of the first pixels in the array, ordered (y, x).",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Yx0",
+          "type": "array"
+        }
+      },
+      "required": [
+        "data",
+        "yx0"
+      ],
+      "title": "image",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/image-1.0.0"
+    },
+    "InlineArray": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF 'ndarray' schema, in the case where the\narray data is stored inline.",
+      "id": "http://stsci.edu/schemas/asdf/core/ndarray-1.1.0",
+      "properties": {
+        "data": {
+          "items": {},
+          "title": "Data",
+          "type": "array"
+        },
+        "datatype": {
+          "$ref": "#/$defs/NumberType"
+        }
+      },
+      "required": [
+        "data",
+        "datatype"
+      ],
+      "tag": "!core/ndarray-1.1.0",
+      "title": "InlineArrayModel",
+      "type": "object"
+    },
+    "InlineArrayModel": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF 'ndarray' schema, in the case where the\narray data is stored inline.",
+      "id": "http://stsci.edu/schemas/asdf/core/ndarray-1.1.0",
+      "properties": {
+        "data": {
+          "items": {},
+          "title": "Data",
+          "type": "array"
+        },
+        "datatype": {
+          "$ref": "#/$defs/NumberType"
+        }
+      },
+      "required": [
+        "data",
+        "datatype"
+      ],
+      "tag": "!core/ndarray-1.1.0",
+      "title": "InlineArrayModel",
+      "type": "object"
+    },
+    "InlineArrayQuantityModel": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF 'quantity' schema for inline arrays.",
+      "id": "http://stsci.edu/schemas/asdf/unit/quantity-1.2.0",
+      "properties": {
+        "unit": {
+          "$ref": "#/$defs/Unit"
+        },
+        "value": {
+          "$ref": "#/$defs/InlineArrayModel"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "tag": "!unit/quantity-1.2.0",
+      "title": "InlineArrayQuantityModel",
+      "type": "object"
+    },
+    "IntegerType": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SignedIntegerType"
+        },
+        {
+          "$ref": "#/$defs/UnsignedIntegerType"
+        }
+      ]
+    },
+    "IntersectionBoundsSerializationModel": {
+      "description": "Serialization model for `IntersectionBounds`.",
+      "properties": {
+        "a": {
+          "$ref": "#/$defs/BoundsSerializationModel"
+        },
+        "b": {
+          "$ref": "#/$defs/BoundsSerializationModel"
+        }
+      },
+      "required": [
+        "a",
+        "b"
+      ],
+      "title": "IntersectionBoundsSerializationModel",
+      "type": "object"
+    },
+    "MappingSerializationModel": {
+      "description": "Serialization model for an AST Mapping.",
+      "properties": {
+        "ast": {
+          "description": "A serialized Starlink AST Mapping, using the AST native encoding.",
+          "title": "Ast",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ast"
+      ],
+      "title": "MappingSerializationModel",
+      "type": "object"
+    },
+    "MaskPlane": {
+      "description": "Name and description of a single plane in a mask array.",
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description"
+      ],
+      "title": "MaskPlane",
+      "type": "object"
+    },
+    "MaskSerializationModel_ArrayReferenceModel_": {
+      "properties": {
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "data": {
+          "description": "References to pixel data.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ArrayReferenceModel"
+              },
+              {
+                "$ref": "#/$defs/InlineArrayModel"
+              }
+            ]
+          },
+          "title": "Data",
+          "type": "array"
+        },
+        "dtype": {
+          "$ref": "#/$defs/IntegerType",
+          "description": "Data type of the in-memory mask."
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "planes": {
+          "description": "Definitions of the bitplanes in the mask.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/MaskPlane"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Planes",
+          "type": "array"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sky_projection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SkyProjectionSerializationModel_ArrayReferenceModel_"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Projection that maps the logical pixel grid onto the sky."
+        },
+        "yx0": {
+          "description": "Coordinate of the first pixels in the array, ordered (y, x).",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Yx0",
+          "type": "array"
+        }
+      },
+      "required": [
+        "data",
+        "yx0",
+        "planes",
+        "dtype"
+      ],
+      "title": "mask",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/mask-1.0.0"
+    },
+    "MetadataValue": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "MinimalStar": {
+      "description": "A partial duck-alike for `piff.star.Star`, holding just the image\nposition and some booleans (enough to compute an 'average position' on the\nlegacy PSF).",
+      "properties": {
+        "image_pos": {
+          "$ref": "#/$defs/XY"
+        },
+        "is_flagged": {
+          "title": "Is Flagged",
+          "type": "boolean"
+        },
+        "is_reserve": {
+          "title": "Is Reserve",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "image_pos",
+        "is_flagged",
+        "is_reserve"
+      ],
+      "title": "MinimalStar",
+      "type": "object"
+    },
+    "NumberType": {
+      "description": "Enumeration of array values types supported by the library.",
+      "enum": [
+        "bool",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "float32",
+        "float64"
+      ],
+      "title": "NumberType",
+      "type": "string"
+    },
+    "ObservationInfo": {
+      "additionalProperties": false,
+      "patternProperties": {
+        "^ext_": {
+          "description": "Extension property value (translator-specific)."
+        }
+      },
+      "properties": {
+        "_translator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name of the registered metadata translator class used for these data.",
+          "title": "Translator"
+        },
+        "altaz_begin": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array",
+              "x-format": "az-alt",
+              "x-unit": "deg"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Telescope boresight azimuth and elevation at start of observation. Serialized as an (azimuth, altitude) tuple of floats in degrees.",
+          "title": "Altaz Begin"
+        },
+        "altaz_end": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array",
+              "x-format": "az-alt",
+              "x-unit": "deg"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Telescope boresight azimuth and elevation at end of observation. Serialized as an (azimuth, altitude) tuple of floats in degrees.",
+          "title": "Altaz End"
+        },
+        "boresight_airmass": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Airmass of the boresight of the telescope.",
+          "title": "Boresight Airmass"
+        },
+        "boresight_rotation_angle": {
+          "anyOf": [
+            {
+              "type": "number",
+              "x-unit": "deg"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Angle of the instrument in boresight_rotation_coord frame. Serialized as a float in degrees.",
+          "title": "Boresight Rotation Angle"
+        },
+        "boresight_rotation_coord": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Coordinate frame of the instrument rotation angle (options: sky, unknown).",
+          "title": "Boresight Rotation Coord"
+        },
+        "can_see_sky": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "True if the observation is looking at sky, False if it is definitely not looking at the sky. None indicates that it is not known whether sky could be seen.",
+          "title": "Can See Sky"
+        },
+        "dark_time": {
+          "anyOf": [
+            {
+              "type": "number",
+              "x-unit": "s"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Duration of the exposure with shutter closed (seconds).",
+          "title": "Dark Time"
+        },
+        "datetime_begin": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array",
+              "x-format": "tai-jd"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Time of the start of the observation. Serialized as a two-element TAI Julian Date [jd1, jd2].",
+          "title": "Datetime Begin"
+        },
+        "datetime_end": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array",
+              "x-format": "tai-jd"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Time of the end of the observation. Serialized as a two-element TAI Julian Date [jd1, jd2].",
+          "title": "Datetime End"
+        },
+        "detector_exposure_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unique integer identifier for this detector in this exposure.",
+          "title": "Detector Exposure Id"
+        },
+        "detector_group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Collection name of which this detector is a part. Can be None if there are no detector groupings.",
+          "title": "Detector Group"
+        },
+        "detector_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name of the detector within the instrument (might not be unique if there are detector groups).",
+          "title": "Detector Name"
+        },
+        "detector_num": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unique (for instrument) integer identifier for the sensor.",
+          "title": "Detector Num"
+        },
+        "detector_serial": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Serial number/string associated with this detector.",
+          "title": "Detector Serial"
+        },
+        "detector_unique_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unique name of the detector within the focal plane, generally combining detector_group with detector_name.",
+          "title": "Detector Unique Name"
+        },
+        "exposure_group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label to use to associate this exposure with others (can be related to 'exposure_id').",
+          "title": "Exposure Group"
+        },
+        "exposure_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unique (with instrument) integer identifier for this observation.",
+          "title": "Exposure Id"
+        },
+        "exposure_time": {
+          "anyOf": [
+            {
+              "type": "number",
+              "x-unit": "s"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Actual duration of the exposure (seconds).",
+          "title": "Exposure Time"
+        },
+        "exposure_time_requested": {
+          "anyOf": [
+            {
+              "type": "number",
+              "x-unit": "s"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Requested duration of the exposure (seconds).",
+          "title": "Exposure Time Requested"
+        },
+        "focus_z": {
+          "anyOf": [
+            {
+              "type": "number",
+              "x-unit": "m"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Defocal distance. Serialized as a float in meters.",
+          "title": "Focus Z"
+        },
+        "group_counter_end": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observation counter for the end of the exposure group. Depending on the instrument the relevant group may be visit_id or exposure_group.",
+          "title": "Group Counter End"
+        },
+        "group_counter_start": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observation counter for the start of the exposure group.Depending on the instrument the relevant group may be visit_id or exposure_group.",
+          "title": "Group Counter Start"
+        },
+        "has_simulated_content": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Boolean indicating whether any part of this observation was simulated.",
+          "title": "Has Simulated Content"
+        },
+        "instrument": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The instrument used to observe the exposure.",
+          "title": "Instrument"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array",
+              "x-unit": "m"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Location of the observatory. Serialized as a geocentric (x, y, z) tuple of floats in meters.",
+          "title": "Location"
+        },
+        "object": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Object of interest or field name.",
+          "title": "Object"
+        },
+        "observation_counter": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Counter of this observation. Can be counter within observing_day or a global counter. Likely to be observatory specific.",
+          "title": "Observation Counter"
+        },
+        "observation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Label uniquely identifying this observation (can be related to 'exposure_id').",
+          "title": "Observation Id"
+        },
+        "observation_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reason this observation was taken, or its purpose ('science' and 'calibration' are common values)",
+          "title": "Observation Reason"
+        },
+        "observation_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Type of observation (currently: science, dark, flat, bias, focus).",
+          "title": "Observation Type"
+        },
+        "observing_day": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Integer in YYYYMMDD format corresponding to the day of observation.",
+          "title": "Observing Day"
+        },
+        "observing_day_offset": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "x-unit": "s"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Offset to subtract from an observation date when calculating the observing day. Conversely, the offset to add to an observing day when calculating the time span of a day. Serialized as integer seconds.",
+          "title": "Observing Day Offset"
+        },
+        "physical_filter": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The bandpass filter used for this observation.",
+          "title": "Physical Filter"
+        },
+        "pressure": {
+          "anyOf": [
+            {
+              "type": "number",
+              "x-unit": "hPa"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Atmospheric pressure outside the dome. Serialized as a float in hPa.",
+          "title": "Pressure"
+        },
+        "relative_humidity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Relative humidity outside the dome.",
+          "title": "Relative Humidity"
+        },
+        "science_program": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observing program (survey or proposal) identifier.",
+          "title": "Science Program"
+        },
+        "telescope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Full name of the telescope.",
+          "title": "Telescope"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "type": "number",
+              "x-unit": "K"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Temperature outside the dome. Serialized as a float in kelvin.",
+          "title": "Temperature"
+        },
+        "tracking_radec": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array",
+              "x-frame": "icrs",
+              "x-unit": "deg"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Requested RA/Dec to track. Serialized as an ICRS (RA, Dec) tuple of floats in degrees.",
+          "title": "Tracking Radec"
+        },
+        "visit_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID of the Visit this Exposure is associated with.\n\nScience observations should essentially always be\nassociated with a visit, but calibration observations\nmay not be.",
+          "title": "Visit Id"
+        }
+      },
+      "type": "object"
+    },
+    "ObservationSummaryStats": {
+      "properties": {
+        "astromOffsetMean": {
+          "default": NaN,
+          "description": "Astrometry match offset mean.",
+          "title": "Astromoffsetmean",
+          "type": "number"
+        },
+        "astromOffsetStd": {
+          "default": NaN,
+          "description": "Astrometry match offset stddev.",
+          "title": "Astromoffsetstd",
+          "type": "number"
+        },
+        "centroidDiffShapeletsVsSlotMedian": {
+          "default": NaN,
+          "description": "Median centroid difference (sqrt((slot_x - shapelet_x)**2 + (slot_y - shapelet_y)**2)) for sources used in the shapelet decomposition (pixels).",
+          "title": "Centroiddiffshapeletsvsslotmedian",
+          "type": "number"
+        },
+        "dec": {
+          "default": NaN,
+          "description": "Bounding box center Declination (degrees).",
+          "title": "Dec",
+          "type": "number"
+        },
+        "decCorners": {
+          "description": "Declination of bounding box corners (degrees).",
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Deccorners",
+          "type": "array"
+        },
+        "effTime": {
+          "default": NaN,
+          "description": "Effective exposure time calculated from psfSigma, skyBg, and zeroPoint (seconds).",
+          "title": "Efftime",
+          "type": "number"
+        },
+        "effTimePsfSigmaScale": {
+          "default": NaN,
+          "description": "PSF scaling of the effective exposure time.",
+          "title": "Efftimepsfsigmascale",
+          "type": "number"
+        },
+        "effTimeSkyBgScale": {
+          "default": NaN,
+          "description": "Sky background scaling of the effective exposure time.",
+          "title": "Efftimeskybgscale",
+          "type": "number"
+        },
+        "effTimeZeroPointScale": {
+          "default": NaN,
+          "description": "Zeropoint scaling of the effective exposure time.",
+          "title": "Efftimezeropointscale",
+          "type": "number"
+        },
+        "expTime": {
+          "default": NaN,
+          "description": "Exposure time of the exposure (seconds).",
+          "title": "Exptime",
+          "type": "number"
+        },
+        "magLim": {
+          "default": NaN,
+          "description": "Magnitude limit at fixed SNR (default SNR=5) calculated from psfSigma, skyBg, zeroPoint, and readNoise.",
+          "title": "Maglim",
+          "type": "number"
+        },
+        "maxDistToNearestPsf": {
+          "default": NaN,
+          "description": "Maximum distance of an unmasked pixel to its nearest model psf star (pixels).",
+          "title": "Maxdisttonearestpsf",
+          "type": "number"
+        },
+        "meanVar": {
+          "default": NaN,
+          "description": "Mean variance of the weight plane (ADU**2).",
+          "title": "Meanvar",
+          "type": "number"
+        },
+        "nPsfStar": {
+          "default": 0,
+          "description": "Number of stars used for psf model.",
+          "title": "Npsfstar",
+          "type": "integer"
+        },
+        "nShapeletsStar": {
+          "default": 0,
+          "description": "Number of sources used in the shapelet decomposition.",
+          "title": "Nshapeletsstar",
+          "type": "integer"
+        },
+        "pixelScale": {
+          "default": NaN,
+          "description": "Measured detector pixel scale (arcsec/pixel).",
+          "title": "Pixelscale",
+          "type": "number"
+        },
+        "psfAdaptiveIncludeThresholdMultiplier": {
+          "default": NaN,
+          "description": "Threshold multiplier used in the adaptive threshold detection pass for PSF modelling.",
+          "title": "Psfadaptiveincludethresholdmultiplier",
+          "type": "number"
+        },
+        "psfAdaptiveThresholdValue": {
+          "default": NaN,
+          "description": "Threshold value used in the adaptive threshold detection pass for PSF modelling.",
+          "title": "Psfadaptivethresholdvalue",
+          "type": "number"
+        },
+        "psfApCorrSigmaScaledDelta": {
+          "default": NaN,
+          "description": "Delta (max - min) of the psf flux aperture correction factors scaled (divided) by the psfSigma evaluated on a grid of unmasked pixels.",
+          "title": "Psfapcorrsigmascaleddelta",
+          "type": "number"
+        },
+        "psfApFluxDelta": {
+          "default": NaN,
+          "description": "Delta (max - min) of the model psf aperture flux (with aperture radius of max(2, 3*psfSigma)) values evaluated on a grid of unmasked pixels.",
+          "title": "Psfapfluxdelta",
+          "type": "number"
+        },
+        "psfArea": {
+          "default": NaN,
+          "description": "PSF effective area (pixels**2).",
+          "title": "Psfarea",
+          "type": "number"
+        },
+        "psfIxx": {
+          "default": NaN,
+          "description": "PSF shape Ixx (pixels**2).",
+          "title": "Psfixx",
+          "type": "number"
+        },
+        "psfIxy": {
+          "default": NaN,
+          "description": "PSF shape Ixy (pixels**2).",
+          "title": "Psfixy",
+          "type": "number"
+        },
+        "psfIyy": {
+          "default": NaN,
+          "description": "PSF shape Iyy (pixels**2).",
+          "title": "Psfiyy",
+          "type": "number"
+        },
+        "psfSigma": {
+          "default": NaN,
+          "description": "PSF determinant radius (pixels).",
+          "title": "Psfsigma",
+          "type": "number"
+        },
+        "psfStarDeltaE1Median": {
+          "default": NaN,
+          "description": "Psf stars median E1 residual (starE1 - psfE1).",
+          "title": "Psfstardeltae1Median",
+          "type": "number"
+        },
+        "psfStarDeltaE1Scatter": {
+          "default": NaN,
+          "description": "Psf stars MAD E1 scatter (starE1 - psfE1).",
+          "title": "Psfstardeltae1Scatter",
+          "type": "number"
+        },
+        "psfStarDeltaE2Median": {
+          "default": NaN,
+          "description": "Psf stars median E2 residual (starE2 - psfE2).",
+          "title": "Psfstardeltae2Median",
+          "type": "number"
+        },
+        "psfStarDeltaE2Scatter": {
+          "default": NaN,
+          "description": "Psf stars MAD E2 scatter (starE2 - psfE2).",
+          "title": "Psfstardeltae2Scatter",
+          "type": "number"
+        },
+        "psfStarDeltaSizeMedian": {
+          "default": NaN,
+          "description": "Psf stars median size residual (starSize - psfSize).",
+          "title": "Psfstardeltasizemedian",
+          "type": "number"
+        },
+        "psfStarDeltaSizeScatter": {
+          "default": NaN,
+          "description": "Psf stars MAD size scatter (starSize - psfSize).",
+          "title": "Psfstardeltasizescatter",
+          "type": "number"
+        },
+        "psfStarScaledDeltaSizeScatter": {
+          "default": NaN,
+          "description": "Psf stars MAD size scatter scaled by psfSize**2.",
+          "title": "Psfstarscaleddeltasizescatter",
+          "type": "number"
+        },
+        "psfTE1e1": {
+          "default": NaN,
+          "description": "Per-exposure TE1e1 ~ <de1 de1> of PSF residual ellipticity, averaged over theta [0,1] arcmin via treecorr KK correlation. Dimensionless; used to form the full-survey TE1 metric.",
+          "title": "Psfte1E1",
+          "type": "number"
+        },
+        "psfTE1e2": {
+          "default": NaN,
+          "description": "Per-exposure TE1e2 ~ <de2 de2> of PSF residual ellipticity, averaged over theta [0,1] arcmin via treecorr KK correlation. Dimensionless; used to form the full-survey TE1 metric.",
+          "title": "Psfte1E2",
+          "type": "number"
+        },
+        "psfTE1ex": {
+          "default": NaN,
+          "description": "Per-exposure TE1ex ~ <de1 de2> of PSF residual ellipticity, averaged over theta [0,1] arcmin via treecorr KK correlation. Dimensionless; used to form the full-survey TE1 metric.",
+          "title": "Psfte1Ex",
+          "type": "number"
+        },
+        "psfTE2e1": {
+          "default": NaN,
+          "description": "Per-exposure TE2e1 ~ <de1 de1> of PSF residual ellipticity, averaged over theta [5,100] arcmin via treecorr KK correlation. Dimensionless; used to form the full-survey TE2 metric.",
+          "title": "Psfte2E1",
+          "type": "number"
+        },
+        "psfTE2e2": {
+          "default": NaN,
+          "description": "Per-exposure TE2e2 ~ <de2 de2> of PSF residual ellipticity, averaged over theta [5,100] arcmin via treecorr KK correlation. Dimensionless; used to form the full-survey TE2 metric.",
+          "title": "Psfte2E2",
+          "type": "number"
+        },
+        "psfTE2ex": {
+          "default": NaN,
+          "description": "Per-exposure TE2ex ~ <de1 de2> of PSF residual ellipticity, averaged over theta [5,100] arcmin via treecorr KK correlation. Dimensionless; used to form the full-survey TE2 metric.",
+          "title": "Psfte2Ex",
+          "type": "number"
+        },
+        "psfTE3e1": {
+          "default": NaN,
+          "description": "Per-exposure median-over-CCDs of TE3e1 ~ <de1 de1> of PSF residual ellipticity, where each CCD uses theta within [0,5] arcmin bins. Dimensionless; downstream pipelines take the 85th percentile over images to evaluate TE3.",
+          "title": "Psfte3E1",
+          "type": "number"
+        },
+        "psfTE3e2": {
+          "default": NaN,
+          "description": "Per-exposure median-over-CCDs of TE3e2 ~ <de2 de2> of PSF residual ellipticity, where each CCD uses theta within [0,5] arcmin bins. Dimensionless; downstream pipelines take the 85th percentile over images to evaluate TE3.",
+          "title": "Psfte3E2",
+          "type": "number"
+        },
+        "psfTE3ex": {
+          "default": NaN,
+          "description": "Per-exposure median-over-CCDs of TE3ex ~ <de1 de2> of PSF residual ellipticity, where each CCD uses theta within [0,5] arcmin bins. Dimensionless; downstream pipelines take the 85th percentile over images to evaluate TE3.",
+          "title": "Psfte3Ex",
+          "type": "number"
+        },
+        "psfTE4e1": {
+          "default": NaN,
+          "description": "Per-exposure median-over-CCDs of TE4e1 ~ <de1 de1> of PSF residual ellipticity, where each CCD uses theta within [5,20] arcmin bins. Dimensionless; downstream pipelines take the 85th percentile over images to evaluate TE4.",
+          "title": "Psfte4E1",
+          "type": "number"
+        },
+        "psfTE4e2": {
+          "default": NaN,
+          "description": "Per-exposure median-over-CCDs of TE4e2 ~ <de2 de2> of PSF residual ellipticity, where each CCD uses theta within [5,20] arcmin bins. Dimensionless; downstream pipelines take the 85th percentile over images to evaluate TE4.",
+          "title": "Psfte4E2",
+          "type": "number"
+        },
+        "psfTE4ex": {
+          "default": NaN,
+          "description": "Per-exposure median-over-CCDs of TE4ex ~ <de1 de2> of PSF residual ellipticity, where each CCD uses theta within [5,20] arcmin bins. Dimensionless; downstream pipelines take the 85th percentile over images to evaluate TE4.",
+          "title": "Psfte4Ex",
+          "type": "number"
+        },
+        "psfTraceRadiusDelta": {
+          "default": NaN,
+          "description": "Delta (max - min) of the model psf trace radius values evaluated on a grid of unmasked pixels (pixels).",
+          "title": "Psftraceradiusdelta",
+          "type": "number"
+        },
+        "ra": {
+          "default": NaN,
+          "description": "Bounding box center Right Ascension (degrees).",
+          "title": "Ra",
+          "type": "number"
+        },
+        "raCorners": {
+          "description": "Right Ascension of bounding box corners (degrees).",
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Racorners",
+          "type": "array"
+        },
+        "refCatSourceDensity": {
+          "default": NaN,
+          "description": "Source density for the detector region as computed from the loaded reference catalog (number per degrees**2).",
+          "title": "Refcatsourcedensity",
+          "type": "number"
+        },
+        "shapeletsCoeffs": {
+          "description": "Coefficients from the PSF star shapelet decomposition.",
+          "items": {
+            "type": "number"
+          },
+          "title": "Shapeletscoeffs",
+          "type": "array"
+        },
+        "shapeletsIqScore": {
+          "default": NaN,
+          "description": "The dimensionless image quality score as determined from the shapelets decomposition that includes power from the median centroid offset between those used in the decomposition and those of the centroid slot in addition to non-atmospheric decomposition coefficients. The score spans the range [0.0, 1.0] with lower values indicating better image quality.",
+          "title": "Shapeletsiqscore",
+          "type": "number"
+        },
+        "shapeletsOnlyIqScore": {
+          "default": NaN,
+          "description": "The dimensionless image quality score as determined from the shapelets decomposition that includes power only from the non-atmospheric decomposition coefficients. The score spans the range [0.0, 1.0] with lower values indicating better image quality.",
+          "title": "Shapeletsonlyiqscore",
+          "type": "number"
+        },
+        "shapeletsStarEMedian": {
+          "default": NaN,
+          "description": "Median ellipticity (sqrt(starE1**2.0 + starE2**2.0)) of the sources used in the shapelet decomposition.",
+          "title": "Shapeletsstaremedian",
+          "type": "number"
+        },
+        "shapeletsStarUnNormalizedEMedian": {
+          "default": NaN,
+          "description": "Median un-normalized ellipticity (sqrt((starXX - starYY)**2.0 + (2.0*starXY)**2.0)) of the sources used in the shapelet decomposition (pixel**2).",
+          "title": "Shapeletsstarunnormalizedemedian",
+          "type": "number"
+        },
+        "skyBg": {
+          "default": NaN,
+          "description": "Average sky background (ADU).",
+          "title": "Skybg",
+          "type": "number"
+        },
+        "skyNoise": {
+          "default": NaN,
+          "description": "Average sky noise (ADU).",
+          "title": "Skynoise",
+          "type": "number"
+        },
+        "starComa1Median": {
+          "default": NaN,
+          "description": "Coma-like higher-order moment combination: median M30 + M12 of the stars used in the PSF model.",
+          "title": "Starcoma1Median",
+          "type": "number"
+        },
+        "starComa2Median": {
+          "default": NaN,
+          "description": "Coma-like higher-order moment combination: median M21 + M03 of the stars used in the PSF model.",
+          "title": "Starcoma2Median",
+          "type": "number"
+        },
+        "starE41Median": {
+          "default": NaN,
+          "description": "Fourth-order ellipticity-like higher-order moment combination: median M40 - M04 of the stars used in the PSF model.",
+          "title": "Stare41Median",
+          "type": "number"
+        },
+        "starE42Median": {
+          "default": NaN,
+          "description": "Fourth-order ellipticity-like higher-order moment combination: median 2*(M31 + M13) of the stars used in the PSF model.",
+          "title": "Stare42Median",
+          "type": "number"
+        },
+        "starEMedian": {
+          "default": NaN,
+          "description": "Median ellipticity (sqrt(starE1**2.0 + starE2**2.0)) of the stars used in the PSF model.",
+          "title": "Staremedian",
+          "type": "number"
+        },
+        "starKurtosisMedian": {
+          "default": NaN,
+          "description": "Kurtosis-like higher-order moment combination: median M40 + 2*M22 + M04 of the stars used in the PSF model.",
+          "title": "Starkurtosismedian",
+          "type": "number"
+        },
+        "starTrefoil1Median": {
+          "default": NaN,
+          "description": "Trefoil-like higher-order moment combination: median M30 - 3*M12 of the stars used in the PSF model.",
+          "title": "Startrefoil1Median",
+          "type": "number"
+        },
+        "starTrefoil2Median": {
+          "default": NaN,
+          "description": "Trefoil-like higher-order moment combination: median 3*M21 - M03 of the stars used in the PSF model.",
+          "title": "Startrefoil2Median",
+          "type": "number"
+        },
+        "starUnNormalizedEMedian": {
+          "default": NaN,
+          "description": "Median un-normalized ellipticity (sqrt((starXX - starYY)**2.0 + (2.0*starXY)**2.0)) of the stars used in the PSF model.",
+          "title": "Starunnormalizedemedian",
+          "type": "number"
+        },
+        "version": {
+          "default": 0,
+          "description": "Version of the model.",
+          "title": "Version",
+          "type": "integer"
+        },
+        "zenithDistance": {
+          "default": NaN,
+          "description": "Bounding box center zenith distance (degrees).",
+          "title": "Zenithdistance",
+          "type": "number"
+        },
+        "zeroPoint": {
+          "default": NaN,
+          "description": "Mean zeropoint in detector (mag).",
+          "title": "Zeropoint",
+          "type": "number"
+        }
+      },
+      "title": "ObservationSummaryStats",
+      "type": "object"
+    },
+    "Orientation": {
+      "description": "A struct that represents the nominal position and rotation of a\ndetector within a camera focal plane.",
+      "properties": {
+        "focal_plane_x": {
+          "description": "Focal plane X coordinate of the reference position.",
+          "title": "Focal Plane X",
+          "type": "number"
+        },
+        "focal_plane_y": {
+          "description": "Focal plane Y coordinate of the reference position.",
+          "title": "Focal Plane Y",
+          "type": "number"
+        },
+        "focal_plane_z": {
+          "description": "Focal plane Z coordinate of the reference position.",
+          "title": "Focal Plane Z",
+          "type": "number"
+        },
+        "pitch": {
+          "$ref": "#/$defs/Quantity",
+          "description": "Rotation about the Y axis (as defined after applying 'yaw')."
+        },
+        "pixel_reference_x": {
+          "default": 0.5,
+          "description": "Pixel X coordinate of the reference point.",
+          "title": "Pixel Reference X",
+          "type": "number"
+        },
+        "pixel_reference_y": {
+          "default": 0.5,
+          "description": "Pixel Y coordinate of the reference point.",
+          "title": "Pixel Reference Y",
+          "type": "number"
+        },
+        "roll": {
+          "$ref": "#/$defs/Quantity",
+          "description": "Rotation about the X axis (as defined after applying 'yaw' and 'pitch')."
+        },
+        "yaw": {
+          "$ref": "#/$defs/Quantity",
+          "description": "Rotation about the Z axis."
+        }
+      },
+      "required": [
+        "focal_plane_x",
+        "focal_plane_y",
+        "focal_plane_z"
+      ],
+      "title": "Orientation",
+      "type": "object"
+    },
+    "PSFExSerializationModel": {
+      "description": "Serialization model for PSFEx PSFs.",
+      "properties": {
+        "average_x": {
+          "description": "Average X position of the stars used to build this PSF model.",
+          "title": "Average X",
+          "type": "number"
+        },
+        "average_y": {
+          "description": "Average Y position of the stars used to build this PSF model.",
+          "title": "Average Y",
+          "type": "number"
+        },
+        "basis": {
+          "description": "Basis function values.",
+          "items": {
+            "type": "number"
+          },
+          "title": "Basis",
+          "type": "array"
+        },
+        "bounds": {
+          "$ref": "#/$defs/BoundsSerializationModel",
+          "description": "Validity range for this PSF model."
+        },
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "coeff": {
+          "description": "Polynomial coefficients.",
+          "items": {
+            "type": "number"
+          },
+          "title": "Coeff",
+          "type": "array"
+        },
+        "context": {
+          "$ref": "#/$defs/InlineArray",
+          "description": "Internal PSFEx context array."
+        },
+        "degree": {
+          "description": "Polynomial degree for each model group.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Degree",
+          "type": "array"
+        },
+        "group": {
+          "description": "Number of model groups in each dimension.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Group",
+          "type": "array"
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "parameters": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArrayReferenceModel"
+            },
+            {
+              "$ref": "#/$defs/InlineArrayModel"
+            }
+          ],
+          "description": "Reference to an array with the complete model parameters.",
+          "title": "Parameters"
+        },
+        "pixel_step": {
+          "description": "Size of a model pixel, as a fraction or multiple of the native pixel size.",
+          "title": "Pixel Step",
+          "type": "number"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "average_x",
+        "average_y",
+        "pixel_step",
+        "degree",
+        "basis",
+        "coeff",
+        "parameters",
+        "context",
+        "bounds"
+      ],
+      "title": "psfex_psf",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/psfex_psf-1.0.0"
+    },
+    "PiffDict": {
+      "additionalProperties": {
+        "$ref": "#/$defs/PiffValue"
+      },
+      "type": "object"
+    },
+    "PiffObjectModel": {
+      "description": "General-purpose serialization model used for various Piff objects.",
+      "properties": {
+        "objects": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PiffObjectModel"
+          },
+          "title": "Objects",
+          "type": "object"
+        },
+        "structs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PiffDict"
+          },
+          "title": "Structs",
+          "type": "object"
+        },
+        "tables": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PiffTableModel"
+          },
+          "title": "Tables",
+          "type": "object"
+        },
+        "wcs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/GalSimLocalWcsModel"
+          },
+          "title": "Wcs",
+          "type": "object"
+        }
+      },
+      "title": "PiffObjectModel",
+      "type": "object"
+    },
+    "PiffScalar": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "PiffSerializationModel": {
+      "description": "Serialization model for a Piff PSF.",
+      "properties": {
+        "bounds": {
+          "$ref": "#/$defs/BoundsSerializationModel",
+          "description": "The bounds object that represents the PSF's validity region."
+        },
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "piff": {
+          "$ref": "#/$defs/PiffObjectModel",
+          "description": "The Piff PSF object itself."
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "stamp_size": {
+          "description": "Width of the (square) images returned by this PSF's methods.",
+          "title": "Stamp Size",
+          "type": "integer"
+        },
+        "stars": {
+          "description": "Minimal information about the stars that went into the PSF model.",
+          "items": {
+            "$ref": "#/$defs/MinimalStar"
+          },
+          "title": "Stars",
+          "type": "array"
+        }
+      },
+      "required": [
+        "piff",
+        "stars",
+        "stamp_size",
+        "bounds"
+      ],
+      "title": "piff_psf",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/piff_psf-1.0.0"
+    },
+    "PiffTableModel": {
+      "description": "Serialization model used to embed a reference to a binary-data table in\na Piff serialization's JSON-like data.",
+      "properties": {
+        "metadata": {
+          "$ref": "#/$defs/PiffDict"
+        },
+        "table": {
+          "$ref": "#/$defs/TableModel"
+        }
+      },
+      "required": [
+        "metadata",
+        "table"
+      ],
+      "title": "PiffTableModel",
+      "type": "object"
+    },
+    "PiffValue": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PiffScalar"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/PiffValue"
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "ProductFieldSerializationModel": {
+      "description": "Serialization model for `ProductField`.",
+      "properties": {
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "field_type": {
+          "const": "PRODUCT",
+          "default": "PRODUCT",
+          "title": "Field Type",
+          "type": "string"
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "operands": {
+          "items": {
+            "$ref": "#/$defs/FieldSerializationModel"
+          },
+          "title": "Operands",
+          "type": "array"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "title": "product_field",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/product_field-1.0.0"
+    },
+    "Quantity": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF 'quantity' schema for scalars.",
+      "id": "http://stsci.edu/schemas/asdf/unit/quantity-1.2.0",
+      "properties": {
+        "unit": {
+          "$ref": "#/$defs/Unit"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "tag": "!unit/quantity-1.2.0",
+      "title": "QuantityModel",
+      "type": "object"
+    },
+    "ReadoutCorner": {
+      "description": "Enumeration of the possible readout corners of an amplifier.",
+      "enum": [
+        "LL",
+        "LR",
+        "UR",
+        "UL"
+      ],
+      "title": "ReadoutCorner",
+      "type": "string"
+    },
+    "RegionSerializationModel": {
+      "description": "Serialization model for `Region` and `Polygon`.\n\nThis model is a subset of the GeoJSON specification (IETF RFC 7946).",
+      "properties": {
+        "coordinates": {
+          "description": "Vertices of the polygon or polygons.",
+          "items": {
+            "items": {
+              "anyOf": [
+                {
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "prefixItems": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "type": "array"
+                },
+                {
+                  "items": {
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "title": "Coordinates",
+          "type": "array"
+        },
+        "type": {
+          "description": "Geometry type.",
+          "enum": [
+            "Polygon",
+            "MultiPolygon"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "coordinates"
+      ],
+      "title": "RegionSerializationModel",
+      "type": "object"
+    },
+    "SerializableFrame": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SkyFrame"
+        },
+        {
+          "discriminator": {
+            "mapping": {
+              "DETECTOR": "#/$defs/DetectorFrame",
+              "FIELD_ANGLE": "#/$defs/FieldAngleFrame",
+              "FOCAL_PLANE": "#/$defs/FocalPlaneFrame",
+              "GENERAL": "#/$defs/GeneralFrame",
+              "TRACT": "#/$defs/TractFrame"
+            },
+            "propertyName": "frame_type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/DetectorFrame"
+            },
+            {
+              "$ref": "#/$defs/TractFrame"
+            },
+            {
+              "$ref": "#/$defs/FocalPlaneFrame"
+            },
+            {
+              "$ref": "#/$defs/FieldAngleFrame"
+            },
+            {
+              "$ref": "#/$defs/GeneralFrame"
+            }
+          ]
+        }
+      ]
+    },
+    "SerializedDataCoordinate": {
+      "description": "Simplified model for serializing a `DataCoordinate`.",
+      "properties": {
+        "dataId": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Dataid",
+          "type": "object"
+        },
+        "records": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/SerializedDimensionRecord"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Records"
+        }
+      },
+      "required": [
+        "dataId"
+      ],
+      "title": "SerializedDataCoordinate",
+      "type": "object"
+    },
+    "SerializedDatasetRef": {
+      "description": "Simplified model of a `DatasetRef` suitable for serialization.",
+      "properties": {
+        "component": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component"
+        },
+        "dataId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SerializedDataCoordinate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "datasetType": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SerializedDatasetType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "run": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "SerializedDatasetRef",
+      "type": "object"
+    },
+    "SerializedDatasetType": {
+      "description": "Simplified model of a `DatasetType` suitable for serialization.",
+      "properties": {
+        "dimensions": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dimensions"
+        },
+        "isCalibration": {
+          "default": false,
+          "title": "Iscalibration",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parentStorageClass": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parentstorageclass"
+        },
+        "storageClass": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Storageclass"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "SerializedDatasetType",
+      "type": "object"
+    },
+    "SerializedDimensionRecord": {
+      "description": "Simplified model for serializing a `DimensionRecord`.",
+      "examples": [
+        {
+          "definition": "detector",
+          "record": {
+            "full_name": "0_01",
+            "id": 72,
+            "instrument": "HSC",
+            "name_in_raft": "01",
+            "purpose": "SCIENCE",
+            "raft": "0"
+          }
+        }
+      ],
+      "properties": {
+        "definition": {
+          "examples": [
+            "exposure"
+          ],
+          "title": "Name of dimension associated with this record.",
+          "type": "string"
+        },
+        "record": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/Timespan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "definition": "exposure",
+              "record": {
+                "exposure": 2021050300044,
+                "instrument": "LATISS",
+                "obs_id": "AT_O_20210503_00044"
+              }
+            }
+          ],
+          "title": "Dimension record keys and values.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "definition",
+        "record"
+      ],
+      "title": "SerializedDimensionRecord",
+      "type": "object"
+    },
+    "SignedIntegerType": {
+      "anyOf": [
+        {
+          "const": "int8",
+          "type": "string"
+        },
+        {
+          "const": "int16",
+          "type": "string"
+        },
+        {
+          "const": "int32",
+          "type": "string"
+        },
+        {
+          "const": "int64",
+          "type": "string"
+        }
+      ]
+    },
+    "SkyFrame": {
+      "description": "The special frame that represents the sky, in ICRS coordinates.",
+      "enum": [
+        "ICRS"
+      ],
+      "title": "SkyFrame",
+      "type": "string"
+    },
+    "SkyProjectionSerializationModel_ArrayReferenceModel_": {
+      "properties": {
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "fits_approximation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TransformSerializationModel_ArrayReferenceModel_"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "An approximation of the pixel-to-sky transform that is exactly representable as a FITS WCS."
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "pixel_to_sky": {
+          "$ref": "#/$defs/TransformSerializationModel_ArrayReferenceModel_",
+          "description": "The transform that maps pixel coordinates to the sky."
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pixel_to_sky"
+      ],
+      "title": "sky_projection",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/sky_projection-1.0.0"
+    },
+    "SplineFieldSerializationModel": {
+      "description": "Serialization model for `SplineField`.",
+      "properties": {
+        "bounds": {
+          "$ref": "#/$defs/BoundsSerializationModel",
+          "description": "The region where this field can be evaluated."
+        },
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArrayReferenceModel"
+            },
+            {
+              "$ref": "#/$defs/InlineArrayModel"
+            }
+          ],
+          "description": "2-d data to interpolate.  NaNs indicate missing values.",
+          "title": "Data"
+        },
+        "field_type": {
+          "const": "SPLINE",
+          "default": "SPLINE",
+          "title": "Field Type",
+          "type": "string"
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Unit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Units of the field."
+        },
+        "x": {
+          "$ref": "#/$defs/InlineArray",
+          "description": "Column positions of the data points."
+        },
+        "y": {
+          "$ref": "#/$defs/InlineArray",
+          "description": "Row positions of the data points."
+        }
+      },
+      "required": [
+        "bounds",
+        "data",
+        "y",
+        "x"
+      ],
+      "title": "spline_field",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/spline_field-1.0.0"
+    },
+    "SumFieldSerializationModel": {
+      "description": "Serialization model for `SumField`.",
+      "properties": {
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "field_type": {
+          "const": "SUM",
+          "default": "SUM",
+          "title": "Field Type",
+          "type": "string"
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "operands": {
+          "items": {
+            "$ref": "#/$defs/FieldSerializationModel"
+          },
+          "title": "Operands",
+          "type": "array"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "title": "sum_field",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/sum_field-1.0.0"
+    },
+    "TableColumnModel": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF table/column schema.",
+      "id": "http://stsci.edu/schemas/asdf/table/column-1.1.0",
+      "properties": {
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InlineArrayModel"
+            },
+            {
+              "$ref": "#/$defs/ArrayReferenceModel"
+            }
+          ],
+          "title": "Data"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "meta": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": "Free-form metadata for the column.",
+          "title": "Meta",
+          "type": "object"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Unit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "data",
+        "name"
+      ],
+      "tag": "!table/column-1.1.0",
+      "title": "TableColumnModel",
+      "type": "object"
+    },
+    "TableModel": {
+      "description": "Placeholder for an ASDF-like model for referencing or holding binary\ntabular data.",
+      "properties": {
+        "columns": {
+          "description": "Definitions of all columns.",
+          "items": {
+            "$ref": "#/$defs/TableColumnModel"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "meta": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": "Free-form metadata for the table.",
+          "title": "Meta",
+          "type": "object"
+        }
+      },
+      "title": "TableModel",
+      "type": "object"
+    },
+    "Timespan": {
+      "description": "A [begin, end) TAI timespan with bounds as integer nanoseconds since 1970-01-01 00:00:00.",
+      "properties": {
+        "nsec": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Nsec",
+          "type": "array"
+        }
+      },
+      "required": [
+        "nsec"
+      ],
+      "title": "Timespan",
+      "type": "object"
+    },
+    "TractFrame": {
+      "description": "The pixel coordinates of a tract: a region on the sky used for\ncoaddition, defined by a 'skymap' and split into 'patches' that share\na common pixel grid.",
+      "properties": {
+        "bbox": {
+          "description": "Bounding box of the full tract.",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "frame_type": {
+          "const": "TRACT",
+          "default": "TRACT",
+          "description": "Discriminator for the frame type.",
+          "title": "Frame Type",
+          "type": "string"
+        },
+        "skymap": {
+          "description": "Name of the skymap.",
+          "title": "Skymap",
+          "type": "string"
+        },
+        "tract": {
+          "description": "ID of the tract within its skymap.",
+          "title": "Tract",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "skymap",
+        "tract",
+        "bbox"
+      ],
+      "title": "TractFrame",
+      "type": "object"
+    },
+    "TransformSerializationModel_ArrayReferenceModel_": {
+      "properties": {
+        "bounds": {
+          "description": "\nList of the bounds of the ``frames`` for this transform.\n\nThis always has the same number of elements as ``frames``.\n",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/BoundsSerializationModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Bounds",
+          "type": "array"
+        },
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "frames": {
+          "description": "\nList of frames that this transform passes through.\n\nAll transforms include at least two frames (the endpoints).  Others\nintermediate frames may be included to facilitate data-sharing\nbetween transforms.\n",
+          "items": {
+            "$ref": "#/$defs/SerializableFrame"
+          },
+          "title": "Frames",
+          "type": "array"
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "mappings": {
+          "description": "\nThe actual mappings between frames, or archive pointers to\nserialized FrameSet objects from which they can be obtained.\n\nThis always has one fewer element than ``frames``.\n",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ArrayReferenceModel"
+              },
+              {
+                "$ref": "#/$defs/MappingSerializationModel"
+              }
+            ]
+          },
+          "title": "Mappings",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "title": "transform",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/transform-1.0.0"
+    },
+    "Unit": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "id": "http://stsci.edu/schemas/asdf/unit/unit-1.0.0",
+      "tag": "!unit/unit-1.0.0",
+      "type": "string"
+    },
+    "UnsignedIntegerType": {
+      "anyOf": [
+        {
+          "const": "bool",
+          "type": "string"
+        },
+        {
+          "const": "uint8",
+          "type": "string"
+        },
+        {
+          "const": "uint16",
+          "type": "string"
+        },
+        {
+          "const": "uint32",
+          "type": "string"
+        },
+        {
+          "const": "uint64",
+          "type": "string"
+        }
+      ]
+    },
+    "XY": {
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "title": "X"
+        },
+        {
+          "title": "Y"
+        }
+      ],
+      "type": "array"
+    },
+    "YX_int_": {
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "title": "Y",
+          "type": "integer"
+        },
+        {
+          "title": "X",
+          "type": "integer"
+        }
+      ],
+      "type": "array"
+    },
+    "_SerializedInterval": {
+      "properties": {
+        "start": {
+          "title": "Start",
+          "type": "integer"
+        },
+        "stop": {
+          "title": "Stop",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start",
+        "stop"
+      ],
+      "title": "_SerializedInterval",
+      "type": "object"
+    }
+  },
+  "$id": "https://images.lsst.io/schemas/difference_image-1.0.0",
+  "properties": {
+    "aperture_corrections": {
+      "$ref": "#/$defs/ApertureCorrectionMapSerializationModel",
+      "description": "Aperture corrections, keyed by flux algorithm."
+    },
+    "backgrounds": {
+      "$ref": "#/$defs/BackgroundMapSerializationModel",
+      "description": "Background models associated with this image."
+    },
+    "band": {
+      "description": "Short name of the bandpass filter.",
+      "title": "Band",
+      "type": "string"
+    },
+    "bounds": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BoundsSerializationModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Pixel validity region, if different from the image bounding box."
+    },
+    "butler_info": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ButlerInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Information about the butler dataset backed by this file."
+    },
+    "detector": {
+      "$ref": "#/$defs/DetectorSerializationModel",
+      "description": "Geometry and electronic information for the detector."
+    },
+    "image": {
+      "$ref": "#/$defs/ImageSerializationModel_ArrayReferenceModel_",
+      "description": "The main data image."
+    },
+    "indirect": {
+      "description": "Serialized nested objects that may be saved or read more than once.",
+      "items": {},
+      "title": "Indirect",
+      "type": "array"
+    },
+    "kernel": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConvolutionKernelSerializationModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The convolution kernel used to match the (warped) template to the science image."
+    },
+    "mask": {
+      "$ref": "#/$defs/MaskSerializationModel_ArrayReferenceModel_",
+      "description": "Bitmask that annotates the main image's pixels."
+    },
+    "metadata": {
+      "additionalProperties": {
+        "$ref": "#/$defs/MetadataValue"
+      },
+      "description": "Additional unstructured metadata.",
+      "title": "Metadata",
+      "type": "object"
+    },
+    "min_read_version": {
+      "default": 1,
+      "description": "Smallest reader major that can interpret this tree.",
+      "title": "Min Read Version",
+      "type": "integer"
+    },
+    "obs_info": {
+      "$ref": "#/$defs/ObservationInfo",
+      "description": "Standardized description of visit metadata"
+    },
+    "photometric_scaling": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FieldSerializationModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Scaling that can be used to multiply a post-ISR image to yield calibrated pixel values."
+    },
+    "psf": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PiffSerializationModel"
+        },
+        {
+          "$ref": "#/$defs/PSFExSerializationModel"
+        },
+        {
+          "$ref": "#/$defs/GaussianPSFSerializationModel"
+        },
+        {}
+      ],
+      "description": "PSF model for the image.",
+      "title": "Psf"
+    },
+    "schema_version": {
+      "default": "1.0.0",
+      "description": "Data-model schema version of this tree (major.minor.patch).",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sky_projection": {
+      "$ref": "#/$defs/SkyProjectionSerializationModel_ArrayReferenceModel_",
+      "description": "Projection that maps the pixel grid to the sky."
+    },
+    "summary_stats": {
+      "$ref": "#/$defs/ObservationSummaryStats",
+      "description": "Summary statistics for the observation."
+    },
+    "templates": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/DifferenceImageTemplateInfo"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Information about the template coadds that went into this difference image",
+      "title": "Templates"
+    },
+    "variance": {
+      "$ref": "#/$defs/ImageSerializationModel_ArrayReferenceModel_",
+      "description": "Per-pixel variance estimates for the main image."
+    }
+  },
+  "required": [
+    "image",
+    "mask",
+    "variance",
+    "sky_projection",
+    "psf",
+    "obs_info",
+    "summary_stats",
+    "detector",
+    "band",
+    "kernel",
+    "templates"
+  ],
+  "title": "difference_image",
+  "type": "object"
+}

@@ -177,8 +177,13 @@ class ArchiveTree(
         json_schema_extra = cls.model_config.get("json_schema_extra") or {}
         if isinstance(json_schema_extra, dict):
             existing = dict(json_schema_extra)
-            existing.setdefault("$id", f"{SCHEMA_URL_BASE}/{name}-{version}")
-            existing.setdefault("title", name)
+            # Always override: a subclass of a concrete schema (e.g.
+            # visit_image subclassing masked_image) inherits its parent's
+            # already-stamped values through the merged model_config, and
+            # this hook only runs when the subclass declares its own
+            # SCHEMA_NAME / SCHEMA_VERSION for these to be derived from.
+            existing["$id"] = f"{SCHEMA_URL_BASE}/{name}-{version}"
+            existing["title"] = name
             cls.model_config = {**cls.model_config, "json_schema_extra": existing}
         # Local import to avoid the _io -> _common circular dependency at
         # module load time.

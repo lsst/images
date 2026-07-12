@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, ClassVar
+
+import pytest
 
 from lsst.images.frozen_schemas import (
     available_schema_classes,
@@ -22,6 +25,25 @@ from lsst.images.frozen_schemas import (
     frozen_schema_path,
     write_frozen_schemas,
 )
+from lsst.images.serialization import ArchiveTree, InputArchive
+
+REPO_SCHEMA_DIR = Path(__file__).parent.parent / "schemas"
+
+
+class _ForeignArchiveTree(ArchiveTree):
+    """Concrete ArchiveTree defined outside lsst.images; registers itself on
+    class creation, like the test doubles in other test modules.
+    """
+
+    SCHEMA_NAME: ClassVar[str] = "frozen_schemas_test_foreign"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = object
+
+    def deserialize(
+        self, archive: InputArchive[Any], **kwargs: Any
+    ) -> Any:  # pragma: no cover - never invoked
+        raise NotImplementedError()
 
 
 def test_available_schema_classes() -> None:
@@ -33,6 +55,14 @@ def test_available_schema_classes() -> None:
     assert "cell_coadd" in names  # lazily-loaded built-in provider
 
 
+def test_available_schema_classes_excludes_foreign_modules() -> None:
+    """Verify classes registered from outside lsst.images (e.g. test
+    doubles) are not treated as package-owned schemas.
+    """
+    names = [cls.SCHEMA_NAME for cls in available_schema_classes()]
+    assert "frozen_schemas_test_foreign" not in names
+
+
 def test_dump_schema_has_id_and_title() -> None:
     """Verify the dumped schema carries the canonical $id and title."""
     (cls,) = [c for c in available_schema_classes() if c.SCHEMA_NAME == "image"]
@@ -40,6 +70,18 @@ def test_dump_schema_has_id_and_title() -> None:
     assert schema["$id"] == f"https://images.lsst.io/schemas/image-{cls.SCHEMA_VERSION}"
     assert schema["title"] == "image"
     assert frozen_schema_filename(cls) == f"image-{cls.SCHEMA_VERSION}.json"
+
+
+def test_dumped_schema_ids_match_declaring_class() -> None:
+    """Verify every dumped schema's $id and title come from the declaring
+    class, not an inherited concrete schema (e.g. visit_image, which
+    subclasses masked_image).
+    """
+    for cls in available_schema_classes():
+        schema = dump_schema(cls)
+        expected = f"https://images.lsst.io/schemas/{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION}"
+        assert schema["$id"] == expected, cls.SCHEMA_NAME
+        assert schema["title"] == cls.SCHEMA_NAME
 
 
 def test_write_and_check_round_trip(tmp_path: Path) -> None:
@@ -86,3 +128,38 @@ def test_write_preserves_superseded_versions(tmp_path: Path) -> None:
     old.write_text("{}\n")
     write_frozen_schemas(tmp_path)
     assert old.exists()
+
+
+def test_fixtures_validate_against_frozen_schemas() -> None:
+    """Verify representative archive fixtures validate against the frozen
+    schemas with a strict draft 2020-12 validator, which also proves every
+    reference inside the published documents is resolvable.
+    """
+    jsonschema = pytest.importorskip("jsonschema")
+    # piff_psf deliberately keeps a legacy dict-shaped image_pos that readers
+    # accept but the current writer (and therefore the schema) does not emit.
+    legacy_shaped = {"piff_psf"}
+    checked = 0
+    for fixture_path in sorted((Path(__file__).parent / "data" / "schema_v1").glob("*.json")):
+        if fixture_path.stem in legacy_shaped:
+            continue
+        instance = json.loads(fixture_path.read_text())
+        name, _, version = instance["schema_url"].rsplit("/", 1)[-1].rpartition("-")
+        schema_file = REPO_SCHEMA_DIR / name / f"{name}-{version}.json"
+        schema = json.loads(schema_file.read_text())
+        jsonschema.Draft202012Validator(schema).validate(instance)
+        checked += 1
+    assert checked
+
+
+def test_committed_frozen_schemas_are_current() -> None:
+    """Verify the git-committed frozen schema files match the models.
+
+    A failure here means a serialization model changed; run
+    ``lsst-images-admin schemas write`` and commit the result.
+    """
+    problems = check_frozen_schemas(REPO_SCHEMA_DIR)
+    assert not problems, (
+        "Frozen schema files are stale; run 'lsst-images-admin schemas write' "
+        "and commit the result: " + ", ".join(problems)
+    )

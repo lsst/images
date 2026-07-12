@@ -1,0 +1,633 @@
+{
+  "$defs": {
+    "ArrayReferenceModel": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF 'ndarray' schema, in the case where the\narray data is stored elsewhere.",
+      "id": "http://stsci.edu/schemas/asdf/core/ndarray-1.1.0",
+      "properties": {
+        "byteorder": {
+          "const": "big",
+          "default": "big",
+          "description": "Byte order for the binary data.",
+          "title": "Byteorder",
+          "type": "string"
+        },
+        "datatype": {
+          "$ref": "#/$defs/NumberType",
+          "description": "Data type of the array."
+        },
+        "shape": {
+          "description": "Size of the array in each dimension.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Shape",
+          "type": "array"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Location of the underlying binary data.",
+          "title": "Source"
+        }
+      },
+      "required": [
+        "source",
+        "shape",
+        "datatype"
+      ],
+      "tag": "!core/ndarray-1.1.0",
+      "title": "ArrayReferenceModel",
+      "type": "object"
+    },
+    "ButlerInfo": {
+      "description": "Information about a butler dataset.",
+      "properties": {
+        "dataset": {
+          "$ref": "#/$defs/SerializedDatasetRef"
+        },
+        "provenance": {
+          "$ref": "#/$defs/DatasetProvenance"
+        }
+      },
+      "required": [
+        "dataset"
+      ],
+      "title": "ButlerInfo",
+      "type": "object"
+    },
+    "DatasetProvenance": {
+      "description": "Provenance of a single `DatasetRef`.",
+      "properties": {
+        "extras": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "propertyNames": {
+            "format": "uuid"
+          },
+          "title": "Extras",
+          "type": "object"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/SerializedDatasetRef"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "quantum_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantum Id"
+        }
+      },
+      "title": "DatasetProvenance",
+      "type": "object"
+    },
+    "InlineArrayModel": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF 'ndarray' schema, in the case where the\narray data is stored inline.",
+      "id": "http://stsci.edu/schemas/asdf/core/ndarray-1.1.0",
+      "properties": {
+        "data": {
+          "items": {},
+          "title": "Data",
+          "type": "array"
+        },
+        "datatype": {
+          "$ref": "#/$defs/NumberType"
+        }
+      },
+      "required": [
+        "data",
+        "datatype"
+      ],
+      "tag": "!core/ndarray-1.1.0",
+      "title": "InlineArrayModel",
+      "type": "object"
+    },
+    "MetadataValue": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "NumberType": {
+      "description": "Enumeration of array values types supported by the library.",
+      "enum": [
+        "bool",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "float32",
+        "float64"
+      ],
+      "title": "NumberType",
+      "type": "string"
+    },
+    "SerializedDataCoordinate": {
+      "description": "Simplified model for serializing a `DataCoordinate`.",
+      "properties": {
+        "dataId": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Dataid",
+          "type": "object"
+        },
+        "records": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/SerializedDimensionRecord"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Records"
+        }
+      },
+      "required": [
+        "dataId"
+      ],
+      "title": "SerializedDataCoordinate",
+      "type": "object"
+    },
+    "SerializedDatasetRef": {
+      "description": "Simplified model of a `DatasetRef` suitable for serialization.",
+      "properties": {
+        "component": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component"
+        },
+        "dataId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SerializedDataCoordinate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "datasetType": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SerializedDatasetType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "run": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "SerializedDatasetRef",
+      "type": "object"
+    },
+    "SerializedDatasetType": {
+      "description": "Simplified model of a `DatasetType` suitable for serialization.",
+      "properties": {
+        "dimensions": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dimensions"
+        },
+        "isCalibration": {
+          "default": false,
+          "title": "Iscalibration",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parentStorageClass": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parentstorageclass"
+        },
+        "storageClass": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Storageclass"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "SerializedDatasetType",
+      "type": "object"
+    },
+    "SerializedDimensionRecord": {
+      "description": "Simplified model for serializing a `DimensionRecord`.",
+      "examples": [
+        {
+          "definition": "detector",
+          "record": {
+            "full_name": "0_01",
+            "id": 72,
+            "instrument": "HSC",
+            "name_in_raft": "01",
+            "purpose": "SCIENCE",
+            "raft": "0"
+          }
+        }
+      ],
+      "properties": {
+        "definition": {
+          "examples": [
+            "exposure"
+          ],
+          "title": "Name of dimension associated with this record.",
+          "type": "string"
+        },
+        "record": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/Timespan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "definition": "exposure",
+              "record": {
+                "exposure": 2021050300044,
+                "instrument": "LATISS",
+                "obs_id": "AT_O_20210503_00044"
+              }
+            }
+          ],
+          "title": "Dimension record keys and values.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "definition",
+        "record"
+      ],
+      "title": "SerializedDimensionRecord",
+      "type": "object"
+    },
+    "TableColumnModel": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF table/column schema.",
+      "id": "http://stsci.edu/schemas/asdf/table/column-1.1.0",
+      "properties": {
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InlineArrayModel"
+            },
+            {
+              "$ref": "#/$defs/ArrayReferenceModel"
+            }
+          ],
+          "title": "Data"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "meta": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": "Free-form metadata for the column.",
+          "title": "Meta",
+          "type": "object"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Unit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "data",
+        "name"
+      ],
+      "tag": "!table/column-1.1.0",
+      "title": "TableColumnModel",
+      "type": "object"
+    },
+    "TableModel": {
+      "description": "Placeholder for an ASDF-like model for referencing or holding binary\ntabular data.",
+      "properties": {
+        "columns": {
+          "description": "Definitions of all columns.",
+          "items": {
+            "$ref": "#/$defs/TableColumnModel"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "meta": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": "Free-form metadata for the table.",
+          "title": "Meta",
+          "type": "object"
+        }
+      },
+      "title": "TableModel",
+      "type": "object"
+    },
+    "Timespan": {
+      "description": "A [begin, end) TAI timespan with bounds as integer nanoseconds since 1970-01-01 00:00:00.",
+      "properties": {
+        "nsec": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Nsec",
+          "type": "array"
+        }
+      },
+      "required": [
+        "nsec"
+      ],
+      "title": "Timespan",
+      "type": "object"
+    },
+    "Unit": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "id": "http://stsci.edu/schemas/asdf/unit/unit-1.0.0",
+      "tag": "!unit/unit-1.0.0",
+      "type": "string"
+    }
+  },
+  "$id": "https://images.lsst.io/schemas/coadd_provenance-1.0.0",
+  "description": "A Pydantic model used to represent a serialized `CoaddProvenance`.\n\nNotes\n-----\nWe can't rewrite the Astropy tables directly into the archive (e.g. as\nFITS binary tables for a FITS archive), because:\n\n- `str` columns are a huge pain in both Numpy and FITS;\n- the polygon columns need to be rewritten as array-valued columns.\n\nTo deal with the string columns (``instrument`` and ``physical_filter``)\nwe do dictionary compression: we map each distinct value of those columns\nto an integer, and then we save that mapping to the model while saving\nan integer version of that column in the table.  But if there is actually\nonly one value in that column (the most common case by far) we just drop\nthe column and store that value directly in the model.",
+  "properties": {
+    "butler_info": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ButlerInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Information about the butler dataset backed by this file."
+    },
+    "contributions": {
+      "$ref": "#/$defs/TableModel",
+      "description": "Table of per-cell contributions to the coadd."
+    },
+    "indirect": {
+      "description": "Serialized nested objects that may be saved or read more than once.",
+      "items": {},
+      "title": "Indirect",
+      "type": "array"
+    },
+    "inputs": {
+      "$ref": "#/$defs/TableModel",
+      "description": "Table of all inputs to the coadd."
+    },
+    "instrument": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "type": "object"
+        }
+      ],
+      "description": "Instrument name for all inputs to this coadd, or a mapping from instrument name to the integer used in its place in the tables.",
+      "title": "Instrument"
+    },
+    "metadata": {
+      "additionalProperties": {
+        "$ref": "#/$defs/MetadataValue"
+      },
+      "description": "Additional unstructured metadata.",
+      "title": "Metadata",
+      "type": "object"
+    },
+    "min_read_version": {
+      "default": 1,
+      "description": "Smallest reader major that can interpret this tree.",
+      "title": "Min Read Version",
+      "type": "integer"
+    },
+    "physical_filter": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "type": "object"
+        }
+      ],
+      "description": "Physical filter name for all inputs to this coadd.",
+      "title": "Physical Filter"
+    },
+    "schema_version": {
+      "default": "1.0.0",
+      "description": "Data-model schema version of this tree (major.minor.patch).",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "instrument",
+    "physical_filter",
+    "inputs",
+    "contributions"
+  ],
+  "title": "coadd_provenance",
+  "type": "object"
+}
