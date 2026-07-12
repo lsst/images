@@ -29,6 +29,7 @@ __all__ = (
     "write_frozen_schemas",
 )
 
+import importlib.metadata
 import json
 from pathlib import Path
 from typing import Any
@@ -38,31 +39,45 @@ from .serialization._common import ArchiveTree
 from .serialization._io import (
     _BUILTIN_SCHEMA_PROVIDERS,
     _REGISTRY,
+    _SCHEMA_ENTRY_POINT_GROUP,
     class_for_schema,
     parameterize_tree,
 )
 
 
-def available_schema_classes() -> list[type[ArchiveTree]]:
+def available_schema_classes(package: str = "lsst.images") -> list[type[ArchiveTree]]:
     """Return every `~lsst.images.serialization.ArchiveTree` subclass owned
-    by this package, sorted by schema name.
+    by ``package``, sorted by schema name.
 
-    Schemas registered from outside the ``lsst.images`` package — via the
-    ``lsst.images.schemas`` entry point group or by direct class creation
-    (e.g. test doubles) — are deliberately excluded: this package only
-    freezes and publishes its own schemas.
+    Parameters
+    ----------
+    package
+        Only classes whose defining module is this package (or a
+        subpackage of it) are returned, so a package freezes and publishes
+        exactly the schemas it owns, and schema classes created elsewhere
+        (e.g. test doubles) are never picked up by accident.
+
+    Notes
+    -----
+    Candidate schemas come from the in-memory registry, the built-in lazy
+    providers, and the ``lsst.images.schemas`` entry point group, so an
+    external package's schemas are found even when nothing has imported
+    their modules yet.
     """
     # Local import to avoid a circular import: this module is part of
     # lsst.images, and importing the package here (to register the
     # unconditionally-imported models) at module scope would recurse.
     import lsst.images  # noqa: F401
 
+    entry_point_names = {
+        entry_point.name for entry_point in importlib.metadata.entry_points(group=_SCHEMA_ENTRY_POINT_GROUP)
+    }
     classes: list[type[ArchiveTree]] = []
-    for name in sorted(set(_REGISTRY) | set(_BUILTIN_SCHEMA_PROVIDERS)):
+    for name in sorted(set(_REGISTRY) | set(_BUILTIN_SCHEMA_PROVIDERS) | entry_point_names):
         cls = class_for_schema(name)
         if cls is None:
             raise RuntimeError(f"Schema {name!r} is registered but its class could not be loaded.")
-        if not cls.__module__.startswith("lsst.images."):
+        if cls.__module__ != package and not cls.__module__.startswith(f"{package}."):
             continue
         classes.append(cls)
     return classes
@@ -138,7 +153,7 @@ def _canonical_text(schema: dict[str, Any]) -> str:
     return json.dumps(schema, indent=2, sort_keys=True) + "\n"
 
 
-def write_frozen_schemas(directory: Path) -> list[Path]:
+def write_frozen_schemas(directory: Path, package: str = "lsst.images") -> list[Path]:
     """Write the frozen schema file for every current schema.
 
     Parameters
@@ -146,6 +161,8 @@ def write_frozen_schemas(directory: Path) -> list[Path]:
     directory
         Directory to write the ``{name}-{version}.json`` files into; created
         if necessary.
+    package
+        Package whose schemas to freeze; see `available_schema_classes`.
 
     Returns
     -------
@@ -160,7 +177,7 @@ def write_frozen_schemas(directory: Path) -> list[Path]:
     resolving.
     """
     changed: list[Path] = []
-    for cls in available_schema_classes():
+    for cls in available_schema_classes(package):
         path = frozen_schema_path(directory, cls)
         path.parent.mkdir(parents=True, exist_ok=True)
         text = _canonical_text(dump_schema(cls))
@@ -170,13 +187,15 @@ def write_frozen_schemas(directory: Path) -> list[Path]:
     return changed
 
 
-def check_frozen_schemas(directory: Path) -> list[str]:
+def check_frozen_schemas(directory: Path, package: str = "lsst.images") -> list[str]:
     """Check the frozen schema files against the current models.
 
     Parameters
     ----------
     directory
         Directory holding the frozen ``{name}-{version}.json`` files.
+    package
+        Package whose schemas to check; see `available_schema_classes`.
 
     Returns
     -------
@@ -186,7 +205,7 @@ def check_frozen_schemas(directory: Path) -> list[str]:
         files are up to date.
     """
     problems: list[str] = []
-    for cls in available_schema_classes():
+    for cls in available_schema_classes(package):
         path = frozen_schema_path(directory, cls)
         if not path.exists():
             problems.append(f"{path.relative_to(directory)}: missing")

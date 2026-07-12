@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 from pathlib import Path
 from typing import Any, ClassVar
@@ -87,6 +88,61 @@ def test_available_schema_classes_excludes_foreign_modules() -> None:
     """
     names = [cls.SCHEMA_NAME for cls in available_schema_classes()]
     assert "frozen_schemas_test_foreign" not in names
+
+
+def test_available_schema_classes_package_filter() -> None:
+    """Verify the package argument selects schemas by defining module, so an
+    external package can freeze its own schemas.
+    """
+    classes = available_schema_classes(package=_ForeignArchiveTree.__module__)
+    names = [cls.SCHEMA_NAME for cls in classes]
+    assert "frozen_schemas_test_foreign" in names
+    assert "image" not in names
+
+
+def test_available_schema_classes_discovers_entry_points(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify schemas provided only through the ``lsst.images.schemas``
+    entry point group are discovered without prior registration.
+    """
+    state: dict[str, type[ArchiveTree]] = {}
+
+    def _load() -> type[ArchiveTree]:
+        if "cls" not in state:
+
+            class _EntryPointArchiveTree(ArchiveTree):
+                SCHEMA_NAME: ClassVar[str] = "frozen_schemas_test_entry_point"
+                SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+                MIN_READ_VERSION: ClassVar[int] = 1
+                PUBLIC_TYPE: ClassVar[type] = object
+
+                def deserialize(
+                    self, archive: InputArchive[Any], **kwargs: Any
+                ) -> Any:  # pragma: no cover - never invoked
+                    raise NotImplementedError()
+
+            state["cls"] = _EntryPointArchiveTree
+        return state["cls"]
+
+    class _FakeEntryPoint:
+        name = "frozen_schemas_test_entry_point"
+        value = "fake.module:FakeClass"
+
+        def load(self) -> type[ArchiveTree]:
+            return _load()
+
+    real_entry_points = importlib.metadata.entry_points
+
+    def _fake_entry_points(**kwargs: Any) -> Any:
+        if kwargs.get("group") == "lsst.images.schemas":
+            eps = [_FakeEntryPoint()]
+            if (name := kwargs.get("name")) is not None:
+                eps = [ep for ep in eps if ep.name == name]
+            return eps
+        return real_entry_points(**kwargs)
+
+    monkeypatch.setattr(importlib.metadata, "entry_points", _fake_entry_points)
+    classes = available_schema_classes(package=_ForeignArchiveTree.__module__)
+    assert "frozen_schemas_test_entry_point" in [cls.SCHEMA_NAME for cls in classes]
 
 
 def test_dump_schema_has_id_and_title() -> None:

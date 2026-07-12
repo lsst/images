@@ -426,6 +426,18 @@ def test_schemas_write_and_check(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
 
 
+def test_schemas_write_package_option(tmp_path: Path) -> None:
+    """Verify --package freezes only schemas defined under that package."""
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["schemas", "write", "--dir", str(tmp_path), "--package", "lsst.images.cells"]
+    )
+    assert result.exit_code == 0, result.output
+    names = sorted(p.name for p in tmp_path.rglob("*.json"))
+    assert any(n.startswith("cell_coadd-") for n in names)
+    assert not any(n.startswith("image-") for n in names)
+
+
 def test_schemas_check_fails_when_stale(tmp_path: Path) -> None:
     """Verify schemas check exits nonzero and names the fix when stale."""
     runner = CliRunner()
