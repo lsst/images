@@ -60,8 +60,9 @@ URL scheme
 
    https://images.lsst.io/schemas/<schema-name>-<major>.<minor>.<patch>
 
-It is informational and need not resolve to a hosted document.
 The same URL appears in the FITS ``DATAMODL`` keyword and the NDF ``.MORE.LSST.DATA_MODEL`` component so the data model is visible to tooling without parsing the JSON tree.
+The URL resolves to a generated documentation page for that schema version, with the raw JSON Schema document published alongside it at ``{schema_url}.json``; see :ref:`lsst.images-frozen-schemas`.
+Readers never fetch it: version compatibility is decided entirely by the ``schema_version`` / ``min_read_version`` stamps.
 
 Why two fields per model
 ========================
@@ -118,6 +119,26 @@ A patch bump (``1.0.0`` → ``1.0.1``) is for changes that do not affect file-fo
 
 A unit test enforces that every concrete subclass declares all three constants, that every ``SCHEMA_NAME`` is unique, and that ``MIN_READ_VERSION`` does not exceed the schema major.
 It does *not* enforce that a shape change was accompanied by a version bump — that remains a review-time discipline.
+
+.. _lsst.images-frozen-schemas:
+
+Frozen schema files
+===================
+
+The JSON Schema for every serialization model is committed to the ``schemas/`` directory at the top of the repository as ``{name}/{name}-{version}.json``.
+These files are the published source of truth for the canonical schema URLs: the documentation build generates one page per file at ``https://images.lsst.io/schemas/{name}-{version}``, with a field table, a composition diagram, and the raw JSON published alongside at ``https://images.lsst.io/schemas/{name}-{version}.json``.
+
+If you change a serialization model, the ``test_committed_frozen_schemas_are_current`` test will fail; run ``lsst-images-admin schemas write`` from the repository root and commit the updated files together with your change.
+Until the first data release, schemas evolve in place at version 1.0.0, so this overwrites the existing frozen file.
+After the first data release, a model change must instead bump ``SCHEMA_VERSION``; ``schemas write`` then adds a new frozen file, and the superseded file (and its published URL) is kept forever.
+
+Composition and version cascades
+--------------------------------
+
+A frozen schema inlines the sub-schemas of every embedded `~lsst.images.serialization.ArchiveTree` model, pinning the exact sub-schema versions its writer emits.
+Which *older* sub-schema versions a reader accepts is not recorded in the schema document, because that is a property of the reader code and the per-node ``min_read_version`` gate described above.
+Consequently a version bump in an embedded schema (e.g. ``sky_projection``) changes the frozen document of every schema that embeds it (e.g. ``visit_image``), and after the first data release those containing schemas must take a minor bump of their own even though their fields did not change.
+``schemas write`` identifies exactly which containing schemas are affected.
 
 Schema discovery and entry points
 =================================

@@ -1,0 +1,2 @@
+Schema URLs such as ``https://images.lsst.io/schemas/image-1.0.0`` now resolve to generated documentation pages with field tables and composition diagrams, with the raw JSON Schema published alongside.
+The JSON schemas are frozen into the ``schemas/`` directory of the repository, kept current with ``lsst-images-admin schemas write`` and guarded by a regression test.
