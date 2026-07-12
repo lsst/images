@@ -36,25 +36,28 @@ from .serialization._io import class_for_schema, parameterize_tree
 
 def _link_map(schema: dict[str, Any], available_stems: set[str]) -> dict[str, str]:
     """Map ``$defs`` keys to rst cross-references for definitions that are
-    themselves published schemas with a generated page.
+    themselves published schemas.
 
     Nested `~lsst.images.serialization.ArchiveTree` models carry their
     canonical URL in the ``x-lsst-schema-url`` key of their ``$defs`` entry
     (``$id`` would start a new resolution scope), so a composite schema's
-    page can hyperlink directly to the pages of its sub-schemas (e.g.
-    ``visit_image`` → ``mask``).
+    page can hyperlink directly to its sub-schemas (e.g. ``visit_image`` →
+    ``mask``): a relative page reference when the sub-schema is hosted on
+    this site, or its absolute URL when it is published elsewhere.
     """
     links: dict[str, str] = {}
-    prefix = f"{SCHEMA_URL_BASE}/"
     for key, definition in schema.get("$defs", {}).items():
         if not isinstance(definition, dict):
             continue
         schema_id = definition.get("x-lsst-schema-url", "")
-        if schema_id.startswith(prefix):
-            stem = schema_id.removeprefix(prefix)
-            if stem in available_stems:
-                title = definition.get("title", stem)
-                links[key] = f":doc:`{title} <../{stem}/index>`"
+        if not schema_id:
+            continue
+        stem = schema_id.rstrip("/").rsplit("/", 1)[-1]
+        title = definition.get("title", stem)
+        if stem in available_stems:
+            links[key] = f":doc:`{title} <../{stem}/index>`"
+        else:
+            links[key] = f"`{title} <{schema_id}>`__"
     return links
 
 
@@ -171,6 +174,7 @@ def _schema_page(name: str, version: str, schema: dict[str, Any], available_stem
     """Return the rst source for one schema page."""
     links = _link_map(schema, available_stems)
     body = _root_body(schema)
+    canonical_url = schema.get("$id", f"{SCHEMA_URL_BASE}/{name}-{version}")
     title = f"{name} {version}"
     lines = [
         "#" * len(title),
@@ -179,7 +183,7 @@ def _schema_page(name: str, version: str, schema: dict[str, Any], available_stem
         "",
         _description_text(body.get("description", "")),
         "",
-        f"- Canonical URL: ``{SCHEMA_URL_BASE}/{name}-{version}``",
+        f"- Canonical URL: ``{canonical_url}``",
         f"- `Raw JSON schema <../{name}-{version}.json>`__",
         "",
     ]

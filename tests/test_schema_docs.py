@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -64,6 +65,36 @@ def test_sub_schema_links(generated: tuple[Path, Path]) -> None:
     text = (vi_dir / "index.rst").read_text()
     assert ":doc:`mask <../mask-" in text
     assert ":doc:`sky_projection <../sky_projection-" in text
+
+
+def test_external_sub_schema_links(tmp_path: Path) -> None:
+    """Verify a sub-schema not hosted on this site is linked by its absolute
+    $id URL, and the page's canonical URL comes from the schema's own $id,
+    so an external package can generate pages under its own URL base.
+    """
+    schema_dir = tmp_path / "schemas"
+    schema_dir.mkdir()
+    widget = {
+        "$id": "https://example.org/schemas/widget-1.0.0",
+        "title": "widget",
+        "description": "A widget.",
+        "type": "object",
+        "properties": {"mask": {"$ref": "#/$defs/MaskModel", "description": "The mask."}},
+        "$defs": {
+            "MaskModel": {
+                "x-lsst-schema-url": "https://images.lsst.io/schemas/mask-1.0.0",
+                "title": "mask",
+                "type": "object",
+            }
+        },
+    }
+    (schema_dir / "widget").mkdir()
+    (schema_dir / "widget" / "widget-1.0.0.json").write_text(json.dumps(widget) + "\n")
+    page_dir = tmp_path / "pages"
+    generate_schema_docs(schema_dir, page_dir, tmp_path / "extra")
+    text = (page_dir / "widget-1.0.0" / "index.rst").read_text()
+    assert "`mask <https://images.lsst.io/schemas/mask-1.0.0>`__" in text
+    assert "https://example.org/schemas/widget-1.0.0" in text
 
 
 def test_recursive_schema_page_has_fields(generated: tuple[Path, Path]) -> None:
