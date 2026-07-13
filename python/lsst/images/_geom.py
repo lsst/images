@@ -643,6 +643,11 @@ class Box:
     x
         Interval for the x dimension.
 
+    Raises
+    ------
+    TypeError
+        Raised if ``y`` or ``x`` is not an `Interval`.
+
     Notes
     -----
     `Box` implements the necessary hooks to be included directly in a
@@ -651,7 +656,15 @@ class Box:
     """
 
     def __init__(self, y: Interval, x: Interval) -> None:
-        self._intervals = YX(y, x)
+        match (y, x):
+            case (Interval(), Interval()):
+                self._intervals = YX(y, x)
+            case _:
+                raise TypeError(
+                    f"Box arguments must be Interval instances, ordered (y, x); got ({y!r}, {x!r}). "
+                    "See the Box.factory slice syntax and the from_* class methods for other ways "
+                    "to construct a Box."
+                )
 
     __slots__ = ("_intervals",)
 

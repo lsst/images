@@ -324,6 +324,25 @@ def test_box_constructor() -> None:
     assert grown == Box.factory[-1:4, -3:3]
 
 
+def test_box_constructor_type_checking() -> None:
+    """Verify that the Box constructor rejects non-Interval arguments."""
+    y = Interval(-5, 5)
+    x = Interval(32, 64)
+    with pytest.raises(TypeError, match="Interval"):
+        Box((-5, 5), (32, 64))  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="Interval"):
+        Box(slice(-5, 5), slice(32, 64))  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="Interval"):
+        Box(-5, 32)  # type: ignore[arg-type]
+    # Each argument is checked, not just the first.
+    with pytest.raises(TypeError, match="Interval"):
+        Box(y, (32, 64))  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="Interval"):
+        Box((-5, 5), x)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="Interval"):
+        Box(y=y, x=(32, 64))  # type: ignore[arg-type]
+
+
 def test_box_contains() -> None:
     """Test box containment against other boxes and points."""
     box = Box.factory[0:20, 10:40]
