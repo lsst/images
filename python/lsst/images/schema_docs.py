@@ -29,9 +29,12 @@ from pathlib import Path
 from typing import Any
 
 from .diagram import build_graph, make_policy, render
-from .serialization._asdf_utils import ArrayReferenceModel
-from .serialization._common import SCHEMA_URL_BASE
-from .serialization._io import class_for_schema, parameterize_tree
+from .serialization import (
+    SCHEMA_URL_BASE,
+    ArrayReferenceModel,
+    class_for_schema,
+    parameterize_tree,
+)
 
 
 def _link_map(schema: dict[str, Any], available_stems: set[str]) -> dict[str, str]:
@@ -170,19 +173,76 @@ def _mermaid_lines(name: str, version: str) -> list[str]:
     return lines
 
 
-def _schema_page(name: str, version: str, schema: dict[str, Any], available_stems: set[str]) -> str:
-    """Return the rst source for one schema page."""
+def _version_key(version: str) -> tuple[int, ...]:
+    """Return a numeric sort key for a ``major.minor.patch`` version string,
+    so that e.g. ``1.0.10`` sorts after ``1.0.2``.
+    """
+    return tuple(int(part) for part in version.split("."))
+
+
+def _family_page(
+    name: str, versions: list[str], latest_schema: dict[str, Any], available_stems: set[str]
+) -> str:
+    """Return the rst source for a schema family page.
+
+    The family page lists every published version of one schema (newest
+    first, with the current version marked), renders the latest version's
+    content inline, and owns the nav toctree for the version pages, so the
+    top-level schema index only grows when a new schema is added, not on
+    every version bump.  It is published at the versionless URL
+    ``{SCHEMA_URL_BASE}/{name}``.
+
+    Parameters
+    ----------
+    name
+        Schema name.
+    versions
+        Published versions of the schema, newest first.
+    latest_schema
+        Parsed frozen schema of the newest version, rendered inline.
+    available_stems
+        ``{name}-{version}`` stems of every published schema, for
+        cross-linking sub-schemas that have their own pages.
+    """
+    cls = class_for_schema(name)
+    current = cls.SCHEMA_VERSION if cls is not None else None
+    lines = [
+        "#" * len(name),
+        name,
+        "#" * len(name),
+        "",
+        _description_text(_root_body(latest_schema).get("description", "")),
+        "",
+        "Versions",
+        "========",
+        "",
+        ".. list-table::",
+        "   :header-rows: 1",
+        "",
+        "   * - Version",
+        "     - Status",
+    ]
+    for version in versions:
+        lines.append(f"   * - :doc:`{version} <../{name}-{version}/index>`")
+        lines.append(f"     - {'current' if version == current else 'superseded'}")
+    # Render the latest version's content inline so the landing page shows the
+    # schema itself, not just a list of links to click through.
+    lines.append("")
+    lines.extend(_content_lines(name, versions[0], latest_schema, available_stems))
+    lines.extend(["", ".. toctree::", "   :hidden:", ""])
+    lines.extend(f"   {version} <../{name}-{version}/index>" for version in versions)
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _content_lines(name: str, version: str, schema: dict[str, Any], available_stems: set[str]) -> list[str]:
+    """Return the rst body shared by the version page and the family page:
+    canonical URL, raw-JSON link, composition diagram, and field table.
+    """
     links = _link_map(schema, available_stems)
     body = _root_body(schema)
     canonical_url = schema.get("$id", f"{SCHEMA_URL_BASE}/{name}-{version}")
-    title = f"{name} {version}"
     lines = [
-        "#" * len(title),
-        title,
-        "#" * len(title),
-        "",
-        _description_text(body.get("description", "")),
-        "",
         f"- Canonical URL: ``{canonical_url}``",
         f"- `Raw JSON schema <../{name}-{version}.json>`__",
         "",
@@ -190,6 +250,21 @@ def _schema_page(name: str, version: str, schema: dict[str, Any], available_stem
     lines.extend(_mermaid_lines(name, version))
     lines.extend(["", "Fields", "======", ""])
     lines.extend(_field_table(body, links))
+    return lines
+
+
+def _schema_page(name: str, version: str, schema: dict[str, Any], available_stems: set[str]) -> str:
+    """Return the rst source for one schema version page."""
+    title = f"{name} {version}"
+    lines = [
+        "#" * len(title),
+        title,
+        "#" * len(title),
+        "",
+        _description_text(_root_body(schema).get("description", "")),
+        "",
+    ]
+    lines.extend(_content_lines(name, version, schema, available_stems))
     lines.append("")
     return "\n".join(lines)
 
@@ -216,7 +291,8 @@ def generate_schema_docs(schema_dir: Path, page_dir: Path, extra_dir: Path) -> N
     extra_schemas.mkdir(parents=True)
     paths = sorted(schema_dir.glob("*/*.json"))
     available_stems = {path.stem for path in paths}
-    entries: list[str] = []
+    families: dict[str, list[str]] = {}
+    schemas_by_stem: dict[str, dict[str, Any]] = {}
     for path in paths:
         name, _, version = path.stem.rpartition("-")
         schema = json.loads(path.read_text())
@@ -224,20 +300,28 @@ def generate_schema_docs(schema_dir: Path, page_dir: Path, extra_dir: Path) -> N
         entry_dir.mkdir()
         (entry_dir / "index.rst").write_text(_schema_page(name, version, schema, available_stems))
         shutil.copyfile(path, extra_schemas / path.name)
-        entries.append(f"   {path.stem}/index")
+        families.setdefault(name, []).append(version)
+        schemas_by_stem[path.stem] = schema
+    for name, versions in families.items():
+        versions.sort(key=_version_key, reverse=True)
+        family_dir = page_dir / name
+        family_dir.mkdir()
+        (family_dir / "index.rst").write_text(
+            _family_page(name, versions, schemas_by_stem[f"{name}-{versions[0]}"], available_stems)
+        )
     index_lines = [
         "#######",
         "Schemas",
         "#######",
         "",
         "JSON schemas for the ``lsst.images`` serialization data models.",
-        "Each page documents one schema version; the raw JSON schema is linked from each page.",
+        "Each schema's page lists its published versions; every version page links the raw JSON schema.",
         "See :ref:`lsst.images-schema-versioning` for the versioning rules.",
         "",
         ".. toctree::",
         "   :maxdepth: 1",
         "",
-        *entries,
+        *(f"   {name}/index" for name in sorted(families)),
         "",
     ]
     (page_dir / "index.rst").write_text("\n".join(index_lines))

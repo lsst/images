@@ -129,6 +129,7 @@ Frozen schema files
 
 The JSON Schema for every serialization model is committed to the ``schemas/`` directory at the top of the repository as ``{name}/{name}-{version}.json``.
 These files are the published source of truth for the canonical schema URLs: the documentation build generates one page per file at ``https://images.lsst.io/schemas/{name}-{version}``, with a field table, a composition diagram, and the raw JSON published alongside at ``https://images.lsst.io/schemas/{name}-{version}.json``.
+The versionless URL ``https://images.lsst.io/schemas/{name}`` resolves to a per-schema index listing every published version, which is also how the version pages are grouped in the site navigation.
 
 If you change a serialization model, the ``test_committed_frozen_schemas_are_current`` test will fail; run ``lsst-images-admin schemas write`` from the repository root and commit the updated files together with your change.
 Until the first data release, schemas evolve in place at version 1.0.0, so this overwrites the existing frozen file.
@@ -167,7 +168,7 @@ Version compatibility remains the responsibility of the selected model's ``schem
 External packages that provide schemas should also:
 
 - Override the ``SCHEMA_URL_BASE`` class variable (once, on a shared intermediate base class) so their schema URLs are minted under a documentation site they control; ``images.lsst.io`` only hosts the schemas this package owns.
-- Freeze their schemas into their own repository with ``lsst-images-admin schemas write --package <their.package>``, and guard them with an equivalent of this package's ``test_committed_frozen_schemas_are_current`` test using `lsst.images.frozen_schemas.check_frozen_schemas`.
+- Freeze their schemas into their own repository with ``lsst-images-admin schemas write --package <their.package>``, and guard them with an equivalent of this package's ``test_committed_frozen_schemas_are_current`` test using `lsst.images.serialization.check_frozen_schemas`.
 - Generate documentation pages for their site with `lsst.images.schema_docs.generate_schema_docs`, which links any embedded ``lsst.images`` sub-schemas back to their canonical ``images.lsst.io`` URLs.
 
 ``lsst.images`` also maintains a small built-in lazy-provider table for schemas it owns but does not import unconditionally, such as the ``lsst.images.cells`` models.

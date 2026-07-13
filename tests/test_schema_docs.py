@@ -34,13 +34,65 @@ def generated(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
 
 
 def test_page_per_schema(generated: tuple[Path, Path]) -> None:
-    """Verify each frozen schema gets a directory-style page."""
+    """Verify each frozen schema gets a directory-style page, reachable from
+    the top index through its family page rather than listed directly.
+    """
     page_dir, _ = generated
-    pages = sorted(p.parent.name for p in page_dir.glob("*/index.rst"))
-    assert any(p.startswith("image-") for p in pages)
+    (image_dir,) = [p for p in page_dir.glob("image-*") if p.is_dir()]
+    assert (image_dir / "index.rst").exists()
     index = (page_dir / "index.rst").read_text()
-    for page in pages:
-        assert f"{page}/index" in index
+    assert "image/index" in index
+    assert f"{image_dir.name}/index" not in index
+    family = (page_dir / "image" / "index.rst").read_text()
+    version = image_dir.name.removeprefix("image-")
+    assert f":doc:`{version} <../{image_dir.name}/index>`" in family
+
+
+def test_family_page_versions(tmp_path: Path) -> None:
+    """Verify a family page lists versions newest-first with the current
+    version marked, and hosts the nav toctree for its version pages.
+    """
+    schema_dir = tmp_path / "schemas"
+    write_frozen_schemas(schema_dir)
+    old = {
+        "$id": "https://images.lsst.io/schemas/image-0.9.0",
+        "title": "image",
+        "description": "Old image schema.",
+        "type": "object",
+        "properties": {},
+    }
+    (schema_dir / "image" / "image-0.9.0.json").write_text(json.dumps(old) + "\n")
+    page_dir = tmp_path / "pages"
+    generate_schema_docs(schema_dir, page_dir, tmp_path / "extra")
+    family = (page_dir / "image" / "index.rst").read_text()
+    i_new = family.index(":doc:`1.0.0 <../image-1.0.0/index>`")
+    i_old = family.index(":doc:`0.9.0 <../image-0.9.0/index>`")
+    assert i_new < i_old
+    assert "current" in family
+    assert "superseded" in family
+    assert ".. toctree::" in family
+
+
+def test_family_version_sort_numeric(tmp_path: Path) -> None:
+    """Verify versions sort numerically, so 1.0.10 outranks 1.0.2."""
+    schema_dir = tmp_path / "schemas"
+    schema_dir.mkdir()
+    for version in ("1.0.2", "1.0.10"):
+        gadget = {
+            "$id": f"https://example.org/schemas/gadget-{version}",
+            "title": "gadget",
+            "description": "A gadget.",
+            "type": "object",
+            "properties": {},
+        }
+        (schema_dir / "gadget").mkdir(exist_ok=True)
+        (schema_dir / "gadget" / f"gadget-{version}.json").write_text(json.dumps(gadget) + "\n")
+    page_dir = tmp_path / "pages"
+    generate_schema_docs(schema_dir, page_dir, tmp_path / "extra")
+    family = (page_dir / "gadget" / "index.rst").read_text()
+    i_ten = family.index(":doc:`1.0.10 <../gadget-1.0.10/index>`")
+    i_two = family.index(":doc:`1.0.2 <../gadget-1.0.2/index>`")
+    assert i_ten < i_two
 
 
 def test_page_content(generated: tuple[Path, Path]) -> None:
