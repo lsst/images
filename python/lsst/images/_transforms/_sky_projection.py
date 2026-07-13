@@ -429,6 +429,14 @@ class SkyProjection[F: Frame]:
                 "are guaranteed to be convertible to SkyWcs."
             )
             raise
+        # SkyWcs requires the pixel frame's domain to be PIXELS, while AST
+        # (and hence NDF and from_fits_wcs) uses PIXEL, so rename it in the
+        # FrameDict (a deep copy, so this projection itself is unchanged).
+        if ast_mapping.hasDomain("PIXEL") and not ast_mapping.hasDomain("PIXELS"):
+            saved_current = ast_mapping.current
+            ast_mapping.setCurrent("PIXEL")
+            ast_mapping.setDomain("PIXELS")
+            ast_mapping.current = saved_current
         legacy_wcs = LegacySkyWcs(ast_mapping)
         if self.fits_approximation is not None:
             legacy_wcs = legacy_wcs.copyWithFitsApproximation(self.fits_approximation.to_legacy())

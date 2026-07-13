@@ -356,7 +356,30 @@ if USING_STARLINK_PYAST:
 
     class FrameDict(FrameSet):
         def __init__(self, obj: Object) -> None:
-            Object.__init__(self, obj._impl)
+            # astshim.FrameDict deep-copies the FrameSet it is constructed
+            # from, so mutations never propagate back to the original.
+            Object.__init__(self, obj._impl.copy())
+
+        def getIndex(self, domain: str) -> int:
+            for i in range(1, self.nFrame + 1):
+                if self.getFrame(i, copy=False).domain == domain:
+                    return i
+            raise KeyError(f"No frame with domain {domain!r}.")
+
+        def hasDomain(self, domain: str) -> bool:
+            try:
+                self.getIndex(domain)
+            except KeyError:
+                return False
+            return True
+
+        def setCurrent(self, domain: str) -> None:
+            self.current = self.getIndex(domain)
+
+        def setDomain(self, domain: str) -> None:
+            # AST forwards attribute assignments on a FrameSet to its current
+            # frame.
+            self._impl.Domain = domain
 
     class FitsChan(Object):
         def __init__(self, stream: StringStream | None = None, options: str = "") -> None:
