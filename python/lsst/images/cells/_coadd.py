@@ -479,7 +479,7 @@ class CellCoadd(MaskedImage):
             provenance=provenance,
         )
 
-    def to_legacy(
+    def to_legacy_cell_coadd(
         self, copy: bool | None = None, plane_map: Mapping[str, MaskPlane] | None = None
     ) -> LegacyMultipleCellCoadd:
         """Convert to a `lsst.cell_coadds.MultipleCellCoadd` instance.
@@ -572,7 +572,7 @@ class CellCoadd(MaskedImage):
             inner_bbox=self.bbox.to_legacy(),
         )
 
-    def to_legacy_exposure(
+    def to_legacy(
         self, copy: bool | None = None, plane_map: Mapping[str, MaskPlane] | None = None
     ) -> LegacyExposure:
         """Convert to a `lsst.afw.image.Exposure` instance.

@@ -1,0 +1,4 @@
+Changed ``CellCoadd.to_legacy`` API to return an ``lsst.afw.image.ExposureF`` to make it consistent with the other imaging classes.
+This allows for a consistent experience for the users where they do not have to check whether they have a ``VisitImage`` or ``CellCoadd`` to work out what the return type is going to be.
+The corollary of this change is that there is now ``CellCoadd.to_legacy_cell_coadd``.
+``CellCoadd.to_legacy_exposure`` has been removed with no deprecation period.

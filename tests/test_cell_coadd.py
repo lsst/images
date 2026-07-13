@@ -281,9 +281,9 @@ def test_json_roundtrip(legacy_test_data: _LegacyTestData) -> None:
     assert_cell_coadds_equal(roundtrip.result, legacy_test_data.cell_coadd, expect_view=False)
 
 
-def test_to_legacy(legacy_test_data: _LegacyTestData) -> None:
+def test_to_legacy_cell_coadd(legacy_test_data: _LegacyTestData) -> None:
     """Verify converting a CellCoadd back into a legacy MultipleCellCoadd."""
-    legacy_cell_coadd = legacy_test_data.cell_coadd.to_legacy()
+    legacy_cell_coadd = legacy_test_data.cell_coadd.to_legacy_cell_coadd()
     compare_cell_coadd_to_legacy(
         legacy_test_data.cell_coadd,
         legacy_cell_coadd,
@@ -294,13 +294,13 @@ def test_to_legacy(legacy_test_data: _LegacyTestData) -> None:
     with pytest.raises(
         ValueError, match="MultipleCellCoadd requires its bounding box to lie on the cell grid."
     ):
-        legacy_test_data.cell_coadd[make_subbox(legacy_test_data.cell_coadd.bbox)].to_legacy()
+        legacy_test_data.cell_coadd[make_subbox(legacy_test_data.cell_coadd.bbox)].to_legacy_cell_coadd()
 
 
 @skip_no_legacy
-def test_to_legacy_exposure(legacy_test_data: _LegacyTestData) -> None:
+def test_to_legacy(legacy_test_data: _LegacyTestData) -> None:
     """Test converting a CellCoadd back into a legacy Exposure."""
-    legacy_exposure = legacy_test_data.cell_coadd.to_legacy_exposure()
+    legacy_exposure = legacy_test_data.cell_coadd.to_legacy()
     assert legacy_exposure.getFilter().bandLabel == legacy_test_data.cell_coadd.band
     assert Box.from_legacy(legacy_exposure.getBBox()) == legacy_test_data.cell_coadd.bbox
     compare_masked_image_to_legacy(
@@ -325,7 +325,7 @@ def test_to_legacy_exposure(legacy_test_data: _LegacyTestData) -> None:
     subbox = make_subbox(legacy_test_data.cell_coadd.bbox)
     compare_masked_image_to_legacy(
         legacy_test_data.cell_coadd[subbox],
-        legacy_test_data.cell_coadd[subbox].to_legacy_exposure().maskedImage,
+        legacy_test_data.cell_coadd[subbox].to_legacy().maskedImage,
         plane_map=legacy_test_data.plane_map,
         expect_view=True,
     )
