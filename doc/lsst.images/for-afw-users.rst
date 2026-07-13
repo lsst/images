@@ -78,6 +78,9 @@ The types in `lsst.image` can be sliced in this coordinate system via the `Gener
 This means that a "mask pixel" is actually a shape ``(N,)`` `numpy.uint8` array, but (thanks to automatic broadcasting) the usual bitwise operations still work.
 The `Mask.get`, `Mask.set`, and `Mask.clear` convenience methods can be used instead of direct bitwise array operations in most cases.
 The planes of different `Mask` objects are not necessarily the same (as is enforced by global state in `lsst.afw.image.Mask`); instead, a separate `MaskSchema` object is used to manage shared mask plane definitions.
+Most uses of ``lsst.afw.image.Mask.getMaskPlaneDict`` have direct `MaskSchema` counterparts: membership tests (``name in schema``), iteration over plane names (`MaskSchema.names`), and schema comparison (``==``).
+The `MaskSchema.bit_numbers` property is the closest equivalent to the full dictionary, mapping each plane name to its overall bit number in the schema.
+Because the planes are packed into multiple `numpy.uint8` elements, a bit number cannot be used to select pixels via ``1 << n``; use `MaskSchema.bits`, `MaskSchema.bit`, or `MaskSchema.bitmask` for that.
 
 `lsst.images.MaskedImage` corresponds directly to `MaskedImage`, but the latter can also hold a `SkyProjection`, flexible metadata, and units.
 

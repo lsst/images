@@ -116,6 +116,41 @@ def test_schema() -> None:
     assert len(splits[1]) == 2
 
 
+def test_schema_bits_and_bit_numbers() -> None:
+    """Verify the bits and bit_numbers mapping properties of MaskSchema."""
+    # A and B land in byte 0, the None placeholders reserve the rest of that
+    # byte, and C lands in byte 1.
+    planes: list[MaskPlane | None] = [
+        MaskPlane("A", "a"),
+        MaskPlane("B", "b"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        MaskPlane("C", "c"),
+    ]
+    schema = MaskSchema(planes, dtype=np.uint8)
+    assert schema.bit_numbers == {"A": 0, "B": 1, "C": 8}
+    assert list(schema.bit_numbers) == ["A", "B", "C"]
+    assert schema.bits == {name: schema.bit(name) for name in schema.names}
+    assert list(schema.bits) == ["A", "B", "C"]
+    # Placeholders count towards bit numbers, so each plane's bit number
+    # decomposes into its (element index, bit-within-element) location.
+    for name, bit_number in schema.bit_numbers.items():
+        index, bit = divmod(bit_number, MaskSchema.bits_per_element(schema.dtype))
+        assert schema.bits[name].index == index
+        assert schema.bits[name].mask == schema.dtype.type(1 << bit)
+    # The returned dicts are copies; mutating them must not affect the schema.
+    bit_numbers = schema.bit_numbers
+    bit_numbers["D"] = 9
+    assert schema.bit_numbers == {"A": 0, "B": 1, "C": 8}
+    bits = schema.bits
+    del bits["A"]
+    assert "A" in schema.bits
+
+
 def test_schema_from_fits_header() -> None:
     """Verify MaskSchema.from_fits_header inverts update_header."""
     planes = [

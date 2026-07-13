@@ -188,6 +188,9 @@ class MaskSchema:
             for n, plane in enumerate(self._planes)
             if plane is not None
         }
+        self._bit_numbers: dict[str, int] = {
+            plane.name: n for n, plane in enumerate(self._planes) if plane is not None
+        }
 
     @staticmethod
     def bits_per_element(dtype: npt.DTypeLike) -> int:
@@ -257,6 +260,33 @@ class MaskSchema:
     def descriptions(self) -> Mapping[str, str]:
         """A mapping from plane name to description."""
         return self._descriptions
+
+    @property
+    def bits(self) -> dict[str, MaskPlaneBit]:
+        """A mapping from plane name to the array index and bitmask that
+        select that plane's bit, in bit order.
+
+        The returned dict is a copy; modifying it does not affect the schema.
+        """
+        return dict(self._bits)
+
+    @property
+    def bit_numbers(self) -> dict[str, int]:
+        """A mapping from plane name to that plane's overall bit number in
+        the schema, in bit order.
+
+        The returned dict is a copy; modifying it does not affect the schema.
+
+        Notes
+        -----
+        A plane's bit number is its index in the schema, counting `None`
+        placeholders, and is the same numbering used by the ``MSKN`` header
+        cards written by `update_header`.  This mapping plays the same role as
+        `lsst.afw.image.Mask.getMaskPlaneDict`, but because mask arrays pack
+        their planes into multiple integer elements, a bit number cannot be
+        used to select pixels via ``1 << n``; use `bit` or `bitmask` for that.
+        """
+        return dict(self._bit_numbers)
 
     def bit(self, plane: str) -> MaskPlaneBit:
         """Return the last array index and mask for the given mask plane.

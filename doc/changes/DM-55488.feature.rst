@@ -1,0 +1,2 @@
+* Added the ``lsst.images.MaskSchema.bits`` and ``lsst.images.MaskSchema.bit_numbers`` mapping properties, which together provide the functionality of ``lsst.afw.image.Mask.getMaskPlaneDict``.
+  ``bits`` maps each plane name to the `~lsst.images.MaskPlaneBit` (array index and bitmask) that selects that plane's bit, while ``bit_numbers`` maps each plane name to its overall bit number in the schema.
