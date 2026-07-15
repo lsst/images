@@ -31,12 +31,13 @@ __all__ = (
 
 import importlib.metadata
 import json
+import re
 from pathlib import Path
 from typing import Any
 
-from .serialization._asdf_utils import ArrayReferenceModel
-from .serialization._common import ArchiveTree
-from .serialization._io import (
+from ._asdf_utils import ArrayReferenceModel
+from ._common import ArchiveTree
+from ._io import (
     _BUILTIN_SCHEMA_PROVIDERS,
     _REGISTRY,
     _SCHEMA_ENTRY_POINT_GROUP,
@@ -64,11 +65,6 @@ def available_schema_classes(package: str = "lsst.images") -> list[type[ArchiveT
     external package's schemas are found even when nothing has imported
     their modules yet.
     """
-    # Local import to avoid a circular import: this module is part of
-    # lsst.images, and importing the package here (to register the
-    # unconditionally-imported models) at module scope would recurse.
-    import lsst.images  # noqa: F401
-
     entry_point_names = {
         entry_point.name for entry_point in importlib.metadata.entry_points(group=_SCHEMA_ENTRY_POINT_GROUP)
     }
@@ -83,6 +79,38 @@ def available_schema_classes(package: str = "lsst.images") -> list[type[ArchiveT
     return classes
 
 
+def _summary_description(text: str) -> str:
+    """Return a docstring-derived description trimmed to its summary.
+
+    Text is kept up to (but not including) the first numpydoc section header:
+    a non-blank line immediately followed by a line of dashes at least as long
+    as it.  Text with no such header (e.g. a one-line ``pydantic.Field``
+    description) is returned unchanged, so only the sectioned content of a
+    class docstring (``Notes``, ``Parameters``, ...) is dropped and the summary
+    plus extended summary are kept.
+    """
+    lines = text.split("\n")
+    for i in range(len(lines) - 1):
+        header = lines[i].strip()
+        underline = lines[i + 1].strip()
+        if header and re.fullmatch(r"-+", underline) and len(underline) >= len(header):
+            return "\n".join(lines[:i]).rstrip()
+    return text
+
+
+def _summarize_descriptions(node: Any) -> None:
+    """Trim every ``description`` in a schema tree to its summary, in place."""
+    if isinstance(node, dict):
+        description = node.get("description")
+        if isinstance(description, str):
+            node["description"] = _summary_description(description)
+        for value in node.values():
+            _summarize_descriptions(value)
+    elif isinstance(node, list):
+        for item in node:
+            _summarize_descriptions(item)
+
+
 def dump_schema(tree_cls: type[ArchiveTree]) -> dict[str, Any]:
     """Return the JSON Schema for ``tree_cls``.
 
@@ -95,7 +123,9 @@ def dump_schema(tree_cls: type[ArchiveTree]) -> dict[str, Any]:
     -----
     Generic trees are parameterized over
     `~lsst.images.serialization.ArrayReferenceModel`, matching the convention
-    used by ``lsst-images-admin diagram``.
+    used by ``lsst-images-admin diagram``.  Model descriptions derived from
+    class docstrings are trimmed to their summary so the numpydoc sections
+    that follow it do not leak into the published schema.
     """
     schema = parameterize_tree(tree_cls, ArrayReferenceModel).model_json_schema()
     # A recursive model (e.g. sum_field) produces a root that is just a $ref
@@ -113,6 +143,7 @@ def dump_schema(tree_cls: type[ArchiveTree]) -> dict[str, Any]:
     for definition in schema.get("$defs", {}).values():
         if isinstance(definition, dict) and "$id" in definition:
             definition["x-lsst-schema-url"] = definition.pop("$id")
+    _summarize_descriptions(schema)
     return schema
 
 
@@ -162,11 +193,12 @@ def write_frozen_schemas(directory: Path, package: str = "lsst.images") -> list[
         Directory to write the ``{name}-{version}.json`` files into; created
         if necessary.
     package
-        Package whose schemas to freeze; see `available_schema_classes`.
+        Package whose schemas to freeze; see
+        `~lsst.images.serialization.available_schema_classes`.
 
     Returns
     -------
-    changed
+    `list` [ `pathlib.Path` ]
         Paths that were created or rewritten.
 
     Notes
@@ -195,11 +227,12 @@ def check_frozen_schemas(directory: Path, package: str = "lsst.images") -> list[
     directory
         Directory holding the frozen ``{name}-{version}.json`` files.
     package
-        Package whose schemas to check; see `available_schema_classes`.
+        Package whose schemas to check; see
+        `~lsst.images.serialization.available_schema_classes`.
 
     Returns
     -------
-    problems
+    `list` [ `str` ]
         One problem description per current schema whose frozen file is
         missing or does not match the current model; empty when the frozen
         files are up to date.

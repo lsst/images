@@ -33,7 +33,7 @@ import numpy as np
 import numpy.typing as npt
 import pydantic
 
-from ._geom import XY, YX, Bounds, Box
+from ._geom import XY, YX, Bounds, Box, SerializableYX
 
 if TYPE_CHECKING:
     try:
@@ -118,7 +118,7 @@ class CellGrid(pydantic.BaseModel, frozen=True):
             "but there is no expectation that ``(y=bbox.y.min, x=bbox.x.min)`` be ``(y=0, x=0)``."
         )
     )
-    cell_shape: YX[int] = pydantic.Field(description="Shape of each cell in pixels.")
+    cell_shape: SerializableYX[int] = pydantic.Field(description="Shape of each cell in pixels.")
 
     @property
     def grid_size(self) -> CellIJ:
@@ -362,7 +362,7 @@ class PatchDefinition(pydantic.BaseModel, frozen=True):
     """Identifiers and geometry for a full patch."""
 
     id: int = pydantic.Field(description="ID for the patch.")
-    index: YX[int] = pydantic.Field(description="2-d index of this patch within the tract.")
+    index: SerializableYX[int] = pydantic.Field(description="2-d index of this patch within the tract.")
     inner_bbox: Box = pydantic.Field(description="Inner bounding box of this patch.")
     cells: CellGrid = pydantic.Field(description="Cell grid for the full patch.")
 

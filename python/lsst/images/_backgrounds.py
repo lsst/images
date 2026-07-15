@@ -168,7 +168,7 @@ class BackgroundMapSerializationModel(ArchiveTree):
 
     subtracted: str | None = pydantic.Field(
         default=None,
-        description="Name of the background that was subtracted, or `None` if no background was subtracted.",
+        description="Name of the background that was subtracted, or None if no background was subtracted.",
     )
 
     def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> BackgroundMap:

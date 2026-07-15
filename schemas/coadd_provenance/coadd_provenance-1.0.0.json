@@ -543,7 +543,7 @@
     }
   },
   "$id": "https://images.lsst.io/schemas/coadd_provenance-1.0.0",
-  "description": "A Pydantic model used to represent a serialized `CoaddProvenance`.\n\nNotes\n-----\nWe can't rewrite the Astropy tables directly into the archive (e.g. as\nFITS binary tables for a FITS archive), because:\n\n- `str` columns are a huge pain in both Numpy and FITS;\n- the polygon columns need to be rewritten as array-valued columns.\n\nTo deal with the string columns (``instrument`` and ``physical_filter``)\nwe do dictionary compression: we map each distinct value of those columns\nto an integer, and then we save that mapping to the model while saving\nan integer version of that column in the table.  But if there is actually\nonly one value in that column (the most common case by far) we just drop\nthe column and store that value directly in the model.",
+  "description": "A Pydantic model used to represent a serialized `CoaddProvenance`.",
   "properties": {
     "butler_info": {
       "anyOf": [

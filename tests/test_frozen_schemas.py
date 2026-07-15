@@ -16,9 +16,12 @@ import json
 from pathlib import Path
 from typing import Any, ClassVar
 
+import pydantic
 import pytest
 
-from lsst.images.frozen_schemas import (
+from lsst.images.serialization import (
+    ArchiveTree,
+    InputArchive,
     available_schema_classes,
     check_frozen_schemas,
     dump_schema,
@@ -26,7 +29,7 @@ from lsst.images.frozen_schemas import (
     frozen_schema_path,
     write_frozen_schemas,
 )
-from lsst.images.serialization import ArchiveTree, InputArchive
+from lsst.images.serialization._frozen_schemas import _summary_description
 
 REPO_SCHEMA_DIR = Path(__file__).parent.parent / "schemas"
 
@@ -218,13 +221,8 @@ def test_fixtures_validate_against_frozen_schemas() -> None:
     reference inside the published documents is resolvable.
     """
     jsonschema = pytest.importorskip("jsonschema")
-    # piff_psf deliberately keeps a legacy dict-shaped image_pos that readers
-    # accept but the current writer (and therefore the schema) does not emit.
-    legacy_shaped = {"piff_psf"}
     checked = 0
     for fixture_path in sorted((Path(__file__).parent / "data" / "schema_v1").glob("*.json")):
-        if fixture_path.stem in legacy_shaped:
-            continue
         instance = json.loads(fixture_path.read_text())
         name, _, version = instance["schema_url"].rsplit("/", 1)[-1].rpartition("-")
         schema_file = REPO_SCHEMA_DIR / name / f"{name}-{version}.json"
@@ -245,3 +243,55 @@ def test_committed_frozen_schemas_are_current() -> None:
         "Frozen schema files are stale; run 'lsst-images-admin schemas write' "
         "and commit the result: " + ", ".join(problems)
     )
+
+
+class _NotesArchiveTree(ArchiveTree):
+    """Summary line for the notes tree.
+
+    Extended summary paragraph that should be kept.
+
+    Notes
+    -----
+    Implementation detail that must not appear in the schema description.
+    """
+
+    SCHEMA_NAME: ClassVar[str] = "frozen_schemas_test_notes"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = object
+
+    label: str = pydantic.Field(default="", description="A one-line field description with no sections.")
+
+    def deserialize(
+        self, archive: InputArchive[Any], **kwargs: Any
+    ) -> Any:  # pragma: no cover - never invoked
+        raise NotImplementedError()
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Just a summary.", "Just a summary."),
+        ("Summary.\n\nExtended paragraph.", "Summary.\n\nExtended paragraph."),
+        ("Summary.\n\nNotes\n-----\nDetail.", "Summary."),
+        ("Summary.\n\nMore.\n\nParameters\n----------\nx\n    A thing.", "Summary.\n\nMore."),
+        ("A dash - not a section header.", "A dash - not a section header."),
+    ],
+)
+def test_summary_description(text: str, expected: str) -> None:
+    """Verify the summary extends up to (not into) the first numpydoc section
+    header, and text without a section header is returned unchanged.
+    """
+    assert _summary_description(text) == expected
+
+
+def test_dump_schema_description_drops_numpydoc_sections() -> None:
+    """Verify a class docstring's numpydoc sections are dropped from the
+    schema description, while a one-line field description is untouched.
+    """
+    schema = dump_schema(_NotesArchiveTree)
+    assert schema["description"] == (
+        "Summary line for the notes tree.\n\nExtended summary paragraph that should be kept."
+    )
+    assert "Notes" not in schema["description"]
+    assert schema["properties"]["label"]["description"] == "A one-line field description with no sections."

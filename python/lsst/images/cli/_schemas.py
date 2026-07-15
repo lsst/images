@@ -16,7 +16,7 @@ from pathlib import Path
 
 import click
 
-from ..frozen_schemas import check_frozen_schemas, write_frozen_schemas
+from ..serialization import check_frozen_schemas, write_frozen_schemas
 
 _DIR_OPTION = click.option(
     "--dir",

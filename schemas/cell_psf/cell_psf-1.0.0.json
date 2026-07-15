@@ -63,7 +63,7 @@
       "type": "object"
     },
     "CellGrid": {
-      "description": "A grid of rectangular cells with no overlaps or space between cells.\n\nNotes\n-----\nA cell grid usually corresponds to a full patch, but we do not explicitly\nencode this in the type to permit full-tract grids, which would have to\ndrop the cells in patch overlap regions and re-label all cells.\n\nSubsets of grids are usually represented via `CellGridBounds`.",
+      "description": "A grid of rectangular cells with no overlaps or space between cells.",
       "properties": {
         "bbox": {
           "description": "Bounding box of the grid of cells (snapped to cell boundaries. The cell with index (i=0, j=0) always has a corner at ``(y=bbox.y.min, x=bbox.x.min)`` but there is no expectation that ``(y=bbox.y.min, x=bbox.x.min)`` be ``(y=0, x=0)``.",
@@ -83,8 +83,21 @@
           "type": "object"
         },
         "cell_shape": {
-          "$ref": "#/$defs/YX_int_",
-          "description": "Shape of each cell in pixels."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/_SerializedYX_int_"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          ],
+          "description": "Shape of each cell in pixels.",
+          "title": "Cell Shape"
         }
       },
       "required": [
@@ -95,7 +108,7 @@
       "type": "object"
     },
     "CellGridBounds": {
-      "description": "A region of pixels defined by a set of cells within a grid.\n\nNotes\n-----\nThis data structure is optimized for the case where a continguous\nrectangular region of the grid (the `bbox` attribute) is populated with\nonly a few exceptions (the `missing` set).\n\nSlicing a `CellGridBounds` with a `.Box` returns a new `CellGridBounds`\nwith just the cells that overlap that box.  As always,\n`CellGridBounds.bbox` will be snapped to the outer boundaries of those\ncells, so it will contain (and not generally equal) the given box.",
+      "description": "A region of pixels defined by a set of cells within a grid.",
       "properties": {
         "bbox": {
           "description": "Pixel bounding box of the region (snapped to cell boundaries).",
@@ -137,7 +150,7 @@
       "type": "object"
     },
     "CellIJ": {
-      "description": "An index in a grid of cells.\n\nNotes\n-----\nThis is deliberately not a `tuple` or other `~collections.abc.Sequence` in\norder to make it typing-incompatible with sequence-based pixel coordinate\npairs (e.g. `.YX`).  This also allows it to have addition and subtraction\noperators.",
+      "description": "An index in a grid of cells.",
       "properties": {
         "i": {
           "title": "I",
@@ -520,21 +533,6 @@
       "title": "Timespan",
       "type": "object"
     },
-    "YX_int_": {
-      "maxItems": 2,
-      "minItems": 2,
-      "prefixItems": [
-        {
-          "title": "Y",
-          "type": "integer"
-        },
-        {
-          "title": "X",
-          "type": "integer"
-        }
-      ],
-      "type": "array"
-    },
     "_SerializedInterval": {
       "properties": {
         "start": {
@@ -551,6 +549,24 @@
         "stop"
       ],
       "title": "_SerializedInterval",
+      "type": "object"
+    },
+    "_SerializedYX_int_": {
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "y",
+        "x"
+      ],
+      "title": "_SerializedYX",
       "type": "object"
     }
   },

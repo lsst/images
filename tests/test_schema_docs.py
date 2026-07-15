@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from lsst.images.frozen_schemas import write_frozen_schemas
 from lsst.images.schema_docs import generate_schema_docs
+from lsst.images.serialization import write_frozen_schemas
 
 
 @pytest.fixture(scope="module")
@@ -93,6 +93,18 @@ def test_family_version_sort_numeric(tmp_path: Path) -> None:
     i_ten = family.index(":doc:`1.0.10 <../gadget-1.0.10/index>`")
     i_two = family.index(":doc:`1.0.2 <../gadget-1.0.2/index>`")
     assert i_ten < i_two
+
+
+def test_family_page_shows_latest_content(generated: tuple[Path, Path]) -> None:
+    """Verify the family (versionless) page renders the latest version's
+    composition diagram and field table inline, not just a list of versions.
+    """
+    page_dir, _ = generated
+    family = (page_dir / "image" / "index.rst").read_text()
+    assert ".. mermaid::" in family
+    assert "\nFields\n======\n" in family
+    # Both the versions table and the inline field table are list-tables.
+    assert family.count(".. list-table::") >= 2
 
 
 def test_page_content(generated: tuple[Path, Path]) -> None:

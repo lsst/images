@@ -18,7 +18,16 @@ import numpy as np
 import pydantic
 import pytest
 
-from lsst.images import XY, YX, Bounds, Box, Interval, NoOverlapError
+from lsst.images import (
+    XY,
+    YX,
+    Bounds,
+    Box,
+    Interval,
+    NoOverlapError,
+    SerializableXY,
+    SerializableYX,
+)
 from lsst.images.tests import assert_close, check_bounds_contains_broadcasting
 
 
@@ -33,6 +42,14 @@ class BoxModel(pydantic.BaseModel):
     """Test Pydantic model with a box."""
 
     box: Box
+
+
+class PairModel(pydantic.BaseModel):
+    """Test Pydantic model with XY and YX pairs."""
+
+    xy: SerializableXY[float]
+    yx: SerializableYX[int]
+    bare: XY
 
 
 def _assert_type_hints_resolve(obj: object) -> None:
@@ -271,6 +288,60 @@ def test_interval_pydantic() -> None:
     jmodel = IntervalModel.model_validate_json(j_str)
     assert jmodel == model
     assert jmodel.interval1 == i1
+
+
+def test_xy_yx_pydantic() -> None:
+    """Test that XY and YX serialize as dicts keyed by dimension name."""
+    model = PairModel(xy=XY(x=1.5, y=2.5), yx=YX(y=3, x=4), bare=XY(x=0.5, y=1))
+    data = model.model_dump()
+    assert data == {
+        "xy": {"x": 1.5, "y": 2.5},
+        "yx": {"y": 3, "x": 4},
+        "bare": {"x": 0.5, "y": 1},
+    }
+
+    roundtripped = PairModel.model_validate_json(model.model_dump_json())
+    assert roundtripped == model
+    assert isinstance(roundtripped.xy, XY)
+    assert isinstance(roundtripped.yx, YX)
+    assert roundtripped.yx.y == 3
+    assert roundtripped.yx.x == 4
+
+    json_schema = PairModel.model_json_schema()
+
+    def resolve(node: dict) -> dict:
+        while "$ref" in node:
+            node = json_schema["$defs"][node["$ref"].rsplit("/", 1)[-1]]
+        return node
+
+    xy_object, xy_array = (resolve(s) for s in json_schema["properties"]["xy"]["anyOf"])
+    assert xy_object["type"] == "object"
+    assert set(xy_object["required"]) == {"x", "y"}
+    assert xy_object["properties"]["x"]["type"] == "number"
+    assert xy_array == {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
+    yx_object, yx_array = (resolve(s) for s in json_schema["properties"]["yx"]["anyOf"])
+    assert yx_object["type"] == "object"
+    assert set(yx_object["required"]) == {"x", "y"}
+    assert yx_object["properties"]["y"]["type"] == "integer"
+    assert yx_array == {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2}
+
+
+def test_xy_yx_pydantic_array_form() -> None:
+    """Test that the array serialization emitted before the object form was
+    introduced still validates, in both JSON and Python mode (already-parsed
+    JSON is validated as Python objects when reading archives).
+    """
+    from_json = PairModel.model_validate_json('{"xy": [1.5, 2.5], "yx": [3, 4], "bare": [0.5, 1.0]}')
+    assert from_json.xy == XY(x=1.5, y=2.5)
+    assert from_json.yx == YX(y=3, x=4)
+    from_python = PairModel.model_validate({"xy": [1.5, 2.5], "yx": [3, 4], "bare": [0.5, 1.0]})
+    assert from_python == from_json
+
+    # The array form is restricted to lists so that a transposed pair (XY
+    # and YX are both tuples) fails to validate rather than silently
+    # swapping its elements.
+    with pytest.raises(pydantic.ValidationError):
+        PairModel(xy=YX(y=2.5, x=1.5), yx=YX(y=3, x=4), bare=XY(x=0.5, y=1.0))
 
 
 def test_interval_pickle() -> None:
