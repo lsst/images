@@ -29,6 +29,20 @@ def _default_corners() -> tuple[float, float, float, float]:
     return (math.nan, math.nan, math.nan, math.nan)
 
 
+def _is_empty(value: Any) -> bool:
+    """Return whether a summary-statistic value is unset.
+
+    A value counts as unset if it is NaN, or an empty sequence, or a sequence
+    whose entries are all unset.  Such fields carry no information and can be
+    dropped when converting to or from the legacy representation, allowing the
+    two representations to define different sets of fields as long as the
+    fields they do not share are empty.
+    """
+    if isinstance(value, (list, tuple)):
+        return all(_is_empty(item) for item in value)
+    return isinstance(value, float) and math.isnan(value)
+
+
 class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
     version: int = pydantic.Field(0, description="Version of the model.")
 
@@ -431,25 +445,58 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
         ----------
         exposure_summary_stats
             Legacy exposure summary statistics to convert.
+
+        Notes
+        -----
+        Legacy fields that are empty (NaN) are dropped, so a legacy struct that
+        carries fields unknown to this class is accepted as long as those
+        fields are empty.  A legacy field that holds a real value but is
+        unknown here raises `ValueError`, since dropping it would lose data.
         """
-        # Assume that all the fields in an ExposureSummaryStats dataclass
-        # are compatible with an ObservationSummaryStats.
-        summary_stats = dataclasses.asdict(exposure_summary_stats)
-        return cls.model_validate(summary_stats)
+        known_fields = set(cls.model_fields)
+        kwargs: dict[str, Any] = {}
+        for name, value in dataclasses.asdict(exposure_summary_stats).items():
+            if _is_empty(value):
+                continue
+            if name not in known_fields:
+                raise ValueError(
+                    f"Legacy field {name!r} has a value ({value!r}) but is not known to "
+                    f"ObservationSummaryStats."
+                )
+            kwargs[name] = value
+        return cls.model_validate(kwargs)
 
     def to_legacy(self) -> LegacyExposureSummaryStats:
-        """Convert to an `lsst.afw.image.ExposureSummaryStats` instance."""
+        """Convert to an `lsst.afw.image.ExposureSummaryStats` instance.
+
+        Notes
+        -----
+        Empty (NaN) fields are not passed to the legacy struct, so fields
+        defined here that are unknown to the installed version of
+        `~lsst.afw.image.ExposureSummaryStats` are dropped when empty.  A field
+        that holds a real value but is unknown to the legacy struct raises
+        `ValueError`, since dropping it would lose data.
+        """
         from lsst.afw.image import ExposureSummaryStats as LegacyExposureSummaryStats
 
+        legacy_fields = {field.name for field in dataclasses.fields(LegacyExposureSummaryStats)}
         kwargs: dict[str, Any] = {}
         for name, info in ObservationSummaryStats.model_fields.items():
+            value = getattr(self, name)
+            if _is_empty(value):
+                continue
+            if name not in legacy_fields:
+                raise ValueError(
+                    f"Field {name!r} has a value ({value!r}) but is not supported by this "
+                    f"version of lsst.afw.image.ExposureSummaryStats."
+                )
             # Doing this in general is hard, so we handle the fields that we
             # know about and raise if somebody adds a field with a new type
             # without updating this function.
             if info.annotation in (float, int):
-                kwargs[name] = getattr(self, name)
+                kwargs[name] = value
             elif get_origin(info.annotation) is tuple:
-                kwargs[name] = list(getattr(self, name))
+                kwargs[name] = list(value)
             else:
                 raise NotImplementedError(f"Unsupported field type: {info.annotation}.")
         return LegacyExposureSummaryStats(**kwargs)

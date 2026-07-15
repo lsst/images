@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 import os
 import warnings
 from typing import Any, Literal
@@ -379,6 +380,55 @@ def test_summary_stats(visit_image_components: dict[str, Any]) -> None:
     assert summary_stats == ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4)
     assert summary_stats != ObservationSummaryStats(psfSigma=2.5)
     assert summary_stats != ObservationSummaryStats(psfSigma=2.5, raCorners=(5.2, 5.4, 5.4, 5.2))
+
+
+def test_summary_stats_to_legacy() -> None:
+    """Verify ObservationSummaryStats round-trips through the legacy
+    ExposureSummaryStats even when this package defines fields that the
+    installed afw does not.
+    """
+    try:
+        from lsst.afw.image import ExposureSummaryStats
+    except ImportError:
+        pytest.skip("lsst.afw.image is not available")
+
+    summary_stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4)
+    legacy = summary_stats.to_legacy()
+    assert isinstance(legacy, ExposureSummaryStats)
+    assert legacy.psfSigma == 2.5
+    assert legacy.zeroPoint == 31.4
+    # Empty (NaN) fields unknown to the legacy struct are dropped, so the
+    # round trip reproduces the original.
+    assert ObservationSummaryStats.from_legacy(legacy) == summary_stats
+
+    # A real value in a field unknown to the legacy struct cannot be
+    # represented and must raise rather than be silently dropped.
+    legacy_fields = {field.name for field in dataclasses.fields(ExposureSummaryStats)}
+    extra_float_fields = [
+        name
+        for name, info in ObservationSummaryStats.model_fields.items()
+        if name not in legacy_fields and info.annotation is float
+    ]
+    if extra_float_fields:
+        with pytest.raises(ValueError):
+            ObservationSummaryStats(**{extra_float_fields[0]: 1.0}).to_legacy()
+
+
+def test_summary_stats_from_legacy_unknown_field() -> None:
+    """Verify from_legacy drops empty unknown fields but errors on set ones."""
+
+    @dataclasses.dataclass
+    class FakeLegacy:
+        psfSigma: float = 2.5
+        notARealField: float = math.nan
+
+    # An unknown field that is empty is dropped.
+    stats = ObservationSummaryStats.from_legacy(FakeLegacy())
+    assert stats.psfSigma == 2.5
+
+    # An unknown field that holds a real value cannot be represented.
+    with pytest.raises(ValueError):
+        ObservationSummaryStats.from_legacy(FakeLegacy(notARealField=1.0))
 
 
 @skip_no_h5py
