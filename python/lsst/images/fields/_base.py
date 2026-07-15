@@ -43,9 +43,9 @@ class BaseField(ABC):
     All field types are immutable.
 
     Field types implement the function call operator and both multiplication
-    and division by a constant via operator overloading.  See the named
-    `evaluate` and `multiply_constant` methods (respectively) for more
-    information about those operations.
+    and division by a constant via operator overloading.  Subclasses provide
+    those operations by implementing the ``_evaluate`` and
+    ``_multiply_constant`` hooks (respectively).
 
     This interface will probably change in the future to incorporate options
     for dealing with out-of-bounds positions.  At present the behavior for
