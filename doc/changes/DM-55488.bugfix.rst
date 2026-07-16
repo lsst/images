@@ -1,2 +1,0 @@
-* Fixed ``lsst.images.SkyProjection.to_legacy`` failing with ``No frame with domain PIXELS found`` for projections created by ``from_fits_wcs``, including projections read back from serialized files such as image cutouts.
-  ``lsst.afw.geom.SkyWcs`` requires the pixel frame's AST domain to be ``PIXELS``, while this package follows the AST/NDF convention of ``PIXEL``; the domain is now renamed in the converted copy.

@@ -1,1 +1,0 @@
-* Added the TEx PSF residual-ellipticity correlation metrics (``psfTE1e1`` through ``psfTE4ex``, covering TE1-TE4 and their e1/e2/ex components) to ``ObservationSummaryStats``, synchronized from ``lsst.afw.image.ExposureSummaryStats``.

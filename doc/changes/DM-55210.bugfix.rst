@@ -1,3 +1,0 @@
-Fixed read of bounding box cutouts for ``VisitImage`` and ``DifferenceImage``.
-
-Each HDU written to a ``lsst.images`` FITS file now includes a ``DATE`` header card recording the UTC time the header was created, as required by the FITS standard.

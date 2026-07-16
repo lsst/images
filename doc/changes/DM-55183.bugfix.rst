@@ -1,2 +1,0 @@
-* Unified the logic for determination of multiple versions of a single extension, fixing overwrites in the NDF writer.
-* Added a name shrinker for NDF output to ensure that files written out can be read by the Starlink software tools (which limits structure and component names to 15 characters).

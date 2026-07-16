@@ -1,1 +1,0 @@
-Improved the performance of the FITS reader when accessing remote objects by ensuring that we only open the file once (previously it was opened once to find the relevant schema and then again to do the full read) across all backends and for FITS specifically we have increased the block size used by ``fsspec``.
