@@ -57,13 +57,11 @@ if TYPE_CHECKING:
         from lsst.afw.image import Exposure as LegacyExposure
         from lsst.geom import Box2I as LegacyBox2I
         from lsst.meas.algorithms import CoaddPsf as LegacyCoaddPsf
-        from lsst.sphgeom import ConvexPolygon as SkyPolygon
     except ImportError:
         type LegacyBox2I = Any  # type: ignore[no-redef]
         type LegacyExposure = Any  # type: ignore[no-redef]
         type LegacyCoaddPsf = Any  # type: ignore[no-redef]
         type LegacySkyWcs = Any  # type: ignore[no-redef]
-        type SkyPolygon = Any  # type: ignore[no-redef]
 
 
 class DifferenceImage(VisitImage):

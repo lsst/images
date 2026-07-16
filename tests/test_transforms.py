@@ -332,6 +332,32 @@ def test_camera(legacy_camera: Any) -> None:
     )
 
 
+def test_fits_wcs_projection_to_legacy() -> None:
+    """Verify that a projection created by from_fits_wcs can be converted
+    to a legacy SkyWcs.
+
+    The AST pixel frame uses the domain PIXEL, while lsst.afw.geom.SkyWcs
+    requires PIXELS, so to_legacy has to rename it.
+    """
+    pytest.importorskip("lsst.afw.geom")
+    rng = np.random.default_rng(43)
+    bbox = Box.factory[75:275, 25:225]
+    pixel_frame = GeneralFrame(unit=u.pix)
+    sky_projection = make_random_sky_projection(rng, pixel_frame, bbox)
+    legacy_wcs = sky_projection.to_legacy()
+    compare_sky_projection_to_legacy_wcs(sky_projection, legacy_wcs, pixel_frame, bbox, is_fits=True)
+    # The conversion must not modify the projection in place: its own AST
+    # mapping keeps the PIXEL domain, and the conversion is repeatable.
+    frame_set = sky_projection.pixel_to_sky_transform._ast_mapping
+    assert isinstance(frame_set, astshim.FrameSet)
+    domains = {frame_set.getFrame(i, copy=False).domain for i in range(1, frame_set.nFrame + 1)}
+    assert "PIXEL" in domains
+    assert "PIXELS" not in domains
+    compare_sky_projection_to_legacy_wcs(
+        sky_projection, sky_projection.to_legacy(), pixel_frame, bbox, is_fits=True
+    )
+
+
 def test_detector_wcs(legacy_detector_wcs: dict[str, Any]) -> None:
     """Test the Transform/SkyProjection representation of a detector WCS."""
     legacy_wcs = legacy_detector_wcs["legacy_wcs"]
