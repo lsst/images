@@ -1,2 +1,0 @@
-The generic serialization entry points have been renamed: ``lsst.images.serialization.read`` is now ``read_archive``, ``write`` is now ``write_archive``, and ``open`` is now ``open_archive``.
-The old names have been removed outright; no deprecation aliases are provided.

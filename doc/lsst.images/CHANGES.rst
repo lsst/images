@@ -1,3 +1,66 @@
+lsst-images v30.0.9 (2026-07-15)
+================================
+
+New Features
+------------
+
+- Added the TEx PSF residual-ellipticity correlation metrics (``psfTE1e1`` through ``psfTE4ex``, covering TE1-TE4 and their e1/e2/ex components) to ``ObservationSummaryStats``, synchronized from ``lsst.afw.image.ExposureSummaryStats``. (`DM-46582 <https://rubinobs.atlassian.net/browse/DM-46582>`_)
+- * Butler metadata-component reads now cache the serialization tree of the most recently read dataset, so requesting several metadata components of one dataset (for example ``sky_projection`` then ``obs_info``) opens the file only once.
+    Components that need pixel, table, or archive-pointer data still fall back to reading the file, decided at runtime by probing the tree with the new ``lsst.images.serialization.DetachedArchive``.
+  * The butler formatter now understands a special ``"components"`` component that returns several components from a single ``get`` as a `dict` keyed by component name.
+    Pass a ``components`` parameter listing the components to read; if it is omitted, all components are returned.
+  * Added a ``lsst-images-admin fuzz-masked-image`` subcommand that shuffles the image, mask, and variance pixels of a ``MaskedImage`` within tiles so a file can be released as public test data.
+    It reads any supported format, writes the format chosen by the output extension, and applies lossy RICE compression to the science planes for FITS output.
+  * Added ``lsst.images.Mask.add_planes`` (and the single-plane convenience ``add_plane``) to derive a new ``lsst.images.Mask`` with mask planes added and/or dropped; it always reallocates the backing array, so views of the original mask are unaffected.
+    ``lsst.images.MaskedImage.mask`` is now settable, so a grown mask can be assigned back to a masked image.
+  * Added ``lsst.images.Image.from_hdu_list`` and ``lsst.images.MaskedImage.from_hdu_list`` to reconstruct an ``Image`` or ``MaskedImage`` from the cut-down FITS HDU lists written by ``dax_images_cutout`` (an ``lsst.images`` file with its JSON-tree and index HDUs dropped), so they can be re-serialized as normal ``lsst.images`` files.
+    Reconstruction from a legacy (``afw``-written) mask keeps the ``MP_*`` mask-plane cards (re-indexed to the reshuffled schema) for legacy tooling; the normal ``lsst.images`` reader strips them on read since the serialized schema is authoritative. (`DM-55210 <https://rubinobs.atlassian.net/browse/DM-55210>`_)
+- Added difference kernel (``kernel``) and provenance (``templates``) components to ``DifferenceImage``. (`DM-55220 <https://rubinobs.atlassian.net/browse/DM-55220>`_)
+- Added a ``lsst-images-admin diagram`` subcommand that renders the composition layout of a serialization model (e.g. ``visit-image`` or ``cell-coadd``) as Mermaid, Graphviz ``dot``, or an ASCII ``tree``.
+  By default it labels nodes with the public class names (``Image``, ``SkyProjection``, ...) and shows only model composition; pass ``--attributes`` to include scalar fields, ``--serialization-names`` to use the raw model names, ``--collapse``/``--expand``/``--expand-leaves`` to tune which helper models are drawn, and ``--hide-field``/``--hide-type`` to clip fields or whole types.
+  With ``--from-file`` it diagrams the concrete structure of a serialized file (reading only the reference tree, not pixels), collapsing unions such as the PSF to the type actually stored. (`DM-55281 <https://rubinobs.atlassian.net/browse/DM-55281>`_)
+- The generic ``read_archive`` and ``open_archive`` APIs now accept a seekable binary stream in addition to a path, so in-memory data (e.g., a VO cutout service response) can be read without writing it to disk first: ``read_archive(io.BytesIO(data))``.
+  The format is identified from the stream's leading bytes, with an optional ``format`` argument to override; compressed streams are rejected with an error telling the caller to decompress first.
+  Paths with a ``.gz`` or ``.zst`` compression suffix are decompressed transparently through a temporary file for all supported formats.
+  Reading zstd-compressed files requires Python 3.14 or the ``zstandard`` package. (`DM-55385 <https://rubinobs.atlassian.net/browse/DM-55385>`_)
+- * Added support for broadcasting, array-like inputs, and ``XY`` / ``YX`` arguments to ufunc-like methods, including ``Bounds.contains``, ``Transform.apply*``, and ``BaseField.__call__``.
+  * Added a ``MaskSchema.interpret`` method for identifying which mask planes are set on a given pixel. (`DM-55422 <https://rubinobs.atlassian.net/browse/DM-55422>`_)
+
+
+API Changes
+-----------
+
+- The generic serialization entry points have been renamed: ``lsst.images.serialization.read`` is now ``read_archive``, ``write`` is now ``write_archive``, and ``open`` is now ``open_archive``.
+  The old names have been removed outright; no deprecation aliases are provided. (`DM-55421 <https://rubinobs.atlassian.net/browse/DM-55421>`_)
+- * Changed ``CellCoadd.to_legacy`` API to return an ``lsst.afw.image.ExposureF`` to make it consistent with the other imaging classes.
+    This allows for a consistent experience for the users where they do not have to check whether they have a ``VisitImage`` or ``CellCoadd`` to work out what the return type is going to be.
+    The corollary of this change is that there is now ``CellCoadd.to_legacy_cell_coadd``.
+    ``CellCoadd.to_legacy_exposure`` has been removed with no deprecation period.
+
+  * The ``lsst.images.Box`` constructor now raises `TypeError` if its arguments are not `~lsst.images.Interval` instances, instead of silently constructing a broken box. (`DM-55488 <https://rubinobs.atlassian.net/browse/DM-55488>`_)
+
+
+Bug Fixes
+---------
+
+- * Unified the logic for determination of multiple versions of a single extension, fixing overwrites in the NDF writer.
+  * Added a name shrinker for NDF output to ensure that files written out can be read by the Starlink software tools (which limits structure and component names to 15 characters). (`DM-55183 <https://rubinobs.atlassian.net/browse/DM-55183>`_)
+- * Fixed read of bounding box cutouts for ``VisitImage`` and ``DifferenceImage``.
+
+  * Each HDU written to a ``lsst.images`` FITS file now includes a ``DATE`` header card recording the UTC time the header was created, as required by the FITS standard. (`DM-55210 <https://rubinobs.atlassian.net/browse/DM-55210>`_)
+- * Fixed reading of ``.fits.gz`` files, which were dispatched to the FITS backend but handed to it still compressed.
+  * Fixed reading of ``cell_aperture_correction_map`` archives in a process that has not otherwise imported ``lsst.images.cells``: the schema was missing from the built-in provider table and the ``lsst.images.schemas`` entry points, so the schema-driven lazy import could not find it. (`DM-55385 <https://rubinobs.atlassian.net/browse/DM-55385>`_)
+- * Fixed ``lsst.images.SkyProjection.to_legacy`` failing with ``No frame with domain PIXELS found`` for projections created by ``from_fits_wcs``, including projections read back from serialized files such as image cutouts.
+    ``lsst.afw.geom.SkyWcs`` requires the pixel frame's AST domain to be ``PIXELS``, while this package follows the AST/NDF convention of ``PIXEL``; the domain is now renamed in the converted copy. (`DM-55488 <https://rubinobs.atlassian.net/browse/DM-55488>`_)
+
+
+Miscellaneous Changes of Minor Interest
+---------------------------------------
+
+- Improved the performance of the FITS reader when accessing remote objects by ensuring that we only open the file once (previously it was opened once to find the relevant schema and then again to do the full read) across all backends and for FITS specifically we have increased the block size used by ``fsspec``. (`DM-55217 <https://rubinobs.atlassian.net/browse/DM-55217>`_)
+- Made generalized image ``__getitem__(...)`` calls return a view, not ``self``. (`DM-55422 <https://rubinobs.atlassian.net/browse/DM-55422>`_)
+
+
 lsst-images v30.0.8 (2026-06-09)
 ================================
 
