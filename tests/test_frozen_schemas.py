@@ -21,6 +21,7 @@ import pytest
 
 from lsst.images.serialization import (
     ArchiveTree,
+    FrozenSchemaError,
     InputArchive,
     available_schema_classes,
     check_frozen_schemas,
@@ -56,6 +57,20 @@ class _CustomBaseArchiveTree(ArchiveTree):
     SCHEMA_URL_BASE: ClassVar[str] = "https://example.org/schemas"
     SCHEMA_NAME: ClassVar[str] = "frozen_schemas_test_custom_base"
     SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type] = object
+
+    def deserialize(
+        self, archive: InputArchive[Any], **kwargs: Any
+    ) -> Any:  # pragma: no cover - never invoked
+        raise NotImplementedError()
+
+
+class _DevDoubleArchiveTree(ArchiveTree):
+    """Development-version double, defined in the test package."""
+
+    SCHEMA_NAME: ClassVar[str] = "frozen_schemas_test_development"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0.dev0"
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = object
 
@@ -148,6 +163,30 @@ def test_available_schema_classes_discovers_entry_points(monkeypatch: pytest.Mon
     assert "frozen_schemas_test_entry_point" in [cls.SCHEMA_NAME for cls in classes]
 
 
+def test_write_skips_development_schemas(tmp_path: Path) -> None:
+    """Verify a development schema is never frozen."""
+    write_frozen_schemas(tmp_path, package=_DevDoubleArchiveTree.__module__)
+    assert not frozen_schema_path(tmp_path, _DevDoubleArchiveTree).exists()
+
+
+def test_check_skips_development_schemas(tmp_path: Path) -> None:
+    """Verify check does not report a missing file for a development schema."""
+    problems = check_frozen_schemas(tmp_path, package=_DevDoubleArchiveTree.__module__)
+    assert all("development" not in p for p in problems)
+
+
+def test_write_refuses_to_change_finalized(tmp_path: Path) -> None:
+    """Verify a finalized frozen file cannot be overwritten."""
+    write_frozen_schemas(tmp_path)
+    (cls,) = [c for c in available_schema_classes() if c.SCHEMA_NAME == "image"]
+    path = frozen_schema_path(tmp_path, cls)
+    stale = json.loads(path.read_text())
+    stale["description"] = "changed by hand"
+    path.write_text(json.dumps(stale, indent=2, sort_keys=True) + "\n")
+    with pytest.raises(FrozenSchemaError, match="bump"):
+        write_frozen_schemas(tmp_path)
+
+
 def test_dump_schema_has_id_and_title() -> None:
     """Verify the dumped schema carries the canonical $id and title."""
     (cls,) = [c for c in available_schema_classes() if c.SCHEMA_NAME == "image"]
@@ -200,7 +239,7 @@ def test_check_reports_missing_and_stale(tmp_path: Path) -> None:
     stale["description"] = "something else"
     path.write_text(json.dumps(stale, indent=2, sort_keys=True) + "\n")
     problems = check_frozen_schemas(tmp_path)
-    assert any("differs" in p for p in problems)
+    assert any("bump SCHEMA_VERSION" in p for p in problems)
     path.unlink()
     problems = check_frozen_schemas(tmp_path)
     assert any("missing" in p for p in problems)

@@ -21,6 +21,7 @@ remain available after the models move on.
 from __future__ import annotations
 
 __all__ = (
+    "FrozenSchemaError",
     "available_schema_classes",
     "check_frozen_schemas",
     "dump_schema",
@@ -36,7 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from ._asdf_utils import ArrayReferenceModel
-from ._common import ArchiveTree
+from ._common import ArchiveTree, is_development_version
 from ._io import (
     _BUILTIN_SCHEMA_PROVIDERS,
     _REGISTRY,
@@ -44,6 +45,10 @@ from ._io import (
     class_for_schema,
     parameterize_tree,
 )
+
+
+class FrozenSchemaError(RuntimeError):
+    """A finalized frozen schema would change without a version bump."""
 
 
 def available_schema_classes(package: str = "lsst.images") -> list[type[ArchiveTree]]:
@@ -210,12 +215,20 @@ def write_frozen_schemas(directory: Path, package: str = "lsst.images") -> list[
     """
     changed: list[Path] = []
     for cls in available_schema_classes(package):
+        if is_development_version(cls.SCHEMA_VERSION):
+            continue
         path = frozen_schema_path(directory, cls)
-        path.parent.mkdir(parents=True, exist_ok=True)
         text = _canonical_text(dump_schema(cls))
-        if not path.exists() or path.read_text() != text:
-            path.write_text(text)
-            changed.append(path)
+        if path.exists():
+            if path.read_text() != text:
+                raise FrozenSchemaError(
+                    f"{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION} is finalized and frozen; "
+                    "bump SCHEMA_VERSION to change it rather than overwriting the frozen file."
+                )
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        changed.append(path)
     return changed
 
 
@@ -239,9 +252,11 @@ def check_frozen_schemas(directory: Path, package: str = "lsst.images") -> list[
     """
     problems: list[str] = []
     for cls in available_schema_classes(package):
+        if is_development_version(cls.SCHEMA_VERSION):
+            continue
         path = frozen_schema_path(directory, cls)
         if not path.exists():
             problems.append(f"{path.relative_to(directory)}: missing")
         elif path.read_text() != _canonical_text(dump_schema(cls)):
-            problems.append(f"{path.relative_to(directory)}: differs from the current model")
+            problems.append(f"{path.relative_to(directory)}: finalized schema changed; bump SCHEMA_VERSION")
     return problems
