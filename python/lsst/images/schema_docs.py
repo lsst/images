@@ -33,6 +33,7 @@ from .serialization import (
     SCHEMA_URL_BASE,
     ArrayReferenceModel,
     class_for_schema,
+    is_development_version,
     parameterize_tree,
 )
 
@@ -57,8 +58,12 @@ def _link_map(schema: dict[str, Any], available_stems: set[str]) -> dict[str, st
             continue
         stem = schema_id.rstrip("/").rsplit("/", 1)[-1]
         title = definition.get("title", stem)
+        version = stem.rpartition("-")[2]
         if stem in available_stems:
             links[key] = f":doc:`{title} <../{stem}/index>`"
+        elif is_development_version(version):
+            # A development sub-schema is unpublished and has no page.
+            links[key] = title
         else:
             links[key] = f"`{title} <{schema_id}>`__"
     return links

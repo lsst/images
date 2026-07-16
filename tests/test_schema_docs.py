@@ -233,3 +233,33 @@ def test_extra_dir_is_regenerated(tmp_path: Path) -> None:
     stale.write_text("{}\n")
     generate_schema_docs(schema_dir, tmp_path / "pages", extra_dir)
     assert not stale.exists()
+
+
+def test_development_sub_schema_not_linked(tmp_path: Path) -> None:
+    """Verify a reference to a development sub-schema renders as plain text
+    with no link, since development schemas have no page.
+    """
+    schema_dir = tmp_path / "schemas"
+    schema_dir.mkdir()
+    widget = {
+        "$id": "https://images.lsst.io/schemas/widget-1.0.0",
+        "title": "widget",
+        "description": "A widget.",
+        "type": "object",
+        "properties": {"field": {"$ref": "#/$defs/DevFieldModel", "description": "A field."}},
+        "$defs": {
+            "DevFieldModel": {
+                "x-lsst-schema-url": "https://images.lsst.io/schemas/dev_field-1.0.0.dev0",
+                "title": "dev_field",
+                "type": "object",
+            }
+        },
+    }
+    (schema_dir / "widget").mkdir()
+    (schema_dir / "widget" / "widget-1.0.0.json").write_text(json.dumps(widget) + "\n")
+    page_dir = tmp_path / "pages"
+    generate_schema_docs(schema_dir, page_dir, tmp_path / "extra")
+    text = (page_dir / "widget-1.0.0" / "index.rst").read_text()
+    assert "dev_field" in text
+    assert ":doc:`dev_field" not in text
+    assert "dev_field-1.0.0.dev0>" not in text
