@@ -208,10 +208,17 @@ def write_frozen_schemas(directory: Path, package: str = "lsst.images") -> list[
 
     Notes
     -----
-    Files for the *same* name and version are overwritten when their content
-    is stale (schemas evolve in place at 1.0.0 until the first data release).
-    Files for superseded versions are never touched, so old schema URLs keep
-    resolving.
+    Schemas at a development version (a PEP 440 ``.devN`` release) are skipped
+    and never frozen.  A finalized schema is frozen only on its first write; an
+    existing frozen file is immutable, so a live-model change to it raises
+    rather than overwriting.  Frozen files for superseded versions are never
+    touched, so old schema URLs keep resolving.
+
+    Raises
+    ------
+    FrozenSchemaError
+        If a finalized schema's frozen file exists and the live model would
+        change its content; bump ``SCHEMA_VERSION`` instead of overwriting.
     """
     changed: list[Path] = []
     for cls in available_schema_classes(package):
@@ -249,6 +256,11 @@ def check_frozen_schemas(directory: Path, package: str = "lsst.images") -> list[
         One problem description per current schema whose frozen file is
         missing or does not match the current model; empty when the frozen
         files are up to date.
+
+    Notes
+    -----
+    Schemas at a development version (a PEP 440 ``.devN`` release) are
+    skipped and not reported as missing.
     """
     problems: list[str] = []
     for cls in available_schema_classes(package):
