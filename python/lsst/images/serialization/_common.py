@@ -17,21 +17,27 @@ __all__ = (
     "ArchiveReadError",
     "ArchiveTree",
     "ButlerInfo",
+    "DevelopmentSchemaWarning",
     "InvalidComponentError",
     "InvalidParameterError",
     "JsonRef",
     "MetadataValue",
     "OpaqueArchiveMetadata",
+    "is_development_version",
     "no_header_updates",
+    "warn_for_development_schemas",
 )
 
 import operator
+import warnings
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, Self
 
 import astropy.table
 import astropy.units
 import pydantic
+from packaging.version import Version
 
 from .._geom import Box
 from ..utils import is_none
@@ -278,6 +284,62 @@ class ArchiveTree(
         if isinstance(component_model, ArchiveTree):
             return component_model.deserialize(archive, **kwargs)
         return component_model
+
+
+class DevelopmentSchemaWarning(UserWarning):
+    """Warning that a file is being written with a development schema."""
+
+
+def is_development_version(version: str) -> bool:
+    """Return whether a schema version string is a PEP 440 development release.
+
+    Parameters
+    ----------
+    version
+        Schema version string, e.g. ``1.0.0`` or ``1.0.0.dev0``.
+    """
+    return Version(version).is_devrelease
+
+
+def _iter_archive_trees(obj: Any) -> Iterator[ArchiveTree]:
+    """Yield every `ArchiveTree` embedded in a serialized tree."""
+    if isinstance(obj, ArchiveTree):
+        yield obj
+    if isinstance(obj, pydantic.BaseModel):
+        for field_name in type(obj).model_fields:
+            yield from _iter_archive_trees(getattr(obj, field_name))
+    elif isinstance(obj, list | tuple):
+        for item in obj:
+            yield from _iter_archive_trees(item)
+    elif isinstance(obj, dict):
+        for value in obj.values():
+            yield from _iter_archive_trees(value)
+
+
+def warn_for_development_schemas(root: ArchiveTree) -> None:
+    """Emit a `DevelopmentSchemaWarning` if a serialized tree contains any
+    schema still in development.
+
+    Parameters
+    ----------
+    root
+        Top-level serialized tree about to be written.
+    """
+    developing = sorted(
+        {
+            tree.schema_url
+            for tree in _iter_archive_trees(root)
+            if is_development_version(type(tree).SCHEMA_VERSION)
+        }
+    )
+    if developing:
+        warnings.warn(
+            "Writing a file with development schema(s) "
+            f"{', '.join(developing)}; such files are not for production and "
+            "may not remain readable.",
+            DevelopmentSchemaWarning,
+            stacklevel=3,
+        )
 
 
 class ArchiveReadError(RuntimeError):

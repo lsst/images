@@ -23,15 +23,16 @@ classifiers = [
 keywords=["lsst"]
 dependencies = [
     "astropy >= 7.0",
+    "click >= 8",
     "fsspec",
     "numpy >= 2.0",
-    "scipy >= 1.13",
+    "packaging",
     "pydantic >= 2.12",
+    "scipy >= 1.13",
     "lsst-resources",
     "astro-metadata-translator >=30.2026.900",
     "starlink-pyast >=4.0.0",
     "shapely >= 2.1",
-    "click >= 8",
 ]
 dynamic = ["version"]
 
