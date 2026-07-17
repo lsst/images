@@ -131,9 +131,10 @@ The JSON Schema for every serialization model is committed to the ``schemas/`` d
 These files are the published source of truth for the canonical schema URLs: the documentation build generates one page per file at ``https://images.lsst.io/schemas/{name}-{version}``, with a field table, a composition diagram, and the raw JSON published alongside at ``https://images.lsst.io/schemas/{name}-{version}.json``.
 The versionless URL ``https://images.lsst.io/schemas/{name}`` resolves to a per-schema index listing every published version, which is also how the version pages are grouped in the site navigation.
 
-If you change a serialization model, the ``test_committed_frozen_schemas_are_current`` test will fail; run ``lsst-images-admin schemas write`` from the repository root and commit the updated files together with your change.
-Until the first data release, schemas evolve in place at version 1.0.0, so this overwrites the existing frozen file.
-After the first data release, a model change must instead bump ``SCHEMA_VERSION``; ``schemas write`` then adds a new frozen file, and the superseded file (and its published URL) is kept forever.
+A schema still under development carries a PEP 440 development-release suffix on its ``SCHEMA_VERSION``, e.g. ``1.0.0.dev0``.
+A development schema is never frozen, published, or documented, and writing a file that contains one emits a ``DevelopmentSchemaWarning``; it may be changed in place freely.
+Dropping the suffix (``1.0.0.dev0`` becomes ``1.0.0``) finalizes the schema: the next ``lsst-images-admin schemas write`` from the repository root writes its first frozen file, the documentation build publishes it, and it becomes immutable.
+A finalized frozen file is never overwritten; if you change a finalized model the ``test_committed_frozen_schemas_are_current`` test fails, and you must bump ``SCHEMA_VERSION`` (the new version develops at ``X.Y.(Z+1).dev0``) rather than overwrite it, so the superseded file and its published URL are kept forever.
 
 Composition and version cascades
 --------------------------------
