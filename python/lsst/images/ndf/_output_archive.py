@@ -112,14 +112,7 @@ def write(
         opaque_metadata=opaque_metadata,
         **_get_archive_layout(obj),
     ) as archive:
-        if archive_default_name is not None:
-            tree = archive.serialize_direct(archive_default_name, obj.serialize)
-        else:
-            tree = obj.serialize(archive)
-        if metadata is not None:
-            tree.metadata.update(metadata)
-        if butler_info is not None:
-            tree.butler_info = butler_info
+        tree = archive.serialize_root(obj, metadata, butler_info)
         archive.add_tree(
             tree,
             sky_projection=getattr(obj, "sky_projection", None),

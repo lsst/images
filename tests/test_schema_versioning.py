@@ -20,6 +20,7 @@ import pydantic
 import pytest
 
 from lsst.images import ImageSerializationModel
+from lsst.images.json._output_archive import JsonOutputArchive
 from lsst.images.serialization import (
     ArchiveReadError,
     ArchiveTree,
@@ -267,3 +268,30 @@ def test_absent_fields_default_to_legacy_fixture(fixture_path: Path) -> None:
     instance = ImageSerializationModel.model_validate(tree)
     assert instance.schema_version == "1.0.0"
     assert instance.min_read_version == 1
+
+
+class _WritableDevObject:
+    _archive_default_name = None
+
+    def serialize(self, archive):
+        return _DevTree()
+
+
+class _WritableFinalObject:
+    _archive_default_name = None
+
+    def serialize(self, archive):
+        return _FinalTree()
+
+
+def test_serialize_root_warns_for_development() -> None:
+    """Verify serialize_root warns when the tree uses a development schema."""
+    with pytest.warns(DevelopmentSchemaWarning, match="in_dev_helper_test_dev"):
+        JsonOutputArchive().serialize_root(_WritableDevObject())
+
+
+def test_serialize_root_silent_for_finalized() -> None:
+    """Verify serialize_root does not warn for a finalized schema."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        JsonOutputArchive().serialize_root(_WritableFinalObject())
