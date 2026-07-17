@@ -1435,7 +1435,9 @@ def check_archive_tree_class_invariants(tree_type: type[ArchiveTree]) -> None:
     assert hasattr(tree_type, "PUBLIC_TYPE"), f"{tree_type.__name__} lacks PUBLIC_TYPE"
     assert isinstance(tree_type.SCHEMA_NAME, str)
     assert len(tree_type.SCHEMA_NAME) > 0
-    assert re.fullmatch(r"^\d+\.\d+\.\d+$", tree_type.SCHEMA_VERSION)
+    # Allow an optional PEP 440 development-release suffix (e.g. 1.0.0.dev0)
+    # for schemas still in development.
+    assert re.fullmatch(r"^\d+\.\d+\.\d+(\.dev\d+)?$", tree_type.SCHEMA_VERSION)
     assert isinstance(tree_type.MIN_READ_VERSION, int)
     assert tree_type.MIN_READ_VERSION >= 1
     assert isinstance(tree_type.PUBLIC_TYPE, type)

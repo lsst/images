@@ -48,6 +48,7 @@ from ._asdf_utils import *
 from ._backends import *
 from ._common import *
 from ._dtypes import *
+from ._frozen_schemas import *
 from ._input_archive import *
 from ._io import *
 from ._output_archive import *

@@ -24,6 +24,8 @@ nitpick_ignore = [
   ["py:class", "I"],  # type variables don't resolve
   ["py:class", "O"],  # type variables don't resolve
   ["py:class", "MetadataValue"],  # type aliases don't resolve
+  ["py:obj", "SerializableXY"],  # Annotated type alias; automodapi emits no target
+  ["py:obj", "SerializableYX"],  # Annotated type alias; automodapi emits no target
   ["py:class", "h5py._hl.files.File"],
   ["py:data", "types.EllipsisType"],  # not in the Python intersphinx inventory
   ["py:obj", "astropy.io.fits.verify.VerifyWarning"],

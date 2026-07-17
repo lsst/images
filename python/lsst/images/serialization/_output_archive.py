@@ -18,7 +18,7 @@ __all__ = (
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Hashable, Iterator, Mapping
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import astropy.io.fits
 import astropy.table
@@ -27,7 +27,13 @@ import numpy as np
 import pydantic
 
 from ._asdf_utils import ArrayReferenceModel, InlineArrayModel
-from ._common import ArchiveTree, no_header_updates
+from ._common import (
+    ArchiveTree,
+    ButlerInfo,
+    MetadataValue,
+    no_header_updates,
+    warn_for_development_schemas,
+)
 from ._tables import TableModel
 
 if TYPE_CHECKING:
@@ -62,6 +68,43 @@ class OutputArchive[P](ABC):
         `SumField` calling ``add_array(name="data")`` from the same nested
         archive).
         """
+
+    def serialize_root(
+        self,
+        obj: Any,
+        metadata: dict[str, MetadataValue] | None = None,
+        butler_info: ButlerInfo | None = None,
+    ) -> ArchiveTree:
+        """Serialize ``obj`` to a root tree, apply write-time overrides, and
+        warn if the tree uses a development schema.
+
+        Every backend's top-level write funnel calls this so the metadata and
+        butler overrides and the development-schema warning are applied
+        uniformly, regardless of file format.
+
+        Parameters
+        ----------
+        obj
+            Object with a ``serialize`` method (and an optional
+            ``_archive_default_name``) to serialize.
+        metadata
+            Extra metadata to merge into the tree, or `None`.
+        butler_info
+            Butler information to set on the tree, or `None`.
+
+        Returns
+        -------
+        `~lsst.images.serialization.ArchiveTree`
+            The serialized root tree.
+        """
+        name = getattr(obj, "_archive_default_name", None)
+        tree = self.serialize_direct(name, obj.serialize) if name is not None else obj.serialize(self)
+        if metadata is not None:
+            tree.metadata.update(metadata)
+        if butler_info is not None:
+            tree.butler_info = butler_info
+        warn_for_development_schemas(tree)
+        return tree
 
     def _register_name(self, name: str) -> tuple[str, int]:
         """Return the input name and its 1-based occurrence count.

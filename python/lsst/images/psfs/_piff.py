@@ -26,7 +26,7 @@ import pydantic
 
 from .. import serialization
 from .._concrete_bounds import BoundsSerializationModel
-from .._geom import XY, YX, Bounds, Box
+from .._geom import XY, YX, Bounds, Box, SerializableXY
 from .._image import Image
 from ..utils import round_half_up
 from ._base import PointSpreadFunction
@@ -183,7 +183,7 @@ class MinimalStar(pydantic.BaseModel):
     legacy PSF).
     """
 
-    image_pos: XY
+    image_pos: SerializableXY[float]
     is_flagged: bool
     is_reserve: bool
 
@@ -256,7 +256,7 @@ class PiffSerializationModel(serialization.ArchiveTree):
     """Serialization model for a Piff PSF."""
 
     SCHEMA_NAME: ClassVar[str] = "piff_psf"
-    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0.dev0"
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = PiffWrapper
 

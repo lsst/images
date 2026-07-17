@@ -1,0 +1,274 @@
+# This file is part of lsst-images.
+#
+# Developed for the LSST Data Management System.
+# This product includes software developed by the LSST Project
+# (https://www.lsst.org).
+# See the COPYRIGHT file at the top-level directory of this distribution
+# for details of code ownership.
+#
+# Use of this source code is governed by a 3-clause BSD-style
+# license that can be found in the LICENSE file.
+"""Frozen JSON schema files for the serialization data models.
+
+Every `~lsst.images.serialization.ArchiveTree` subclass has a canonical JSON
+Schema derived from its pydantic model.  These are written to git-committed
+``schemas/`` files so the published schema at
+``https://images.lsst.io/schemas/{name}-{version}`` is a stable artifact
+rather than whatever the code currently produces, and so superseded versions
+remain available after the models move on.
+"""
+
+from __future__ import annotations
+
+__all__ = (
+    "FrozenSchemaError",
+    "available_schema_classes",
+    "check_frozen_schemas",
+    "dump_schema",
+    "frozen_schema_filename",
+    "frozen_schema_path",
+    "write_frozen_schemas",
+)
+
+import importlib.metadata
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+from ._asdf_utils import ArrayReferenceModel
+from ._common import ArchiveTree, is_development_version
+from ._io import (
+    _BUILTIN_SCHEMA_PROVIDERS,
+    _REGISTRY,
+    _SCHEMA_ENTRY_POINT_GROUP,
+    class_for_schema,
+    parameterize_tree,
+)
+
+
+class FrozenSchemaError(RuntimeError):
+    """A finalized frozen schema would change without a version bump."""
+
+
+def available_schema_classes(package: str = "lsst.images") -> list[type[ArchiveTree]]:
+    """Return every `~lsst.images.serialization.ArchiveTree` subclass owned
+    by ``package``, sorted by schema name.
+
+    Parameters
+    ----------
+    package
+        Only classes whose defining module is this package (or a
+        subpackage of it) are returned, so a package freezes and publishes
+        exactly the schemas it owns, and schema classes created elsewhere
+        (e.g. test doubles) are never picked up by accident.
+
+    Notes
+    -----
+    Candidate schemas come from the in-memory registry, the built-in lazy
+    providers, and the ``lsst.images.schemas`` entry point group, so an
+    external package's schemas are found even when nothing has imported
+    their modules yet.
+    """
+    entry_point_names = {
+        entry_point.name for entry_point in importlib.metadata.entry_points(group=_SCHEMA_ENTRY_POINT_GROUP)
+    }
+    classes: list[type[ArchiveTree]] = []
+    for name in sorted(set(_REGISTRY) | set(_BUILTIN_SCHEMA_PROVIDERS) | entry_point_names):
+        cls = class_for_schema(name)
+        if cls is None:
+            raise RuntimeError(f"Schema {name!r} is registered but its class could not be loaded.")
+        if cls.__module__ != package and not cls.__module__.startswith(f"{package}."):
+            continue
+        classes.append(cls)
+    return classes
+
+
+def _summary_description(text: str) -> str:
+    """Return a docstring-derived description trimmed to its summary.
+
+    Text is kept up to (but not including) the first numpydoc section header:
+    a non-blank line immediately followed by a line of dashes at least as long
+    as it.  Text with no such header (e.g. a one-line ``pydantic.Field``
+    description) is returned unchanged, so only the sectioned content of a
+    class docstring (``Notes``, ``Parameters``, ...) is dropped and the summary
+    plus extended summary are kept.
+    """
+    lines = text.split("\n")
+    for i in range(len(lines) - 1):
+        header = lines[i].strip()
+        underline = lines[i + 1].strip()
+        if header and re.fullmatch(r"-+", underline) and len(underline) >= len(header):
+            return "\n".join(lines[:i]).rstrip()
+    return text
+
+
+def _summarize_descriptions(node: Any) -> None:
+    """Trim every ``description`` in a schema tree to its summary, in place."""
+    if isinstance(node, dict):
+        description = node.get("description")
+        if isinstance(description, str):
+            node["description"] = _summary_description(description)
+        for value in node.values():
+            _summarize_descriptions(value)
+    elif isinstance(node, list):
+        for item in node:
+            _summarize_descriptions(item)
+
+
+def dump_schema(tree_cls: type[ArchiveTree]) -> dict[str, Any]:
+    """Return the JSON Schema for ``tree_cls``.
+
+    Parameters
+    ----------
+    tree_cls
+        Serialization model class to dump.
+
+    Notes
+    -----
+    Generic trees are parameterized over
+    `~lsst.images.serialization.ArrayReferenceModel`, matching the convention
+    used by ``lsst-images-admin diagram``.  Model descriptions derived from
+    class docstrings are trimmed to their summary so the numpydoc sections
+    that follow it do not leak into the published schema.
+    """
+    schema = parameterize_tree(tree_cls, ArrayReferenceModel).model_json_schema()
+    # A recursive model (e.g. sum_field) produces a root that is just a $ref
+    # into $defs, with the class's json_schema_extra landing on the $def.
+    # Hoist the canonical identity to the document root so every frozen
+    # document self-identifies; $ref siblings are valid in draft 2020-12.
+    schema.setdefault("$id", f"{tree_cls.SCHEMA_URL_BASE}/{tree_cls.SCHEMA_NAME}-{tree_cls.SCHEMA_VERSION}")
+    schema.setdefault("title", tree_cls.SCHEMA_NAME)
+    # Nested ArchiveTree definitions inherit their class's $id, but $id
+    # starts a new resolution scope in draft 2020-12, which would break the
+    # root-relative "#/$defs/..." references pydantic generates inside them.
+    # Record the canonical URL under a non-reserved key instead, which
+    # validators ignore and documentation tooling can still use to identify
+    # published sub-schemas.
+    for definition in schema.get("$defs", {}).values():
+        if isinstance(definition, dict) and "$id" in definition:
+            definition["x-lsst-schema-url"] = definition.pop("$id")
+    _summarize_descriptions(schema)
+    return schema
+
+
+def frozen_schema_filename(tree_cls: type[ArchiveTree]) -> str:
+    """Return the frozen-schema filename for ``tree_cls``.
+
+    Parameters
+    ----------
+    tree_cls
+        Serialization model class to name the file for.
+    """
+    return f"{tree_cls.SCHEMA_NAME}-{tree_cls.SCHEMA_VERSION}.json"
+
+
+def frozen_schema_path(directory: Path, tree_cls: type[ArchiveTree]) -> Path:
+    """Return the frozen-schema file path for ``tree_cls`` under
+    ``directory``.
+
+    Parameters
+    ----------
+    directory
+        Directory holding the frozen schema files.
+    tree_cls
+        Serialization model class to locate the file for.
+
+    Notes
+    -----
+    Files are laid out as ``{name}/{name}-{version}.json``: one
+    subdirectory per schema so the directory stays navigable as versions
+    accumulate, with the full name-version filename kept so a file is
+    self-identifying when copied elsewhere.
+    """
+    return directory / tree_cls.SCHEMA_NAME / frozen_schema_filename(tree_cls)
+
+
+def _canonical_text(schema: dict[str, Any]) -> str:
+    """Return the canonical file serialization of ``schema``."""
+    return json.dumps(schema, indent=2, sort_keys=True) + "\n"
+
+
+def write_frozen_schemas(directory: Path, package: str = "lsst.images") -> list[Path]:
+    """Write the frozen schema file for every current schema.
+
+    Parameters
+    ----------
+    directory
+        Directory to write the ``{name}-{version}.json`` files into; created
+        if necessary.
+    package
+        Package whose schemas to freeze; see
+        `~lsst.images.serialization.available_schema_classes`.
+
+    Returns
+    -------
+    `list` [ `pathlib.Path` ]
+        Paths that were created or rewritten.
+
+    Notes
+    -----
+    Schemas at a development version (a PEP 440 ``.devN`` release) are skipped
+    and never frozen.  A finalized schema is frozen only on its first write; an
+    existing frozen file is immutable, so a live-model change to it raises
+    rather than overwriting.  Frozen files for superseded versions are never
+    touched, so old schema URLs keep resolving.
+
+    Raises
+    ------
+    FrozenSchemaError
+        If a finalized schema's frozen file exists and the live model would
+        change its content; bump ``SCHEMA_VERSION`` instead of overwriting.
+    """
+    changed: list[Path] = []
+    for cls in available_schema_classes(package):
+        if is_development_version(cls.SCHEMA_VERSION):
+            continue
+        path = frozen_schema_path(directory, cls)
+        text = _canonical_text(dump_schema(cls))
+        if path.exists():
+            if path.read_text() != text:
+                raise FrozenSchemaError(
+                    f"{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION} is finalized and frozen; "
+                    "bump SCHEMA_VERSION to change it rather than overwriting the frozen file."
+                )
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        changed.append(path)
+    return changed
+
+
+def check_frozen_schemas(directory: Path, package: str = "lsst.images") -> list[str]:
+    """Check the frozen schema files against the current models.
+
+    Parameters
+    ----------
+    directory
+        Directory holding the frozen ``{name}-{version}.json`` files.
+    package
+        Package whose schemas to check; see
+        `~lsst.images.serialization.available_schema_classes`.
+
+    Returns
+    -------
+    `list` [ `str` ]
+        One problem description per current schema whose frozen file is
+        missing or does not match the current model; empty when the frozen
+        files are up to date.
+
+    Notes
+    -----
+    Schemas at a development version (a PEP 440 ``.devN`` release) are
+    skipped and not reported as missing.
+    """
+    problems: list[str] = []
+    for cls in available_schema_classes(package):
+        if is_development_version(cls.SCHEMA_VERSION):
+            continue
+        path = frozen_schema_path(directory, cls)
+        if not path.exists():
+            problems.append(f"{path.relative_to(directory)}: missing")
+        elif path.read_text() != _canonical_text(dump_schema(cls)):
+            problems.append(f"{path.relative_to(directory)}: finalized schema changed; bump SCHEMA_VERSION")
+    return problems

@@ -76,9 +76,31 @@ def test_archive_info_from_schema_url_invalid() -> None:
 
 
 def test_archive_info_from_schema_url_foreign_host() -> None:
-    """Verify ArchiveInfo.from_schema_url rejects URLs from non-lsst hosts."""
+    """Verify ArchiveInfo.from_schema_url accepts third-party hosts whose
+    URLs follow the ``.../schemas/{name}-{version}`` shape, since external
+    packages mint schema URLs under their own documentation sites.
+    """
+    info = ArchiveInfo.from_schema_url(
+        "https://example.org/products/schemas/extended_psf-1.2.0", format_version=None
+    )
+    assert info.schema_name == "extended_psf"
+    assert info.schema_version == "1.2.0"
+
+
+def test_archive_info_from_schema_url_not_schema_shaped() -> None:
+    """Verify ArchiveInfo.from_schema_url rejects values that do not have
+    the schema URL shape, such as a DATAMODL header written by an unrelated
+    tool.
+    """
     with pytest.raises(ValueError):
-        ArchiveInfo.from_schema_url("https://evil.example.com/schemas/image-1.0.0", format_version=None)
+        # No "schemas" parent path segment.
+        ArchiveInfo.from_schema_url("https://example.org/image-1.0.0", format_version=None)
+    with pytest.raises(ValueError):
+        # Not an http(s) URL at all.
+        ArchiveInfo.from_schema_url("IMAGE", format_version=None)
+    with pytest.raises(ValueError):
+        # No host.
+        ArchiveInfo.from_schema_url("https:///schemas/image-1.0.0", format_version=None)
 
 
 def test_input_archive_get_basic_info_base_raises() -> None:

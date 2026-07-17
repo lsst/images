@@ -68,12 +68,7 @@ def write(
         The serialized representation of the object.
     """
     archive = JsonOutputArchive()
-    name = getattr(obj, "_archive_default_name", None)
-    tree = archive.serialize_direct(name, obj.serialize) if name is not None else obj.serialize(archive)
-    if metadata is not None:
-        tree.metadata.update(metadata)
-    if butler_info is not None:
-        tree.butler_info = butler_info
+    tree = archive.serialize_root(obj, metadata, butler_info)
     archive.finish(tree)
     if path is not None:
         ResourcePath(path).write(tree.model_dump_json().encode())

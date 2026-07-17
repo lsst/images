@@ -385,6 +385,9 @@ def test_verify_rewrite_help() -> None:
         ["verify-rewrite", "-h"],
         ["verify-rewrite", "stage4", "-h"],
         ["fuzz-masked-image", "-h"],
+        ["schemas", "-h"],
+        ["schemas", "write", "-h"],
+        ["schemas", "check", "-h"],
     ],
     ids=[
         "root",
@@ -397,6 +400,9 @@ def test_verify_rewrite_help() -> None:
         "verify-rewrite",
         "verify-rewrite-stage4",
         "fuzz-masked-image",
+        "schemas",
+        "schemas-write",
+        "schemas-check",
     ],
 )
 def test_short_help_alias(args: list[str]) -> None:
@@ -406,3 +412,38 @@ def test_short_help_alias(args: list[str]) -> None:
     result = CliRunner().invoke(main, args)
     assert result.exit_code == 0, result.output
     assert "Usage:" in result.output
+
+
+def test_schemas_write_and_check(tmp_path: Path) -> None:
+    """Verify schemas write populates a directory that schemas check
+    accepts.
+    """
+    runner = CliRunner()
+    result = runner.invoke(main, ["schemas", "write", "--dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert list(tmp_path.glob("image/image-*.json"))
+    result = runner.invoke(main, ["schemas", "check", "--dir", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+
+def test_schemas_write_package_option(tmp_path: Path) -> None:
+    """Verify --package freezes only schemas defined under that package."""
+    runner = CliRunner()
+    result = runner.invoke(
+        main, ["schemas", "write", "--dir", str(tmp_path), "--package", "lsst.images.cells"]
+    )
+    assert result.exit_code == 0, result.output
+    names = sorted(p.name for p in tmp_path.rglob("*.json"))
+    assert any(n.startswith("cell_coadd-") for n in names)
+    assert not any(n.startswith("image-") for n in names)
+
+
+def test_schemas_check_fails_when_stale(tmp_path: Path) -> None:
+    """Verify schemas check exits nonzero and names the fix when stale."""
+    runner = CliRunner()
+    runner.invoke(main, ["schemas", "write", "--dir", str(tmp_path)])
+    (path,) = tmp_path.glob("image/image-*.json")
+    path.unlink()
+    result = runner.invoke(main, ["schemas", "check", "--dir", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "schemas write" in result.output

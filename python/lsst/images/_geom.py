@@ -21,12 +21,15 @@ __all__ = (
     "Interval",
     "IntervalSliceFactory",
     "NoOverlapError",
+    "SerializableXY",
+    "SerializableYX",
 )
 
 import math
 from collections.abc import Callable, Iterator, Sequence
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     Any,
     ClassVar,
     NamedTuple,
@@ -35,6 +38,7 @@ from typing import (
     TypeVar,
     assert_type,
     final,
+    get_args,
     overload,
 )
 
@@ -76,6 +80,16 @@ T = TypeVar("T")
 # upstream of this package in the future.
 
 
+class _SerializedYX[T](TypedDict):
+    y: T
+    x: T
+
+
+class _SerializedXY[T](TypedDict):
+    x: T
+    y: T
+
+
 class YX[T](NamedTuple):
     """A pair of per-dimension objects, ordered ``(y, x)``.
 
@@ -86,6 +100,16 @@ class YX[T](NamedTuple):
     arithmetic operations behave as they would on a
     `collections.abc.Sequence`, not a mathematical vector (e.g. adding
     concatenates).
+
+    In Pydantic models `YX` is serialized as a JSON object with ``y`` and
+    ``x`` keys rather than an array, so the dimension order is explicit in
+    the serialized form.  Validation also accepts a two-element ``[y, x]``
+    array, the form emitted before the object form was introduced and still
+    present in files that cannot be rewritten.  Pydantic only invokes the
+    schema hooks that
+    provide this for bare ``YX`` annotations, however, because it handles
+    parameterized named tuples specially; model fields that need a member
+    type (e.g. ``YX[int]``) must be annotated with `SerializableYX` instead.
 
     See Also
     --------
@@ -137,6 +161,44 @@ class YX[T](NamedTuple):
 
         return LegacyPoint2D(self.x, self.y)
 
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: pydantic.GetCoreSchemaHandler
+    ) -> pcs.CoreSchema:
+        item_type = args[0] if (args := get_args(source_type)) else Any
+        typed_dict = handler(_SerializedYX[item_type])  # type: ignore[valid-type]
+        from_typed_dict = pcs.no_info_after_validator_function(cls._validate, typed_dict)
+        # Files written before the object form was introduced (including the
+        # DP2 cell coadds, which cannot be rewritten) store pairs as ``[y, x]``
+        # arrays, so validation must accept that form for as long as those
+        # files remain readable, even if a future schema version stops
+        # documenting it.  This is a strict list schema so that a stray `XY`
+        # (a tuple) assigned to a `YX` field fails to validate instead of
+        # being silently transposed.
+        from_list = pcs.no_info_after_validator_function(
+            cls._from_list,
+            pcs.list_schema(handler(item_type), min_length=2, max_length=2, strict=True),
+        )
+        validation = pcs.union_schema([from_typed_dict, from_list])
+        return pcs.json_or_python_schema(
+            json_schema=validation,
+            python_schema=pcs.union_schema([pcs.is_instance_schema(cls), validation]),
+            serialization=pcs.plain_serializer_function_ser_schema(
+                cls._serialize, info_arg=False, return_schema=typed_dict
+            ),
+        )
+
+    @classmethod
+    def _validate(cls, data: _SerializedYX[T]) -> YX[T]:
+        return cls(**data)
+
+    @classmethod
+    def _from_list(cls, data: list[T]) -> YX[T]:
+        return cls(*data)
+
+    def _serialize(self) -> _SerializedYX[T]:
+        return {"y": self.y, "x": self.x}
+
 
 class XY[T](NamedTuple):
     """A pair of per-dimension objects, ordered ``(x, y)``.
@@ -147,6 +209,16 @@ class XY[T](NamedTuple):
     is ``(x, y)``.  Because it is a `tuple`, however, arithmetic operations
     behave as they would on a `collections.abc.Sequence`, not a mathematical
     vector (e.g. adding concatenates).
+
+    In Pydantic models `XY` is serialized as a JSON object with ``x`` and
+    ``y`` keys rather than an array, so the dimension order is explicit in
+    the serialized form.  Validation also accepts a two-element ``[x, y]``
+    array, the form emitted before the object form was introduced and still
+    present in files that cannot be rewritten.  Pydantic only invokes the
+    schema hooks that
+    provide this for bare ``XY`` annotations, however, because it handles
+    parameterized named tuples specially; model fields that need a member
+    type (e.g. ``XY[float]``) must be annotated with `SerializableXY` instead.
 
     See Also
     --------
@@ -197,6 +269,56 @@ class XY[T](NamedTuple):
         from lsst.geom import Point2D as LegacyPoint2D
 
         return LegacyPoint2D(self.x, self.y)
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: pydantic.GetCoreSchemaHandler
+    ) -> pcs.CoreSchema:
+        item_type = args[0] if (args := get_args(source_type)) else Any
+        typed_dict = handler(_SerializedXY[item_type])  # type: ignore[valid-type]
+        from_typed_dict = pcs.no_info_after_validator_function(cls._validate, typed_dict)
+        # Files written before the object form was introduced store pairs as
+        # ``[x, y]`` arrays, so validation must accept that form for as long
+        # as those files remain readable, even if a future schema version
+        # stops documenting it.  This is a strict list schema so that a stray
+        # `YX` (a tuple) assigned to an `XY` field fails to validate instead
+        # of being silently transposed.
+        from_list = pcs.no_info_after_validator_function(
+            cls._from_list,
+            pcs.list_schema(handler(item_type), min_length=2, max_length=2, strict=True),
+        )
+        validation = pcs.union_schema([from_typed_dict, from_list])
+        return pcs.json_or_python_schema(
+            json_schema=validation,
+            python_schema=pcs.union_schema([pcs.is_instance_schema(cls), validation]),
+            serialization=pcs.plain_serializer_function_ser_schema(
+                cls._serialize, info_arg=False, return_schema=typed_dict
+            ),
+        )
+
+    @classmethod
+    def _validate(cls, data: _SerializedXY[T]) -> XY[T]:
+        return cls(**data)
+
+    @classmethod
+    def _from_list(cls, data: list[T]) -> XY[T]:
+        return cls(*data)
+
+    def _serialize(self) -> _SerializedXY[T]:
+        return {"x": self.x, "y": self.y}
+
+
+SerializableXY = Annotated[XY[T], pydantic.GetPydanticSchema(XY.__get_pydantic_core_schema__)]
+"""An `XY` annotation for Pydantic model fields that serializes as a JSON
+object with ``x`` and ``y`` keys (`XY` alone serializes as an array when
+parameterized, because Pydantic handles named tuples specially).
+"""
+
+SerializableYX = Annotated[YX[T], pydantic.GetPydanticSchema(YX.__get_pydantic_core_schema__)]
+"""A `YX` annotation for Pydantic model fields that serializes as a JSON
+object with ``y`` and ``x`` keys (`YX` alone serializes as an array when
+parameterized, because Pydantic handles named tuples specially).
+"""
 
 
 class _SerializedInterval(TypedDict):

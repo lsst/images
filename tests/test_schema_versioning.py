@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json as json_module
+import warnings
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -19,7 +20,15 @@ import pydantic
 import pytest
 
 from lsst.images import ImageSerializationModel
-from lsst.images.serialization import ArchiveReadError, ArchiveTree, InputArchive
+from lsst.images.json._output_archive import JsonOutputArchive
+from lsst.images.serialization import (
+    ArchiveReadError,
+    ArchiveTree,
+    DevelopmentSchemaWarning,
+    InputArchive,
+    is_development_version,
+    warn_for_development_schemas,
+)
 from lsst.images.serialization._common import _check_compat, _check_format_version
 from lsst.images.tests import check_archive_tree_class_invariants, iter_concrete_archive_tree_subclasses
 
@@ -38,6 +47,51 @@ class _DummyArchiveTree(ArchiveTree):
         self, archive: InputArchive[Any], **kwargs: Any
     ) -> Any:  # pragma: no cover - never invoked
         raise NotImplementedError()
+
+
+class _DevTree(ArchiveTree):
+    """Development-version tree double."""
+
+    SCHEMA_NAME = "in_dev_helper_test_dev"
+    SCHEMA_VERSION = "1.0.0.dev0"
+    MIN_READ_VERSION = 1
+    PUBLIC_TYPE = object
+
+    def deserialize(self, archive, **kwargs):  # pragma: no cover - never invoked
+        raise NotImplementedError()
+
+
+class _FinalTree(ArchiveTree):
+    """Finalized-version tree double."""
+
+    SCHEMA_NAME = "in_dev_helper_test_final"
+    SCHEMA_VERSION = "1.0.0"
+    MIN_READ_VERSION = 1
+    PUBLIC_TYPE = object
+
+    def deserialize(self, archive, **kwargs):  # pragma: no cover - never invoked
+        raise NotImplementedError()
+
+
+def test_is_development_version() -> None:
+    """Verify is_development_version detects development versions correctly."""
+    assert is_development_version("1.0.0.dev0")
+    assert is_development_version("2.3.4.dev12")
+    assert not is_development_version("1.0.0")
+    assert not is_development_version("2.3.4")
+
+
+def test_warn_for_development_schemas_warns() -> None:
+    """Verify warn_for_development_schemas warns for development schemas."""
+    with pytest.warns(DevelopmentSchemaWarning, match="in_dev_helper_test_dev"):
+        warn_for_development_schemas(_DevTree())
+
+
+def test_warn_for_development_schemas_silent_when_finalized() -> None:
+    """Verify warn_for_development_schemas is silent for finalized schemas."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        warn_for_development_schemas(_FinalTree())
 
 
 def test_silent_when_min_read_satisfied() -> None:
@@ -214,3 +268,30 @@ def test_absent_fields_default_to_legacy_fixture(fixture_path: Path) -> None:
     instance = ImageSerializationModel.model_validate(tree)
     assert instance.schema_version == "1.0.0"
     assert instance.min_read_version == 1
+
+
+class _WritableDevObject:
+    _archive_default_name = None
+
+    def serialize(self, archive):
+        return _DevTree()
+
+
+class _WritableFinalObject:
+    _archive_default_name = None
+
+    def serialize(self, archive):
+        return _FinalTree()
+
+
+def test_serialize_root_warns_for_development() -> None:
+    """Verify serialize_root warns when the tree uses a development schema."""
+    with pytest.warns(DevelopmentSchemaWarning, match="in_dev_helper_test_dev"):
+        JsonOutputArchive().serialize_root(_WritableDevObject())
+
+
+def test_serialize_root_silent_for_finalized() -> None:
+    """Verify serialize_root does not warn for a finalized schema."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        JsonOutputArchive().serialize_root(_WritableFinalObject())

@@ -39,3 +39,11 @@ jobs:
       - name: Build documentation
         working-directory: ./doc
         run: package-docs build -W -n
+
+      - name: Upload documentation
+        uses: lsst-sqre/ltd-upload@v1
+        with:
+          project: "images"
+          dir: "doc/_build/html"
+          username: ${{ secrets.LTD_USERNAME }}
+          password: ${{ secrets.LTD_PASSWORD }}

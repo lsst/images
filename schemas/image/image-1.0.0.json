@@ -1,0 +1,1218 @@
+{
+  "$defs": {
+    "ArrayReferenceModel": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF 'ndarray' schema, in the case where the\narray data is stored elsewhere.",
+      "id": "http://stsci.edu/schemas/asdf/core/ndarray-1.1.0",
+      "properties": {
+        "byteorder": {
+          "const": "big",
+          "default": "big",
+          "description": "Byte order for the binary data.",
+          "title": "Byteorder",
+          "type": "string"
+        },
+        "datatype": {
+          "$ref": "#/$defs/NumberType",
+          "description": "Data type of the array."
+        },
+        "shape": {
+          "description": "Size of the array in each dimension.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Shape",
+          "type": "array"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "description": "Location of the underlying binary data.",
+          "title": "Source"
+        }
+      },
+      "required": [
+        "source",
+        "shape",
+        "datatype"
+      ],
+      "tag": "!core/ndarray-1.1.0",
+      "title": "ArrayReferenceModel",
+      "type": "object"
+    },
+    "ArrayReferenceQuantityModel": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF 'quantity' schema for external arrays.",
+      "id": "http://stsci.edu/schemas/asdf/unit/quantity-1.2.0",
+      "properties": {
+        "unit": {
+          "$ref": "#/$defs/Unit"
+        },
+        "value": {
+          "$ref": "#/$defs/ArrayReferenceModel"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "tag": "!unit/quantity-1.2.0",
+      "title": "ArrayReferenceQuantityModel",
+      "type": "object"
+    },
+    "BoundsSerializationModel": {
+      "anyOf": [
+        {
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/CellGridBounds"
+        },
+        {
+          "$ref": "#/$defs/RegionSerializationModel"
+        },
+        {
+          "$ref": "#/$defs/IntersectionBoundsSerializationModel"
+        }
+      ]
+    },
+    "ButlerInfo": {
+      "description": "Information about a butler dataset.",
+      "properties": {
+        "dataset": {
+          "$ref": "#/$defs/SerializedDatasetRef"
+        },
+        "provenance": {
+          "$ref": "#/$defs/DatasetProvenance"
+        }
+      },
+      "required": [
+        "dataset"
+      ],
+      "title": "ButlerInfo",
+      "type": "object"
+    },
+    "CellGrid": {
+      "description": "A grid of rectangular cells with no overlaps or space between cells.",
+      "properties": {
+        "bbox": {
+          "description": "Bounding box of the grid of cells (snapped to cell boundaries. The cell with index (i=0, j=0) always has a corner at ``(y=bbox.y.min, x=bbox.x.min)`` but there is no expectation that ``(y=bbox.y.min, x=bbox.x.min)`` be ``(y=0, x=0)``.",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "cell_shape": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/_SerializedYX_int_"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          ],
+          "description": "Shape of each cell in pixels.",
+          "title": "Cell Shape"
+        }
+      },
+      "required": [
+        "bbox",
+        "cell_shape"
+      ],
+      "title": "CellGrid",
+      "type": "object"
+    },
+    "CellGridBounds": {
+      "description": "A region of pixels defined by a set of cells within a grid.",
+      "properties": {
+        "bbox": {
+          "description": "Pixel bounding box of the region (snapped to cell boundaries).",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "grid": {
+          "$ref": "#/$defs/CellGrid",
+          "description": "Definition of the grid that defines the cells."
+        },
+        "missing": {
+          "default": [],
+          "description": "Indices of cells that are missing, where (i=0, j=0) is the cell that starts at grid.bbox.start.",
+          "items": {
+            "$ref": "#/$defs/CellIJ"
+          },
+          "title": "Missing",
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "grid",
+        "bbox"
+      ],
+      "title": "CellGridBounds",
+      "type": "object"
+    },
+    "CellIJ": {
+      "description": "An index in a grid of cells.",
+      "properties": {
+        "i": {
+          "title": "I",
+          "type": "integer"
+        },
+        "j": {
+          "title": "J",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "i",
+        "j"
+      ],
+      "title": "CellIJ",
+      "type": "object"
+    },
+    "DatasetProvenance": {
+      "description": "Provenance of a single `DatasetRef`.",
+      "properties": {
+        "extras": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "propertyNames": {
+            "format": "uuid"
+          },
+          "title": "Extras",
+          "type": "object"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/SerializedDatasetRef"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "quantum_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantum Id"
+        }
+      },
+      "title": "DatasetProvenance",
+      "type": "object"
+    },
+    "DetectorFrame": {
+      "description": "A coordinate frame for a particular detector's pixels.",
+      "properties": {
+        "bbox": {
+          "description": "Bounding box of the detector.",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "detector": {
+          "description": "ID of the detector.",
+          "title": "Detector",
+          "type": "integer"
+        },
+        "frame_type": {
+          "const": "DETECTOR",
+          "default": "DETECTOR",
+          "description": "Discriminator for the frame type.",
+          "title": "Frame Type",
+          "type": "string"
+        },
+        "instrument": {
+          "description": "Name of the instrument.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "visit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID of the visit.  May be unset in contexts where there is no visit or only a single relevant visit.",
+          "title": "Visit"
+        }
+      },
+      "required": [
+        "instrument",
+        "detector",
+        "bbox"
+      ],
+      "title": "DetectorFrame",
+      "type": "object"
+    },
+    "FieldAngleFrame": {
+      "description": "An angular coordinate frame that maps a camera onto the sky about its\nboresight.",
+      "properties": {
+        "frame_type": {
+          "const": "FIELD_ANGLE",
+          "default": "FIELD_ANGLE",
+          "description": "Discriminator for the frame type.",
+          "title": "Frame Type",
+          "type": "string"
+        },
+        "instrument": {
+          "description": "Name of the instrument.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "visit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID of the visit.  May be unset in contexts where there is no visit or only a relevant single visit.",
+          "title": "Visit"
+        }
+      },
+      "required": [
+        "instrument"
+      ],
+      "title": "FieldAngleFrame",
+      "type": "object"
+    },
+    "FocalPlaneFrame": {
+      "description": "A Euclidean coordinate frame for the focal plane of a camera.",
+      "properties": {
+        "frame_type": {
+          "const": "FOCAL_PLANE",
+          "default": "FOCAL_PLANE",
+          "description": "Discriminator for the frame type.",
+          "title": "Frame Type",
+          "type": "string"
+        },
+        "instrument": {
+          "description": "Name of the instrument.",
+          "title": "Instrument",
+          "type": "string"
+        },
+        "unit": {
+          "$ref": "#/$defs/Unit",
+          "description": "Units of the coordinates in this frame."
+        },
+        "visit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID of the visit.  May be unset in contexts where there is no visit or only a relevant single visit.",
+          "title": "Visit"
+        }
+      },
+      "required": [
+        "instrument",
+        "unit"
+      ],
+      "title": "FocalPlaneFrame",
+      "type": "object"
+    },
+    "GeneralFrame": {
+      "description": "An arbitrary Euclidean coordinate system.",
+      "properties": {
+        "frame_type": {
+          "const": "GENERAL",
+          "default": "GENERAL",
+          "description": "Discriminator for the frame type.",
+          "title": "Frame Type",
+          "type": "string"
+        },
+        "unit": {
+          "$ref": "#/$defs/Unit",
+          "description": "Units of the coordinates in this frame."
+        }
+      },
+      "required": [
+        "unit"
+      ],
+      "title": "GeneralFrame",
+      "type": "object"
+    },
+    "InlineArrayModel": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF 'ndarray' schema, in the case where the\narray data is stored inline.",
+      "id": "http://stsci.edu/schemas/asdf/core/ndarray-1.1.0",
+      "properties": {
+        "data": {
+          "items": {},
+          "title": "Data",
+          "type": "array"
+        },
+        "datatype": {
+          "$ref": "#/$defs/NumberType"
+        }
+      },
+      "required": [
+        "data",
+        "datatype"
+      ],
+      "tag": "!core/ndarray-1.1.0",
+      "title": "InlineArrayModel",
+      "type": "object"
+    },
+    "InlineArrayQuantityModel": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "description": "Model for a subset of the ASDF 'quantity' schema for inline arrays.",
+      "id": "http://stsci.edu/schemas/asdf/unit/quantity-1.2.0",
+      "properties": {
+        "unit": {
+          "$ref": "#/$defs/Unit"
+        },
+        "value": {
+          "$ref": "#/$defs/InlineArrayModel"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "tag": "!unit/quantity-1.2.0",
+      "title": "InlineArrayQuantityModel",
+      "type": "object"
+    },
+    "IntersectionBoundsSerializationModel": {
+      "description": "Serialization model for `IntersectionBounds`.",
+      "properties": {
+        "a": {
+          "$ref": "#/$defs/BoundsSerializationModel"
+        },
+        "b": {
+          "$ref": "#/$defs/BoundsSerializationModel"
+        }
+      },
+      "required": [
+        "a",
+        "b"
+      ],
+      "title": "IntersectionBoundsSerializationModel",
+      "type": "object"
+    },
+    "MappingSerializationModel": {
+      "description": "Serialization model for an AST Mapping.",
+      "properties": {
+        "ast": {
+          "description": "A serialized Starlink AST Mapping, using the AST native encoding.",
+          "title": "Ast",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ast"
+      ],
+      "title": "MappingSerializationModel",
+      "type": "object"
+    },
+    "MetadataValue": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "NumberType": {
+      "description": "Enumeration of array values types supported by the library.",
+      "enum": [
+        "bool",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "float32",
+        "float64"
+      ],
+      "title": "NumberType",
+      "type": "string"
+    },
+    "RegionSerializationModel": {
+      "description": "Serialization model for `Region` and `Polygon`.\n\nThis model is a subset of the GeoJSON specification (IETF RFC 7946).",
+      "properties": {
+        "coordinates": {
+          "description": "Vertices of the polygon or polygons.",
+          "items": {
+            "items": {
+              "anyOf": [
+                {
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "prefixItems": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "type": "array"
+                },
+                {
+                  "items": {
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "prefixItems": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ],
+                    "type": "array"
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "title": "Coordinates",
+          "type": "array"
+        },
+        "type": {
+          "description": "Geometry type.",
+          "enum": [
+            "Polygon",
+            "MultiPolygon"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "coordinates"
+      ],
+      "title": "RegionSerializationModel",
+      "type": "object"
+    },
+    "SerializableFrame": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SkyFrame"
+        },
+        {
+          "discriminator": {
+            "mapping": {
+              "DETECTOR": "#/$defs/DetectorFrame",
+              "FIELD_ANGLE": "#/$defs/FieldAngleFrame",
+              "FOCAL_PLANE": "#/$defs/FocalPlaneFrame",
+              "GENERAL": "#/$defs/GeneralFrame",
+              "TRACT": "#/$defs/TractFrame"
+            },
+            "propertyName": "frame_type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/DetectorFrame"
+            },
+            {
+              "$ref": "#/$defs/TractFrame"
+            },
+            {
+              "$ref": "#/$defs/FocalPlaneFrame"
+            },
+            {
+              "$ref": "#/$defs/FieldAngleFrame"
+            },
+            {
+              "$ref": "#/$defs/GeneralFrame"
+            }
+          ]
+        }
+      ]
+    },
+    "SerializedDataCoordinate": {
+      "description": "Simplified model for serializing a `DataCoordinate`.",
+      "properties": {
+        "dataId": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Dataid",
+          "type": "object"
+        },
+        "records": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/SerializedDimensionRecord"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Records"
+        }
+      },
+      "required": [
+        "dataId"
+      ],
+      "title": "SerializedDataCoordinate",
+      "type": "object"
+    },
+    "SerializedDatasetRef": {
+      "description": "Simplified model of a `DatasetRef` suitable for serialization.",
+      "properties": {
+        "component": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Component"
+        },
+        "dataId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SerializedDataCoordinate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "datasetType": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SerializedDatasetType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "run": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "SerializedDatasetRef",
+      "type": "object"
+    },
+    "SerializedDatasetType": {
+      "description": "Simplified model of a `DatasetType` suitable for serialization.",
+      "properties": {
+        "dimensions": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dimensions"
+        },
+        "isCalibration": {
+          "default": false,
+          "title": "Iscalibration",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parentStorageClass": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parentstorageclass"
+        },
+        "storageClass": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Storageclass"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "SerializedDatasetType",
+      "type": "object"
+    },
+    "SerializedDimensionRecord": {
+      "description": "Simplified model for serializing a `DimensionRecord`.",
+      "examples": [
+        {
+          "definition": "detector",
+          "record": {
+            "full_name": "0_01",
+            "id": 72,
+            "instrument": "HSC",
+            "name_in_raft": "01",
+            "purpose": "SCIENCE",
+            "raft": "0"
+          }
+        }
+      ],
+      "properties": {
+        "definition": {
+          "examples": [
+            "exposure"
+          ],
+          "title": "Name of dimension associated with this record.",
+          "type": "string"
+        },
+        "record": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/Timespan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "examples": [
+            {
+              "definition": "exposure",
+              "record": {
+                "exposure": 2021050300044,
+                "instrument": "LATISS",
+                "obs_id": "AT_O_20210503_00044"
+              }
+            }
+          ],
+          "title": "Dimension record keys and values.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "definition",
+        "record"
+      ],
+      "title": "SerializedDimensionRecord",
+      "type": "object"
+    },
+    "SkyFrame": {
+      "description": "The special frame that represents the sky, in ICRS coordinates.",
+      "enum": [
+        "ICRS"
+      ],
+      "title": "SkyFrame",
+      "type": "string"
+    },
+    "SkyProjectionSerializationModel_ArrayReferenceModel_": {
+      "properties": {
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "fits_approximation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TransformSerializationModel_ArrayReferenceModel_"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "An approximation of the pixel-to-sky transform that is exactly representable as a FITS WCS."
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "pixel_to_sky": {
+          "$ref": "#/$defs/TransformSerializationModel_ArrayReferenceModel_",
+          "description": "The transform that maps pixel coordinates to the sky."
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pixel_to_sky"
+      ],
+      "title": "sky_projection",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/sky_projection-1.0.0"
+    },
+    "Timespan": {
+      "description": "A [begin, end) TAI timespan with bounds as integer nanoseconds since 1970-01-01 00:00:00.",
+      "properties": {
+        "nsec": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Nsec",
+          "type": "array"
+        }
+      },
+      "required": [
+        "nsec"
+      ],
+      "title": "Timespan",
+      "type": "object"
+    },
+    "TractFrame": {
+      "description": "The pixel coordinates of a tract: a region on the sky used for\ncoaddition, defined by a 'skymap' and split into 'patches' that share\na common pixel grid.",
+      "properties": {
+        "bbox": {
+          "description": "Bounding box of the full tract.",
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/_SerializedInterval"
+            },
+            "y": {
+              "$ref": "#/$defs/_SerializedInterval"
+            }
+          },
+          "required": [
+            "y",
+            "x"
+          ],
+          "title": "_SerializedBox",
+          "type": "object"
+        },
+        "frame_type": {
+          "const": "TRACT",
+          "default": "TRACT",
+          "description": "Discriminator for the frame type.",
+          "title": "Frame Type",
+          "type": "string"
+        },
+        "skymap": {
+          "description": "Name of the skymap.",
+          "title": "Skymap",
+          "type": "string"
+        },
+        "tract": {
+          "description": "ID of the tract within its skymap.",
+          "title": "Tract",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "skymap",
+        "tract",
+        "bbox"
+      ],
+      "title": "TractFrame",
+      "type": "object"
+    },
+    "TransformSerializationModel_ArrayReferenceModel_": {
+      "properties": {
+        "bounds": {
+          "description": "\nList of the bounds of the ``frames`` for this transform.\n\nThis always has the same number of elements as ``frames``.\n",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/BoundsSerializationModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Bounds",
+          "type": "array"
+        },
+        "butler_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ButlerInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Information about the butler dataset backed by this file."
+        },
+        "frames": {
+          "description": "\nList of frames that this transform passes through.\n\nAll transforms include at least two frames (the endpoints).  Others\nintermediate frames may be included to facilitate data-sharing\nbetween transforms.\n",
+          "items": {
+            "$ref": "#/$defs/SerializableFrame"
+          },
+          "title": "Frames",
+          "type": "array"
+        },
+        "indirect": {
+          "description": "Serialized nested objects that may be saved or read more than once.",
+          "items": {},
+          "title": "Indirect",
+          "type": "array"
+        },
+        "mappings": {
+          "description": "\nThe actual mappings between frames, or archive pointers to\nserialized FrameSet objects from which they can be obtained.\n\nThis always has one fewer element than ``frames``.\n",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ArrayReferenceModel"
+              },
+              {
+                "$ref": "#/$defs/MappingSerializationModel"
+              }
+            ]
+          },
+          "title": "Mappings",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetadataValue"
+          },
+          "description": "Additional unstructured metadata.",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "min_read_version": {
+          "default": 1,
+          "description": "Smallest reader major that can interpret this tree.",
+          "title": "Min Read Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "default": "1.0.0",
+          "description": "Data-model schema version of this tree (major.minor.patch).",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "title": "transform",
+      "type": "object",
+      "x-lsst-schema-url": "https://images.lsst.io/schemas/transform-1.0.0"
+    },
+    "Unit": {
+      "$schema": "http://stsci.edu/schemas/yaml-schema/draft-01",
+      "id": "http://stsci.edu/schemas/asdf/unit/unit-1.0.0",
+      "tag": "!unit/unit-1.0.0",
+      "type": "string"
+    },
+    "_SerializedInterval": {
+      "properties": {
+        "start": {
+          "title": "Start",
+          "type": "integer"
+        },
+        "stop": {
+          "title": "Stop",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start",
+        "stop"
+      ],
+      "title": "_SerializedInterval",
+      "type": "object"
+    },
+    "_SerializedYX_int_": {
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "y",
+        "x"
+      ],
+      "title": "_SerializedYX",
+      "type": "object"
+    }
+  },
+  "$id": "https://images.lsst.io/schemas/image-1.0.0",
+  "properties": {
+    "butler_info": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ButlerInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Information about the butler dataset backed by this file."
+    },
+    "data": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArrayReferenceQuantityModel"
+        },
+        {
+          "$ref": "#/$defs/ArrayReferenceModel"
+        },
+        {
+          "$ref": "#/$defs/InlineArrayModel"
+        },
+        {
+          "$ref": "#/$defs/InlineArrayQuantityModel"
+        }
+      ],
+      "description": "Reference to pixel data.",
+      "title": "Data"
+    },
+    "indirect": {
+      "description": "Serialized nested objects that may be saved or read more than once.",
+      "items": {},
+      "title": "Indirect",
+      "type": "array"
+    },
+    "metadata": {
+      "additionalProperties": {
+        "$ref": "#/$defs/MetadataValue"
+      },
+      "description": "Additional unstructured metadata.",
+      "title": "Metadata",
+      "type": "object"
+    },
+    "min_read_version": {
+      "default": 1,
+      "description": "Smallest reader major that can interpret this tree.",
+      "title": "Min Read Version",
+      "type": "integer"
+    },
+    "schema_version": {
+      "default": "1.0.0",
+      "description": "Data-model schema version of this tree (major.minor.patch).",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sky_projection": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SkyProjectionSerializationModel_ArrayReferenceModel_"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Projection that maps the logical pixel grid onto the sky."
+    },
+    "yx0": {
+      "description": "Coordinate of the first pixels in the array, ordered (y, x).",
+      "items": {
+        "type": "integer"
+      },
+      "title": "Yx0",
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "yx0"
+  ],
+  "title": "image",
+  "type": "object"
+}

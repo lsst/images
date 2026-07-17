@@ -58,10 +58,13 @@ URL scheme
 
 ``schema_url`` follows::
 
-   https://images.lsst.io/schemas/<schema-name>-<major>.<minor>.<patch>
+   {SCHEMA_URL_BASE}/<schema-name>-<major>.<minor>.<patch>
 
-It is informational and need not resolve to a hosted document.
+where ``SCHEMA_URL_BASE`` is a class-level constant that defaults to ``https://images.lsst.io/schemas`` for the schemas this package owns.
+External packages providing their own schemas override it so their URLs are minted under a documentation site they control; readers accept any ``http(s)`` URL whose final directory is ``schemas``, without restricting the host.
 The same URL appears in the FITS ``DATAMODL`` keyword and the NDF ``.MORE.LSST.DATA_MODEL`` component so the data model is visible to tooling without parsing the JSON tree.
+The URL resolves to a generated documentation page for that schema version, with the raw JSON Schema document published alongside it at ``{schema_url}.json``; see :ref:`lsst.images-frozen-schemas`.
+Readers never fetch it: version compatibility is decided entirely by the ``schema_version`` / ``min_read_version`` stamps.
 
 Why two fields per model
 ========================
@@ -119,6 +122,28 @@ A patch bump (``1.0.0`` → ``1.0.1``) is for changes that do not affect file-fo
 A unit test enforces that every concrete subclass declares all three constants, that every ``SCHEMA_NAME`` is unique, and that ``MIN_READ_VERSION`` does not exceed the schema major.
 It does *not* enforce that a shape change was accompanied by a version bump — that remains a review-time discipline.
 
+.. _lsst.images-frozen-schemas:
+
+Frozen schema files
+===================
+
+The JSON Schema for every serialization model is committed to the ``schemas/`` directory at the top of the repository as ``{name}/{name}-{version}.json``.
+These files are the published source of truth for the canonical schema URLs: the documentation build generates one page per file at ``https://images.lsst.io/schemas/{name}-{version}``, with a field table, a composition diagram, and the raw JSON published alongside at ``https://images.lsst.io/schemas/{name}-{version}.json``.
+The versionless URL ``https://images.lsst.io/schemas/{name}`` resolves to a per-schema index listing every published version, which is also how the version pages are grouped in the site navigation.
+
+A schema still under development carries a PEP 440 development-release suffix on its ``SCHEMA_VERSION``, e.g. ``1.0.0.dev0``.
+A development schema is never frozen, published, or documented, and writing a file that contains one emits a ``DevelopmentSchemaWarning``; it may be changed in place freely.
+Dropping the suffix (``1.0.0.dev0`` becomes ``1.0.0``) finalizes the schema: the next ``lsst-images-admin schemas write`` from the repository root writes its first frozen file, the documentation build publishes it, and it becomes immutable.
+A finalized frozen file is never overwritten; if you change a finalized model the ``test_committed_frozen_schemas_are_current`` test fails, and you must bump ``SCHEMA_VERSION`` (the new version develops at ``X.Y.(Z+1).dev0``) rather than overwrite it, so the superseded file and its published URL are kept forever.
+
+Composition and version cascades
+--------------------------------
+
+A frozen schema inlines the sub-schemas of every embedded `~lsst.images.serialization.ArchiveTree` model, pinning the exact sub-schema versions its writer emits.
+Which *older* sub-schema versions a reader accepts is not recorded in the schema document, because that is a property of the reader code and the per-node ``min_read_version`` gate described above.
+Consequently a version bump in an embedded schema (e.g. ``sky_projection``) changes the frozen document of every schema that embeds it (e.g. ``visit_image``), and after the first data release those containing schemas must take a minor bump of their own even though their fields did not change.
+``schemas write`` identifies exactly which containing schemas are affected.
+
 Schema discovery and entry points
 =================================
 
@@ -140,6 +165,12 @@ The entry point does not need to call `~lsst.images.serialization.register_schem
 
 The entry point is keyed by schema name only, not by ``SCHEMA_VERSION``.
 Version compatibility remains the responsibility of the selected model's ``schema_version`` / ``min_read_version`` validation.
+
+External packages that provide schemas should also:
+
+- Override the ``SCHEMA_URL_BASE`` class variable (once, on a shared intermediate base class) so their schema URLs are minted under a documentation site they control; ``images.lsst.io`` only hosts the schemas this package owns.
+- Freeze their schemas into their own repository with ``lsst-images-admin schemas write --package <their.package>``, and guard them with an equivalent of this package's ``test_committed_frozen_schemas_are_current`` test using `lsst.images.serialization.check_frozen_schemas`.
+- Generate documentation pages for their site with `lsst.images.schema_docs.generate_schema_docs`, which links any embedded ``lsst.images`` sub-schemas back to their canonical ``images.lsst.io`` URLs.
 
 ``lsst.images`` also maintains a small built-in lazy-provider table for schemas it owns but does not import unconditionally, such as the ``lsst.images.cells`` models.
 This mirrors the package's own ``lsst.images.schemas`` entry points while keeping source-tree development via ``PYTHONPATH=python`` working before the package is installed.

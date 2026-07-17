@@ -10,3 +10,4 @@ images documentation preview
    :maxdepth: 1
 
    lsst.images/index
+   schemas/index

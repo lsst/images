@@ -22,3 +22,6 @@ pytest_session.txt
 .cache/
 .pytest_cache
 .coverage
+# Generated schema documentation
+doc/schemas/
+doc/_extra/

@@ -12,25 +12,32 @@
 from __future__ import annotations
 
 __all__ = (
+    "SCHEMA_URL_BASE",
     "ArchiveAccessRequiredError",
     "ArchiveReadError",
     "ArchiveTree",
     "ButlerInfo",
+    "DevelopmentSchemaWarning",
     "InvalidComponentError",
     "InvalidParameterError",
     "JsonRef",
     "MetadataValue",
     "OpaqueArchiveMetadata",
+    "is_development_version",
     "no_header_updates",
+    "warn_for_development_schemas",
 )
 
 import operator
+import warnings
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, Self
 
 import astropy.table
 import astropy.units
 import pydantic
+from packaging.version import Version
 
 from .._geom import Box
 from ..utils import is_none
@@ -51,11 +58,14 @@ type MetadataValue = (
     pydantic.StrictInt | pydantic.StrictFloat | pydantic.StrictStr | pydantic.StrictBool | None
 )
 
-SCHEMA_URL_HOST = "images.lsst.io"
-"""Canonical hostname for lsst.images schema URLs."""
+SCHEMA_URL_BASE = "https://images.lsst.io/schemas"
+"""Base for the schema URLs of this package's own schemas, used as
+``{SCHEMA_URL_BASE}/{name}-{version}``.
 
-SCHEMA_URL_BASE = f"https://{SCHEMA_URL_HOST}/schemas"
-"""Base for schema URLs, used as ``{SCHEMA_URL_BASE}/{name}-{version}``."""
+External packages providing their own schemas override
+`~lsst.images.serialization.ArchiveTree.SCHEMA_URL_BASE` instead, so their
+schema URLs are minted under a site they control.
+"""
 
 
 class ButlerInfo(pydantic.BaseModel):
@@ -93,6 +103,13 @@ class ArchiveTree(
     SCHEMA_NAME: ClassVar[str]
     SCHEMA_VERSION: ClassVar[str]
     MIN_READ_VERSION: ClassVar[int]
+    SCHEMA_URL_BASE: ClassVar[str] = SCHEMA_URL_BASE
+    """Base for this schema's URL, as ``{SCHEMA_URL_BASE}/{name}-{version}``.
+
+    External packages providing their own schemas should override this (once,
+    on a shared intermediate base class) so their schema URLs are minted
+    under a documentation site they control rather than images.lsst.io."""
+
     PUBLIC_TYPE: ClassVar[type]
     """In-memory Python type produced by this tree's ``deserialize`` (e.g.
     `dict` for a mapping return).  Declared explicitly by each concrete
@@ -129,7 +146,7 @@ class ArchiveTree(
         Computed from ``SCHEMA_NAME`` and ``SCHEMA_VERSION`` ClassVars.
         """
         cls = type(self)
-        return f"{SCHEMA_URL_BASE}/{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION}"
+        return f"{cls.SCHEMA_URL_BASE}/{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION}"
 
     @pydantic.model_validator(mode="after")
     def _check_and_normalize_schema_version(self) -> Self:
@@ -177,8 +194,13 @@ class ArchiveTree(
         json_schema_extra = cls.model_config.get("json_schema_extra") or {}
         if isinstance(json_schema_extra, dict):
             existing = dict(json_schema_extra)
-            existing.setdefault("$id", f"{SCHEMA_URL_BASE}/{name}-{version}")
-            existing.setdefault("title", name)
+            # Always override: a subclass of a concrete schema (e.g.
+            # visit_image subclassing masked_image) inherits its parent's
+            # already-stamped values through the merged model_config, and
+            # this hook only runs when the subclass declares its own
+            # SCHEMA_NAME / SCHEMA_VERSION for these to be derived from.
+            existing["$id"] = f"{cls.SCHEMA_URL_BASE}/{name}-{version}"
+            existing["title"] = name
             cls.model_config = {**cls.model_config, "json_schema_extra": existing}
         # Local import to avoid the _io -> _common circular dependency at
         # module load time.
@@ -262,6 +284,62 @@ class ArchiveTree(
         if isinstance(component_model, ArchiveTree):
             return component_model.deserialize(archive, **kwargs)
         return component_model
+
+
+class DevelopmentSchemaWarning(UserWarning):
+    """Warning that a file is being written with a development schema."""
+
+
+def is_development_version(version: str) -> bool:
+    """Return whether a schema version string is a PEP 440 development release.
+
+    Parameters
+    ----------
+    version
+        Schema version string, e.g. ``1.0.0`` or ``1.0.0.dev0``.
+    """
+    return Version(version).is_devrelease
+
+
+def _iter_archive_trees(obj: Any) -> Iterator[ArchiveTree]:
+    """Yield every `ArchiveTree` embedded in a serialized tree."""
+    if isinstance(obj, ArchiveTree):
+        yield obj
+    if isinstance(obj, pydantic.BaseModel):
+        for field_name in type(obj).model_fields:
+            yield from _iter_archive_trees(getattr(obj, field_name))
+    elif isinstance(obj, list | tuple):
+        for item in obj:
+            yield from _iter_archive_trees(item)
+    elif isinstance(obj, dict):
+        for value in obj.values():
+            yield from _iter_archive_trees(value)
+
+
+def warn_for_development_schemas(root: ArchiveTree) -> None:
+    """Emit a `DevelopmentSchemaWarning` if a serialized tree contains any
+    schema still in development.
+
+    Parameters
+    ----------
+    root
+        Top-level serialized tree about to be written.
+    """
+    developing = sorted(
+        {
+            tree.schema_url
+            for tree in _iter_archive_trees(root)
+            if is_development_version(type(tree).SCHEMA_VERSION)
+        }
+    )
+    if developing:
+        warnings.warn(
+            "Writing a file with development schema(s) "
+            f"{', '.join(developing)}; such files are not for production and "
+            "may not remain readable.",
+            DevelopmentSchemaWarning,
+            stacklevel=3,
+        )
 
 
 class ArchiveReadError(RuntimeError):
