@@ -283,6 +283,7 @@ _DEVELOPMENT_SCHEMAS = {
     "gaussian_psf",
     "image_basis_convolution_kernel",
     "masked_image",
+    "observation_summary_stats",
     "piff_psf",
     "psfex_psf",
     "visit_image",

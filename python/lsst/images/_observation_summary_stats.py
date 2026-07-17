@@ -14,9 +14,11 @@ __all__ = ("ObservationSummaryStats",)
 
 import dataclasses
 import math
-from typing import TYPE_CHECKING, Any, Self, get_origin
+from typing import TYPE_CHECKING, Any, ClassVar, Self, final, get_origin
 
 import pydantic
+
+from lsst.images.serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 
 if TYPE_CHECKING:
     try:
@@ -43,7 +45,17 @@ def _is_empty(value: Any) -> bool:
     return isinstance(value, float) and math.isnan(value)
 
 
-class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
+@final
+class ObservationSummaryStats(ArchiveTree):
+    """Various statistics obtained from a single observation."""
+
+    SCHEMA_NAME: ClassVar[str] = "observation_summary_stats"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0.dev0"
+    MIN_READ_VERSION: ClassVar[int] = 1
+    PUBLIC_TYPE: ClassVar[type]  # Assigned after class construction.
+
+    # This version comes from the afw definition and seems to be forced
+    # to 0 and is never changed as fields are added.
     version: int = pydantic.Field(0, description="Version of the model.")
 
     psfSigma: float = pydantic.Field(math.nan, description="PSF determinant radius (pixels).")
@@ -424,6 +436,9 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
         if not isinstance(other, ObservationSummaryStats):
             return NotImplemented
         for name in ObservationSummaryStats.model_fields:
+            if name in ArchiveTree.model_fields:
+                # Parent class fields, not summary statistics.
+                continue
             a = getattr(self, name)
             b = getattr(other, name)
             if isinstance(a, tuple) and isinstance(b, tuple):
@@ -435,6 +450,35 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
             elif a != b and not (math.isnan(a) and math.isnan(b)):
                 return False
         return True
+
+    def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> Self:
+        """Extract this object from an archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to read from.
+        **kwargs
+            Optional parameters. Not supported by this class.
+        """
+        if kwargs:
+            raise InvalidParameterError(
+                f"Unrecognized parameters for ObservationSummaryStats: {set(kwargs.keys())}."
+            )
+        # The model we want *is* the ArchiveTree.
+        return self
+
+    def serialize(self, archive: OutputArchive[Any]) -> Self:
+        """Write this object to an archive.
+
+        Parameters
+        ----------
+        archive
+            Archive to write to.
+        """
+        # Copy so write-time overrides (metadata, butler_info) applied
+        # by serialize_root do not mutate this object.
+        return self.model_copy(deep=True)
 
     @classmethod
     def from_legacy(cls, exposure_summary_stats: LegacyExposureSummaryStats) -> Self:
@@ -482,6 +526,9 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
         legacy_fields = {field.name for field in dataclasses.fields(LegacyExposureSummaryStats)}
         kwargs: dict[str, Any] = {}
         for name, info in ObservationSummaryStats.model_fields.items():
+            if name in ArchiveTree.model_fields:
+                # Parent class fields, not summary statistics.
+                continue
             value = getattr(self, name)
             if _is_empty(value):
                 continue
@@ -500,3 +547,7 @@ class ObservationSummaryStats(pydantic.BaseModel, ser_json_inf_nan="constants"):
             else:
                 raise NotImplementedError(f"Unsupported field type: {info.annotation}.")
         return LegacyExposureSummaryStats(**kwargs)
+
+
+# Can not assign to itself in construction so assign now.
+ObservationSummaryStats.PUBLIC_TYPE = ObservationSummaryStats
