@@ -18,11 +18,13 @@ from functools import cached_property
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, Self, TypeVar
 
+import astropy.units as u
 import astropy.wcs
 
+import starlink.Ast as Ast
 from lsst.resources import ResourcePathExpression
 
-from ._geom import YX, Box
+from ._geom import YX, Box, NoOverlapError
 from ._transforms import SkyProjection, SkyProjectionAstropyView
 from .serialization import (
     ArchiveTree,
@@ -320,6 +322,91 @@ class GeneralizedImage(ABC):
                 "use .local[y, x] or .absolute[y, x] proxies for slice-based subsets."
             )
         return bbox, bbox.slice_within(self.bbox)
+
+    def bbox_from_sky_circle(
+        self, center: astropy.coordinates.SkyCoord, radius: astropy.coordinates.Angle, clip: bool = False
+    ) -> Box:
+        """Calculate the bounding box on this image corresponding to a circular
+        region on the sky.
+
+        Parameters
+        ----------
+        center
+            The center of the circle, as a scalar
+            `astropy.coordinates.SkyCoord` in any frame.
+        radius
+            Radius of the circle, as a scalar `astropy.coordinates.Angle`.
+        clip
+            If `True` (`False` is default), clip pixel bounds when the circle
+            extends outside the image. If `False` an exception is raised if
+            any part of the circle is off the image.
+
+        Returns
+        -------
+        Box
+            Bounding box enclosing the circle in this image's pixel
+            coordinates.
+
+        Raises
+        ------
+        NoOverlapError
+            Raised if the requested region is entirely off the image or if
+            any part of the region is off the image and clipping is `False`.
+        ValueError
+            Raised if ``center`` or ``radius`` is not scalar, or if this
+            image has no sky projection.
+        """
+        if not center.isscalar:
+            raise ValueError("The center of the sky circle must be a scalar SkyCoord.")
+        if not radius.isscalar:
+            raise ValueError("The radius of the sky circle must be a scalar Angle.")
+        center = center.transform_to("icrs")
+
+        # Use pyast directly for the region handling.
+        sky_region = Ast.Circle(
+            Ast.SkyFrame("System=ICRS"),
+            1,
+            [center.ra.rad, center.dec.rad],
+            [radius.to_value(u.rad)],
+        )
+
+        # Get the relevant mapping. If it is not already a pyast mapping
+        # (e.g., it is implemented with astshim), convert it by round-tripping
+        # the AST textual serialization through a pyast Channel.
+        sky_projection = self.sky_projection
+        if sky_projection is None:
+            raise ValueError("A sky projection is required to calculate a bounding box from a sky region.")
+        sky_to_pixel: Any = sky_projection.sky_to_pixel_transform._ast_mapping
+        if not isinstance(sky_to_pixel, Ast.Mapping):
+            # Comments must be disabled for pyast to be able to parse the
+            # astshim serialization.
+            sky_to_pixel = Ast.Channel(sky_to_pixel.show(False).splitlines()).read()
+
+        # Calculate the Box around the region.
+        pixel_region = sky_region.mapregion(sky_to_pixel, Ast.Frame(2))
+        lbnd, ubnd = pixel_region.getregionbounds()
+        region_box = Box.from_float_bounds(
+            x_min=float(lbnd[0]),
+            x_max=float(ubnd[0]),
+            y_min=float(lbnd[1]),
+            y_max=float(ubnd[1]),
+        )
+
+        # Determine the box within the image itself, clipping if requested.
+        if clip:
+            try:
+                region_box = region_box.intersection(self.bbox)
+            except NoOverlapError as e:
+                e.add_note(
+                    f"Requested sky circle has pixel bbox {region_box} which does not overlap {self.bbox}"
+                )
+                raise
+        if not self.bbox.contains(region_box):
+            raise NoOverlapError(
+                f"Requested sky circle has pixel bbox {region_box}, which is not within {self.bbox}"
+            )
+
+        return region_box
 
 
 class LocalSliceProxy[T: GeneralizedImage]:
