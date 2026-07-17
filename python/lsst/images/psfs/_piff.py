@@ -256,7 +256,7 @@ class PiffSerializationModel(serialization.ArchiveTree):
     """Serialization model for a Piff PSF."""
 
     SCHEMA_NAME: ClassVar[str] = "piff_psf"
-    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0.dev0"
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = PiffWrapper
 

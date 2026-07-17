@@ -121,12 +121,12 @@ def test_page_content(generated: tuple[Path, Path]) -> None:
 def test_sub_schema_links(generated: tuple[Path, Path]) -> None:
     """Verify composite schema pages hyperlink their sub-schema pages.
 
-    The visit_image field table must link the mask and sky_projection types
+    The cell_coadd field table must link the mask and sky_projection types
     to those schemas' own generated pages.
     """
     page_dir, _ = generated
-    (vi_dir,) = [p for p in page_dir.glob("visit_image-*") if p.is_dir()]
-    text = (vi_dir / "index.rst").read_text()
+    (cc_dir,) = [p for p in page_dir.glob("cell_coadd-*") if p.is_dir()]
+    text = (cc_dir / "index.rst").read_text()
     assert ":doc:`mask <../mask-" in text
     assert ":doc:`sky_projection <../sky_projection-" in text
 
@@ -173,16 +173,27 @@ def test_recursive_schema_page_has_fields(generated: tuple[Path, Path]) -> None:
     assert "``operands``" in text
 
 
-def test_python_references_become_literals(generated: tuple[Path, Path]) -> None:
+def test_python_references_become_literals(tmp_path: Path) -> None:
     """Verify single-backtick Python references from model docstrings are
     rendered as inline literals, since they cannot resolve as py:obj targets
     on the generated pages.
     """
-    page_dir, _ = generated
-    (cfs_dir,) = [p for p in page_dir.glob("camera_frame_set-*") if p.is_dir()]
-    text = (cfs_dir / "index.rst").read_text()
-    assert "``CameraFrameSet``" in text
-    assert re.search(r"(?<!`)`CameraFrameSet`(?!`)", text) is None
+    schema_dir = tmp_path / "schemas"
+    schema_dir.mkdir()
+    gadget = {
+        "$id": "https://images.lsst.io/schemas/gadget-1.0.0",
+        "title": "gadget",
+        "description": "A gadget backed by a `Gadget` object.",
+        "type": "object",
+        "properties": {},
+    }
+    (schema_dir / "gadget").mkdir()
+    (schema_dir / "gadget" / "gadget-1.0.0.json").write_text(json.dumps(gadget) + "\n")
+    page_dir = tmp_path / "pages"
+    generate_schema_docs(schema_dir, page_dir, tmp_path / "extra")
+    text = (page_dir / "gadget-1.0.0" / "index.rst").read_text()
+    assert "``Gadget``" in text
+    assert re.search(r"(?<!`)`Gadget`(?!`)", text) is None
 
 
 def test_raw_json_staged(generated: tuple[Path, Path]) -> None:

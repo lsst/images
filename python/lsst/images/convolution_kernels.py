@@ -282,7 +282,7 @@ class ImageBasisConvolutionKernelSerializationModel(ArchiveTree):
     """The serialization model for `ImageBasisConvolutionKernel`."""
 
     SCHEMA_NAME: ClassVar[str] = "image_basis_convolution_kernel"
-    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0.dev0"
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = ImageBasisConvolutionKernel
 

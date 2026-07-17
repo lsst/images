@@ -175,7 +175,7 @@ def test_reader_api_info(visit_image: VisitImage, tmp_path: Path) -> None:
     images_fits.write(visit_image, path)
     with ser.open_archive(path) as reader:
         assert reader.info.schema_name == "visit_image"
-        assert reader.info.schema_version == "1.0.0"
+        assert reader.info.schema_version == "1.0.0.dev0"
         assert isinstance(reader.metadata, dict)
 
 

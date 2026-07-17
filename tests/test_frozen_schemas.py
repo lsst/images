@@ -28,6 +28,7 @@ from lsst.images.serialization import (
     dump_schema,
     frozen_schema_filename,
     frozen_schema_path,
+    is_development_version,
     write_frozen_schemas,
 )
 from lsst.images.serialization._frozen_schemas import _summary_description
@@ -233,7 +234,7 @@ def test_frozen_layout_per_schema_subdirectory(tmp_path: Path) -> None:
 def test_check_reports_missing_and_stale(tmp_path: Path) -> None:
     """Verify check flags a missing file and a stale file."""
     write_frozen_schemas(tmp_path)
-    (cls, *_) = available_schema_classes()
+    (cls,) = [c for c in available_schema_classes() if c.SCHEMA_NAME == "image"]
     path = frozen_schema_path(tmp_path, cls)
     stale = json.loads(path.read_text())
     stale["description"] = "something else"
@@ -265,10 +266,41 @@ def test_fixtures_validate_against_frozen_schemas() -> None:
         instance = json.loads(fixture_path.read_text())
         name, _, version = instance["schema_url"].rsplit("/", 1)[-1].rpartition("-")
         schema_file = REPO_SCHEMA_DIR / name / f"{name}-{version}.json"
+        if not schema_file.exists():
+            continue  # development schema: no frozen document to validate against
         schema = json.loads(schema_file.read_text())
         jsonschema.Draft202012Validator(schema).validate(instance)
         checked += 1
     assert checked
+
+
+_DEVELOPMENT_SCHEMAS = {
+    "aperture_correction_map",
+    "camera_frame_set",
+    "color_image",
+    "detector",
+    "difference_image",
+    "gaussian_psf",
+    "image_basis_convolution_kernel",
+    "masked_image",
+    "piff_psf",
+    "psfex_psf",
+    "visit_image",
+}
+
+
+def test_development_schemas_are_unfrozen() -> None:
+    """Verify exactly the intended schemas are development (unfrozen) and the
+    rest are finalized (frozen).
+    """
+    for cls in available_schema_classes():
+        frozen = frozen_schema_path(REPO_SCHEMA_DIR, cls)
+        if cls.SCHEMA_NAME in _DEVELOPMENT_SCHEMAS:
+            assert is_development_version(cls.SCHEMA_VERSION), cls.SCHEMA_NAME
+            assert not frozen.exists(), f"{cls.SCHEMA_NAME} should be unfrozen"
+        else:
+            assert not is_development_version(cls.SCHEMA_VERSION), cls.SCHEMA_NAME
+            assert frozen.exists(), f"{cls.SCHEMA_NAME} should be frozen"
 
 
 def test_committed_frozen_schemas_are_current() -> None:

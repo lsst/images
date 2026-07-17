@@ -120,6 +120,12 @@ version = { attr = "lsst_versions.get_lsst_version" }
 write_to = "python/lsst/images/version.py"
 
 [tool.pytest.ini_options]
+# Development schemas warn on write (DevelopmentSchemaWarning); many tests
+# legitimately write them, so silence that expected warning suite-wide.
+# Tests that assert the warning fires use pytest.warns, which is unaffected.
+filterwarnings = [
+    "ignore::lsst.images.serialization.DevelopmentSchemaWarning",
+]
 
 [tool.pydocstyle]
 convention = "numpy"
