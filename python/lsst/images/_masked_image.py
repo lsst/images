@@ -264,6 +264,7 @@ class MaskedImage(GeneralizedImage):
         *,
         unit: astropy.units.UnitBase | None = None,
         plane_map: Mapping[str, MaskPlane] | None = None,
+        sky_projection: SkyProjection[Any] | None = None,
     ) -> MaskedImage:
         """Convert from an `lsst.afw.image.MaskedImage` instance.
 
@@ -279,11 +280,13 @@ class MaskedImage(GeneralizedImage):
             description.  If not provided, the right legacy mask plane will be
             guessed, but this can depend on which mask planes the legacy
             mask actually has set.
+        sky_projection
+            Projection from pixels to xky.
         """
         return MaskedImage(
-            image=Image.from_legacy(legacy.getImage(), unit),
-            mask=Mask.from_legacy(legacy.getMask(), plane_map),
-            variance=Image.from_legacy(legacy.getVariance()),
+            image=Image.from_legacy(legacy.getImage(), unit, sky_projection=sky_projection),
+            mask=Mask.from_legacy(legacy.getMask(), plane_map, sky_projection=sky_projection),
+            variance=Image.from_legacy(legacy.getVariance(), sky_projection=sky_projection),
         )
 
     def to_legacy(
