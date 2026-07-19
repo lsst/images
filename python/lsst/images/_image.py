@@ -345,7 +345,12 @@ class Image(GeneralizedImage):
     """
 
     @staticmethod
-    def from_legacy(legacy: LegacyImage, unit: astropy.units.UnitBase | None = None) -> Image:
+    def from_legacy(
+        legacy: LegacyImage,
+        unit: astropy.units.UnitBase | None = None,
+        *,
+        sky_projection: SkyProjection[Any] | None = None,
+    ) -> Image:
         """Convert from an `lsst.afw.image.Image` instance.
 
         Parameters
@@ -355,8 +360,12 @@ class Image(GeneralizedImage):
            the returned object.
         unit
             Units of the image.
+        sky_projection
+            Projection from pixels to xky.
         """
-        return Image(legacy.array, yx0=YX(y=legacy.getY0(), x=legacy.getX0()), unit=unit)
+        return Image(
+            legacy.array, yx0=YX(y=legacy.getY0(), x=legacy.getX0()), unit=unit, sky_projection=sky_projection
+        )
 
     def to_legacy(self, *, copy: bool | None = None) -> LegacyImage:
         """Convert to an `lsst.afw.image.Image` instance.

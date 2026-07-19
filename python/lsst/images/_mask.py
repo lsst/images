@@ -899,6 +899,8 @@ class Mask(GeneralizedImage):
     def from_legacy(
         legacy: Any,
         plane_map: Mapping[str, MaskPlane] | None = None,
+        *,
+        sky_projection: SkyProjection[Any] | None = None,
     ) -> Mask:
         """Convert from an `lsst.afw.image.Mask` instance.
 
@@ -912,12 +914,15 @@ class Mask(GeneralizedImage):
             description.  If not provided, the right legacy mask plane will be
             guessed, but this can depend on which mask planes the legacy
             mask actually has set.
+        sky_projection
+            Projection from pixels to xky.
         """
         return Mask._from_legacy_array(
             legacy.array,
             legacy.getMaskPlaneDict(),
             yx0=YX(y=legacy.getY0(), x=legacy.getX0()),
             plane_map=plane_map,
+            sky_projection=sky_projection,
         )
 
     def to_legacy(self, plane_map: Mapping[str, MaskPlane] | None = None) -> Any:
