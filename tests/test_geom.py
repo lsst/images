@@ -14,19 +14,24 @@ from __future__ import annotations
 import pickle
 from typing import get_overloads, get_type_hints
 
+import astropy.units as u
+import astropy.wcs
 import numpy as np
 import pydantic
 import pytest
+from astropy.coordinates import Angle, SkyCoord
 
 from lsst.images import (
     XY,
     YX,
     Bounds,
     Box,
+    GeneralFrame,
     Interval,
     NoOverlapError,
     SerializableXY,
     SerializableYX,
+    SkyProjection,
 )
 from lsst.images.tests import assert_close, check_bounds_contains_broadcasting
 
@@ -580,3 +585,60 @@ def test_box_from_float_bounds() -> None:
     # x in [4.6, 9.4], y in [2.6, 5.4] -> box [3:6, 5:10] in [y, x].
     box = Box.from_float_bounds(x_min=4.6, x_max=9.4, y_min=2.6, y_max=5.4)
     assert box == Box.factory[3:6, 5:10]
+
+
+def _make_sky_projection() -> SkyProjection:
+    """Build a gnomonic sky projection with 0.1 arcsec pixels.
+
+    The tangent point (12, 13) deg is at 0-based pixel (x=5, y=6).
+    """
+    wcs = astropy.wcs.WCS(naxis=2)
+    # FITS CRPIX is 1-based, so CRPIX (6, 7) is 0-based pixel (x=5, y=6).
+    wcs.wcs.crpix = [6.0, 7.0]
+    wcs.wcs.crval = [12.0, 13.0]
+    scale = 0.1 / 3600.0
+    wcs.wcs.cd = [[-scale, 0.0], [0.0, scale]]
+    wcs.wcs.ctype = ["RA---TAN", "DEC--TAN"]
+    return SkyProjection.from_fits_wcs(wcs, GeneralFrame(unit=u.pix))
+
+
+def test_box_from_sky_circle() -> None:
+    """Test Box.from_sky_circle encloses a circular sky region in pixels."""
+    sky_projection = _make_sky_projection()
+
+    # A 1 arcsec circle is ~10 pixels in radius at 0.1 arcsec per pixel.
+    # Centered on the tangent point at pixel (x=5, y=6), it spans
+    # x [-5, 15] and y [-4, 16].
+    box = Box.from_sky_circle(
+        sky_projection, SkyCoord(ra=12.0 * u.deg, dec=13.0 * u.deg, frame="icrs"), Angle(1.0 * u.arcsec)
+    )
+    assert box == Box.factory[-4:17, -5:16]
+
+    # A center offset by +5 arcsec in dec and -5 arcsec in RA lands at
+    # (x=53.7, y=56); the RA offset scales by cos(dec).
+    box = Box.from_sky_circle(
+        sky_projection,
+        SkyCoord(ra=12.0 * u.deg - 5.0 * u.arcsec, dec=13.0 * u.deg + 5.0 * u.arcsec, frame="icrs"),
+        Angle(1.0 * u.arcsec),
+    )
+    assert box == Box.factory[46:67, 44:65]
+
+    # The center may be given in any frame; it is transformed to ICRS, so the
+    # same physical point expressed in galactic coordinates gives the same box.
+    galactic_center = SkyCoord(ra=12.0 * u.deg, dec=13.0 * u.deg, frame="icrs").galactic
+    box = Box.from_sky_circle(sky_projection, galactic_center, Angle(1.0 * u.arcsec))
+    assert box == Box.factory[-4:17, -5:16]
+
+    # Non-scalar center and radius are rejected.
+    with pytest.raises(ValueError, match="scalar SkyCoord"):
+        Box.from_sky_circle(
+            sky_projection,
+            SkyCoord(ra=[12.0, 12.1] * u.deg, dec=[13.0, 13.1] * u.deg, frame="icrs"),
+            Angle(1.0 * u.arcsec),
+        )
+    with pytest.raises(ValueError, match="scalar Angle"):
+        Box.from_sky_circle(
+            sky_projection,
+            SkyCoord(ra=12.0 * u.deg, dec=13.0 * u.deg, frame="icrs"),
+            Angle([1.0, 2.0] * u.arcsec),
+        )

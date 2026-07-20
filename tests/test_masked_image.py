@@ -20,8 +20,19 @@ import astropy.io.fits
 import astropy.units as u
 import numpy as np
 import pytest
+from astropy.coordinates import Angle, SkyCoord
 
-from lsst.images import Box, Image, MaskedImage, MaskPlane, MaskSchema, get_legacy_visit_image_mask_planes
+from lsst.images import (
+    Box,
+    GeneralFrame,
+    Image,
+    MaskedImage,
+    MaskPlane,
+    MaskSchema,
+    NotContainedError,
+    SkyProjection,
+    get_legacy_visit_image_mask_planes,
+)
 from lsst.images.fits import FitsCompressionOptions
 from lsst.images.tests import (
     RoundtripFits,
@@ -76,6 +87,21 @@ def legacy_test_data() -> _LegacyTestData:
     return _LegacyTestData(masked_image=masked_image, reader=reader, plane_map=plane_map)
 
 
+def _make_wcs() -> astropy.wcs.WCS:
+    """Build a gnomonic FITS WCS with 0.1 arcsec pixels at (12, 13) deg.
+
+    The reference pixel is at 0-based pixel (x=5, y=6).
+    """
+    wcs = astropy.wcs.WCS(naxis=2)
+    # FITS CRPIX is 1-based, so CRPIX (6, 7) is 0-based pixel (x=5, y=6).
+    wcs.wcs.crpix = [6.0, 7.0]
+    wcs.wcs.crval = [12.0, 13.0]
+    scale = 0.1 / 3600.0
+    wcs.wcs.cd = [[-scale, 0.0], [0.0, scale]]
+    wcs.wcs.ctype = ["RA---TAN", "DEC--TAN"]
+    return wcs
+
+
 def make_masked_image() -> MaskedImage:
     """Return a freshly-constructed MaskedImage with BAD and HUNGRY mask
     planes set.
@@ -90,6 +116,7 @@ def make_masked_image() -> MaskedImage:
             ]
         ),
         metadata={"fifty": "5 * 10"},
+        sky_projection=SkyProjection.from_fits_wcs(_make_wcs(), GeneralFrame(unit=u.pix)),
     )
     masked_image.mask.array |= np.multiply.outer(
         masked_image.image.array < 102.0,
@@ -364,3 +391,65 @@ def test_legacy(legacy_test_data: _LegacyTestData) -> None:
         expect_view=True,
         plane_map=legacy_test_data.plane_map,
     )
+
+
+def test_sky_circle_bbox() -> None:
+    """Test that we can extract a bounding box from a sky circle."""
+    mi = make_masked_image()
+
+    # This position is on the reference pixel (x=5, y=6), which is just
+    # outside the image (the bbox starts at x=8, y=5), so the box must be
+    # clipped on the low-x and low-y sides. 0.1 arcsec pixels.
+    bbox = mi.bbox_from_sky_circle(
+        SkyCoord(ra=12.0 * u.deg, dec=13.0 * u.deg, frame="icrs"), Angle(1.0 * u.arcsec), clip=True
+    )
+    # The circle has a ~10 pixel radius (1 arcsec at 0.1 arcsec per pixel),
+    # spanning x [-5, 15] and y [-4, 16] before clipping to the image bounds.
+    assert bbox == Box.factory[5:17, 8:16]
+
+    with pytest.raises(NotContainedError):
+        # Partially off the edge but clipping not requested.
+        mi.bbox_from_sky_circle(
+            SkyCoord(ra=12.0 * u.deg, dec=13.0 * u.deg, frame="icrs"), Angle(1.0 * u.arcsec)
+        )
+
+    # Fully inside the image. The image is only ~200 pixels across or
+    # ~20 arcsec.
+    bbox = mi.bbox_from_sky_circle(
+        SkyCoord(ra=12.0 * u.deg - 5.0 * u.arcsec, dec=13.0 * u.deg + 5.0 * u.arcsec, frame="icrs"),
+        Angle(1.0 * u.arcsec),
+    )
+    # The center is offset from the reference pixel by +50 pixels in y and
+    # by +48.7 pixels in x (the 5 arcsec RA offset scales by cos(dec)),
+    # placing it at (x=53.7, y=56) with a ~10 pixel radius.
+    assert bbox == Box.factory[46:67, 44:65]
+
+    # Fully off the image.
+    with pytest.raises(NotContainedError):
+        mi.bbox_from_sky_circle(
+            SkyCoord(ra=13.0 * u.deg, dec=13.0 * u.deg, frame="icrs"), Angle(1.0 * u.arcsec)
+        )
+
+    # Fully off the image with clipping requested.
+    with pytest.raises(NotContainedError):
+        mi.bbox_from_sky_circle(
+            SkyCoord(ra=13.0 * u.deg, dec=13.0 * u.deg, frame="icrs"), Angle(1.0 * u.arcsec), clip=True
+        )
+
+    # Non-scalar center and radius are rejected.
+    with pytest.raises(ValueError, match="scalar SkyCoord"):
+        mi.bbox_from_sky_circle(
+            SkyCoord(ra=[12.0, 12.1] * u.deg, dec=[13.0, 13.1] * u.deg, frame="icrs"),
+            Angle(1.0 * u.arcsec),
+        )
+    with pytest.raises(ValueError, match="scalar Angle"):
+        mi.bbox_from_sky_circle(
+            SkyCoord(ra=12.0 * u.deg, dec=13.0 * u.deg, frame="icrs"), Angle([1.0, 2.0] * u.arcsec)
+        )
+
+    # An image without a sky projection cannot calculate a bounding box.
+    no_wcs = Image(0.0, shape=(10, 10), dtype=np.float64)
+    with pytest.raises(ValueError, match="sky projection"):
+        no_wcs.bbox_from_sky_circle(
+            SkyCoord(ra=12.0 * u.deg, dec=13.0 * u.deg, frame="icrs"), Angle(1.0 * u.arcsec)
+        )

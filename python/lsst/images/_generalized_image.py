@@ -22,7 +22,7 @@ import astropy.wcs
 
 from lsst.resources import ResourcePathExpression
 
-from ._geom import YX, Box
+from ._geom import YX, Box, NoOverlapError, NotContainedError
 from ._transforms import SkyProjection, SkyProjectionAstropyView
 from .serialization import (
     ArchiveTree,
@@ -320,6 +320,62 @@ class GeneralizedImage(ABC):
                 "use .local[y, x] or .absolute[y, x] proxies for slice-based subsets."
             )
         return bbox, bbox.slice_within(self.bbox)
+
+    def bbox_from_sky_circle(
+        self, center: astropy.coordinates.SkyCoord, radius: astropy.coordinates.Angle, clip: bool = False
+    ) -> Box:
+        """Calculate the bounding box on this image corresponding to a circular
+        region on the sky.
+
+        Parameters
+        ----------
+        center
+            The center of the circle, as a scalar
+            `astropy.coordinates.SkyCoord` in any frame.
+        radius
+            Radius of the circle, as a scalar `astropy.coordinates.Angle`.
+        clip
+            If `True` (`False` is default), clip pixel bounds when the circle
+            extends outside the image. If `False` an exception is raised if
+            any part of the circle is off the image.
+
+        Returns
+        -------
+        Box
+            Bounding box enclosing the circle in this image's pixel
+            coordinates.
+
+        Raises
+        ------
+        NotContainedError
+            Raised if the requested region is entirely off the image or if
+            any part of the region is off the image and clipping is `False`.
+        ValueError
+            Raised if ``center`` or ``radius`` is not scalar, or if this
+            image has no sky projection.
+        """
+        # Get the relevant mapping.
+        sky_projection = self.sky_projection
+        if sky_projection is None:
+            raise ValueError("A sky projection is required to calculate a bounding box from a sky region.")
+
+        # Calculate the Box around the region.
+        region_box = Box.from_sky_circle(sky_projection, center, radius)
+
+        # Determine the box within the image itself, clipping if requested.
+        if clip:
+            try:
+                region_box = region_box.intersection(self.bbox)
+            except NoOverlapError as e:
+                raise NotContainedError(
+                    f"Requested sky circle has pixel bbox {region_box} which does not overlap {self.bbox}"
+                ) from e
+        if not self.bbox.contains(region_box):
+            raise NotContainedError(
+                f"Requested sky circle has pixel bbox {region_box}, which is not within {self.bbox}"
+            )
+
+        return region_box
 
 
 class LocalSliceProxy[T: GeneralizedImage]:
