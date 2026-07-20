@@ -1,7 +1,6 @@
 {
     "schema_version": "1.0.0",
     "min_read_version": 1,
-    "version": 0,
     "psfSigma": 2.5,
     "psfArea": NaN,
     "psfIxx": NaN,

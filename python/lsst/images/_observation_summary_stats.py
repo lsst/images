@@ -54,10 +54,6 @@ class ObservationSummaryStats(ArchiveTree):
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type]  # Assigned after class construction.
 
-    # This version comes from the afw definition and seems to be forced
-    # to 0 and is never changed as fields are added.
-    version: int = pydantic.Field(0, description="Version of the model.")
-
     psfSigma: float = pydantic.Field(math.nan, description="PSF determinant radius (pixels).")
 
     psfArea: float = pydantic.Field(math.nan, description="PSF effective area (pixels**2).")
@@ -501,6 +497,11 @@ class ObservationSummaryStats(ArchiveTree):
         kwargs: dict[str, Any] = {}
         for name, value in dataclasses.asdict(exposure_summary_stats).items():
             if _is_empty(value):
+                continue
+            # Strip version since it carries no information (it is always 0
+            # in all our existing files) and this class uses explicit schema
+            # versioning.
+            if name == "version":
                 continue
             if name not in known_fields:
                 raise ValueError(

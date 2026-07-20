@@ -4040,7 +4040,6 @@
     "can_see_sky": true
   },
   "summary_stats": {
-    "version": 0,
     "psfSigma": 2.2072856266890377,
     "psfArea": 82.13682617656403,
     "psfIxx": 4.550830692855892,
