@@ -42,18 +42,23 @@ from typing import (
     overload,
 )
 
+import astropy.units as u
 import numpy as np
 import numpy.typing as npt
 import pydantic
 import pydantic_core.core_schema as pcs
 from pydantic.json_schema import JsonSchemaValue
 
+import starlink.Ast as Ast
+
 from .utils import round_half_down, round_half_up
 
 if TYPE_CHECKING:
+    import astropy.coordinates
+
     from ._concrete_bounds import BoundsSerializationModel
     from ._polygon import Polygon, Region
-    from ._transforms import Transform
+    from ._transforms import SkyProjection, Transform
 
     try:
         from lsst.geom import Extent2D as LegacyExtent2D
@@ -852,6 +857,70 @@ class Box:
             round_half_up(y_min) : round_half_down(y_max) + 1,
             round_half_up(x_min) : round_half_down(x_max) + 1,
         ]
+
+    @classmethod
+    def from_sky_circle(
+        cls,
+        sky_projection: SkyProjection,
+        center: astropy.coordinates.SkyCoord,
+        radius: astropy.coordinates.Angle,
+    ) -> Box:
+        """Calculate a bounding box from a sky projection and a circular
+        sky region.
+
+        Parameters
+        ----------
+        sky_projection
+            The sky projection mapping pixels to sky.
+        center
+            The center of the circle, as a scalar
+            `astropy.coordinates.SkyCoord` in any frame.
+        radius
+            Radius of the circle, as a scalar `astropy.coordinates.Angle`.
+
+        Returns
+        -------
+        Box
+            Bounding box enclosing the circle based on the sky projection.
+
+        Raises
+        ------
+        ValueError
+            Raised if ``center`` or ``radius`` is not scalar, or if this
+            image has no sky projection.
+        """
+        if not center.isscalar:
+            raise ValueError("The center of the sky circle must be a scalar SkyCoord.")
+        if not radius.isscalar:
+            raise ValueError("The radius of the sky circle must be a scalar Angle.")
+        center = center.transform_to("icrs")
+
+        # Use pyast directly for the region handling.
+        sky_region = Ast.Circle(
+            Ast.SkyFrame("System=ICRS"),
+            1,
+            [center.ra.rad, center.dec.rad],
+            [radius.to_value(u.rad)],
+        )
+
+        # If it is not already a pyast mapping
+        # (e.g., it is implemented with astshim), convert it by round-tripping
+        # the AST textual serialization through a pyast Channel.
+        sky_to_pixel: Any = sky_projection.sky_to_pixel_transform._ast_mapping
+        if not isinstance(sky_to_pixel, Ast.Mapping):
+            # Comments must be disabled for pyast to be able to parse the
+            # astshim serialization.
+            sky_to_pixel = Ast.Channel(sky_to_pixel.show(False).splitlines()).read()
+
+        # Calculate the Box around the region.
+        pixel_region = sky_region.mapregion(sky_to_pixel, Ast.Frame(2))
+        lbnd, ubnd = pixel_region.getregionbounds()
+        return Box.from_float_bounds(
+            x_min=float(lbnd[0]),
+            x_max=float(ubnd[0]),
+            y_min=float(lbnd[1]),
+            y_max=float(ubnd[1]),
+        )
 
     @property
     def min(self) -> YX[int]:

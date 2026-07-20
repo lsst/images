@@ -18,10 +18,8 @@ from functools import cached_property
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, Self, TypeVar
 
-import astropy.units as u
 import astropy.wcs
 
-import starlink.Ast as Ast
 from lsst.resources import ResourcePathExpression
 
 from ._geom import YX, Box, NoOverlapError
@@ -356,41 +354,13 @@ class GeneralizedImage(ABC):
             Raised if ``center`` or ``radius`` is not scalar, or if this
             image has no sky projection.
         """
-        if not center.isscalar:
-            raise ValueError("The center of the sky circle must be a scalar SkyCoord.")
-        if not radius.isscalar:
-            raise ValueError("The radius of the sky circle must be a scalar Angle.")
-        center = center.transform_to("icrs")
-
-        # Use pyast directly for the region handling.
-        sky_region = Ast.Circle(
-            Ast.SkyFrame("System=ICRS"),
-            1,
-            [center.ra.rad, center.dec.rad],
-            [radius.to_value(u.rad)],
-        )
-
-        # Get the relevant mapping. If it is not already a pyast mapping
-        # (e.g., it is implemented with astshim), convert it by round-tripping
-        # the AST textual serialization through a pyast Channel.
+        # Get the relevant mapping.
         sky_projection = self.sky_projection
         if sky_projection is None:
             raise ValueError("A sky projection is required to calculate a bounding box from a sky region.")
-        sky_to_pixel: Any = sky_projection.sky_to_pixel_transform._ast_mapping
-        if not isinstance(sky_to_pixel, Ast.Mapping):
-            # Comments must be disabled for pyast to be able to parse the
-            # astshim serialization.
-            sky_to_pixel = Ast.Channel(sky_to_pixel.show(False).splitlines()).read()
 
         # Calculate the Box around the region.
-        pixel_region = sky_region.mapregion(sky_to_pixel, Ast.Frame(2))
-        lbnd, ubnd = pixel_region.getregionbounds()
-        region_box = Box.from_float_bounds(
-            x_min=float(lbnd[0]),
-            x_max=float(ubnd[0]),
-            y_min=float(lbnd[1]),
-            y_max=float(ubnd[1]),
-        )
+        region_box = Box.from_sky_circle(sky_projection, center, radius)
 
         # Determine the box within the image itself, clipping if requested.
         if clip:
