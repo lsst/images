@@ -118,9 +118,9 @@ def _sanity_check_template_info(
     assert sum(info.bounds.area for info in template_info) < 1.5 * detector_frame.bbox.area
 
 
-def test_roundtrip(legacy_test_data: _LegacyTestData) -> None:
-    """Test round-tripping a DifferenceImage with extra components through
-    FITS.
+def _make_difference_image(legacy_test_data: _LegacyTestData) -> DifferenceImage:
+    """Return a DifferenceImage with kernel and template components
+    attached.
     """
     difference_image = DifferenceImage.from_legacy(legacy_test_data.exposure)
     difference_image.kernel = ImageBasisConvolutionKernel.from_legacy(legacy_test_data.kernel)
@@ -130,10 +130,30 @@ def test_roundtrip(legacy_test_data: _LegacyTestData) -> None:
         legacy_test_data.template_metadata,
         DP2_TEMPLATE_COADD_DATASETS,
     )
+    return difference_image
+
+
+def test_roundtrip(legacy_test_data: _LegacyTestData) -> None:
+    """Test round-tripping a DifferenceImage with extra components through
+    FITS.
+    """
+    difference_image = _make_difference_image(legacy_test_data)
     with RoundtripFits(difference_image, storage_class="DifferenceImage") as roundtrip:
-        compare_kernel_to_legacy(roundtrip.get("kernel"), legacy_test_data.kernel)
+        pass
     compare_kernel_to_legacy(roundtrip.result.kernel, legacy_test_data.kernel)
     _sanity_check_template_info(roundtrip.result.templates, legacy_test_data.detector_frame)
+
+
+def test_kernel_component_read(legacy_test_data: _LegacyTestData) -> None:
+    """Verify the kernel component of a DifferenceImage can be read on its
+    own.
+
+    Requires a butler; skips when `lsst.daf.butler` is absent.  Butler-free
+    assertions live in `test_roundtrip`.
+    """
+    difference_image = _make_difference_image(legacy_test_data)
+    with RoundtripFits(difference_image, storage_class="DifferenceImage") as roundtrip:
+        compare_kernel_to_legacy(roundtrip.get("kernel"), legacy_test_data.kernel)
 
 
 def test_difference_kernel(legacy_test_data: _LegacyTestData) -> None:

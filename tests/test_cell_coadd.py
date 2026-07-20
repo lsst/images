@@ -29,6 +29,7 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
     RoundtripNdf,
+    RoundtripZarr,
     assert_cell_coadds_equal,
     assert_images_equal,
     assert_masked_images_equal,
@@ -48,6 +49,15 @@ except ImportError:
     HAVE_H5PY = False
 
 try:
+    import zarr
+
+    from lsst.images.zarr._store import open_store_for_read
+
+    HAVE_ZARR = True
+except ImportError:
+    HAVE_ZARR = False
+
+try:
     import lsst.afw.image  # noqa: F401
     from lsst.cell_coadds import MultipleCellCoadd as LegacyMultipleCellCoadd
 
@@ -61,6 +71,7 @@ LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
 skip_no_legacy = pytest.mark.skipif(not HAVE_LEGACY, reason="lsst.afw (etc) could not be imported.")
+skip_no_zarr = pytest.mark.skipif(not HAVE_ZARR, reason="zarr is not installed")
 
 
 @dataclasses.dataclass
@@ -272,6 +283,37 @@ def test_fits_compression(legacy_test_data: _LegacyTestData) -> None:
                 else:
                     assert fits[extname].header["ZCMPTYPE"] == "RICE_1"
                     assert fits[extname].header["ZQUANTIZ"] == "SUBTRACTIVE_DITHER_2"
+
+
+@skip_no_zarr
+def test_zarr_roundtrip_uses_cell_aligned_chunks(legacy_test_data: _LegacyTestData) -> None:
+    """Verify writing a CellCoadd to zarr aligns chunks to the cell shape.
+
+    The bug fixed in DM-55041 was that ``write()`` probed
+    ``obj.cell_shape`` / ``obj.cell_grid`` but `CellCoadd` exposes
+    the cell shape under ``obj.grid.cell_shape``. Without the fix,
+    real CellCoadd writes fall back to generic 256-pixel chunks
+    instead of cell-aligned chunks.
+    """
+    cell_shape = legacy_test_data.cell_coadd.grid.cell_shape
+    with RoundtripZarr(legacy_test_data.cell_coadd, "CellCoadd") as roundtrip:
+        with open_store_for_read(roundtrip.filename) as store:
+            root = zarr.open_group(store=store, mode="r", zarr_format=3)
+            assert tuple(root["image"].chunks) == (cell_shape.y, cell_shape.x)
+
+
+@skip_no_zarr
+def test_fits_zarr_consistency(legacy_test_data: _LegacyTestData) -> None:
+    """Verify FITS and zarr backends produce equal CellCoadds on
+    round-trip.
+    """
+    with (
+        RoundtripFits(legacy_test_data.cell_coadd) as fits_rt,
+        RoundtripZarr(legacy_test_data.cell_coadd) as zarr_rt,
+    ):
+        assert_cell_coadds_equal(legacy_test_data.cell_coadd, fits_rt.result, expect_view=False)
+        assert_cell_coadds_equal(legacy_test_data.cell_coadd, zarr_rt.result, expect_view=False)
+        assert_cell_coadds_equal(fits_rt.result, zarr_rt.result, expect_view=False)
 
 
 def test_json_roundtrip(legacy_test_data: _LegacyTestData) -> None:

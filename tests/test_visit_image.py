@@ -51,6 +51,7 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
     RoundtripNdf,
+    RoundtripZarr,
     TemporaryButler,
     assert_close,
     assert_masked_images_equal,
@@ -71,6 +72,13 @@ except ImportError:
     HAVE_H5PY = False
 
 try:
+    import zarr  # noqa: F401
+
+    HAVE_ZARR = True
+except ImportError:
+    HAVE_ZARR = False
+
+try:
     from lsst.afw.image import Exposure as LegacyExposure
     from lsst.afw.image import VisitInfo as LegacyVisitInfo
 except ImportError:
@@ -81,6 +89,7 @@ EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
+skip_no_zarr = pytest.mark.skipif(not HAVE_ZARR, reason="zarr is not installed")
 
 
 @pytest.fixture(scope="session")
@@ -449,6 +458,18 @@ def test_fits_ndf_consistency(visit_image_components: dict[str, Any]) -> None:
         assert_visit_images_equal(fits_rt.result, ndf_rt.result, expect_view=False)
 
 
+@skip_no_zarr
+def test_fits_zarr_consistency(visit_image_components: dict[str, Any]) -> None:
+    """Verify FITS and zarr backends produce equal VisitImages on
+    round-trip.
+    """
+    visit_image = make_visit_image(visit_image_components)
+    with RoundtripFits(visit_image) as fits_rt, RoundtripZarr(visit_image) as zarr_rt:
+        assert_visit_images_equal(visit_image, fits_rt.result, expect_view=False)
+        assert_visit_images_equal(visit_image, zarr_rt.result, expect_view=False)
+        assert_visit_images_equal(fits_rt.result, zarr_rt.result, expect_view=False)
+
+
 def test_fits_json_consistency(visit_image_components: dict[str, Any]) -> None:
     """Verify FITS and JSON backends produce equal VisitImages."""
     visit_image = make_visit_image(visit_image_components)
@@ -599,6 +620,17 @@ def test_sum_background_round_trip_ndf(visit_image_components: dict[str, Any]) -
     visit_image = make_visit_image(visit_image_components)
     visit = _make_sum_background_visit_image(visit_image_components, visit_image)
     with RoundtripNdf(visit) as roundtrip:
+        _check_sum_background_round_trip(roundtrip.result, visit)
+
+
+@skip_no_zarr
+def test_sum_background_round_trip_zarr(visit_image_components: dict[str, Any]) -> None:
+    """Verify zarr backend disambiguates the repeated ``data`` leaf, just as
+    the FITS backend does.
+    """
+    visit_image = make_visit_image(visit_image_components)
+    visit = _make_sum_background_visit_image(visit_image_components, visit_image)
+    with RoundtripZarr(visit) as roundtrip:
         _check_sum_background_round_trip(roundtrip.result, visit)
 
 

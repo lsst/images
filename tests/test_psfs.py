@@ -21,7 +21,13 @@ import pytest
 from lsst.images import Box
 from lsst.images.psfs import GaussianPointSpreadFunction, PiffWrapper, PointSpreadFunction, PSFExWrapper
 from lsst.images.psfs._piff import _ArchivePiffWriter
-from lsst.images.tests import RoundtripFits, RoundtripJson, RoundtripNdf, compare_psf_to_legacy
+from lsst.images.tests import (
+    RoundtripFits,
+    RoundtripJson,
+    RoundtripNdf,
+    RoundtripZarr,
+    compare_psf_to_legacy,
+)
 
 try:
     import h5py  # noqa: F401
@@ -31,6 +37,13 @@ except ImportError:
     HAVE_H5PY = False
 
 try:
+    import zarr  # noqa: F401
+
+    HAVE_ZARR = True
+except ImportError:
+    HAVE_ZARR = False
+
+try:
     from lsst.afw.detection import Psf as LegacyPsf
 except ImportError:
     type LegacyPsf = Any  # type: ignore[no-redef]
@@ -38,6 +51,7 @@ except ImportError:
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
+skip_no_zarr = pytest.mark.skipif(not HAVE_ZARR, reason="zarr is not installed")
 
 
 @pytest.fixture(scope="session")
@@ -139,8 +153,8 @@ def test_piff_writer_normalizes_tuple_metadata():  # intentionally untyped
 
 
 def test_piff(legacy_piff_psf_and_bbox: tuple[LegacyPsf, Box]) -> None:
-    """Test round-tripping a legacy Piff PSF through FITS, JSON, and NDF
-    archives.
+    """Test round-tripping a legacy Piff PSF through FITS and JSON archives,
+    and converting it back to a legacy PSF.
     """
     from piff import PSF
 
@@ -156,14 +170,29 @@ def test_piff(legacy_piff_psf_and_bbox: tuple[LegacyPsf, Box]) -> None:
     with RoundtripJson(psf) as roundtrip2:
         pass
     compare_psf_to_legacy(roundtrip2.result, legacy_psf)
-    if not HAVE_H5PY:
-        pytest.skip("h5py is not available.")
-    with RoundtripNdf(psf) as roundtrip3:
-        pass
-    compare_psf_to_legacy(roundtrip3.result, legacy_psf)
     legacy_psf_2 = roundtrip1.result.to_legacy()
     compare_psf_to_legacy(psf, legacy_psf_2)
     assert legacy_psf.getAveragePosition() == legacy_psf_2.getAveragePosition()
+
+
+@skip_no_h5py
+def test_piff_ndf_roundtrip(legacy_piff_psf_and_bbox: tuple[LegacyPsf, Box]) -> None:
+    """Test round-tripping a legacy Piff PSF through an NDF archive."""
+    legacy_psf, bounds = legacy_piff_psf_and_bbox
+    psf = PointSpreadFunction.from_legacy(legacy_psf, bounds)
+    with RoundtripNdf(psf) as roundtrip:
+        pass
+    compare_psf_to_legacy(roundtrip.result, legacy_psf)
+
+
+@skip_no_zarr
+def test_piff_zarr_roundtrip(legacy_piff_psf_and_bbox: tuple[LegacyPsf, Box]) -> None:
+    """Test round-tripping a legacy Piff PSF through a zarr archive."""
+    legacy_psf, bounds = legacy_piff_psf_and_bbox
+    psf = PointSpreadFunction.from_legacy(legacy_psf, bounds)
+    with RoundtripZarr(psf) as roundtrip:
+        pass
+    compare_psf_to_legacy(roundtrip.result, legacy_psf)
 
 
 def test_psfex(legacy_psfex_psf_and_bbox: tuple[LegacyPsf, Box]) -> None:
