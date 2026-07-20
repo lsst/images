@@ -30,6 +30,8 @@ from ..fits._common import FitsOpaqueMetadata
 from ..serialization import (
     ArchiveTree,
     ArrayReferenceModel,
+    ButlerInfo,
+    MetadataValue,
     NestedOutputArchive,
     NumberType,
     OutputArchive,
@@ -521,8 +523,8 @@ def write(
     chunks: Mapping[str, tuple[int, ...] | None] | None = None,
     shards: Mapping[str, tuple[int, ...] | None] | None = None,
     compression: Mapping[str, ZarrCompressionOptions | None] | None = None,
-    metadata: Mapping[str, Any] | None = None,
-    butler_info: Any | None = None,
+    metadata: dict[str, MetadataValue] | None = None,
+    butler_info: ButlerInfo | None = None,
 ) -> ArchiveTree:
     """Write ``obj`` to a zarr archive at ``path``.
 
@@ -552,7 +554,6 @@ def write(
         Butler information to store in the archive.
     """
     archive_class = type(obj).__name__
-    archive_default_name = getattr(obj, "_archive_default_name", None)
     archive_metadata = build_archive_metadata(obj)
 
     archive = ZarrOutputArchive(
@@ -562,14 +563,7 @@ def write(
         archive_class=archive_class,
         archive_metadata=archive_metadata,
     )
-    if archive_default_name is not None:
-        tree = archive.serialize_direct(archive_default_name, obj.serialize)
-    else:
-        tree = obj.serialize(archive)
-    if metadata is not None:
-        tree.metadata.update(metadata)
-    if butler_info is not None:
-        tree.butler_info = butler_info
+    tree = archive.serialize_root(obj, metadata, butler_info)
     archive.add_tree(tree)
     # Stage opaque metadata after add_tree so the namespace attribute
     # writes happen in the right order.
