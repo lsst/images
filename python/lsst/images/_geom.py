@@ -21,6 +21,7 @@ __all__ = (
     "Interval",
     "IntervalSliceFactory",
     "NoOverlapError",
+    "NotContainedError",
     "SerializableXY",
     "SerializableYX",
 )
@@ -1458,6 +1459,12 @@ class BoundsError(ValueError):
 
 class NoOverlapError(ValueError):
     """Exception raised when intervals or bounds do not overlap."""
+
+
+class NotContainedError(RuntimeError):
+    """Exception raised when intervals or bounds are not fully contained by
+    another.
+    """
 
 
 if TYPE_CHECKING:

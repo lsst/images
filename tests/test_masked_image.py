@@ -29,7 +29,7 @@ from lsst.images import (
     MaskedImage,
     MaskPlane,
     MaskSchema,
-    NoOverlapError,
+    NotContainedError,
     SkyProjection,
     get_legacy_visit_image_mask_planes,
 )
@@ -407,7 +407,7 @@ def test_sky_circle_bbox() -> None:
     # spanning x [-5, 15] and y [-4, 16] before clipping to the image bounds.
     assert bbox == Box.factory[5:17, 8:16]
 
-    with pytest.raises(NoOverlapError):
+    with pytest.raises(NotContainedError):
         # Partially off the edge but clipping not requested.
         mi.bbox_from_sky_circle(
             SkyCoord(ra=12.0 * u.deg, dec=13.0 * u.deg, frame="icrs"), Angle(1.0 * u.arcsec)
@@ -425,13 +425,13 @@ def test_sky_circle_bbox() -> None:
     assert bbox == Box.factory[46:67, 44:65]
 
     # Fully off the image.
-    with pytest.raises(NoOverlapError):
+    with pytest.raises(NotContainedError):
         mi.bbox_from_sky_circle(
             SkyCoord(ra=13.0 * u.deg, dec=13.0 * u.deg, frame="icrs"), Angle(1.0 * u.arcsec)
         )
 
     # Fully off the image with clipping requested.
-    with pytest.raises(NoOverlapError):
+    with pytest.raises(NotContainedError):
         mi.bbox_from_sky_circle(
             SkyCoord(ra=13.0 * u.deg, dec=13.0 * u.deg, frame="icrs"), Angle(1.0 * u.arcsec), clip=True
         )

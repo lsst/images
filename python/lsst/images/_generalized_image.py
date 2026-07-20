@@ -22,7 +22,7 @@ import astropy.wcs
 
 from lsst.resources import ResourcePathExpression
 
-from ._geom import YX, Box, NoOverlapError
+from ._geom import YX, Box, NoOverlapError, NotContainedError
 from ._transforms import SkyProjection, SkyProjectionAstropyView
 from .serialization import (
     ArchiveTree,
@@ -347,7 +347,7 @@ class GeneralizedImage(ABC):
 
         Raises
         ------
-        NoOverlapError
+        NotContainedError
             Raised if the requested region is entirely off the image or if
             any part of the region is off the image and clipping is `False`.
         ValueError
@@ -367,12 +367,11 @@ class GeneralizedImage(ABC):
             try:
                 region_box = region_box.intersection(self.bbox)
             except NoOverlapError as e:
-                e.add_note(
+                raise NotContainedError(
                     f"Requested sky circle has pixel bbox {region_box} which does not overlap {self.bbox}"
-                )
-                raise
+                ) from e
         if not self.bbox.contains(region_box):
-            raise NoOverlapError(
+            raise NotContainedError(
                 f"Requested sky circle has pixel bbox {region_box}, which is not within {self.bbox}"
             )
 
