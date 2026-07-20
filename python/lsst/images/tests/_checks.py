@@ -851,6 +851,10 @@ def compare_observation_summary_stats_to_legacy(
         Equivalent legacy struct.
     """
     for field in dataclasses.fields(legacy_summary_stats):
+        # Always skip version since that field has no meaning in the new
+        # type.
+        if field.name == "version":
+            continue
         a = getattr(legacy_summary_stats, field.name)
         b = getattr(summary_stats, field.name)
         if isinstance(b, tuple):

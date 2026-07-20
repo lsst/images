@@ -133,7 +133,8 @@
   },
   "photometric_scaling": null,
   "summary_stats": {
-    "version": 0,
+    "schema_version": "1.0.0",
+    "min_read_version": 1,
     "psfSigma": 2.5,
     "psfArea": NaN,
     "psfIxx": NaN,
@@ -187,7 +188,8 @@
     "effTimePsfSigmaScale": NaN,
     "effTimeSkyBgScale": NaN,
     "effTimeZeroPointScale": NaN,
-    "magLim": NaN
+    "magLim": NaN,
+    "schema_url": "https://images.lsst.io/schemas/observation_summary_stats-1.0.0"
   },
   "detector": {
     "schema_version": "1.0.0",

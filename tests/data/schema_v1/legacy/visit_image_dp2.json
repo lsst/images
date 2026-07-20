@@ -1191,7 +1191,6 @@
   },
   "photometric_scaling": null,
   "summary_stats": {
-    "version": 0,
     "psfSigma": 1.7109972554034996,
     "psfArea": 48.136733049299394,
     "psfIxx": 3.396454631163676,
