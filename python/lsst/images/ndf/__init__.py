@@ -13,6 +13,13 @@
 """Archive implementations that write HDS-on-HDF5 files compatible with the
 Starlink N-Dimensional Data Format (NDF) data model.
 
+This is an *experimental* HDF5 serialization backend to demonstrate that the
+package can be used to write files in formats other than FITS.
+It does write files in HDF5 format that can be read by the
+`Starlink software <https://starlink.eao.hawaii.edu/starlink>`__.
+We do not recommend you use it in a production environment at this time to
+create archival products.
+
 Files written by this archive are valid NDF files readable by
 applications and libraries from the
 `Starlink Software Collection <https://starlink.eao.hawaii.edu>`_

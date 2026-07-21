@@ -9,6 +9,10 @@
 # Use of this source code is governed by a 3-clause BSD-style
 # license that can be found in the LICENSE file.
 
+"""Fields are 2-d parametric functions used to represent some property of an
+image, like a background model or a spatially-varying aperture correction.
+"""
+
 from ._base import *
 from ._chebyshev import *
 from ._spline import *
