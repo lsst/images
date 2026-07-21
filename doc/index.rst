@@ -22,6 +22,8 @@ In addition to in-memory Python types, the images library contains a `serializat
 This approach should be extensible to any file format that can handle JSON-like data and arrays.
 While we do not yet have an `ASDF <https://www.asdf-format.org/en/latest/>`__ serialization backend, we have adopted the ASDF schemas for describing times, units, tables, and array references, and hope to explore an ASDF implementation in the future.
 
+See `DMTN-339 <https://dmtn-339.lsst.io>`__ for a more complete description of the rationale for this overhaul of LSST's image types and file formats.
+
 Stability
 ---------
 
