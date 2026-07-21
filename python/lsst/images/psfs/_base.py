@@ -136,3 +136,7 @@ class PointSpreadFunction(ABC):
                 return LegacyPointSpreadFunction.from_legacy(legacy_psf, bounds)
             case _:
                 raise TypeError(f"{type(legacy_psf).__name__!r} is not a recognized legacy PSF type.")
+
+    def to_legacy(self) -> Any:
+        """Convert to a legacy `lsst.afw.detection.Psf`, if possible."""
+        raise NotImplementedError("This PSF does not support conversion to lsst.afw.detection.Psf.")
