@@ -251,7 +251,7 @@ Concrete PSF implementations include:
 **Conversions**
 
 - `psfs.PiffWrapper.to_legacy`
-- `psfs.LegacyPointSpreadFunction.legacy_psf` (property; inherited by `psfs.PSFExWrapper`)
+- `psfs.LegacyPointSpreadFunction.to_legacy` (inherited by `psfs.PSFExWrapper`)
 - `cells.CellPointSpreadFunction.to_legacy`
 
 - `psfs.LegacyPointSpreadFunction.from_legacy` (inherited by `psfs.PSFExWrapper`)
