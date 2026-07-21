@@ -1,3 +1,5 @@
+.. _reference-psf-models:
+
 PSF Models
 ==========
 

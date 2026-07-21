@@ -1,13 +1,51 @@
-############################
-images documentation preview
-############################
+.. py:currentmodule:: lsst.images
 
-.. This page is for local development only. It isn't published to pipelines.lsst.io.
+.. _lsst.images:
 
-.. Link the index pages of package and module documentation directions (listed in manifest.yaml).
+###########
+lsst.images
+###########
+
+Modern image types and serialization for Rubin Observatory data products.
+
+User Guide
+==========
 
 .. toctree::
    :maxdepth: 1
 
-   lsst.images/index
-   schemas/index
+   for-afw-users.rst
+   model-diagrams.rst
+
+Changes
+=======
+
+.. toctree::
+   :maxdepth: 1
+
+   CHANGES.rst
+
+Administrative Interface
+========================
+
+.. toctree::
+   :maxdepth: 1
+
+   admin.rst
+
+Schemas
+=======
+
+.. toctree::
+   :maxdepth: 1
+
+   schema-versioning.rst
+   schemas/index.rst
+
+API Reference
+=============
+
+.. toctree::
+   :maxdepth: 1
+
+   reference/index.rst
