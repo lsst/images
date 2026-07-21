@@ -38,6 +38,7 @@ from lsst.utils.iteration import ensure_iterable
 
 from . import fits as _fits
 from . import serialization as ser
+from ._geom import Box
 from .serialization import ButlerInfo, write_archive
 
 
@@ -362,7 +363,7 @@ class GenericFormatter(FormatterV2):
         # General purpose reader that can be called with both local and remote
         # file. The URI and local file readers are distinct to allow decisions
         # to be made regarding caching.
-        kwargs = dict(self.file_descriptor.parameters or {})
+        kwargs = self._coerce_legacy_bboxes(self.file_descriptor.parameters or {})
         pytype: type[Any] = self.dataset_ref.datasetType.storageClass.pytype
         all_components = self.dataset_ref.datasetType.storageClass.allComponents()
 
@@ -412,3 +413,15 @@ class GenericFormatter(FormatterV2):
         # a local or remote file. The distinction exists here to ensure we
         # can trigger a cache load.
         return self._read_from_resource_path(path, component)
+
+    @staticmethod
+    def _coerce_legacy_bboxes(parameters: dict[str, Any]) -> dict[str, Any]:
+        """Modify a parameters dictionary in place by calling
+        `.Box.from_legacy` on the values associated with any 'bbox' keys that
+        are not already `.Box` instances.
+        """
+        for k, v in parameters.items():
+            if k == "bbox" and not isinstance(v, Box):
+                v = Box.from_legacy(v)
+                parameters[k] = v
+        return parameters
