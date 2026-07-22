@@ -5,4 +5,6 @@ Camera Descriptions
 
 .. automodapi:: lsst.images.cameras
    :no-inheritance-diagram:
-   :inherited-members:
+   :no-inherited-members:
+
+.. ^^ inheriting members wrecks Sphinx's handling of our own StrEnum members
