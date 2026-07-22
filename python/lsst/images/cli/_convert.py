@@ -106,7 +106,7 @@ def _read_legacy(
         legacy = MultipleCellCoadd.read_fits(input)
         sky = _load_skymap(skymap, butler, collection, legacy.identifiers.skymap)
         tract_info = sky[legacy.identifiers.tract]
-        return CellCoadd.from_legacy(
+        return CellCoadd.from_legacy_cell_coadd(
             legacy,
             tract_info=tract_info,
             plane_map=get_legacy_deep_coadd_mask_planes(),

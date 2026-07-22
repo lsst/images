@@ -396,7 +396,7 @@ class CellCoadd(MaskedImage):
         return CellCoaddSerializationModel[pointer_type]  # type: ignore
 
     @staticmethod
-    def from_legacy(  # type: ignore[override]
+    def from_legacy_cell_coadd(
         legacy: LegacyMultipleCellCoadd,
         *,
         plane_map: Mapping[str, MaskPlane] | None = None,

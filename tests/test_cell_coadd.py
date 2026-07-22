@@ -114,7 +114,7 @@ def legacy_test_data() -> _LegacyTestData:
     legacy_cell_coadd = MultipleCellCoadd.read_fits(filename)
     with open(os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "skyMap.pickle"), "rb") as stream:
         skymap = pickle.load(stream)
-    cell_coadd = CellCoadd.from_legacy(
+    cell_coadd = CellCoadd.from_legacy_cell_coadd(
         legacy_cell_coadd,
         plane_map=plane_map,
         tract_info=skymap[DP2_COADD_DATA_ID["tract"]],
