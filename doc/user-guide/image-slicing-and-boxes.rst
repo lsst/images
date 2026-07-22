@@ -68,7 +68,7 @@ This only works on some `GeneralizedImage` types like `Image` and `Mask`, howeve
 Using slices to create Intervals and Boxes
 ------------------------------------------
 
-The `Box` and `Interval` classes should usually be *constructed* using slice syntax::
+The `Box` and `Interval` (a 1-d range; one dimension of a `Box`) classes should usually be *constructed* using slice syntax::
 
    new_interval = Interval.factory[a:b]
    new_box = Box.factory[y_a:y_b, x_a:x_b]
