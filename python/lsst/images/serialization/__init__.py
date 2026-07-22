@@ -12,8 +12,9 @@
 """Base classes and utilities for the serialization framework.
 
 This includes the `read_archive` and `write_archive` functions, which provide
-the highest-level interfaces for reading objects from and writing them to
-storage, respectively.
+the highest-level interfaces for reading arbitrary objects from and writing
+them to storage, respectively (for a concrete `.GeneralizedImage` subclass,
+prefer its `~.GeneralizedImage.read` and `~.GeneralizedImage.write` methods).
 
 `InputArchive` and `OutputArchive` are the abstract interfaces for
 implementing serialization for a new file format.
