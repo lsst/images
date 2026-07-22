@@ -6,4 +6,3 @@ User Guides
 
    image-slicing-and-boxes.rst
    for-afw-users.rst
-   model-diagrams.rst

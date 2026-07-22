@@ -80,4 +80,5 @@ For Developers
 .. toctree::
    :maxdepth: 1
 
-   admin.rst
+   admin-cli.rst
+   model-diagrams.rst
