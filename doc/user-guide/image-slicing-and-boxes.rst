@@ -84,3 +84,9 @@ As shown, empty bounds work naturally for these, and negative indexes operate in
 
 When a `GeneralizedImage` is available, slicing it directly is generally preferred.
 The ability to perform similar operations on boxes alone is extremely useful for working out the appropriate bounding box to use when *reading* a subimage from a larger file.
+
+Starting from sky coordinates
+-----------------------------
+
+If the starting point for a subimage is a sky coordinate, `GeneralizedImage.bbox_from_sky_circle` can be used to make a `Box` with the image's attached `~GeneralizedImage.sky_projection`.
+If you don't have a `GeneralizedImage` but do have a `SkyProjection`, use `Box.from_sky_circle`.
