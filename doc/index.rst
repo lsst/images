@@ -47,7 +47,7 @@ Conceptual and how-to guides for working with the `lsst.images` Python library.
 API Reference
 -------------
 
-Detailed information about Python interaces, organized by subpackage.
+Detailed information about Python interfaces, organized by subpackage.
 
 .. toctree::
    :maxdepth: 2

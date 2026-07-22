@@ -5,7 +5,7 @@
 For `lsst.afw` Users
 ====================
 
-The `lsst.images` package is heavily inspired by (and is intented to partially supersede) the `lsst.afw` and `lsst.geom` packages.
+The `lsst.images` package is heavily inspired by (and is intended to partially supersede) the `lsst.afw` and `lsst.geom` packages.
 Most of the types in `lsst.images` have a direct counterpart in `lsst.afw`, with bidirectional conversions between them (generally called ``to_legacy`` or ``from_legacy``, sometimes with additional suffixes).
 Despite these conceptual similarities, the interfaces are often quite different in detail, generally because this is an opportunity to make interface improvements that are now difficult to make in `lsst.afw` or `lsst.geom`.
 
@@ -55,7 +55,7 @@ Note that `Box.min`, `Box.max`, `Box.start`, and `Box.stop` all return `YX` tupl
 `lsst.geom.IntervalD` and `lsst.geom.Box2D` do not have direct counterparts in `lsst.images`.
 2-d floating-point boxes are represented as `Polygon` objects; the expectation is that - unlike an integer-coordinate `Box` - there is nothing special about a floating-point rectangle that necessitates a dedicated class.
 
-`lsst.geom.Angle`, `lsst.sphgeom.Angle`, `lsst.geom.SpherePoint`, and `lsst.sphgom.LonLat` do not have direct counterparts in `lsst.images` itself, but the `astropy.units.Quantity` and `astropy.coordinates.SkyCoord` types are generally used in the same roles.
+`lsst.geom.Angle`, `lsst.sphgeom.Angle`, `lsst.geom.SpherePoint`, and `lsst.sphgeom.LonLat` do not have direct counterparts in `lsst.images` itself, but the `astropy.units.Quantity` and `astropy.coordinates.SkyCoord` types are generally used in the same roles.
 
 `lsst.afw.geom.Polygon` corresponds to `Polygon` and its more general `Region` base class, which can represent arbitrary sets of polygons (with holes) in a Euclidean (e.g. pixel) coordinate system.
 
@@ -82,7 +82,7 @@ Coordinate Systems and Transforms
 `lsst.afw.geom.SkyWcs` corresponds directly to `SkyProjection`.
 Both types can be (but are not necessarily!) representable as FITS WCS, and are capable of carrying around their own FITS WCS approximation.
 
-`lsst.afw.geom.TransformPoint2ToPoint2` and other instantiations of the same underyling C++ template (which are used to represent camera geometry coordinate transforms, mostly) correspond directly to `Transform`.
+`lsst.afw.geom.TransformPoint2ToPoint2` and other instantiations of the same underlying C++ template (which are used to represent camera geometry coordinate transforms, mostly) correspond directly to `Transform`.
 
 `SkyProjection` and `Transform` differ from their `lsst.afw.geom` counterparts in that they can identify the frames they transform between (e.g. the pixels of a particular ``{visit, detector}`` and the ICRS sky), via an object that satisfies the `Frame` `~typing.Protocol`.
 This additional information needs to be provided when creating an `lsst.images` type from an `lsst.afw.geom` one (e.g. via `SkyProjection.from_legacy`).

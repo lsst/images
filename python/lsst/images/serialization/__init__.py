@@ -16,10 +16,10 @@ the highest-level interfaces for reading objects from and writing them to
 storage, respectively.
 
 `InputArchive` and `OutputArchive` are the abstract interfaces for
-implementing serialiation for a new file format.
+implementing serialization for a new file format.
 
 The base classes make some concessions to both FITS and ASDF in order to make
-(potential)) representations in those formats conform to their respective
+the (potential) representations in those formats conform to their respective
 expectations.
 
 For ASDF, this is simple: we use ASDF schemas whenever possible to represent
@@ -35,7 +35,6 @@ when writing, despite the fact that FITS headers are generally too limiting to
 be our preferred way of round-tripping any information.  To do this, the
 archive interfaces accept ``update_header`` and ``strip_header`` callback
 arguments that are only called by FITS implementations.
-best.
 """
 
 from ._asdf_utils import *

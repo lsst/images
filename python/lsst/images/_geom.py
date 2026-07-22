@@ -777,7 +777,7 @@ class Box:
     `from_shape`, `from_float_bounds`, `from_sky_circle`) or the `factory`
     slicing proxy::
 
-        box = Box.factory[y_a:y_b, x_a, x_b]
+        box = Box.factory[y_a:y_b, x_a:x_b]
 
     unless the ``y`` and ``x`` intervals are already available.
 
