@@ -28,10 +28,10 @@ Stability
 ---------
 
 `lsst.images` is a new library that is still under heavy development, and we are not yet ready to declare the full Python API to be stable.
-But we will not change any Python objects that correspond to LSST DP2 data products that have been released (e.g. `~cells.CellCoadd` for Early DP2) in a backwards-incompatible way without a major-release deprecation period
+But we will not change any Python objects that correspond to LSST DP2 data products that have been released (e.g. `~cells.CellCoadd` for Early DP2) in a backwards-incompatible way without a major-release deprecation period.
 The types for unreleased data products and the serialization system are still subject to change without notice.
 
-It is also likely that we will spin off a separate framework/building-blocks package in the future, leaving `lsst.images` as the home of just high-level the Rubin image product types.
+It is also likely that we will spin off a separate framework/building-blocks package in the future, leaving `lsst.images` as the home of just the high-level Rubin image product types.
 This would be done with temporary forwarding aliases and at least a full major-release deprecation period as well.
 
 User Guides

@@ -15,10 +15,10 @@ This nonzero origin is often referred to as ``xy0`` or ``yx0`` (depending on how
 
 We call the pixel coordinate system that starts at `~GeneralizedImage.yx0` *absolute* coordinates, and the coordinate system that starts at ``(0, 0)`` the image's *local* coordinates.
 
-The big advantage of absolute coordinates is that it allows all of the objects typically attached to an image - `SkyProjection`, `psfs.PointSpreadFunction`, etc. - continue to work without modification on a subimage, because they operate in absolute coordinates as well.
+The big advantage of absolute coordinates is that it allows all of the objects typically attached to an image - `SkyProjection`, `psfs.PointSpreadFunction`, etc. - to continue to work without modification on a subimage, because they operate in absolute coordinates as well.
 If these objects operated in local coordinates, they'd all have to be sliced whenever the image they are attached to is sliced.
 
-The main disadvantage of absolute coordinates is that the `numpy.ndarray` objects that actually hold pixel values have no knowledge of `~GeneralizedImage.yx0`, and hence any slicing of underlying arrays (`Image.array`) have to operate in local coordinates.
+The main disadvantage of absolute coordinates is that the `numpy.ndarray` objects that actually hold pixel values have no knowledge of `~GeneralizedImage.yx0`, and hence any slicing of underlying arrays (`Image.array`) has to operate in local coordinates.
 
 Absolute-coordinate subimages
 -----------------------------
@@ -82,4 +82,5 @@ Once you have a `Box` or `Interval`, you can also use their `~Box.absolute` and 
 
 As shown, empty bounds work naturally for these, and negative indexes operate in reverse from the end for local slicing only.
 
-When a `GeneralizedImage` is available, slicing it directly is generally preferred, being able to perform similar operations on boxes alone is extremely useful for working out the appropriate bounding box to use when *reading* a subimage from a larger file.
+When a `GeneralizedImage` is available, slicing it directly is generally preferred.
+The ability to perform similar operations on boxes alone is extremely useful for working out the appropriate bounding box to use when *reading* a subimage from a larger file.

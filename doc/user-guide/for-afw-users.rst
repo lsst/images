@@ -16,7 +16,7 @@ Geometry
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 There are no true point or extent types in `lsst.images`.
-The philosophy is instead that we will usually want to operate pairs of *arrays* of points, and hence the focus is on vectorized, ``ufunc``-like interfaces that take ``x`` and ``y`` arguments.
+The philosophy is instead that we will usually want to operate on pairs of *arrays* of points, and hence the focus is on vectorized, ``ufunc``-like interfaces that take ``x`` and ``y`` arguments.
 
 Because of the ubiquity of both ``(x, y)`` ordering and ``(y, x)`` ordering in Astropy, NumPy, and other libraries we interoperate with, `lsst.images` does *not* impose a uniform consistent order for such pairs across all interfaces.
 Instead, pairs of ``x`` and ``y`` arguments are almost always keyword-only, and functions that return coordinate pairs (or pairs of coordinate arrays) use the `XY` or `YX` named tuples, which should generally be unpacked via their ``x`` and ``y`` attributes but are still formally `tuple` objects, for cases (e.g. shapes of arrays) where a `tuple` is needed.
@@ -115,7 +115,7 @@ The offset often referred to as ``xy0`` in `lsst.afw` is generally called ``yx0`
 The `lsst.afw.image.PARENT` coordinate system that is aware of this offset is used by default on all `lsst.images` types, and can be used more explicitly via the `GeneralizedImage.absolute` slicing proxy.
 
 As in `lsst.afw.image`, underlying `numpy.ndarray` view attributes do not know about this offset, and instead operate in what is called the `lsst.afw.image.LOCAL` coordinate system in `lsst.afw`.
-The types in `lsst.image` can be sliced in this coordinate system via the `GeneralizedImage.local` slicing proxy.
+The types in `lsst.images` can be sliced in this coordinate system via the `GeneralizedImage.local` slicing proxy.
 
 `lsst.afw.image.Image` corresponds directly to `Image`, but the latter can also hold a `SkyProjection`, flexible metadata, and units (via `astropy.units`).
 
@@ -168,7 +168,7 @@ Coadd Images
 
 Coadded images can be represented outside of `lsst.images` by any of the following three types:
 
-- `lsst.afw.image.Exposure`: traditional coadds (including templates) with `lsst.meas.extensions.CoaddPsf` that are evaluated by warping coadding per-visit PSFs on-the-fly, as well as post-detection deep cell-based coadds (for compatibility with most coadd measurement tasks).
+- `lsst.afw.image.Exposure`: traditional coadds (including templates) with `lsst.meas.extensions.CoaddPsf` that are evaluated by warping and coadding per-visit PSFs on-the-fly, as well as post-detection deep cell-based coadds (for compatibility with most coadd measurement tasks).
 
 - `lsst.cell_coadds.MultipleCellCoadd`: the immediate result of building a cell-based coadd.
 
@@ -186,9 +186,9 @@ The `~cells.CellCoadd` type has counterparts for only some of the components of 
 - ``psf`` (`lsst.afw.detection.Psf`) -> `~cells.CellCoadd.psf` (`~cells.CellPointSpreadFunction`)
 - ``apCorrMap`` (`lsst.afw.image.ApCorrMap`) -> `~cells.CellCoadd.aperture_corrections` (`dict` of `~cells.CellField`)
 
-Cell coadds also have a `~cells.CellCoadd.bounds` attribute (`~cells.CellGridBounds`) that plays a similar role to the `VisitImage.bounds` attribute in that it represents the area where pixels and other objects (e.g. PSFs are valid), by recording which cells do and do not have data.
+Cell coadds also have a `~cells.CellCoadd.bounds` attribute (`~cells.CellGridBounds`) that plays a similar role to the `VisitImage.bounds` attribute in that it represents the area where pixels and other objects (e.g. PSFs) are valid, by recording which cells do and do not have data.
 
-Cell coadds can also store one or more background model (`~cells.CellCoadd.backgrounds`), which have to be saved separately from `lsst.afw.image.Exposure`.
+Cell coadds can also store one or more background models (`~cells.CellCoadd.backgrounds`), which have to be saved separately from `lsst.afw.image.Exposure`.
 
 **Conversions**
 
