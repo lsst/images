@@ -316,7 +316,7 @@ class GenericFormatter(FormatterV2):
             if comp not in all_components:
                 raise RuntimeError(
                     f"Requested data for component {comp} but that component is not understood "
-                    f"by storage class {self.dataset_ref.datasetType.storageClass.name}."
+                    f"by storage class {self.file_descriptor.storageClass.name}."
                 )
             component_kwargs[comp] = {}
             for param, value in kwargs.items():
@@ -363,8 +363,9 @@ class GenericFormatter(FormatterV2):
         # file. The URI and local file readers are distinct to allow decisions
         # to be made regarding caching.
         kwargs = dict(self.file_descriptor.parameters or {})
-        pytype: type[Any] = self.dataset_ref.datasetType.storageClass.pytype
-        all_components = self.dataset_ref.datasetType.storageClass.allComponents()
+        write_storage_class = self.file_descriptor.storageClass
+        pytype: type[Any] = write_storage_class.pytype
+        all_components = write_storage_class.allComponents()
 
         # An all-components request with no parameters needs the whole file, so
         # on a remote URI defer to the local-file read that can cache it (this
