@@ -1,3 +1,5 @@
+.. _reference-fields:
+
 Calculated 2-d Fields
 =====================
 

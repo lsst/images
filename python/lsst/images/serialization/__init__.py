@@ -9,19 +9,19 @@
 # Use of this source code is governed by a 3-clause BSD-style
 # license that can be found in the LICENSE file.
 
-"""The `OutputArchive` and `InputArchive` classes, which abstract over
-different file formats, and various related utilities.
+"""Base classes and utilities for the serialization framework.
 
-These archive interfaces are designed with two specific implementations in
-mind:
+This includes the `read_archive` and `write_archive` functions, which provide
+the highest-level interfaces for reading arbitrary objects from and writing
+them to storage, respectively (for a concrete `.GeneralizedImage` subclass,
+prefer its `~.GeneralizedImage.read` and `~.GeneralizedImage.write` methods).
 
-- FITS augmented with a JSON block in a special BINTABLE HDU (see the `.fits`
-  module for details), inspired by the now-defunct ASDF-in-FITS concept.
-
-- ASDF (just hypothetical for now).
+`InputArchive` and `OutputArchive` are the abstract interfaces for
+implementing serialization for a new file format.
 
 The base classes make some concessions to both FITS and ASDF in order to make
-the representations in those formats conform to their respective expectations.
+the (potential) representations in those formats conform to their respective
+expectations.
 
 For ASDF, this is simple: we use ASDF schemas whenever possible to represent
 primitive types, from units and times to multidimensional arrays. While the
@@ -36,12 +36,6 @@ when writing, despite the fact that FITS headers are generally too limiting to
 be our preferred way of round-tripping any information.  To do this, the
 archive interfaces accept ``update_header`` and ``strip_header`` callback
 arguments that are only called by FITS implementations.
-
-An implementation that writes HDF5 while embedding JSON should also be possible
-with these interfaces, but is not something we've designed around. A more
-natural HDF5 implementation might be possible by translating the JSON tree into
-a binary HDF5 hierarchy as well, but this would be considerably more effort at
-best.
 """
 
 from ._asdf_utils import *

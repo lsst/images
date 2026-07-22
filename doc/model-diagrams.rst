@@ -6,7 +6,7 @@
 Model diagrams
 ###############
 
-The `lsst-images-admin diagram <admin.html#lsst-images-admin-diagram>`__ subcommand renders the composition layout of an ``lsst.images`` serialization model: which model nests which sub-models, where unions branch, and which fields are lists or mappings.
+The `lsst-images-admin diagram <admin-cli.html#lsst-images-admin-diagram>`__ subcommand renders the composition layout of an ``lsst.images`` serialization model: which model nests which sub-models, where unions branch, and which fields are lists or mappings.
 It is useful for documentation, for presentations, and for understanding an unfamiliar data product.
 
 The diagram describes the Python/Pydantic composition of a model, not the on-disk byte layout of any particular container.

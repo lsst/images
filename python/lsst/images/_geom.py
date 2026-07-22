@@ -336,6 +336,15 @@ class _SerializedInterval(TypedDict):
 class Interval:
     """A 1-d integer interval with positive size.
 
+    Intervals should generally be constructed by a classmethod factory (e.g.
+    `hull` or `from_size`) or the `factory` slicing proxy::
+
+        interval = Interval.factory[a:b]
+
+    This can be more verbose than invoking __init__ directly, but since it
+    uses Python's syntax for half-inclusive ranges it's easier for readers to
+    immediately see how the endpoints are interpreted.
+
     Parameters
     ----------
     start
@@ -763,6 +772,14 @@ class _SerializedBox(TypedDict):
 
 class Box:
     """An axis-aligned 2-d rectangular region.
+
+    Boxes should generally be constructed by a classmethod factory (e.g.
+    `from_shape`, `from_float_bounds`, `from_sky_circle`) or the `factory`
+    slicing proxy::
+
+        box = Box.factory[y_a:y_b, x_a:x_b]
+
+    unless the ``y`` and ``x`` intervals are already available.
 
     Parameters
     ----------

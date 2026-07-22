@@ -1,5 +1,5 @@
-Administrative Command-Line Tooling
-===================================
+Admin CLI
+=========
 
 These commands can be used to inspect, reformat, convert, and prepare a dataset for testing.
 We are explicitly noting them as administrative commands to allow you to see how the system works but are not promising that the interfaces for these commands will not change or the output.

@@ -1,8 +1,11 @@
+Changes
+=======
+
 lsst-images v30.0.9 (2026-07-15)
-================================
+--------------------------------
 
 New Features
-------------
+""""""""""""
 
 - Added the TEx PSF residual-ellipticity correlation metrics (``psfTE1e1`` through ``psfTE4ex``, covering TE1-TE4 and their e1/e2/ex components) to ``ObservationSummaryStats``, synchronized from ``lsst.afw.image.ExposureSummaryStats``. (`DM-46582 <https://rubinobs.atlassian.net/browse/DM-46582>`_)
 - * Butler metadata-component reads now cache the serialization tree of the most recently read dataset, so requesting several metadata components of one dataset (for example ``sky_projection`` then ``obs_info``) opens the file only once.
@@ -28,7 +31,7 @@ New Features
 
 
 API Changes
------------
+"""""""""""
 
 - The generic serialization entry points have been renamed: ``lsst.images.serialization.read`` is now ``read_archive``, ``write`` is now ``write_archive``, and ``open`` is now ``open_archive``.
   The old names have been removed outright; no deprecation aliases are provided. (`DM-55421 <https://rubinobs.atlassian.net/browse/DM-55421>`_)
@@ -41,7 +44,7 @@ API Changes
 
 
 Bug Fixes
----------
+"""""""""
 
 - * Unified the logic for determination of multiple versions of a single extension, fixing overwrites in the NDF writer.
   * Added a name shrinker for NDF output to ensure that files written out can be read by the Starlink software tools (which limits structure and component names to 15 characters). (`DM-55183 <https://rubinobs.atlassian.net/browse/DM-55183>`_)
@@ -55,17 +58,17 @@ Bug Fixes
 
 
 Miscellaneous Changes of Minor Interest
----------------------------------------
+"""""""""""""""""""""""""""""""""""""""
 
 - Improved the performance of the FITS reader when accessing remote objects by ensuring that we only open the file once (previously it was opened once to find the relevant schema and then again to do the full read) across all backends and for FITS specifically we have increased the block size used by ``fsspec``. (`DM-55217 <https://rubinobs.atlassian.net/browse/DM-55217>`_)
 - Made generalized image ``__getitem__(...)`` calls return a view, not ``self``. (`DM-55422 <https://rubinobs.atlassian.net/browse/DM-55422>`_)
 
 
 lsst-images v30.0.8 (2026-06-09)
-================================
+--------------------------------
 
 New Features
-------------
+""""""""""""
 
 - Added the ``CellCoadd`` class and format, as well as associated PSF and provenance types. (`DM-54225 <https://rubinobs.atlassian.net/browse/DM-54225>`_)
 - Added psf star shapelet decomposition parameters and metrics to the ``ObservationSummaryStats`` class. (`DM-54482 <https://rubinobs.atlassian.net/browse/DM-54482>`_)
@@ -108,14 +111,14 @@ New Features
 
 
 API Changes
------------
+"""""""""""
 
 - * Removed the ``obs_info`` component from ``Image``, ``Mask``, and ``MaskedImage``, in favor of defining it directly on ``VisitImage``.
   * Fully unified the butler formatters into ``lsst.images.formatters.GenericFormatter`` and deleted the old ones. (`DM-54976 <https://rubinobs.atlassian.net/browse/DM-54976>`_)
 
 
 Bug Fixes
----------
+"""""""""
 
 - Bug fixes uncovered while strengthening round-trip tests:
 
@@ -125,7 +128,7 @@ Bug Fixes
 
 
 Miscellaneous Changes of Minor Interest
----------------------------------------
+"""""""""""""""""""""""""""""""""""""""
 
 - Added structural equality and round-trip test helpers:
 
@@ -139,7 +142,7 @@ Miscellaneous Changes of Minor Interest
 
 
 An API Removal or Deprecation
------------------------------
+"""""""""""""""""""""""""""""
 
 - * Removed the per-backend ``read`` and ``read_tree`` functions (``lsst.images.fits.read``, ``lsst.images.json.read``, ``lsst.images.ndf.read``) and the ``read_fits`` / ``write_fits`` methods on ``Image``, ``Mask``, and ``MaskedImage``, along with the ``ReadResult`` return type.
     Use the ``read`` / ``write`` methods on the image classes (or the generic ``lsst.images.serialization.read`` / ``write`` with the optional ``cls`` argument) for whole-object access, and ``lsst.images.serialization.open`` for components, metadata, and butler info.
@@ -147,10 +150,10 @@ An API Removal or Deprecation
 
 
 lsst-images v30.0.6 (2026-04-07)
-================================
+--------------------------------
 
 New Features
-------------
+""""""""""""
 
 - Implemented ``to_legacy`` conversion for ``Transform`` and ``Projection``. (`DM-54551 <https://rubinobs.atlassian.net/browse/DM-54551>`_)
 - Added the ``ColorImage`` class and format for RGB images. (`DM-54220 <https://rubinobs.atlassian.net/browse/DM-54220>`_)
@@ -160,18 +163,18 @@ New Features
 
 
 Miscellaneous Changes of Minor Interest
----------------------------------------
+"""""""""""""""""""""""""""""""""""""""
 
 - Improved the test coverage of the image classes.
   This uncovered some minor bugs that have also been fixed. (`DM-54472 <https://rubinobs.atlassian.net/browse/DM-54472>`_)
 
 lsst-images v30.0.4 (2026-03-02)
-================================
+--------------------------------
 
 First public release of package.
 
 New Features
-------------
+""""""""""""
 
 - Added FITS tile compression support and import-read support for ``lsst.afw.image.MaskedImage``. (`DM-53698 <https://rubinobs.atlassian.net/browse/DM-53698>`_)
 - Added support for ``ObservationInfo`` to be attached to images.
