@@ -514,7 +514,7 @@ class VisitImage(MaskedImage):
         return VisitImageSerializationModel[pointer_type]  # type: ignore
 
     @staticmethod
-    def from_legacy(
+    def from_legacy(  # type: ignore[override]
         legacy: LegacyExposure,
         *,
         unit: astropy.units.UnitBase | None = None,

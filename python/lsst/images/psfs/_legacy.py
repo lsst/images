@@ -93,6 +93,9 @@ class LegacyPointSpreadFunction(PointSpreadFunction):
             return PSFExWrapper(legacy_psf, bounds)
         return cls(impl=legacy_psf, bounds=bounds)
 
+    def to_legacy(self) -> Any:
+        return self.legacy_psf
+
 
 class PSFExWrapper(LegacyPointSpreadFunction):
     """A specialization of LegacyPointSpreadFunction for the PSFEx backend.
