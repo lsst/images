@@ -92,6 +92,13 @@ def class_for_schema(schema_name: str) -> type[ArchiveTree] | None:
 def register_schema_class(cls: type[ArchiveTree]) -> None:
     """Register ``cls`` under ``cls.SCHEMA_NAME``.
 
+    Parameters
+    ----------
+    cls
+        The class to register.
+
+    Notes
+    -----
     No-op when the same class is registered again (re-import during
     tests).  Raises `RuntimeError` when a *different* class is
     registered under an existing name.
