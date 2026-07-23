@@ -77,7 +77,7 @@ jobs:
         id: check
         run: |
           # Get SHA hashes for all weekly tags
-          weekly_sha=$(git tag -l 'w.*' | while read tag; do
+          weekly_sha=$(git tag -l 'w.*' | while read -r tag; do
             git rev-list -n 1 "${tag}"
           done)
 

@@ -40,10 +40,20 @@ jobs:
         working-directory: ./doc
         run: package-docs build -W -n
 
-      - name: Upload documentation
+      # Only attempt documentation uploads for tagged releases and pull
+      # requests from ticket branches in the same repository.  This avoids
+      # version clutter in the docs and failures when a PR doesn't have access
+      # to secrets.
+      - name: Upload to LSST the Docs
         uses: lsst-sqre/ltd-upload@v1
         with:
           project: "images"
           dir: "doc/_build/html"
           username: ${{ secrets.LTD_USERNAME }}
           password: ${{ secrets.LTD_PASSWORD }}
+        if: >
+          (github.event_name == 'push' && github.ref_name == 'main')
+          || (github.event_name == 'workflow_dispatch')
+          || (github.event_name == 'pull_request'
+              && (startsWith(github.head_ref, 'tickets/')
+                  || startsWith(github.head_ref, 'u/')))

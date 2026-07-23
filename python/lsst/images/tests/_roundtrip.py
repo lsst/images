@@ -257,8 +257,8 @@ class RoundtripBase[T](ABC):
             `~lsst.images.serialization.read_archive` or used as
             ``parameters`` for a `~lsst.daf.butler.Butler.get`.
 
-        Return
-        ------
+        Returns
+        -------
         object
             Result of the partial read.
         """
