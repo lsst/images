@@ -21,6 +21,10 @@ API Changes
 - Added ``GeneralizedImage.bbox_from_sky_circle`` and ``Box.from_sky_circle`` to calculate a bounding box from an RA/Dec and radius. (`DM-55514 <https://rubinobs.atlassian.net/browse/DM-55514>`_)
 - Renamed ``lsst.images.cells.CellCoadd.from_legacy`` to ``from_legacy_cell_coadd``, for consistency with the to-legacy conversion methods. (`DM-55584 <https://rubinobs.atlassian.net/browse/DM-55584>`_)
 
+Documentation Changes
+---------------------
+
+- Generated content for the new documentation site at https://images.lsst.io (`SP-3230 <https://rubinobs.atlassian.net/browse/SP-3230>`_)
 
 Bug Fixes
 ---------
@@ -33,9 +37,6 @@ Miscellaneous Changes of Minor Interest
 
 - Added schema versioning to ``ObservationSummaryStats``. (`DM-55538 <https://rubinobs.atlassian.net/browse/DM-55538>`_)
 
-
-Changes
-=======
 
 lsst-images v30.0.9 (2026-07-15)
 --------------------------------
@@ -78,6 +79,10 @@ API Changes
 
   * The ``lsst.images.Box`` constructor now raises `TypeError` if its arguments are not `~lsst.images.Interval` instances, instead of silently constructing a broken box. (`DM-55488 <https://rubinobs.atlassian.net/browse/DM-55488>`_)
 
+Documentation Changes
+"""""""""""""""""""""
+
+- Added a transition documentation page for users familiar with ``lsst.afw`` types. (`DM-54936 <https://rubinobs.atlassian.net/browse/DM-54936>`_)
 
 Bug Fixes
 """""""""
