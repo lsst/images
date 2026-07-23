@@ -288,7 +288,49 @@ class MaskSchema:
             result[bit.index] |= bit.mask
         return result
 
-    def split(self, dtype: npt.DTypeLike) -> list[MaskSchema]:
+    def with_dtype(self, dtype: npt.DTypeLike, *, keep_placeholders: bool = False) -> MaskSchema:
+        """Return a new schema with the same plane names, descriptions, and
+        order, but a different pixel type.
+
+        Parameters
+        ----------
+        dtype
+            Data type of the new mask pixels.
+        keep_placeholders
+            If `True`, keep `None` placeholders in the returned schema.
+            If `False` (default), strip them.
+        """
+        dtype = np.dtype(dtype)
+        planes = [p for p in self if keep_placeholders or p is not None]
+        return MaskSchema(planes, dtype=dtype)
+
+    def consolidate(self, *, keep_placeholders: bool = False, allow_uint128: bool = False) -> MaskSchema:
+        """Return a new schema with the same plane names and descriptions,
+        and a pixel type that makes `mask_size` as small as possible without
+        making `dtype` unnecessarily large.
+
+        Parameters
+        ----------
+        keep_placeholders
+            If `True`, keep `None` placeholders in the returned schema.
+            If `False` (default), strip them.
+        allow_uint128
+            If `True`, use an unsigned 128-bit integer if there are more than
+            64 kept bits in the schema.
+        """
+        planes = [p for p in self if keep_placeholders or p is not None]
+        if len(planes) <= 8:
+            return MaskSchema(planes, dtype=np.uint8)
+        elif len(planes) <= 16:
+            return MaskSchema(planes, dtype=np.uint16)
+        elif len(planes) <= 32:
+            return MaskSchema(planes, dtype=np.uint32)
+        elif len(planes) <= 64 or not allow_uint128:
+            return MaskSchema(planes, dtype=np.uint64)
+        else:
+            return MaskSchema(planes, dtype=np.uint128)
+
+    def split(self, dtype: npt.DTypeLike, *, keep_placeholders: bool = False) -> list[MaskSchema]:
         """Split the schema into an equivalent series of schemas that each
         have a `mask_size` of ``1``, dropping all `None` placeholders.
 
@@ -296,15 +338,18 @@ class MaskSchema:
         ----------
         dtype
             Data type of the new mask pixels.
+        keep_placeholders
+            If `True`, keep `None` placeholders in the returned schemas.
+            If `False` (default), strip them.
 
         Returns
         -------
         `list` [`MaskSchema`]
             A list of mask schemas that together include all planes in
             ``self`` and have `mask_size` equal to ``1``.  If there are no
-            mask planes (only `None` placeholders) in ``self``, a single mask
-            schema with a `None` placeholder is returned; otherwise `None`
-            placeholders are returned.
+            mask planes (only `None` placeholders) in ``self``, and
+            ``keep_placeholders is `False`, a single mask schema with a
+            single `None` placeholder is returned.
         """
         dtype = np.dtype(dtype)
         planes: list[MaskPlane] = []
@@ -607,6 +652,53 @@ class Mask(GeneralizedImage):
         return self._transfer_metadata(
             Mask(self._array, yx0=yx0, schema=schema, sky_projection=sky_projection)
         )
+
+    def with_schema(self, schema: MaskSchema) -> Mask:
+        """Return a new `Mask` with the given schema and all mask values
+        common to both schemas copied.
+
+        Parameters
+        ----------
+        schema
+            Schema for the new Mask.
+        """
+        result = Mask(
+            schema=schema, bbox=self.bbox, sky_projection=self.sky_projection, metadata=self.metadata
+        )
+        result.update(self)
+        return result
+
+    def with_dtype(self, dtype: npt.DTypeLike, *, keep_placeholders: bool = False) -> Mask:
+        """Return a new mask with the same plane names, descriptions, and
+        plane order, but a different pixel type.
+
+        Parameters
+        ----------
+        dtype
+            Data type of the new mask pixels.
+        keep_placeholders
+            If `True`, keep `None` placeholders in the returned mask's schema.
+            If `False` (default), strip them.
+        """
+        schema = self.schema.with_dtype(dtype, keep_placeholders=keep_placeholders)
+        return self.with_schema(schema)
+
+    def consolidate(self, *, keep_placeholders: bool = False, allow_uint128: bool = False) -> Mask:
+        """Return a new schema with the same plane names and descriptions,
+        and a pixel type that makes `mask_size` as small as possible without
+        making `dtype` unnecessarily large.
+
+        Parameters
+        ----------
+        keep_placeholders
+            If `True`, keep `None` placeholders in the returned schema.
+            If `False` (default), strip them.
+        allow_uint128
+            If `True`, use an unsigned 128-bit integer if there are more than
+            64 kept bits in the schema.
+        """
+        schema = self.schema.consolidate(keep_placeholders=keep_placeholders, allow_uint128=allow_uint128)
+        return self.with_schema(schema)
 
     def update(self, other: Mask) -> None:
         """Update ``self`` to include all common mask values set in ``other``.
