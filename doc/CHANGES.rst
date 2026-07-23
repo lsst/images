@@ -1,11 +1,48 @@
-Changes
-=======
-
-lsst-images v30.0.9 (2026-07-15)
---------------------------------
+lsst-images v30.0.10 (2026-07-22)
+=================================
 
 New Features
-""""""""""""
+------------
+
+- Schema URLs such as ``https://images.lsst.io/schemas/image-1.0.0`` now resolve to generated documentation pages with field tables and composition diagrams, with the raw JSON Schema published alongside.
+  The JSON schemas are frozen into the ``schemas/`` directory of the repository, kept current with ``lsst-images-admin schemas write`` and guarded by a regression test.
+  External packages providing schemas can override ``ArchiveTree.SCHEMA_URL_BASE`` to mint schema URLs under their own documentation site, freeze them with ``lsst-images-admin schemas write --package``, and generate matching pages with ``lsst.images.schema_docs.generate_schema_docs``; schema URL parsing on read now validates the URL shape instead of requiring the ``images.lsst.io`` host. (`DM-55473 <https://rubinobs.atlassian.net/browse/DM-55473>`_)
+- Modified the Butler formatter to accept a legacy `lsst.geom.Box2I` as the ``bbox`` parameter.
+
+  This is necessary to allow code using storage class conversion to get a legacy type to work even when using parameters. (`DM-55584 <https://rubinobs.atlassian.net/browse/DM-55584>`_)
+
+
+API Changes
+-----------
+
+- ``XY`` and ``YX`` pairs are now serialized as JSON objects with ``x`` and ``y`` keys instead of two-element arrays, so the dimension order is explicit in serialized files.
+  Validation (and therefore reading) still accepts the previous array form, which remains in files that cannot be rewritten and so stays readable indefinitely, even if a future schema version stops documenting it.
+  Pydantic model fields that parameterize a pair (e.g. ``YX[int]``) must use the new `lsst.images.SerializableXY` / `lsst.images.SerializableYX` annotations to get this serialization, because Pydantic bypasses custom schema hooks for parameterized named tuples. (`DM-55473 <https://rubinobs.atlassian.net/browse/DM-55473>`_)
+- Added ``GeneralizedImage.bbox_from_sky_circle`` and ``Box.from_sky_circle`` to calculate a bounding box from an RA/Dec and radius. (`DM-55514 <https://rubinobs.atlassian.net/browse/DM-55514>`_)
+- Renamed ``lsst.images.cells.CellCoadd.from_legacy`` to ``from_legacy_cell_coadd``, for consistency with the to-legacy conversion methods. (`DM-55584 <https://rubinobs.atlassian.net/browse/DM-55584>`_)
+
+Documentation Changes
+---------------------
+
+- Generated content for the new documentation site at https://images.lsst.io (`SP-3230 <https://rubinobs.atlassian.net/browse/SP-3230>`_)
+
+Bug Fixes
+---------
+
+- Fixed retrieval of datasets using a storage class override in remote butler. (`DM-55581 <https://rubinobs.atlassian.net/browse/DM-55581>`_)
+
+
+Miscellaneous Changes of Minor Interest
+---------------------------------------
+
+- Added schema versioning to ``ObservationSummaryStats``. (`DM-55538 <https://rubinobs.atlassian.net/browse/DM-55538>`_)
+
+
+lsst-images v30.0.9 (2026-07-15)
+================================
+
+New Features
+------------
 
 - Added the TEx PSF residual-ellipticity correlation metrics (``psfTE1e1`` through ``psfTE4ex``, covering TE1-TE4 and their e1/e2/ex components) to ``ObservationSummaryStats``, synchronized from ``lsst.afw.image.ExposureSummaryStats``. (`DM-46582 <https://rubinobs.atlassian.net/browse/DM-46582>`_)
 - * Butler metadata-component reads now cache the serialization tree of the most recently read dataset, so requesting several metadata components of one dataset (for example ``sky_projection`` then ``obs_info``) opens the file only once.
@@ -31,7 +68,7 @@ New Features
 
 
 API Changes
-"""""""""""
+-----------
 
 - The generic serialization entry points have been renamed: ``lsst.images.serialization.read`` is now ``read_archive``, ``write`` is now ``write_archive``, and ``open`` is now ``open_archive``.
   The old names have been removed outright; no deprecation aliases are provided. (`DM-55421 <https://rubinobs.atlassian.net/browse/DM-55421>`_)
@@ -42,9 +79,13 @@ API Changes
 
   * The ``lsst.images.Box`` constructor now raises `TypeError` if its arguments are not `~lsst.images.Interval` instances, instead of silently constructing a broken box. (`DM-55488 <https://rubinobs.atlassian.net/browse/DM-55488>`_)
 
+Documentation Changes
+---------------------
+
+- Added a transition documentation page for users familiar with ``lsst.afw`` types. (`DM-54936 <https://rubinobs.atlassian.net/browse/DM-54936>`_)
 
 Bug Fixes
-"""""""""
+---------
 
 - * Unified the logic for determination of multiple versions of a single extension, fixing overwrites in the NDF writer.
   * Added a name shrinker for NDF output to ensure that files written out can be read by the Starlink software tools (which limits structure and component names to 15 characters). (`DM-55183 <https://rubinobs.atlassian.net/browse/DM-55183>`_)
@@ -58,17 +99,17 @@ Bug Fixes
 
 
 Miscellaneous Changes of Minor Interest
-"""""""""""""""""""""""""""""""""""""""
+---------------------------------------
 
 - Improved the performance of the FITS reader when accessing remote objects by ensuring that we only open the file once (previously it was opened once to find the relevant schema and then again to do the full read) across all backends and for FITS specifically we have increased the block size used by ``fsspec``. (`DM-55217 <https://rubinobs.atlassian.net/browse/DM-55217>`_)
 - Made generalized image ``__getitem__(...)`` calls return a view, not ``self``. (`DM-55422 <https://rubinobs.atlassian.net/browse/DM-55422>`_)
 
 
 lsst-images v30.0.8 (2026-06-09)
---------------------------------
+================================
 
 New Features
-""""""""""""
+------------
 
 - Added the ``CellCoadd`` class and format, as well as associated PSF and provenance types. (`DM-54225 <https://rubinobs.atlassian.net/browse/DM-54225>`_)
 - Added psf star shapelet decomposition parameters and metrics to the ``ObservationSummaryStats`` class. (`DM-54482 <https://rubinobs.atlassian.net/browse/DM-54482>`_)
@@ -111,14 +152,14 @@ New Features
 
 
 API Changes
-"""""""""""
+-----------
 
 - * Removed the ``obs_info`` component from ``Image``, ``Mask``, and ``MaskedImage``, in favor of defining it directly on ``VisitImage``.
   * Fully unified the butler formatters into ``lsst.images.formatters.GenericFormatter`` and deleted the old ones. (`DM-54976 <https://rubinobs.atlassian.net/browse/DM-54976>`_)
 
 
 Bug Fixes
-"""""""""
+---------
 
 - Bug fixes uncovered while strengthening round-trip tests:
 
@@ -128,7 +169,7 @@ Bug Fixes
 
 
 Miscellaneous Changes of Minor Interest
-"""""""""""""""""""""""""""""""""""""""
+---------------------------------------
 
 - Added structural equality and round-trip test helpers:
 
@@ -142,7 +183,7 @@ Miscellaneous Changes of Minor Interest
 
 
 An API Removal or Deprecation
-"""""""""""""""""""""""""""""
+-----------------------------
 
 - * Removed the per-backend ``read`` and ``read_tree`` functions (``lsst.images.fits.read``, ``lsst.images.json.read``, ``lsst.images.ndf.read``) and the ``read_fits`` / ``write_fits`` methods on ``Image``, ``Mask``, and ``MaskedImage``, along with the ``ReadResult`` return type.
     Use the ``read`` / ``write`` methods on the image classes (or the generic ``lsst.images.serialization.read`` / ``write`` with the optional ``cls`` argument) for whole-object access, and ``lsst.images.serialization.open`` for components, metadata, and butler info.
@@ -150,10 +191,10 @@ An API Removal or Deprecation
 
 
 lsst-images v30.0.6 (2026-04-07)
---------------------------------
+================================
 
 New Features
-""""""""""""
+------------
 
 - Implemented ``to_legacy`` conversion for ``Transform`` and ``Projection``. (`DM-54551 <https://rubinobs.atlassian.net/browse/DM-54551>`_)
 - Added the ``ColorImage`` class and format for RGB images. (`DM-54220 <https://rubinobs.atlassian.net/browse/DM-54220>`_)
@@ -163,18 +204,18 @@ New Features
 
 
 Miscellaneous Changes of Minor Interest
-"""""""""""""""""""""""""""""""""""""""
+---------------------------------------
 
 - Improved the test coverage of the image classes.
   This uncovered some minor bugs that have also been fixed. (`DM-54472 <https://rubinobs.atlassian.net/browse/DM-54472>`_)
 
 lsst-images v30.0.4 (2026-03-02)
---------------------------------
+================================
 
 First public release of package.
 
 New Features
-""""""""""""
+------------
 
 - Added FITS tile compression support and import-read support for ``lsst.afw.image.MaskedImage``. (`DM-53698 <https://rubinobs.atlassian.net/browse/DM-53698>`_)
 - Added support for ``ObservationInfo`` to be attached to images.

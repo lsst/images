@@ -1,3 +1,0 @@
-`XY` and `YX` pairs are now serialized as JSON objects with ``x`` and ``y`` keys instead of two-element arrays, so the dimension order is explicit in serialized files.
-Validation (and therefore reading) still accepts the previous array form, which remains in files that cannot be rewritten and so stays readable indefinitely, even if a future schema version stops documenting it.
-Pydantic model fields that parameterize a pair (e.g. ``YX[int]``) must use the new `lsst.images.SerializableXY` / `lsst.images.SerializableYX` annotations to get this serialization, because Pydantic bypasses custom schema hooks for parameterized named tuples.

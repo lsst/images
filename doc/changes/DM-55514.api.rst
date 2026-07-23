@@ -1,1 +1,0 @@
-Added ``GeneralizedImage.bbox_from_sky_circle`` and ``Box.from_sky_circle`` to calculate a bounding box from an RA/Dec and radius.

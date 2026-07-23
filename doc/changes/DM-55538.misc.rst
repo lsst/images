@@ -1,1 +1,0 @@
-Added schema versioning to ``ObservationSummaryStats``.
