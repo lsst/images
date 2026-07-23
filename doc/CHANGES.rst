@@ -1,3 +1,39 @@
+lsst-images v30.0.10 (2026-07-22)
+=================================
+
+New Features
+------------
+
+- Schema URLs such as ``https://images.lsst.io/schemas/image-1.0.0`` now resolve to generated documentation pages with field tables and composition diagrams, with the raw JSON Schema published alongside.
+  The JSON schemas are frozen into the ``schemas/`` directory of the repository, kept current with ``lsst-images-admin schemas write`` and guarded by a regression test.
+  External packages providing schemas can override ``ArchiveTree.SCHEMA_URL_BASE`` to mint schema URLs under their own documentation site, freeze them with ``lsst-images-admin schemas write --package``, and generate matching pages with ``lsst.images.schema_docs.generate_schema_docs``; schema URL parsing on read now validates the URL shape instead of requiring the ``images.lsst.io`` host. (`DM-55473 <https://rubinobs.atlassian.net/browse/DM-55473>`_)
+- Modified the Butler formatter to accept a legacy `lsst.geom.Box2I` as the ``bbox`` parameter.
+
+  This is necessary to allow code using storage class conversion to get a legacy type to work even when using parameters. (`DM-55584 <https://rubinobs.atlassian.net/browse/DM-55584>`_)
+
+
+API Changes
+-----------
+
+- ``XY`` and ``YX`` pairs are now serialized as JSON objects with ``x`` and ``y`` keys instead of two-element arrays, so the dimension order is explicit in serialized files.
+  Validation (and therefore reading) still accepts the previous array form, which remains in files that cannot be rewritten and so stays readable indefinitely, even if a future schema version stops documenting it.
+  Pydantic model fields that parameterize a pair (e.g. ``YX[int]``) must use the new `lsst.images.SerializableXY` / `lsst.images.SerializableYX` annotations to get this serialization, because Pydantic bypasses custom schema hooks for parameterized named tuples. (`DM-55473 <https://rubinobs.atlassian.net/browse/DM-55473>`_)
+- Added ``GeneralizedImage.bbox_from_sky_circle`` and ``Box.from_sky_circle`` to calculate a bounding box from an RA/Dec and radius. (`DM-55514 <https://rubinobs.atlassian.net/browse/DM-55514>`_)
+- Renamed ``lsst.images.cells.CellCoadd.from_legacy`` to ``from_legacy_cell_coadd``, for consistency with the to-legacy conversion methods. (`DM-55584 <https://rubinobs.atlassian.net/browse/DM-55584>`_)
+
+
+Bug Fixes
+---------
+
+- Fixed retrieval of datasets using a storage class override in remote butler. (`DM-55581 <https://rubinobs.atlassian.net/browse/DM-55581>`_)
+
+
+Miscellaneous Changes of Minor Interest
+---------------------------------------
+
+- Added schema versioning to ``ObservationSummaryStats``. (`DM-55538 <https://rubinobs.atlassian.net/browse/DM-55538>`_)
+
+
 Changes
 =======
 
