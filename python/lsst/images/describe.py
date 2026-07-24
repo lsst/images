@@ -204,7 +204,7 @@ class DescribableMixin:
         raise NotImplementedError()
 
     def describe(self, **kwargs: Any) -> Report:
-        """Return a `Report` describing this object.
+        """Return a `~lsst.images.Report` describing this object.
 
         Parameters
         ----------
