@@ -47,7 +47,7 @@ from lsst.images.describe import DescribableMixin, FieldRole, Report
 from lsst.images.fields import ChebyshevField, SplineField, SumField, field_from_legacy_photo_calib
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
 from lsst.images.psfs import GaussianPointSpreadFunction, PointSpreadFunction
-from lsst.images.serialization import read_archive
+from lsst.images.serialization import ArchiveReadError, read_archive
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
@@ -1056,6 +1056,20 @@ def test_background_map_with_entries_describe() -> None:
     assert set(rows_by_name) == {"sky", "fringe"}
     assert rows_by_name["sky"][1] == "yes"
     assert rows_by_name["fringe"][1] == ""
+
+
+def test_visit_image_repr_str_with_unreadable_psf() -> None:
+    """Repr and str succeed even when the PSF stored an ArchiveReadError.
+
+    An unreadable component is a supported state; repr and str read only the
+    cheap fields and summary, so they must not build the child tree (which
+    would raise when it accesses the PSF).
+    """
+    path = os.path.join(LOCAL_DATA_DIR, "schema_v1", "visit_image.json")
+    visit_image = read_archive(path)
+    visit_image._psf = ArchiveReadError("psf unreadable")
+    assert repr(visit_image).startswith("VisitImage(")
+    assert str(visit_image).startswith("VisitImage(")
 
 
 def test_observation_summary_stats_describe() -> None:

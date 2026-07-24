@@ -313,14 +313,28 @@ class VisitImage(MaskedImage):
             bbox=bbox,
         )
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, *, brief: bool = False, **kwargs: Any) -> Report:
         """Return a `Report` describing this visit image.
 
         Parameters
         ----------
+        brief : `bool`, optional
+            When `True`, populate only the fields and summary that ``repr``
+            and ``str`` read, skipping the children (whose construction can be
+            expensive or raise for an unreadable component).
         **kwargs
             Render keyword arguments forwarded to all children.
         """
+        fields = [
+            ReportField(label="image", value=self.image, repr_value=repr(self.image), positional=True),
+            ReportField(label="mask_schema", value=self.mask.schema, repr_value=repr(self.mask.schema)),
+            ReportField(label="band", value=self.band, role=FieldRole.DERIVED),
+            ReportField(label="physical_filter", value=self.physical_filter, role=FieldRole.DERIVED),
+            ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED),
+        ]
+        summary = f"VisitImage({self.image!s}, {list(self.mask.schema.names)})"
+        if brief:
+            return Report(type_name="VisitImage", summary=summary, fields=fields)
         child_kwargs = {k: v for k, v in kwargs.items() if k not in ("exclude", "bbox")}
         children: dict[str, Report] = {
             "image": self.image._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
@@ -336,16 +350,8 @@ class VisitImage(MaskedImage):
             children["photometric_scaling"] = self.photometric_scaling._describe(**child_kwargs)
         return Report(
             type_name="VisitImage",
-            summary=f"VisitImage({self.image!s}, {list(self.mask.schema.names)})",
-            fields=[
-                ReportField(label="image", value=self.image, repr_value=repr(self.image), positional=True),
-                ReportField(label="mask_schema", value=self.mask.schema, repr_value=repr(self.mask.schema)),
-                ReportField(label="band", value=self.band, role=FieldRole.DERIVED),
-                ReportField(label="physical_filter", value=self.physical_filter, role=FieldRole.DERIVED),
-                ReportField(
-                    label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED
-                ),
-            ],
+            summary=summary,
+            fields=fields,
             children=children,
         )
 

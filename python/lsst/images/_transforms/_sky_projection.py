@@ -469,7 +469,7 @@ class SkyProjection[F: Frame](DescribableMixin):
             lat_scales.append(center.separation(probe).to_value(u.arcsec) / dpix)
         return [statistics.median(lon_scales), statistics.median(lat_scales)]
 
-    def _describe(self, *, bbox: Box | None = None, **kwargs: Any) -> Report:
+    def _describe(self, *, bbox: Box | None = None, brief: bool = False, **kwargs: Any) -> Report:
         """Return a `Report` describing this sky projection.
 
         Parameters
@@ -479,9 +479,18 @@ class SkyProjection[F: Frame](DescribableMixin):
             coordinates of the box center and corners and the nominal pixel
             scale characterized over the box.  When omitted, the pixel scale is
             characterized at the reference pixel (0, 0).
+        brief : `bool`, optional
+            When `True`, return only the type, title, and summary that ``repr``
+            and ``str`` read, skipping the pixel and WCS characterization.
         **kwargs
             Unused; accepted for interface compatibility.
         """
+        if brief:
+            return Report(
+                type_name="SkyProjection",
+                title=f"{self.sky_frame.value} coordinates",
+                summary=f"{type(self.pixel_frame).__name__} → {self.sky_frame.value}",
+            )
         fields: list[ReportField] = []
         # The reference pixel is always (0, 0); the array this projection
         # describes may lie far from it, so name the pixel explicitly.
@@ -547,12 +556,19 @@ class SkyProjection[F: Frame](DescribableMixin):
                 )
             )
 
+        # Representability as a FITS WCS depends on the box, so probe with the
+        # supplied bbox, or fall back to the projection's own pixel bounds.
+        # Without either box the answer cannot be determined.
         if self._fits_approximation is not None:
             fits_wcs = "approximate"
-        elif bbox is not None:
-            fits_wcs = "available" if self.as_fits_wcs(bbox) is not None else "none"
         else:
-            fits_wcs = "available"
+            probe_bbox = bbox
+            if probe_bbox is None and self.pixel_bounds is not None:
+                probe_bbox = self.pixel_bounds.bbox
+            if probe_bbox is None:
+                fits_wcs = "unknown"
+            else:
+                fits_wcs = "available" if self.as_fits_wcs(probe_bbox) is not None else "none"
         fields.append(ReportField(label="fits_wcs", value=fits_wcs, role=FieldRole.DERIVED))
 
         return Report(

@@ -186,7 +186,8 @@ class Describable(Protocol):
         ----------
         **kwargs
             Optional rendering parameters (e.g. a ``bbox`` to compute derived
-            sky-coordinate fields).
+            sky-coordinate fields, or ``brief=True`` to skip the children and
+            derived content that ``repr`` and ``str`` never read).
         """
         ...
 
@@ -225,10 +226,10 @@ class DescribableMixin:
         return self._describe(**kwargs)
 
     def __repr__(self) -> str:
-        return self._describe().to_repr()
+        return self._describe(brief=True).to_repr()
 
     def __str__(self) -> str:
-        return self._describe().to_str()
+        return self._describe(brief=True).to_str()
 
     def _repr_html_(self) -> str:
         return self._describe(detail=True)._repr_html_()

@@ -264,14 +264,27 @@ class CellCoadd(MaskedImage):
             bbox=bbox,
         )
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, *, brief: bool = False, **kwargs: Any) -> Report:
         """Return a `Report` describing this cell coadd.
 
         Parameters
         ----------
+        brief : `bool`, optional
+            When `True`, populate only the fields and summary that ``repr``
+            and ``str`` read, skipping the children.
         **kwargs
             Render keyword arguments forwarded to all children.
         """
+        fields = [
+            ReportField(label="skymap", value=self.skymap, role=FieldRole.DERIVED),
+            ReportField(label="tract", value=self.tract, role=FieldRole.DERIVED),
+            ReportField(label="patch", value=self._patch, role=FieldRole.DERIVED),
+            ReportField(label="band", value=self.band, role=FieldRole.DERIVED),
+            ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED),
+        ]
+        summary = f"CellCoadd({self.bbox!s}, tract={self.tract})"
+        if brief:
+            return Report(type_name="CellCoadd", summary=summary, fields=fields)
         child_kwargs = {k: v for k, v in kwargs.items() if k not in ("exclude", "bbox")}
         children: dict[str, Report] = {
             "image": self.image._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
@@ -283,16 +296,8 @@ class CellCoadd(MaskedImage):
         }
         return Report(
             type_name="CellCoadd",
-            summary=f"CellCoadd({self.bbox!s}, tract={self.tract})",
-            fields=[
-                ReportField(label="skymap", value=self.skymap, role=FieldRole.DERIVED),
-                ReportField(label="tract", value=self.tract, role=FieldRole.DERIVED),
-                ReportField(label="patch", value=self._patch, role=FieldRole.DERIVED),
-                ReportField(label="band", value=self.band, role=FieldRole.DERIVED),
-                ReportField(
-                    label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED
-                ),
-            ],
+            summary=summary,
+            fields=fields,
             children=children,
         )
 

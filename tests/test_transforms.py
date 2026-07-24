@@ -813,6 +813,26 @@ def test_sky_projection_describe_pixel_scale_forms() -> None:
     assert not any(f.label == "Nominal pixel scale" for f in report.fields)
 
 
+def test_sky_projection_describe_fits_wcs_availability() -> None:
+    """fits_wcs is probed against a box, never blindly reported available."""
+    # No supplied bbox and no pixel bounds: representability cannot be checked.
+    projection = _rotated_tan(0.0)
+    assert projection.pixel_bounds is None
+    report = projection.describe()
+    fits_field = next(f for f in report.fields if f.label == "fits_wcs")
+    assert fits_field.value == "unknown"
+
+    # A projection with pixel bounds probes those bounds when no bbox is given.
+    bounded = SkyProjection.from_fits_wcs(
+        _rotated_tan(0.0).pixel_to_sky_transform.as_fits_wcs(Box.factory[0:32, 0:32]),
+        GeneralFrame(unit=u.pix),
+        pixel_bounds=Box.factory[0:32, 0:32],
+    )
+    report = bounded.describe()
+    fits_field = next(f for f in report.fields if f.label == "fits_wcs")
+    assert fits_field.value in ("available", "none")
+
+
 def test_sky_projection_describe_reference_pixel_matches_transform() -> None:
     """The reference-pixel field reports pixel (0, 0)'s actual sky position."""
     rng = np.random.default_rng(43)
