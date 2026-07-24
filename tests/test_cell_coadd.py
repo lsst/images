@@ -147,6 +147,12 @@ def make_subbox(full_bbox: Box) -> Box:
     ]
 
 
+def test_cell_coadd_repr_str_pinned(minified_cell_coadd: CellCoadd) -> None:
+    """Pin the exact str and repr output of a CellCoadd."""
+    assert str(minified_cell_coadd) == "CellCoadd([y=48:60, x=36:48], tract=9813)"
+    assert repr(minified_cell_coadd) == "CellCoadd([y=48:60, x=36:48], tract=9813)"
+
+
 def test_from_legacy(legacy_test_data: _LegacyTestData) -> None:
     """Test constructing a CellCoadd by converting a legacy
     ``MultipleCellCoadd``.

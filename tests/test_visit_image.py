@@ -220,6 +220,17 @@ def _check_sum_background_round_trip(result: VisitImage, original: VisitImage) -
         assert round_op == orig_op
 
 
+def test_visit_image_repr_str_pinned(visit_image_components: dict[str, Any]) -> None:
+    """Pin the exact str and repr output of a VisitImage."""
+    visit = make_simplest_visit_image(visit_image_components)
+    assert str(visit) == "VisitImage(Image([y=0:1024, x=0:1024], int64), ['M1'])"
+    assert repr(visit) == (
+        "VisitImage(Image(..., bbox=Box(y=Interval(start=0, stop=1024), x=Interval(start=0, stop=1024)),"
+        " dtype=dtype('int64')), mask_schema=MaskSchema([MaskPlane(name='M1', description='D1')],"
+        " dtype=dtype('uint8')))"
+    )
+
+
 def test_basics(visit_image_components: dict[str, Any]) -> None:
     """Verify VisitImage constructor patterns and required-argument checks."""
     c = visit_image_components
