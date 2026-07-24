@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, final, get_origin
 
 import pydantic
 
+from lsst.images.describe import DescribableMixin, FieldRole, Report, ReportField
 from lsst.images.serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 
 if TYPE_CHECKING:
@@ -46,7 +47,7 @@ def _is_empty(value: Any) -> bool:
 
 
 @final
-class ObservationSummaryStats(ArchiveTree):
+class ObservationSummaryStats(ArchiveTree, DescribableMixin):
     """Various statistics obtained from a single observation."""
 
     SCHEMA_NAME: ClassVar[str] = "observation_summary_stats"
@@ -446,6 +447,29 @@ class ObservationSummaryStats(ArchiveTree):
             elif a != b and not (math.isnan(a) and math.isnan(b)):
                 return False
         return True
+
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing these summary statistics.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        fields = [
+            ReportField(label=name, value=getattr(self, name), role=FieldRole.DERIVED)
+            for name in (
+                "psfSigma",
+                "psfArea",
+                "zeroPoint",
+                "skyBg",
+                "expTime",
+                "ra",
+                "dec",
+                "pixelScale",
+            )
+        ]
+        return Report(type_name="ObservationSummaryStats", fields=fields)
 
     def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> Self:
         """Extract this object from an archive.

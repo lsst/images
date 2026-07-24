@@ -23,6 +23,7 @@ import pydantic
 from .._concrete_bounds import BoundsSerializationModel
 from .._geom import YX, Bounds, Box
 from .._image import Image
+from ..describe import FieldRole, Report, ReportField
 from ..serialization import ArchiveTree, InlineArray, InputArchive, InvalidParameterError, OutputArchive, Unit
 from ._base import BaseField
 
@@ -220,6 +221,27 @@ class ChebyshevField(BaseField):
     @property
     def is_constant(self) -> bool:
         return self.x_order == 0 and self.y_order == 0
+
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this Chebyshev field.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        return Report(
+            type_name="ChebyshevField",
+            summary=f"ChebyshevField order={self.order} over {self.bounds}",
+            fields=[
+                ReportField(label="bounds", value=self.bounds, role=FieldRole.DERIVED),
+                ReportField(label="unit", value=self.unit, role=FieldRole.DERIVED),
+                ReportField(label="order", value=self.order, role=FieldRole.DERIVED),
+                ReportField(label="x_order", value=self.x_order, role=FieldRole.DERIVED),
+                ReportField(label="y_order", value=self.y_order, role=FieldRole.DERIVED),
+                ReportField(label="is_constant", value=self.is_constant, role=FieldRole.DERIVED),
+            ],
+        )
 
     def _evaluate(
         self, *, x: np.ndarray, y: np.ndarray, quantity: bool

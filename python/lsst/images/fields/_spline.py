@@ -23,6 +23,7 @@ from scipy.interpolate import Akima1DInterpolator
 from .._concrete_bounds import BoundsSerializationModel
 from .._geom import Bounds, Box, Interval
 from .._image import Image
+from ..describe import FieldRole, Report, ReportField
 from ..serialization import (
     ArchiveTree,
     ArrayReferenceModel,
@@ -154,6 +155,25 @@ class SplineField(BaseField):
     def is_constant(self) -> bool:
         # We really do want an exact floating-point comparison here.
         return (self._data == self._data[0, 0]).all()
+
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this spline field.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        return Report(
+            type_name="SplineField",
+            summary=f"SplineField {self._data.shape} over {self.bounds}",
+            fields=[
+                ReportField(label="bounds", value=self.bounds, role=FieldRole.DERIVED),
+                ReportField(label="unit", value=self.unit, role=FieldRole.DERIVED),
+                ReportField(label="grid_shape", value=self._data.shape, role=FieldRole.DERIVED),
+                ReportField(label="is_constant", value=self.is_constant, role=FieldRole.DERIVED),
+            ],
+        )
 
     def _evaluate(
         self, *, x: np.ndarray, y: np.ndarray, quantity: bool = False

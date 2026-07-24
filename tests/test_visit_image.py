@@ -42,6 +42,7 @@ from lsst.images import (
 )
 from lsst.images.aperture_corrections import ApertureCorrectionMap, aperture_corrections_to_legacy
 from lsst.images.cameras import Detector
+from lsst.images.describe import DescribableMixin, FieldRole, Report
 from lsst.images.fields import ChebyshevField, SplineField, SumField, field_from_legacy_photo_calib
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
 from lsst.images.psfs import GaussianPointSpreadFunction, PointSpreadFunction
@@ -1021,3 +1022,60 @@ def test_convert_unit(legacy_test_data_calibrated: _LegacyTestData) -> None:
     legacy_masked_image_nJy = legacy_exposure_e.getPhotoCalib().calibrateImage(legacy_exposure_e.maskedImage)
     assert_close(visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
     assert_close(visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)
+
+
+def test_background_map_describe() -> None:
+    """BackgroundMap._describe returns a Report with subtracted field."""
+    bg_map = BackgroundMap()
+    assert isinstance(bg_map, DescribableMixin)
+    report = bg_map._describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "BackgroundMap"
+    labels = {f.label for f in report.fields}
+    assert "subtracted" in labels
+
+
+def test_background_map_with_entries_describe() -> None:
+    """BackgroundMap._describe includes a table of background names."""
+    from lsst.images._backgrounds import Background
+
+    cheby = ChebyshevField(Box.factory[0:100, 0:200], np.array([[1.0]]))
+    bg_map = BackgroundMap(
+        [Background("sky", cheby), Background("fringe", cheby)],
+        subtracted="sky",
+    )
+    report = bg_map._describe()
+    assert report.type_name == "BackgroundMap"
+    assert len(report.tables) == 1
+    table = report.tables[0]
+    assert "Name" in table.columns
+    names_in_table = [row[0] for row in table.rows]
+    assert "sky" in names_in_table
+    assert "fringe" in names_in_table
+    subtracted_field = next(f for f in report.fields if f.label == "subtracted")
+    assert subtracted_field.value == "sky"
+    assert subtracted_field.role is FieldRole.DERIVED
+
+
+def test_observation_summary_stats_describe() -> None:
+    """ObservationSummaryStats._describe returns a Report."""
+    stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4, ra=180.0, dec=-30.0)
+    assert isinstance(stats, DescribableMixin)
+    report = stats._describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "ObservationSummaryStats"
+    labels = {f.label for f in report.fields}
+    assert "psfSigma" in labels
+    assert "ra" in labels
+    assert "dec" in labels
+    assert "zeroPoint" in labels
+    for rf in report.fields:
+        assert rf.role is FieldRole.DERIVED
+
+
+def test_observation_summary_stats_pydantic_repr() -> None:
+    """ObservationSummaryStats uses pydantic's repr, not the mixin's."""
+    stats = ObservationSummaryStats(psfSigma=2.5)
+    r = repr(stats)
+    assert r.startswith("ObservationSummaryStats(")
+    assert "psfSigma=2.5" in r

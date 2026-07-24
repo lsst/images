@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 
 from lsst.images import Box
+from lsst.images.describe import DescribableMixin, Report
 from lsst.images.psfs import GaussianPointSpreadFunction, PiffWrapper, PointSpreadFunction, PSFExWrapper
 from lsst.images.psfs._piff import _ArchivePiffWriter
 from lsst.images.tests import RoundtripFits, RoundtripJson, RoundtripNdf, compare_psf_to_legacy
@@ -81,6 +82,32 @@ def legacy_psfex_psf_and_bbox() -> tuple[LegacyPsf, Box]:
     legacy_psf = reader.readPsf()
     bounds = Box.from_legacy(reader.readBBox())
     return legacy_psf, bounds
+
+
+def test_gaussian_psf_repr_pinned() -> None:
+    """GaussianPointSpreadFunction repr matches its documented form."""
+    psf = GaussianPointSpreadFunction(2.5, bounds=Box.factory[0:10, 0:10], stamp_size=21)
+    assert repr(psf) == f"GaussianPointSpreadFunction(2.5, stamp_size=21, bounds={psf.bounds!r})"
+
+
+def test_gaussian_psf_describe() -> None:
+    """GaussianPointSpreadFunction._describe returns a Report."""
+    psf = GaussianPointSpreadFunction(2.5, bounds=Box.factory[0:10, 0:10], stamp_size=21)
+    assert isinstance(psf, DescribableMixin)
+    report = psf._describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "GaussianPointSpreadFunction"
+    labels = {f.label for f in report.fields}
+    assert "sigma" in labels
+    assert "stamp_size" in labels
+    assert "bounds" in labels
+
+
+def test_psf_base_describe() -> None:
+    """PointSpreadFunction base _describe uses the concrete type name."""
+    psf = GaussianPointSpreadFunction(1.5, bounds=Box.factory[-5:5, -5:5], stamp_size=11)
+    report = psf._describe()
+    assert report.type_name == "GaussianPointSpreadFunction"
 
 
 def test_gaussian() -> None:
