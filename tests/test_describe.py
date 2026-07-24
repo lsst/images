@@ -11,9 +11,12 @@
 
 from __future__ import annotations
 
+import os
+
 from rich.console import Console
 
 from lsst.images.describe import DescribableMixin, FieldRole, Report, ReportField, ReportTable
+from lsst.images.serialization import read_archive
 
 
 def test_report_model_defaults() -> None:
@@ -132,3 +135,21 @@ def test_public_api_importable_from_package() -> None:
 
     for name in ("Describable", "DescribableMixin", "FieldRole", "Report", "ReportField", "ReportTable"):
         assert hasattr(images, name), name
+
+
+def test_visit_image_describe_nested() -> None:
+    """A deserialized VisitImage produces a nested report with WCS corners."""
+    path = os.path.join(os.path.dirname(__file__), "data", "schema_v1", "visit_image.json")
+    visit_image = read_archive(path)
+    report = visit_image.describe()
+    assert report.type_name == "VisitImage"
+    # Components appear as children.
+    assert "image" in report.children
+    assert "mask" in report.children
+    assert "sky_projection" in report.children
+    # The sky_projection child received the container bbox, so it has corners.
+    sky = report.children["sky_projection"]
+    assert any(t.title == "Corners" for t in sky.tables)
+    # Rich and HTML renderers run without error.
+    assert isinstance(report._repr_html_(), str)
+    report.__rich__()
