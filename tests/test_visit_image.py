@@ -25,6 +25,7 @@ import pytest
 from astro_metadata_translator import ObservationInfo
 
 from lsst.images import (
+    Background,
     BackgroundMap,
     Box,
     DetectorFrame,
@@ -1037,8 +1038,6 @@ def test_background_map_describe() -> None:
 
 def test_background_map_with_entries_describe() -> None:
     """BackgroundMap._describe includes a table of background names."""
-    from lsst.images._backgrounds import Background
-
     cheby = ChebyshevField(Box.factory[0:100, 0:200], np.array([[1.0]]))
     bg_map = BackgroundMap(
         [Background("sky", cheby), Background("fringe", cheby)],
