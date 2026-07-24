@@ -99,6 +99,24 @@ class Report:
     children: dict[str, Report] = dataclasses.field(default_factory=dict)
     """Named nested sub-reports."""
 
+    def to_repr(self) -> str:
+        """Return an eval-ish ``repr`` string built from ``ARG`` fields."""
+        parts: list[str] = []
+        for field in self.fields:
+            if field.role is not FieldRole.ARG:
+                continue
+            value = field.repr_value if field.repr_value is not None else repr(field.value)
+            parts.append(value if field.positional else f"{field.label}={value}")
+        return f"{self.type_name}({', '.join(parts)})"
+
+    def to_str(self) -> str:
+        """Return a compact one-line summary."""
+        if self.summary is not None:
+            return self.summary
+        args = [str(field.value) for field in self.fields if field.role is FieldRole.ARG]
+        inner = ", ".join(args[:3])
+        return f"{self.type_name}({inner})"
+
 
 @runtime_checkable
 class Describable(Protocol):
