@@ -17,6 +17,7 @@ import os
 from typing import Any, ClassVar
 
 import astropy.units as u
+import astropy.wcs
 import numpy as np
 import pydantic
 import pytest
@@ -36,6 +37,7 @@ from lsst.images import (
     TransformSerializationModel,
 )
 from lsst.images._transforms import _ast as astshim
+from lsst.images.describe import FieldRole, Report
 from lsst.images.fits import PointerModel
 from lsst.images.serialization import ArchiveTree, InputArchive, JsonRef, OutputArchive
 from lsst.images.tests import (
@@ -693,3 +695,124 @@ def test_pixel_to_sky_xy_yx(broadcast_test_data: _BroadcastTestData) -> None:
         p.sky_proj.pixel_to_sky(YX(sy, sx), y=sy)
     with pytest.raises(TypeError):
         p.sky_proj.pixel_to_sky()
+
+
+def _rotated_tan(rot_deg: float, *, crval2: float = 30.0, scale_y: float = 0.2) -> SkyProjection:
+    """Return a rotated TAN projection with given pixel scales."""
+    cx = (0.2 * u.arcsec).to_value(u.deg)
+    cy = (scale_y * u.arcsec).to_value(u.deg)
+    t = np.deg2rad(rot_deg)
+    header = {
+        "CTYPE1": "RA---TAN",
+        "CTYPE2": "DEC--TAN",
+        "CRPIX1": 50,
+        "CRPIX2": 100,
+        "CRVAL1": 45.0,
+        "CRVAL2": crval2,
+        "CD1_1": -cx * np.cos(t),
+        "CD1_2": cy * np.sin(t),
+        "CD2_1": -cx * np.sin(t),
+        "CD2_2": -cy * np.cos(t),
+    }
+    return SkyProjection.from_fits_wcs(astropy.wcs.WCS(header), GeneralFrame(unit=u.pix))
+
+
+def test_sky_projection_nominal_pixel_scale() -> None:
+    """_nominal_pixel_scale reports per sky axis [longitude, latitude].
+
+    Faithful KPG1_PXSCL port: the scale attaches to the sky axis, so a 90 deg
+    rotation swaps the returned [RA, Dec] scales.  Great-circle distances keep
+    it correct near the poles.
+    """
+    bbox = Box.factory[0:200, 0:100]
+
+    # Unrotated anisotropic WCS: RA scale 0.2, Dec scale 0.3.
+    np.testing.assert_allclose(
+        _rotated_tan(0.0, scale_y=0.3)._nominal_pixel_scale(bbox), [0.2, 0.3], rtol=1e-3
+    )
+    # Rotated 90 deg: the sky-axis scales swap.
+    np.testing.assert_allclose(
+        _rotated_tan(90.0, scale_y=0.3)._nominal_pixel_scale(bbox), [0.3, 0.2], rtol=1e-3
+    )
+    # Reference pixel ~2 arcsec from the north pole: great-circle scale holds.
+    np.testing.assert_allclose(
+        _rotated_tan(30.0, crval2=89.9995)._nominal_pixel_scale(bbox), [0.2, 0.2], rtol=1e-3
+    )
+
+
+def test_sky_projection_pixel_axis_report() -> None:
+    """_pixel_axis_report keeps scale with the pixel axis, label with the sky.
+
+    Uses great-circle distances (pole- and rotation-safe) and reports per
+    pixel axis so a ~90 deg rotation swaps the RA/Dec labels while the scale
+    stays attached to its pixel axis.
+    """
+    bbox = Box.factory[0:200, 0:100]
+
+    # Unrotated, anisotropic: x tracks RA at 0.2, y tracks Dec at 0.3.
+    report = _rotated_tan(0.0, scale_y=0.3)._pixel_axis_report(bbox)
+    assert len(report) == 2
+    (sx, lx, ux, dx), (sy, ly, uy, dy) = report
+    np.testing.assert_allclose([sx, sy], [0.2, 0.3], rtol=1e-3)
+    assert (lx, ly) == ("Right ascension", "Declination")
+    assert (ux, uy) == ("hh:mm:ss.s", "dd:mm:ss")
+    assert not dx and not dy
+
+    # Rotated 90 deg: the labels swap but the scale stays with the pixel axis.
+    (sx, lx, _, _), (sy, ly, _, _) = _rotated_tan(90.0, scale_y=0.3)._pixel_axis_report(bbox)
+    np.testing.assert_allclose([sx, sy], [0.2, 0.3], rtol=1e-3)
+    assert (lx, ly) == ("Declination", "Right ascension")
+
+    # Rotated 45 deg: both axes run diagonally, so both are flagged ambiguous.
+    (_, _, _, dx), (_, _, _, dy) = _rotated_tan(45.0)._pixel_axis_report(bbox)
+    assert dx and dy
+
+    # Reference pixel ~2 arcsec from the north pole: great-circle scale holds.
+    (sx, _, _, _), (sy, _, _, _) = _rotated_tan(30.0, crval2=89.9995)._pixel_axis_report(bbox)
+    np.testing.assert_allclose([sx, sy], [0.2, 0.2], rtol=1e-3)
+
+
+def test_sky_projection_describe() -> None:
+    """SkyProjection._describe yields KAPPA-style axes and corners tables."""
+    rng = np.random.default_rng(43)
+    bbox = Box.factory[0:200, 0:100]
+    pixel_frame = GeneralFrame(unit=u.pix)
+    sky_projection = make_random_sky_projection(rng, pixel_frame, bbox)
+
+    # Without a bbox: Axes table present, Corners absent, no center field.
+    # Rows are per pixel axis; without a bbox the labels default to the
+    # unrotated x=RA, y=Dec convention and the scales are "-".
+    report = sky_projection.describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "SkyProjection"
+    assert report.title == "ICRS coordinates"
+    axes = next(t for t in report.tables if t.title == "Axes")
+    assert axes.columns == ["Axis", "Label", "Units", "Nominal pixel scale"]
+    assert len(axes.rows) == 2
+    assert [row[0] for row in axes.rows] == ["x", "y"]
+    assert [row[1] for row in axes.rows] == ["Right ascension", "Declination"]
+    assert all(row[3] == "-" for row in axes.rows)  # no scale without a bbox
+    assert not any(t.title == "Corners" for t in report.tables)
+    assert not any(f.label == "center" for f in report.fields)
+
+    # With a bbox: Corners table plus per-pixel-axis scales and a center field.
+    # This projection has a random rotation, so the labels are whichever sky
+    # direction each pixel axis predominantly tracks; assert they are valid.
+    report = sky_projection.describe(bbox=bbox)
+    axes = next(t for t in report.tables if t.title == "Axes")
+    assert [row[0] for row in axes.rows] == ["x", "y"]
+    assert all(row[3] != "-" for row in axes.rows)
+    valid = {"Right ascension", "Declination"}
+    assert all(row[1].removesuffix(" (diagonal)") in valid for row in axes.rows)
+    corners = next(t for t in report.tables if t.title == "Corners")
+    assert corners.columns == ["Corner", "RA", "Dec"]
+    assert len(corners.rows) == 4
+    center = next(f for f in report.fields if f.label == "center")
+    assert center.role is FieldRole.DERIVED
+
+    # FITS-WCS availability is reported (projection is FITS-representable).
+    fits_field = next(f for f in report.fields if f.label == "fits_wcs")
+    assert fits_field.value == "available"
+
+    # repr does not depend on a bbox and does not evaluate the mapping.
+    assert repr(sky_projection).startswith("SkyProjection(")

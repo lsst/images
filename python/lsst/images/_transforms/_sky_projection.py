@@ -14,6 +14,8 @@ from __future__ import annotations
 __all__ = ("SkyProjection", "SkyProjectionAstropyView", "SkyProjectionSerializationModel")
 
 import functools
+import itertools
+import statistics
 from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeVar, assert_type, cast, final, overload
 
 import astropy.units as u
@@ -25,6 +27,7 @@ from astropy.coordinates import ICRS, Latitude, Longitude, SkyCoord
 from astropy.wcs.wcsapi import BaseLowLevelWCS, HighLevelWCSMixin
 
 from .._geom import XY, YX, Bounds, Box
+from ..describe import DescribableMixin, FieldRole, Report, ReportField, ReportTable
 from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 from ..utils import is_none
 from . import _ast as astshim
@@ -53,7 +56,7 @@ def _set_ast_skyframe_system(frame: astshim.SkyFrame, system: str) -> None:
 
 
 @final
-class SkyProjection[F: Frame]:
+class SkyProjection[F: Frame](DescribableMixin):
     """A transform from pixel coordinates to sky coordinates.
 
     Parameters
@@ -347,6 +350,207 @@ class SkyProjection[F: Frame]:
         if allow_approximation and self._fits_approximation:
             return self._fits_approximation.as_fits_wcs(bbox)
         return self._pixel_to_sky.as_fits_wcs(bbox)
+
+    def _nominal_pixel_scale(self, bbox: Box) -> list[float]:
+        """Return the nominal pixel scale in arcsec for each sky axis.
+
+        Parameters
+        ----------
+        bbox : `Box`
+            Pixel bounding box over which the scale is characterized.
+
+        Returns
+        -------
+        `list` [`float`]
+            Nominal pixel scale in arcsec/pixel for the longitude and
+            latitude axes, in that order.
+
+        Notes
+        -----
+        This is a port of the Starlink KAPPA ``KPG1_SCALE``/``KPG1_PXSCL``
+        routines.  At each of a 3x3 grid of test points it perturbs the pixel
+        position by unit offsets along both axes, finds the neighbour that
+        moves farthest along each sky axis, and takes the ratio of the
+        great-circle sky distance to the pixel-space distance; the per-axis
+        result is the median over the grid.  Great-circle distances make the
+        result correct near the poles and under coordinate rotation.  The
+        scale attaches to the sky axis, so a 90 degree rotation swaps the two
+        returned values.
+        """
+        offsets = [o for o in itertools.product((0.0, 1.0, -1.0), repeat=2) if o != (0.0, 0.0)]
+        step_x = 0.3 * bbox.x.size
+        step_y = 0.3 * bbox.y.size
+        lon_scales: list[float] = []
+        lat_scales: list[float] = []
+        for dx, dy in itertools.product((-step_x, 0.0, step_x), (-step_y, 0.0, step_y)):
+            cx = bbox.x.center + dx
+            cy = bbox.y.center + dy
+            center = self.pixel_to_sky(x=cx, y=cy)
+            neighbours = self.pixel_to_sky(
+                x=np.array([cx + o[0] for o in offsets]),
+                y=np.array([cy + o[1] for o in offsets]),
+            )
+            grid0 = self.sky_to_pixel(center)
+            gx0, gy0 = float(grid0.x), float(grid0.y)
+            lon0 = center.ra.wrap_at(180 * u.deg)
+            lat0 = center.dec
+            # Longitude axis: neighbour with the largest change in RA.
+            dlon = (neighbours.ra.wrap_at(180 * u.deg) - lon0).wrap_at(180 * u.deg)
+            probe = SkyCoord(ra=neighbours.ra[int(np.argmax(np.abs(dlon.rad)))], dec=lat0)
+            grid = self.sky_to_pixel(probe)
+            dpix = np.hypot(float(grid.x) - gx0, float(grid.y) - gy0)
+            lon_scales.append(center.separation(probe).to_value(u.arcsec) / dpix)
+            # Latitude axis: neighbour with the largest change in Dec.
+            dlat = neighbours.dec - lat0
+            probe = SkyCoord(ra=lon0, dec=neighbours.dec[int(np.argmax(np.abs(dlat.rad)))])
+            grid = self.sky_to_pixel(probe)
+            dpix = np.hypot(float(grid.x) - gx0, float(grid.y) - gy0)
+            lat_scales.append(center.separation(probe).to_value(u.arcsec) / dpix)
+        return [statistics.median(lon_scales), statistics.median(lat_scales)]
+
+    def _pixel_axis_report(self, bbox: Box) -> list[tuple[float, str, str, bool]]:
+        """Return per-pixel-axis scale and dominant sky direction.
+
+        Parameters
+        ----------
+        bbox : `Box`
+            Pixel bounding box over which the axes are characterized.
+
+        Returns
+        -------
+        `list` [`tuple`]
+            One ``(scale_arcsec, label, units, diagonal)`` entry per pixel
+            axis (``x`` then ``y``).  ``scale_arcsec`` is the nominal pixel
+            scale in arcsec/pixel along that pixel axis, ``label``/``units``
+            name the sky direction the axis predominantly tracks
+            (``"Right ascension"``/``"hh:mm:ss.s"`` or
+            ``"Declination"``/``"dd:mm:ss"``), and ``diagonal`` is `True` when
+            the axis runs near 45 deg to both sky directions (label
+            ambiguous).
+
+        Notes
+        -----
+        This adapts the Starlink KAPPA ``KPG1_SCALE``/``KPG1_PXSCL`` technique
+        to per-pixel-axis reporting.  The scale is the great-circle sky
+        distance for a unit step along the pixel axis (the astropy analogue of
+        AST's ``AST_DISTANCE``), taken as the median over a 3x3 grid of test
+        points (bbox center plus/minus 0.3 times the axis extent).
+        Great-circle distances keep the result correct near the poles and under
+        coordinate
+        rotation; reporting per pixel axis keeps each scale attached to its
+        pixel axis while the label follows the sky direction, so a ~90 deg
+        rotation swaps the RA/Dec labels correctly.
+        """
+        step_x = 0.3 * bbox.x.size
+        step_y = 0.3 * bbox.y.size
+        unit_steps = ((1.0, 0.0), (0.0, 1.0))
+        scales: tuple[list[float], list[float]] = ([], [])
+        ra_components: tuple[list[float], list[float]] = ([], [])
+        dec_components: tuple[list[float], list[float]] = ([], [])
+        for dx, dy in itertools.product((-step_x, 0.0, step_x), (-step_y, 0.0, step_y)):
+            cx = bbox.x.center + dx
+            cy = bbox.y.center + dy
+            center = self.pixel_to_sky(x=cx, y=cy)
+            for axis, (ox, oy) in enumerate(unit_steps):
+                step = self.pixel_to_sky(x=cx + ox, y=cy + oy)
+                scales[axis].append(center.separation(step).to_value(u.arcsec))
+                dra = (step.ra - center.ra).wrap_at(180 * u.deg).rad * np.cos(center.dec.rad)
+                ddec = (step.dec - center.dec).rad
+                ra_components[axis].append(abs(dra))
+                dec_components[axis].append(abs(ddec))
+        report: list[tuple[float, str, str, bool]] = []
+        for axis in (0, 1):
+            scale = statistics.median(scales[axis])
+            dra = statistics.median(ra_components[axis])
+            ddec = statistics.median(dec_components[axis])
+            hi = max(dra, ddec)
+            diagonal = hi > 0.0 and min(dra, ddec) / hi > 0.8
+            if dra > ddec:
+                label, units = "Right ascension", "hh:mm:ss.s"
+            else:
+                label, units = "Declination", "dd:mm:ss"
+            report.append((scale, label, units, diagonal))
+        return report
+
+    def _describe(self, *, bbox: Box | None = None, **kwargs: Any) -> Report:
+        """Return a `Report` describing this sky projection.
+
+        Parameters
+        ----------
+        bbox : `Box`, optional
+            Pixel bounding box.  When provided, the report gains the sky
+            coordinates of the box center and corners and the nominal pixel
+            scale along each axis.
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        fields = [
+            ReportField(label="pixel_to_sky", value="<transform>", repr_value="...", positional=True),
+            ReportField(label="domain", value=self.sky_frame.value, role=FieldRole.DERIVED),
+        ]
+        # Default (no bbox): unrotated x=RA, y=Dec convention with no scale.
+        axis_rows: list[list[Any]] = [
+            ["x", "Right ascension", "hh:mm:ss.s", "-"],
+            ["y", "Declination", "dd:mm:ss", "-"],
+        ]
+        corners_table: list[ReportTable] = []
+        if bbox is not None:
+            center = self.pixel_to_sky(x=bbox.x.center, y=bbox.y.center)
+            fields.append(
+                ReportField(
+                    label="center",
+                    value=center.to_string("hmsdms"),
+                    role=FieldRole.DERIVED,
+                )
+            )
+            # One row per pixel axis; label follows the sky direction the axis
+            # tracks (so a rotation swaps RA/Dec), scale stays with the axis.
+            axis_rows = []
+            for name, (scale, label, units, diagonal) in zip(
+                ("x", "y"), self._pixel_axis_report(bbox), strict=True
+            ):
+                if diagonal:
+                    label = f"{label} (diagonal)"
+                axis_rows.append([name, label, units, f"{scale:.6g}"])
+            mn, mx = bbox.min, bbox.max
+            corner_defs = [
+                ("(min x, min y)", mn.x, mn.y),
+                ("(max x, min y)", mx.x, mn.y),
+                ("(max x, max y)", mx.x, mx.y),
+                ("(min x, max y)", mn.x, mx.y),
+            ]
+            rows = []
+            for label, x, y in corner_defs:
+                sky = self.pixel_to_sky(x=x, y=y)
+                rows.append(
+                    [
+                        label,
+                        sky.ra.to_string(unit=u.hour, sep=":", pad=True),
+                        sky.dec.to_string(sep=":", pad=True, alwayssign=True),
+                    ]
+                )
+            corners_table.append(ReportTable(title="Corners", columns=["Corner", "RA", "Dec"], rows=rows))
+
+        if self._fits_approximation is not None:
+            fits_wcs = "approximate"
+        elif bbox is not None:
+            fits_wcs = "available" if self.as_fits_wcs(bbox) is not None else "none"
+        else:
+            fits_wcs = "available"
+        fields.append(ReportField(label="fits_wcs", value=fits_wcs, role=FieldRole.DERIVED))
+
+        axes = ReportTable(
+            title="Axes",
+            columns=["Axis", "Label", "Units", "Nominal pixel scale"],
+            rows=axis_rows,
+        )
+        return Report(
+            type_name="SkyProjection",
+            title="ICRS coordinates",
+            summary=f"{type(self.pixel_frame).__name__} → {self.sky_frame.value}",
+            fields=fields,
+            tables=[axes, *corners_table],
+        )
 
     def serialize[P: pydantic.BaseModel](
         self, archive: OutputArchive[P], *, use_frame_sets: bool = False
