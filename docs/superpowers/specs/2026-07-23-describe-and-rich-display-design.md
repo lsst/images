@@ -33,6 +33,7 @@ Astropy's `WCS` repr, by contrast, prints a FITS header, which is not generally 
 - Domain-aware WCS reporting (frame/domain metadata, sky coordinates of pixel-box corners, nominal pixel scale, FITS-WCS availability) in the spirit of KAPPA `ndftrace` rather than a FITS header dump.
 - First-class notebook and terminal display for the classes a user actually holds and discovers from `VisitImage`, `CellCoadd`, `DifferenceImage`, and friends.
 - A CLI `describe` subcommand that deserializes a file and prints its data-model report, kept separate from the existing file-layer `inspect` command.
+- Genuine tabular rendering (aligned columns, header row) for the two classes that most benefit from it: `SkyProjection` (per-axis and corner tables) and `MaskSchema` (mask-plane table).
 
 ## Non-goals
 
@@ -72,11 +73,19 @@ class ReportField:
     role: FieldRole = FieldRole.ARG
 
 @dataclasses.dataclass(frozen=True)
+class ReportTable:
+    title: str | None                # "Mask planes", "Axes", "Corners"
+    columns: list[str]               # header row: ["Bit", "Index", "Mask", "Name", "Description"]
+    rows: list[list[Any]]            # one list of cell values per row
+    role: FieldRole = FieldRole.DERIVED
+
+@dataclasses.dataclass(frozen=True)
 class Report:
     type_name: str                   # "SkyProjection", "VisitImage"
     title: str | None = None         # "ICRS coordinates" (KAPPA-style)
     summary: str | None = None       # one-line hint used by __str__
     fields: list[ReportField] = dataclasses.field(default_factory=list)
+    tables: list[ReportTable] = dataclasses.field(default_factory=list)
     children: dict[str, Report] = dataclasses.field(default_factory=dict)
 ```
 
@@ -87,6 +96,8 @@ The design intent:
 - `role` separates *what reconstructs the object* (`ARG`) from *what is useful to look at* (`DERIVED`, e.g. corner sky coordinates).
   Only `ARG` fields feed `__repr__`.
 - `repr_value` lets a field's eval-ish form differ from its display form, and supports deliberately lossy reprs: a constructor-arg field may set `repr_value="..."` when the real value is huge or unprintable (e.g. an `Image`'s pixel array), preserving today's `Image(..., bbox=..., dtype=...)` behavior.
+- `tables` carry homogeneous, columnar data (mask planes, WCS axes, box corners) that renders as a genuine aligned table with a header row, rather than as a long list of near-identical fields or child sub-reports.
+  Tables are `DERIVED` by default and never feed `__repr__`; a class that reconstructs from tabular data (e.g. `MaskSchema` from its planes) keeps a separate `ARG` field carrying the eval-ish `repr_value`.
 
 ### The `Describable` protocol and mixin
 
@@ -130,12 +141,12 @@ The renderers live with the `Report` model and consume a `Report`:
   Drives `__repr__`.
 - **`Report.to_str()`** — a single line: `title`/`summary` plus a few key fields.
   Drives `__str__`.
-- **`Report.__rich__()`** — returns a `rich.tree.Tree` whose nodes are aligned `label : value unit` rows (rendered via `rich.table`), with `children` as nested branches.
+- **`Report.__rich__()`** — returns a `rich.tree.Tree` whose nodes are aligned `label : value unit` rows (rendered via `rich.table`), with each `ReportTable` rendered as a `rich.table.Table` (header row plus data rows) and `children` as nested branches.
   KAPPA-style layout.
   Drives terminal output in the CLI `describe` command and rich's own display.
 - **`Report._repr_html_()`** — produced via `rich`'s console HTML export of the same `__rich__` renderable, so notebook and terminal output stay visually consistent.
 
-`DERIVED` fields appear in `to_str` (optionally), `__rich__`, and `_repr_html_`, but never in `to_repr`.
+`DERIVED` fields and all `tables` appear in `__rich__` and `_repr_html_` (and `tables` optionally in `to_str`), but never in `to_repr`.
 
 ## Per-class content
 
@@ -156,13 +167,15 @@ def _describe(self, **kwargs: Any) -> Report:
 
 ### WCS / transforms
 
+`SkyProjection` is one of the two primary tabular cases (see below).
 `SkyProjection._describe(bbox=None)` produces the KAPPA-style report, covering all of:
 
-- Frame/domain metadata — `title="ICRS coordinates"`, domain, per-axis labels and units.
+- Frame/domain metadata as `fields` — `title="ICRS coordinates"`, domain, center sky coordinate.
   Works with no bbox.
-- Center sky coordinate and nominal pixel scale per axis (arcsec).
-- Four corner sky coordinates in sexagesimal, only when a bbox is available.
-- FITS-WCS availability — whether a `fits_approximation` exists and whether `as_fits_wcs(bbox)` would succeed (generalized mappings are not always FITS-representable).
+- A per-axis `ReportTable` titled "Axes" with columns `["Axis", "Label", "Units", "Nominal pixel scale"]`, one row per axis (the KAPPA "Axis 1 / Axis 2" block).
+  Works with no bbox.
+- A corners `ReportTable` titled "Corners" with columns `["Corner", "RA", "Dec"]`, one row per box corner with RA/Dec in sexagesimal, only when a bbox is available.
+- FITS-WCS availability as a `field` — whether a `fits_approximation` exists and whether `as_fits_wcs(bbox)` would succeed (generalized mappings are not always FITS-representable).
 
 `Transform` reports in/out frames and bounds, with the AST `show()` dump available as a `DERIVED` field.
 `FrameSet`/`CameraFrameSet` and the five `*Frame` classes (`DetectorFrame`, `FocalPlaneFrame`, `FieldAngleFrame`, `TractFrame`, `GeneralFrame`, plus the `SkyFrame` enum) report frame identity, units, and domain.
@@ -174,6 +187,13 @@ def _describe(self, **kwargs: Any) -> Report:
 - `BackgroundMap`: entries and which background is subtracted.
 - `ObservationSummaryStats`: grouped stat fields.
 - `ApertureCorrectionMap`, `Detector`, `Amplifier`.
+
+### MaskSchema
+
+`MaskSchema` is the other primary tabular case.
+`_describe()` emits a single `ReportTable` titled "Mask planes" with columns `["Bit", "Index", "Mask", "Name", "Description"]`, one row per defined plane (reserved `None` bits may be shown or skipped).
+`Mask` and `MaskedImage`/`VisitImage` nest this schema report as a child.
+Because a `MaskSchema` reconstructs from its planes, it keeps a single `ARG` field whose `repr_value` reproduces today's `MaskSchema([...], dtype=...)` repr; the table itself is `DERIVED`.
 
 ### Geometry primitives
 
@@ -206,7 +226,8 @@ Pin the current `str`/`repr` results in tests **before** migrating each class to
 
 - Characterization tests capturing current `str`/`repr` for every class that has them, asserted before migration.
 - Per-class `_describe()` tests: field presence, roles, and that `to_repr()` output is eval-ish (or carries the documented `...` placeholder).
-- `SkyProjection._describe(bbox=...)` tests against a known WCS: corner sky coordinates, center, pixel scale, and FITS-WCS availability flag.
+- `SkyProjection._describe(bbox=...)` tests against a known WCS: the "Axes" and "Corners" tables (column headers, per-row RA/Dec in sexagesimal, pixel scale), center field, and FITS-WCS availability flag; and `bbox=None` omitting the "Corners" table while keeping "Axes".
+- `MaskSchema._describe()` tests: the "Mask planes" table rows match the schema, and the retained `ARG` field's `repr_value` still reproduces the current `MaskSchema(...)` repr.
 - Cheapness test: `_describe()` with no kwargs does not trigger pixel loads.
 - Renderer tests: text, HTML, and rich-tree output for a representative nested container (`VisitImage`), including automatic bbox threading into the `sky_projection` child.
 - CLI `describe` test against sample files for the main container types.
