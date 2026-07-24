@@ -153,7 +153,13 @@ class DetectorFrame(pydantic.BaseModel, DescribableMixin, frozen=True):
         return y
 
     def _describe(self, **kwargs: Any) -> Report:
-        """Return a `Report` describing this detector frame."""
+        """Return a `Report` describing this detector frame.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
         return _frame_report(self)
 
     def serialize(self) -> DetectorFrame:
@@ -209,7 +215,13 @@ class FocalPlaneFrame(pydantic.BaseModel, DescribableMixin, frozen=True):
         return y
 
     def _describe(self, **kwargs: Any) -> Report:
-        """Return a `Report` describing this focal plane frame."""
+        """Return a `Report` describing this focal plane frame.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
         return _frame_report(self)
 
     def serialize(self) -> FocalPlaneFrame:
@@ -277,7 +289,13 @@ class FieldAngleFrame(pydantic.BaseModel, DescribableMixin, frozen=True):
         return _wrap_symmetric(y)
 
     def _describe(self, **kwargs: Any) -> Report:
-        """Return a `Report` describing this field angle frame."""
+        """Return a `Report` describing this field angle frame.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
         return _frame_report(self)
 
     def serialize(self) -> FieldAngleFrame:
@@ -335,7 +353,13 @@ class TractFrame(pydantic.BaseModel, DescribableMixin, frozen=True):
         return y
 
     def _describe(self, **kwargs: Any) -> Report:
-        """Return a `Report` describing this tract frame."""
+        """Return a `Report` describing this tract frame.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
         return _frame_report(self)
 
     def serialize(self) -> TractFrame:
@@ -382,7 +406,13 @@ class GeneralFrame(pydantic.BaseModel, DescribableMixin, frozen=True):
         return y
 
     def _describe(self, **kwargs: Any) -> Report:
-        """Return a `Report` describing this general frame."""
+        """Return a `Report` describing this general frame.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
         return _frame_report(self)
 
     def serialize(self) -> GeneralFrame:

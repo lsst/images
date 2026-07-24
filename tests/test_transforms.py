@@ -818,6 +818,16 @@ def test_sky_projection_describe() -> None:
     assert repr(sky_projection).startswith("SkyProjection(")
 
 
+def test_frame_describe_preserves_pydantic_repr() -> None:
+    """Frames expose describe() while retaining pydantic's repr."""
+    frame = GeneralFrame(unit=u.pix)
+    report = frame.describe()
+    assert report.type_name == "GeneralFrame"
+    assert {f.label for f in report.fields} >= {"unit"}
+    # The mixin must not shadow pydantic's repr.
+    assert repr(frame).startswith("GeneralFrame(")
+
+
 def test_transform_describe() -> None:
     """Transform._describe reports its frames and bounds."""
     pixel_frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=Box.factory[:5, :4])
