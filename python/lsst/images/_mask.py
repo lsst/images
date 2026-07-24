@@ -17,6 +17,7 @@ __all__ = (
     "MaskPlaneBit",
     "MaskSchema",
     "MaskSerializationModel",
+    "MaskSqueezeError",
     "get_legacy_deep_coadd_mask_planes",
     "get_legacy_difference_image_mask_planes",
     "get_legacy_non_cell_coadd_mask_planes",
@@ -62,6 +63,19 @@ if TYPE_CHECKING:
         from lsst.afw.image import Mask as LegacyMask
     except ImportError:
         type LegacyMask = Any  # type: ignore[no-redef]
+
+
+class MaskSqueezeError(RuntimeError):
+    """Exception raised when an operation requires a "squeezable" mask, i.e.
+    one with `MaskSchema.mask_size` equal to one.
+    """
+
+    def __init__(
+        self,
+        msg: str = "Last dimension of Mask.array is not one.  Use 'consolidate' to make a new mask first.",
+        *args: Any,
+    ):
+        super().__init__(msg, *args)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -115,7 +129,7 @@ class MaskPlaneBit:
     is stored.
     """
 
-    mask: np.integer
+    mask: np.unsigned
     """Bitmask that selects just this plane's bit from a mask array value
     (`numpy.integer`).
     """
@@ -244,9 +258,22 @@ class MaskSchema:
     @property
     def mask_size(self) -> int:
         """The number of elements in the last dimension of any mask array that
-        uses this schema.
+        uses this schema (`int`).
         """
         return self._mask_size
+
+    @property
+    def can_squeeze(self) -> bool:
+        """Whether this mask schema has only one array entry for each pixel
+        (`bool`).
+
+        This allows the mask's 3-d array to be reshaped to 2-d ("squeezed")
+        without losing any information.   (see `Mask.array_s` and
+        `MaskSchema.bitmask_s`).
+
+        Use `consolidate` to convert a mask to this form (if possible).
+        """
+        return self._mask_size == 1
 
     @property
     def names(self) -> Set[str]:
@@ -288,7 +315,77 @@ class MaskSchema:
             result[bit.index] |= bit.mask
         return result
 
-    def split(self, dtype: npt.DTypeLike) -> list[MaskSchema]:
+    def bitmask_s(self, *planes: str) -> np.unsigned:
+        """Return an integer mask pixel value (i.e. bitwise OR) of the planes
+        with the given names.
+
+        Parameters
+        ----------
+        *planes
+            Mask plane names.
+
+        Returns
+        -------
+        int
+            An integer bitmask.  This can be using in regular bitwise
+            arithmetic operators with `Mask.array_s`.
+
+        Raises
+        ------
+        MaskSqueezeError
+            Raised if `can_squeeze` is `False`.
+        """
+        if self.is_flat:
+            raise MaskSqueezeError()
+        result: np.unsigned = self._dtype.type(0)
+        for plane in planes:
+            bit = self._bits[plane]
+            result |= bit.mask
+        return result
+
+    def with_dtype(self, dtype: npt.DTypeLike, *, keep_placeholders: bool = False) -> MaskSchema:
+        """Return a new schema with the same plane names, descriptions, and
+        order, but a different pixel type.
+
+        Parameters
+        ----------
+        dtype
+            Data type of the new mask pixels.
+        keep_placeholders
+            If `True`, keep `None` placeholders in the returned schema.
+            If `False` (default), strip them.
+        """
+        dtype = np.dtype(dtype)
+        planes = [p for p in self if keep_placeholders or p is not None]
+        return MaskSchema(planes, dtype=dtype)
+
+    def consolidate(self, *, keep_placeholders: bool = False, allow_uint128: bool = False) -> MaskSchema:
+        """Return a new schema with the same plane names and descriptions,
+        and a pixel type that makes `mask_size` as small as possible without
+        making `dtype` unnecessarily large.
+
+        Parameters
+        ----------
+        keep_placeholders
+            If `True`, keep `None` placeholders in the returned schema.
+            If `False` (default), strip them.
+        allow_uint128
+            If `True`, use an unsigned 128-bit integer if there are more than
+            64 kept bits in the schema.
+        """
+        planes = [p for p in self if keep_placeholders or p is not None]
+        if len(planes) <= 8:
+            return MaskSchema(planes, dtype=np.uint8)
+        elif len(planes) <= 16:
+            return MaskSchema(planes, dtype=np.uint16)
+        elif len(planes) <= 32:
+            return MaskSchema(planes, dtype=np.uint32)
+        elif len(planes) <= 64 or not allow_uint128:
+            return MaskSchema(planes, dtype=np.uint64)
+        else:
+            return MaskSchema(planes, dtype=np.uint128)
+
+    def split(self, dtype: npt.DTypeLike, *, keep_placeholders: bool = False) -> list[MaskSchema]:
         """Split the schema into an equivalent series of schemas that each
         have a `mask_size` of ``1``, dropping all `None` placeholders.
 
@@ -296,15 +393,18 @@ class MaskSchema:
         ----------
         dtype
             Data type of the new mask pixels.
+        keep_placeholders
+            If `True`, keep `None` placeholders in the returned schemas.
+            If `False` (default), strip them.
 
         Returns
         -------
         `list` [`MaskSchema`]
             A list of mask schemas that together include all planes in
             ``self`` and have `mask_size` equal to ``1``.  If there are no
-            mask planes (only `None` placeholders) in ``self``, a single mask
-            schema with a `None` placeholder is returned; otherwise `None`
-            placeholders are returned.
+            mask planes (only `None` placeholders) in ``self``, and
+            ``keep_placeholders is `False`, a single mask schema with a
+            single `None` placeholder is returned.
         """
         dtype = np.dtype(dtype)
         planes: list[MaskPlane] = []
@@ -495,6 +595,9 @@ class Mask(GeneralizedImage):
     def array(self) -> np.ndarray:
         """The low-level array (`numpy.ndarray`).
 
+        This is a 3-d array with shape ``(height, width, schema.mask_size)``.
+        See if `array_s` for a 2-d array view that may be available.
+
         Assigning to this attribute modifies the existing array in place; the
         bounding box and underlying data pointer are never changed.
         """
@@ -530,6 +633,35 @@ class Mask(GeneralizedImage):
         box ``start`` (i.e. ``yx0``); they are not just array indices.
         """
         return self._sky_projection
+
+    @property
+    def can_squeeze(self) -> bool:
+        """Whether this mask schema has only one array entry for each pixel
+        (`bool`).
+
+        This allows the mask's 3-d array to be reshaped to 2-d ("squeezed")
+        without losing any information (see `Mask.array_s` and
+        `MaskSchema.bitmask_s`).
+
+        Use `consolidate` to convert a mask to this form (if possible).
+        """
+        return self.schema.can_squeeze
+
+    @property
+    def array_s(self) -> np.ndarray:
+        """A 2-d view of `array` that squeezes out the last (i.e. pixel)
+        dimension if its size is one (`numpy.ndarray`).
+
+        Since this array's values are just integers, they can be manipulated
+        directly with bitwise arithmetic operators.  Corresponding scalar
+        values can be obtained from `schema.bitmask_s <MaskSchema.bitmask_s>`.
+
+        Raises `MaskSqueezeError` if the last dimension's size is not one.
+        """
+        try:
+            return self._array.squeeze(axis=2)
+        except ValueError as err:
+            raise MaskSqueezeError() from err
 
     def __getitem__(self, bbox: Box | EllipsisType) -> Mask:
         bbox, indices = self._handle_getitem_args(bbox)
@@ -607,6 +739,53 @@ class Mask(GeneralizedImage):
         return self._transfer_metadata(
             Mask(self._array, yx0=yx0, schema=schema, sky_projection=sky_projection)
         )
+
+    def with_schema(self, schema: MaskSchema) -> Mask:
+        """Return a new `Mask` with the given schema and all mask values
+        common to both schemas copied.
+
+        Parameters
+        ----------
+        schema
+            Schema for the new Mask.
+        """
+        result = Mask(
+            schema=schema, bbox=self.bbox, sky_projection=self.sky_projection, metadata=self.metadata
+        )
+        result.update(self)
+        return result
+
+    def with_dtype(self, dtype: npt.DTypeLike, *, keep_placeholders: bool = False) -> Mask:
+        """Return a new mask with the same plane names, descriptions, and
+        plane order, but a different pixel type.
+
+        Parameters
+        ----------
+        dtype
+            Data type of the new mask pixels.
+        keep_placeholders
+            If `True`, keep `None` placeholders in the returned mask's schema.
+            If `False` (default), strip them.
+        """
+        schema = self.schema.with_dtype(dtype, keep_placeholders=keep_placeholders)
+        return self.with_schema(schema)
+
+    def consolidate(self, *, keep_placeholders: bool = False, allow_uint128: bool = False) -> Mask:
+        """Return a new schema with the same plane names and descriptions,
+        and a pixel type that makes `mask_size` as small as possible without
+        making `dtype` unnecessarily large.
+
+        Parameters
+        ----------
+        keep_placeholders
+            If `True`, keep `None` placeholders in the returned schema.
+            If `False` (default), strip them.
+        allow_uint128
+            If `True`, use an unsigned 128-bit integer if there are more than
+            64 kept bits in the schema.
+        """
+        schema = self.schema.consolidate(keep_placeholders=keep_placeholders, allow_uint128=allow_uint128)
+        return self.with_schema(schema)
 
     def update(self, other: Mask) -> None:
         """Update ``self`` to include all common mask values set in ``other``.
