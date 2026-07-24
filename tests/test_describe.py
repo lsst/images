@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from lsst.images.describe import FieldRole, Report, ReportField, ReportTable
+from lsst.images.describe import DescribableMixin, FieldRole, Report, ReportField, ReportTable
 
 
 def test_report_model_defaults() -> None:
@@ -78,3 +78,49 @@ def test_to_str_without_summary_lists_fields() -> None:
         fields=[ReportField(label="start", value=0), ReportField(label="stop", value=4)],
     )
     assert report.to_str() == "Interval(0, 4)"
+
+
+def test_rich_renders_fields_tables_and_children() -> None:
+    """__rich__ output contains labels, table headers, and child keys."""
+    from rich.console import Console
+
+    report = Report(
+        type_name="SkyProjection",
+        title="ICRS coordinates",
+        fields=[ReportField(label="Domain", value="SKY")],
+        tables=[ReportTable(title="Axes", columns=["Axis", "Label"], rows=[[1, "RA"], [2, "Dec"]])],
+        children={"pixel": Report(type_name="GeneralFrame", fields=[ReportField(label="unit", value="pix")])},
+    )
+    console = Console(record=True, width=100)
+    console.print(report)
+    text = console.export_text()
+    assert "ICRS coordinates" in text
+    assert "Domain" in text and "SKY" in text
+    assert "Axis" in text and "Label" in text and "RA" in text
+    assert "pixel" in text and "GeneralFrame" in text
+
+
+def test_repr_html_produces_html() -> None:
+    """_repr_html_ returns an HTML fragment mentioning the content."""
+    report = Report(type_name="Interval", fields=[ReportField(label="start", value=3)])
+    html = report._repr_html_()
+    assert "<" in html and ">" in html
+    assert "Interval" in html
+
+
+def test_mixin_derives_dunders_from_describe() -> None:
+    """DescribableMixin wires repr/str/html to _describe."""
+
+    class Widget(DescribableMixin):
+        def _describe(self, **kwargs: object) -> Report:
+            return Report(
+                type_name="Widget",
+                summary="Widget(size=5)",
+                fields=[ReportField(label="size", value=5)],
+            )
+
+    widget = Widget()
+    assert repr(widget) == "Widget(size=5)"
+    assert str(widget) == "Widget(size=5)"
+    assert "Widget" in widget._repr_html_()
+    assert isinstance(widget.describe(), Report)

@@ -22,7 +22,14 @@ __all__ = (
 
 import dataclasses
 import enum
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+from rich.console import Console
+from rich.table import Table
+from rich.tree import Tree
+
+if TYPE_CHECKING:
+    from rich.console import RenderableType
 
 
 class FieldRole(enum.Enum):
@@ -117,15 +124,88 @@ class Report:
         inner = ", ".join(args[:3])
         return f"{self.type_name}({inner})"
 
+    def _field_line(self, field: ReportField) -> str:
+        """Return a ``label : value unit`` line for a field."""
+        text = f"{field.label}: {field.value}"
+        if field.unit is not None:
+            text = f"{text} {field.unit}"
+        return text
+
+    def _as_table(self, table: ReportTable) -> Table:
+        """Convert a `ReportTable` to a `rich.table.Table`."""
+        rich_table = Table(title=table.title, title_justify="left")
+        for column in table.columns:
+            rich_table.add_column(column)
+        for row in table.rows:
+            rich_table.add_row(*(str(cell) for cell in row))
+        return rich_table
+
+    def __rich__(self) -> Tree:
+        """Return a `rich.tree.Tree` describing this report."""
+        tree = Tree(self.title if self.title is not None else self.type_name)
+        for field in self.fields:
+            tree.add(self._field_line(field))
+        for table in self.tables:
+            tree.add(self._as_table(table))
+        for key, child in self.children.items():
+            branch = tree.add(key)
+            branch.add(child.__rich__())
+        return tree
+
+    def _repr_html_(self) -> str:
+        """Return an HTML rendering produced by rich."""
+        console = Console(record=True, width=100)
+        console.print(self)
+        return console.export_html(inline_styles=True)
+
 
 @runtime_checkable
 class Describable(Protocol):
-    """Protocol for objects that can produce a structured `Report`."""
+    """An object that can produce a `Report` describing itself."""
 
-    def describe(self) -> Report:
-        """Return a structured description of this object."""
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this object.
+
+        Parameters
+        ----------
+        **kwargs
+            Optional rendering parameters (e.g. a ``bbox`` to compute derived
+            sky-coordinate fields).
+        """
         ...
 
 
 class DescribableMixin:
-    """Base class for objects that implement the `Describable` protocol."""
+    """Mixin that wires repr, str, rich, and HTML rendering to `_describe`."""
+
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this object.
+
+        Parameters
+        ----------
+        **kwargs
+            Optional rendering parameters.
+        """
+        raise NotImplementedError()
+
+    def describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this object.
+
+        Parameters
+        ----------
+        **kwargs
+            Optional rendering parameters passed through to `_describe`.
+        """
+        return self._describe(**kwargs)
+
+    def __repr__(self) -> str:
+        return self._describe().to_repr()
+
+    def __str__(self) -> str:
+        return self._describe().to_str()
+
+    def _repr_html_(self) -> str:
+        return self._describe()._repr_html_()
+
+    def __rich__(self) -> RenderableType:
+        return self._describe().__rich__()
