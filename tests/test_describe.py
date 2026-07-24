@@ -124,3 +124,11 @@ def test_mixin_derives_dunders_from_describe() -> None:
     assert str(widget) == "Widget(size=5)"
     assert "Widget" in widget._repr_html_()
     assert isinstance(widget.describe(), Report)
+
+
+def test_public_api_importable_from_package() -> None:
+    """The describe public API is re-exported from lsst.images."""
+    import lsst.images as images
+
+    for name in ("Describable", "DescribableMixin", "FieldRole", "Report", "ReportField", "ReportTable"):
+        assert hasattr(images, name), name
