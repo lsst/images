@@ -69,10 +69,11 @@ def _ast_skyframe_axis_labels(frame: astshim.SkyFrame) -> tuple[str, str]:
         lon_axis = impl.LonAxis
         lat_axis = impl.LatAxis
         return getattr(impl, f"Label_{lon_axis}"), getattr(impl, f"Label_{lat_axis}")
-    # astshim backend: getLabel/getLonAxis/getLatAxis are only present on the
-    # astshim SkyFrame, which the starlink.Ast type stubs do not describe.
+    # astshim backend: getLabel and the lonAxis/latAxis properties are only
+    # present on the astshim SkyFrame, which the starlink.Ast type stubs do
+    # not describe.
     get_label = getattr(frame, "getLabel")
-    return get_label(getattr(frame, "getLonAxis")()), get_label(getattr(frame, "getLatAxis")())
+    return get_label(getattr(frame, "lonAxis")), get_label(getattr(frame, "latAxis"))
 
 
 def _sky_parts(sky: SkyCoord) -> tuple[str, float, str, float]:
