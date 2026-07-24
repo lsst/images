@@ -475,6 +475,18 @@ def test_box_intersection() -> None:
         box1.intersection(Box.factory[50:70, -10:-5])
 
 
+def test_intersection_bounds_str_repr() -> None:
+    """IntersectionBounds str reuses operand str; repr stays eval-ish."""
+    from lsst.images._intersection_bounds import IntersectionBounds
+
+    inter = IntersectionBounds(Box.factory[0:10, 0:20], Box.factory[5:15, 5:25])
+    assert str(inter) == "([y=0:10, x=0:20]) ∩ ([y=5:15, x=5:25])"
+    assert repr(inter) == (
+        "IntersectionBounds(a=Box(y=Interval(start=0, stop=10), x=Interval(start=0, stop=20)), "
+        "b=Box(y=Interval(start=5, stop=15), x=Interval(start=5, stop=25)))"
+    )
+
+
 def test_box_slicing() -> None:
     """Test slicing."""
     box = Box.factory[:10, :20]

@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from lsst.images import YX, Box, Interval, MaskPlane, get_legacy_deep_coadd_mask_planes
-from lsst.images.cells import CellCoadd, CellGrid, CellIJ, PatchDefinition
+from lsst.images.cells import CellCoadd, CellGrid, CellGridBounds, CellIJ, PatchDefinition
 from lsst.images.fits import FitsCompressionOptions
 from lsst.images.serialization import read_archive
 from lsst.images.tests import (
@@ -154,7 +154,8 @@ def test_cell_coadd_repr_str_pinned(minified_cell_coadd: CellCoadd) -> None:
 
 
 def test_cell_grid_patch_str_uses_clean_geometry() -> None:
-    """CellGrid and PatchDefinition str drop the Interval/YX/Box wrappers.
+    """CellGrid, PatchDefinition and CellGridBounds str drop the
+    Interval/YX/Box/CellIJ wrappers.
 
     The report renders field values with str, so these must use the compact
     geometry forms rather than pydantic's default field-by-field repr.
@@ -170,6 +171,17 @@ def test_cell_grid_patch_str_uses_clean_geometry() -> None:
     # repr stays as the pydantic default so it remains eval-ish and distinct.
     assert "Interval(" in repr(patch)
     assert "YX(" in repr(patch)
+
+    bounds = CellGridBounds(grid=grid, bbox=Box.factory[0:40, 0:60])
+    assert str(bounds) == "[y=0:40, x=0:60] in grid ([y=0:100, x=0:200], cell_shape=(y=10, x=20))"
+    bounds_missing = CellGridBounds(
+        grid=grid, bbox=Box.factory[0:40, 0:60], missing=frozenset({CellIJ(i=1, j=1), CellIJ(i=0, j=2)})
+    )
+    assert str(bounds_missing) == (
+        "[y=0:40, x=0:60] in grid ([y=0:100, x=0:200], cell_shape=(y=10, x=20)), "
+        "missing={(i=0, j=2), (i=1, j=1)}"
+    )
+    assert "Interval(" in repr(bounds_missing)
 
 
 def test_from_legacy(legacy_test_data: _LegacyTestData) -> None:

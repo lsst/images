@@ -209,6 +209,13 @@ class CellGridBounds(pydantic.BaseModel, frozen=True):
         ),
     )
 
+    def __str__(self) -> str:
+        text = f"{self.bbox} in grid ({self.grid})"
+        if self.missing:
+            missing = ", ".join(f"(i={c.i}, j={c.j})" for c in sorted(self.missing))
+            text = f"{text}, missing={{{missing}}}"
+        return text
+
     @cached_property
     def subgrid_start(self) -> CellIJ:
         """The index of the first cell in this bounds' bounding box within
