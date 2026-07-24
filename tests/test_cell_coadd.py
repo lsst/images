@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from lsst.images import YX, Box, Interval, MaskPlane, get_legacy_deep_coadd_mask_planes
-from lsst.images.cells import CellCoadd, CellIJ
+from lsst.images.cells import CellCoadd, CellGrid, CellIJ, PatchDefinition
 from lsst.images.fits import FitsCompressionOptions
 from lsst.images.serialization import read_archive
 from lsst.images.tests import (
@@ -151,6 +151,25 @@ def test_cell_coadd_repr_str_pinned(minified_cell_coadd: CellCoadd) -> None:
     """Pin the exact str and repr output of a CellCoadd."""
     assert str(minified_cell_coadd) == "CellCoadd([y=48:60, x=36:48], tract=9813)"
     assert repr(minified_cell_coadd) == "CellCoadd([y=48:60, x=36:48], tract=9813)"
+
+
+def test_cell_grid_patch_str_uses_clean_geometry() -> None:
+    """CellGrid and PatchDefinition str drop the Interval/YX/Box wrappers.
+
+    The report renders field values with str, so these must use the compact
+    geometry forms rather than pydantic's default field-by-field repr.
+    """
+    grid = CellGrid(bbox=Box.from_shape((100, 200)), cell_shape=YX(10, 20))
+    assert str(grid) == "[y=0:100, x=0:200], cell_shape=(y=10, x=20)"
+
+    patch = PatchDefinition(id=73, index=YX(7, 3), inner_bbox=Box.factory[1:3, 2:4], cells=grid)
+    assert str(patch) == (
+        "id=73, index=(y=7, x=3), inner_bbox=[y=1:3, x=2:4], "
+        "cells=([y=0:100, x=0:200], cell_shape=(y=10, x=20))"
+    )
+    # repr stays as the pydantic default so it remains eval-ish and distinct.
+    assert "Interval(" in repr(patch)
+    assert "YX(" in repr(patch)
 
 
 def test_from_legacy(legacy_test_data: _LegacyTestData) -> None:
