@@ -108,6 +108,11 @@ class Report:
     children: dict[str, Report] = dataclasses.field(default_factory=dict)
     """Named nested sub-reports."""
 
+    inline: bool = False
+    """If `True`, render as a single ``key: summary`` line when embedded as a
+    child of another report, instead of a nested branch.
+    """
+
     def to_repr(self) -> str:
         """Return an eval-ish ``repr`` string built from ``ARG`` fields."""
         parts: list[str] = []
@@ -153,8 +158,11 @@ class Report:
         for table in self.tables:
             tree.add(self._as_table(table))
         for key, child in self.children.items():
-            branch = tree.add(Text(key))
-            branch.add(child.__rich__())
+            if child.inline:
+                tree.add(Text(f"{key}: {child.to_str()}"))
+            else:
+                branch = tree.add(Text(key))
+                branch.add(child.__rich__())
         return tree
 
     def _repr_html_(self) -> str:

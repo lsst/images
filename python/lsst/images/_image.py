@@ -223,20 +223,26 @@ class Image(GeneralizedImage):
         **kwargs
             Unused; accepted for interface compatibility.
         """
+        dtype_name = self.array.dtype.type.__name__
+        # When a composite excludes the shared bbox, this image is a child that
+        # only needs to convey its dtype, so it collapses to a single line.
+        if "bbox" in exclude:
+            return Report(
+                type_name="Image",
+                summary=f"(dtype {dtype_name})",
+                inline=True,
+            )
         children = {}
         if "sky_projection" not in exclude and self._sky_projection is not None:
             children["sky_projection"] = self._sky_projection._describe(bbox=self._bbox)
         fields = [
             ReportField(label="array", value="<array>", repr_value="...", positional=True),
+            ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)),
+            ReportField(label="dtype", value=str(self.array.dtype), repr_value=repr(self.array.dtype)),
         ]
-        if "bbox" not in exclude:
-            fields.append(ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)))
-        fields.append(
-            ReportField(label="dtype", value=str(self.array.dtype), repr_value=repr(self.array.dtype))
-        )
         return Report(
             type_name="Image",
-            summary=f"Image({self.bbox!s}, {self.array.dtype.type.__name__})",
+            summary=f"Image({self.bbox!s}, {dtype_name})",
             fields=fields,
             children=children,
         )

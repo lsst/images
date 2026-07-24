@@ -1026,18 +1026,19 @@ def test_convert_unit(legacy_test_data_calibrated: _LegacyTestData) -> None:
 
 
 def test_background_map_describe() -> None:
-    """BackgroundMap._describe returns a Report with subtracted field."""
+    """An empty BackgroundMap._describe reports no backgrounds inline."""
     bg_map = BackgroundMap()
     assert isinstance(bg_map, DescribableMixin)
     report = bg_map._describe()
     assert isinstance(report, Report)
     assert report.type_name == "BackgroundMap"
-    labels = {f.label for f in report.fields}
-    assert "subtracted" in labels
+    assert report.inline
+    assert report.summary == "no backgrounds"
+    assert report.tables == []
 
 
 def test_background_map_with_entries_describe() -> None:
-    """BackgroundMap._describe includes a table of background names."""
+    """BackgroundMap._describe lists backgrounds inline and in a table."""
     cheby = ChebyshevField(Box.factory[0:100, 0:200], np.array([[1.0]]))
     bg_map = BackgroundMap(
         [Background("sky", cheby), Background("fringe", cheby)],
@@ -1045,15 +1046,16 @@ def test_background_map_with_entries_describe() -> None:
     )
     report = bg_map._describe()
     assert report.type_name == "BackgroundMap"
+    assert report.inline
+    # The inline summary lists every background and marks the subtracted one.
+    assert report.summary == "sky (subtracted), fringe"
     assert len(report.tables) == 1
     table = report.tables[0]
-    assert "Name" in table.columns
-    names_in_table = [row[0] for row in table.rows]
-    assert "sky" in names_in_table
-    assert "fringe" in names_in_table
-    subtracted_field = next(f for f in report.fields if f.label == "subtracted")
-    assert subtracted_field.value == "sky"
-    assert subtracted_field.role is FieldRole.DERIVED
+    assert table.columns == ["Name", "Subtracted", "Description"]
+    rows_by_name = {row[0]: row for row in table.rows}
+    assert set(rows_by_name) == {"sky", "fringe"}
+    assert rows_by_name["sky"][1] == "yes"
+    assert rows_by_name["fringe"][1] == ""
 
 
 def test_observation_summary_stats_describe() -> None:

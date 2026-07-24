@@ -19,7 +19,7 @@ from typing import Any, ClassVar, cast, final
 
 import pydantic
 
-from .describe import DescribableMixin, FieldRole, Report, ReportField, ReportTable
+from .describe import DescribableMixin, Report, ReportTable
 from .fields import Field, FieldSerializationModel
 from .serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 
@@ -139,20 +139,29 @@ class BackgroundMap(DescribableMixin, Mapping[str, Background]):
             Unused; accepted for interface compatibility.
         """
         subtracted_name = self._subtracted
-        rows = [[name, name == subtracted_name] for name in self._backgrounds]
-        return Report(
-            type_name="BackgroundMap",
-            summary=f"BackgroundMap({len(self)} background{'s' if len(self) != 1 else ''})",
-            fields=[
-                ReportField(label="subtracted", value=subtracted_name, role=FieldRole.DERIVED),
-            ],
-            tables=[
+        if not self._backgrounds:
+            summary = "no backgrounds"
+        else:
+            summary = ", ".join(
+                f"{name} (subtracted)" if name == subtracted_name else name for name in self._backgrounds
+            )
+        tables = []
+        if self._backgrounds:
+            tables.append(
                 ReportTable(
                     title="Backgrounds",
-                    columns=["Name", "Subtracted"],
-                    rows=rows,
+                    columns=["Name", "Subtracted", "Description"],
+                    rows=[
+                        [name, "yes" if name == subtracted_name else "", bg.description]
+                        for name, bg in self._backgrounds.items()
+                    ],
                 )
-            ],
+            )
+        return Report(
+            type_name="BackgroundMap",
+            summary=summary,
+            tables=tables,
+            inline=True,
         )
 
     def serialize(self, archive: OutputArchive[Any]) -> BackgroundMapSerializationModel:
