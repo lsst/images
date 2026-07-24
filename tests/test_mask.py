@@ -29,6 +29,7 @@ from lsst.images import (
     get_legacy_visit_image_mask_planes,
 )
 from lsst.images._mask import _guess_legacy_plane_map
+from lsst.images.describe import Report
 from lsst.images.tests import RoundtripFits, assert_masks_equal, compare_mask_to_legacy
 
 try:
@@ -89,10 +90,11 @@ def test_schema() -> None:
     assert len(schema) == len(planes)
     assert schema[5] == planes[5]
     assert eval(repr(schema), {"dtype": np.dtype, "MaskSchema": MaskSchema, "MaskPlane": MaskPlane}) == schema
-    string = str(schema)
-    assert len(string.split("\n")) == 17
+    report = schema.describe()
+    plane_table = next(t for t in report.tables if t.title == "Mask planes")
+    assert len(plane_table.rows) == 17
+    assert ["M5" == row[3] for row in plane_table.rows].count(True) == 1
     bit5 = schema.bit("M5")
-    assert f"M5 [{bit5.index}@{hex(bit5.mask)}]: D5" in string
     assert schema == MaskSchema(planes, np.uint8)
     assert schema != MaskSchema(planes, np.int16)
     assert schema != MaskSchema(planes[:-1], np.uint8)
@@ -114,6 +116,29 @@ def test_schema() -> None:
     assert list(splits[0]) + list(splits[1]) == [p for p in planes if p is not None]
     assert len(splits[0]) == 15
     assert len(splits[1]) == 2
+
+
+def test_schema_describe() -> None:
+    """MaskSchema._describe yields a mask-plane table and eval-able repr."""
+    rng = np.random.default_rng(500)
+    planes = make_mask_planes(rng, 3, 0)
+    schema = MaskSchema(planes, dtype=np.uint8)
+
+    report = schema.describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "MaskSchema"
+
+    tables = [t for t in report.tables if t.title == "Mask planes"]
+    assert len(tables) == 1
+    table = tables[0]
+    assert table.columns == ["Bit", "Index", "Mask", "Name", "Description"]
+    assert len(table.rows) == 3
+    # Names appear in the Name column (index 3).
+    assert {row[3] for row in table.rows} == {"M0", "M1", "M2"}
+
+    # repr is still eval-able and round-trips.
+    reconstructed = eval(repr(schema), {"dtype": np.dtype, "MaskSchema": MaskSchema, "MaskPlane": MaskPlane})
+    assert reconstructed == schema
 
 
 def test_schema_from_fits_header() -> None:
@@ -505,3 +530,32 @@ def test_legacy_butler_read(legacy_test_data: _LegacyTestData) -> None:
         legacy_mask = roundtrip.get(storageClass="Mask")
         assert isinstance(legacy_mask, lsst.afw.image.Mask)
         compare_mask_to_legacy(legacy_test_data.mask, legacy_mask)
+
+
+def test_mask_repr_str_pinned() -> None:
+    """Mask str/repr match their documented forms."""
+    rng = np.random.default_rng(7)
+    schema = MaskSchema(make_mask_planes(rng, 3, 0), dtype=np.uint8)
+    mask = Mask(0, schema=schema, bbox=Box.factory[0:5, 0:4])
+    assert str(mask) == f"Mask({mask.bbox!s}, {list(mask.schema.names)})"
+    assert repr(mask) == f"Mask(..., bbox={mask.bbox!r}, schema={mask.schema!r})"
+
+
+def test_mask_describe_detail_reports_set_pixel_counts() -> None:
+    """detail=True adds a 'Set pixels' column with per-plane counts."""
+    schema = MaskSchema([MaskPlane("BAD", "bad"), MaskPlane("DET", "detected")], dtype=np.uint8)
+    mask = Mask(0, schema=schema, bbox=Box.factory[0:4, 0:5])
+    mask.set("BAD", mask.get("BAD") | (np.arange(20).reshape(4, 5) < 3))
+
+    # Cheap path: no counts, no extra column.
+    plain = mask.describe().children["schema"]
+    plain_table = next(t for t in plain.tables if t.title == "Mask planes")
+    assert "Set pixels" not in plain_table.columns
+
+    # Detailed path: 'Set pixels' column present with correct counts.
+    detailed = mask.describe(detail=True).children["schema"]
+    table = next(t for t in detailed.tables if t.title == "Mask planes")
+    assert table.columns[-1] == "Set pixels"
+    counts = {row[3]: row[-1] for row in table.rows}  # row[3] is the Name column
+    assert counts["BAD"] == 3
+    assert counts["DET"] == 0

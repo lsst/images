@@ -27,6 +27,7 @@ from lsst.images._image import Image
 from .. import serialization
 from .._concrete_bounds import BoundsSerializationModel
 from .._geom import Bounds, Box
+from ..describe import Report, ReportField
 from ..utils import round_half_up
 from ._base import PointSpreadFunction
 
@@ -69,10 +70,22 @@ class GaussianPointSpreadFunction(PointSpreadFunction):
             return False
         return True
 
-    def __repr__(self) -> str:
-        return (
-            f"GaussianPointSpreadFunction({self.sigma}, "
-            f"stamp_size={self._stamp_size}, bounds={self._bounds!r})"
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this Gaussian PSF.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        return Report(
+            type_name="GaussianPointSpreadFunction",
+            summary=f"Gaussian PSF sigma={self.sigma}",
+            fields=[
+                ReportField(label="sigma", value=self.sigma, positional=True),
+                ReportField(label="stamp_size", value=self._stamp_size),
+                ReportField(label="bounds", value=self._bounds, repr_value=repr(self._bounds)),
+            ],
         )
 
     @property

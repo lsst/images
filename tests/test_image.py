@@ -281,3 +281,10 @@ def test_legacy_butler_read(legacy_test_data: _LegacyTestData) -> None:
         legacy_image = roundtrip.get(storageClass="Image")
         assert isinstance(legacy_image, lsst.afw.image.Image)
         compare_image_to_legacy(legacy_test_data.image, legacy_image, expect_view=False)
+
+
+def test_image_repr_str_pinned() -> None:
+    """Image str/repr match their documented forms."""
+    image = Image(np.zeros((5, 4), dtype=np.float32), bbox=Box.factory[0:5, 0:4])
+    assert str(image) == f"Image({image.bbox!s}, float32)"
+    assert repr(image) == f"Image(..., bbox={image.bbox!r}, dtype={image.array.dtype!r})"

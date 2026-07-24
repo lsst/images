@@ -22,6 +22,7 @@ import numpy.typing as npt
 
 from .._geom import XY, YX, Bounds, Box
 from .._image import Image
+from ..describe import DescribableMixin, FieldRole, Report, ReportField
 
 if TYPE_CHECKING:
     try:
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
         type LegacyPhotoCalib = Any  # type: ignore[no-redef]
 
 
-class BaseField(ABC):
+class BaseField(DescribableMixin, ABC):
     """An abstract base class for parametric or interpolated 2-d functions,
     generally representing some sort of calculated image.
 
@@ -187,6 +188,24 @@ class BaseField(ABC):
             ``self.unit is None``.
         """
         raise NotImplementedError()
+
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this field.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        return Report(
+            type_name=type(self).__name__,
+            summary=f"{type(self).__name__} over {self.bounds}",
+            fields=[
+                ReportField(label="bounds", value=self.bounds, role=FieldRole.DERIVED),
+                ReportField(label="unit", value=self.unit, role=FieldRole.DERIVED),
+                ReportField(label="is_constant", value=self.is_constant, role=FieldRole.DERIVED),
+            ],
+        )
 
     def to_legacy(self) -> LegacyBoundedField:
         """Convert to a legacy `lsst.afw.math.BoundedField`."""

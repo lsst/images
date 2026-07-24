@@ -19,6 +19,7 @@ from typing import Any, ClassVar, cast, final
 
 import pydantic
 
+from .describe import DescribableMixin, FieldRole, Report, ReportField, ReportTable
 from .fields import Field, FieldSerializationModel
 from .serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 
@@ -39,7 +40,7 @@ class Background:
     """
 
 
-class BackgroundMap(Mapping[str, Background]):
+class BackgroundMap(DescribableMixin, Mapping[str, Background]):
     """A mapping of background models associated with an image.
 
     Unlike most image characterization objects, the best background model
@@ -128,6 +129,31 @@ class BackgroundMap(Mapping[str, Background]):
         self._backgrounds[name] = Background(name, field, description)
         if is_subtracted:
             self._subtracted = name
+
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this background map.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        subtracted_name = self._subtracted
+        rows = [[name, name == subtracted_name] for name in self._backgrounds]
+        return Report(
+            type_name="BackgroundMap",
+            summary=f"BackgroundMap({len(self)} background{'s' if len(self) != 1 else ''})",
+            fields=[
+                ReportField(label="subtracted", value=subtracted_name, role=FieldRole.DERIVED),
+            ],
+            tables=[
+                ReportTable(
+                    title="Backgrounds",
+                    columns=["Name", "Subtracted"],
+                    rows=rows,
+                )
+            ],
+        )
 
     def serialize(self, archive: OutputArchive[Any]) -> BackgroundMapSerializationModel:
         """Write a background map to an archive.

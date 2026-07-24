@@ -29,6 +29,7 @@ import pydantic
 
 from .._concrete_bounds import BoundsSerializationModel
 from .._geom import XY, YX, Bounds, Box
+from ..describe import DescribableMixin, FieldRole, Report, ReportField
 from ..serialization import ArchiveReadError, ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 from . import _ast as astshim
 from ._frames import Frame, SerializableFrame, SkyFrame
@@ -51,7 +52,7 @@ class TransformCompositionError(RuntimeError):
 
 
 @final
-class Transform[I: Frame, O: Frame]:
+class Transform[I: Frame, O: Frame](DescribableMixin):
     """A transform that maps two coordinate frames.
 
     Parameters
@@ -263,6 +264,30 @@ class Transform[I: Frame, O: Frame]:
                 ast_mapping = ast_mapping.getMapping()
             ast_mapping = ast_mapping.simplified()
         return ast_mapping.show(comments)
+
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this transform.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        return Report(
+            type_name="Transform",
+            summary=f"{self.in_frame!s} → {self.out_frame!s}",
+            fields=[
+                ReportField(label="in_frame", value=self.in_frame, role=FieldRole.DERIVED),
+                ReportField(label="out_frame", value=self.out_frame, role=FieldRole.DERIVED),
+                ReportField(label="in_bounds", value=self.in_bounds, role=FieldRole.DERIVED),
+                ReportField(label="out_bounds", value=self.out_bounds, role=FieldRole.DERIVED),
+                ReportField(
+                    label="mapping",
+                    value=self.show(simplified=True),
+                    role=FieldRole.DERIVED,
+                ),
+            ],
+        )
 
     @overload
     def apply_forward(self, point: XY[int | float] | YX[int | float], /) -> XY[float]: ...

@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 from lsst.images import XY, YX, Box, Image
+from lsst.images.describe import DescribableMixin, Report
 from lsst.images.fields import (
     BaseField,
     ChebyshevField,
@@ -584,3 +585,53 @@ def test_call_xy_yx(factory: Callable[[], BaseField]) -> None:
         field(XY(x=_SCALAR_X, y=_SCALAR_Y), x=_SCALAR_X)
     with pytest.raises(TypeError):
         field(YX(y=_SCALAR_Y, x=_SCALAR_X), y=_SCALAR_Y)
+
+
+def test_chebyshev_field_describe() -> None:
+    """ChebyshevField._describe returns a Report with order and bounds."""
+    field = _make_test_chebyshev_field()
+    assert isinstance(field, DescribableMixin)
+    report = field._describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "ChebyshevField"
+    labels = {f.label for f in report.fields}
+    assert "order" in labels
+    assert "x_order" in labels
+    assert "y_order" in labels
+    assert "bounds" in labels
+
+
+def test_spline_field_describe() -> None:
+    """SplineField._describe returns a Report with grid_shape and bounds."""
+    field = _make_test_spline_field()
+    assert isinstance(field, DescribableMixin)
+    report = field._describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "SplineField"
+    labels = {f.label for f in report.fields}
+    assert "grid_shape" in labels
+    assert "bounds" in labels
+
+
+def test_product_field_describe() -> None:
+    """ProductField._describe returns a Report with operand children."""
+    field = _make_test_product_field()
+    assert isinstance(field, DescribableMixin)
+    report = field._describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "ProductField"
+    assert len(report.children) == 2
+    labels = {f.label for f in report.fields}
+    assert "n_operands" in labels
+
+
+def test_sum_field_describe() -> None:
+    """SumField._describe returns a Report with operand children."""
+    field = _make_test_sum_field()
+    assert isinstance(field, DescribableMixin)
+    report = field._describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "SumField"
+    assert len(report.children) == 2
+    labels = {f.label for f in report.fields}
+    assert "n_operands" in labels

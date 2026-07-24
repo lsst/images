@@ -18,9 +18,10 @@ from typing import Any
 
 from .._geom import Bounds, Box
 from .._image import Image
+from ..describe import DescribableMixin, FieldRole, Report, ReportField
 
 
-class PointSpreadFunction(ABC):
+class PointSpreadFunction(DescribableMixin, ABC):
     """Base class for point-spread function models."""
 
     @property
@@ -136,6 +137,23 @@ class PointSpreadFunction(ABC):
                 return LegacyPointSpreadFunction.from_legacy(legacy_psf, bounds)
             case _:
                 raise TypeError(f"{type(legacy_psf).__name__!r} is not a recognized legacy PSF type.")
+
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this PSF.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        return Report(
+            type_name=type(self).__name__,
+            summary=f"{type(self).__name__} over {self.bounds}",
+            fields=[
+                ReportField(label="bounds", value=self.bounds, role=FieldRole.DERIVED),
+                ReportField(label="kernel_bbox", value=self.kernel_bbox, role=FieldRole.DERIVED),
+            ],
+        )
 
     def to_legacy(self) -> Any:
         """Convert to a legacy `lsst.afw.detection.Psf`, if possible."""

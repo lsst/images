@@ -475,6 +475,18 @@ def test_box_intersection() -> None:
         box1.intersection(Box.factory[50:70, -10:-5])
 
 
+def test_intersection_bounds_str_repr() -> None:
+    """IntersectionBounds str reuses operand str; repr stays eval-ish."""
+    from lsst.images._intersection_bounds import IntersectionBounds
+
+    inter = IntersectionBounds(Box.factory[0:10, 0:20], Box.factory[5:15, 5:25])
+    assert str(inter) == "([y=0:10, x=0:20]) ∩ ([y=5:15, x=5:25])"
+    assert repr(inter) == (
+        "IntersectionBounds(a=Box(y=Interval(start=0, stop=10), x=Interval(start=0, stop=20)), "
+        "b=Box(y=Interval(start=5, stop=15), x=Interval(start=5, stop=25)))"
+    )
+
+
 def test_box_slicing() -> None:
     """Test slicing."""
     box = Box.factory[:10, :20]
@@ -642,3 +654,16 @@ def test_box_from_sky_circle() -> None:
             SkyCoord(ra=12.0 * u.deg, dec=13.0 * u.deg, frame="icrs"),
             Angle([1.0, 2.0] * u.arcsec),
         )
+
+
+def test_interval_box_repr_str_pinned() -> None:
+    """Interval and Box str/repr match their documented forms."""
+    interval = Interval(start=3, stop=10)
+    assert str(interval) == "3:10"
+    assert repr(interval) == "Interval(start=3, stop=10)"
+
+    box = Box.factory[0:5, 0:4]
+    assert str(box) == f"[y={box.y}, x={box.x}]"
+    assert repr(box) == f"Box(y={box.y!r}, x={box.x!r})"
+    # repr round-trips through eval.
+    assert eval(repr(box), {"Box": Box, "Interval": Interval}) == box

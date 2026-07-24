@@ -130,6 +130,18 @@ def make_masked_image() -> MaskedImage:
     return masked_image
 
 
+def test_masked_image_repr_str_pinned() -> None:
+    """Pin the exact str and repr output of a MaskedImage."""
+    mi = make_masked_image()
+    assert str(mi) == "MaskedImage(Image([y=5:205, x=8:259], float64), ['BAD', 'HUNGRY'])"
+    assert repr(mi) == (
+        "MaskedImage(Image(..., bbox=Box(y=Interval(start=5, stop=205), x=Interval(start=8, stop=259)), "
+        "dtype=dtype('float64')), mask_schema=MaskSchema([MaskPlane(name='BAD', description='Pixel is "
+        "very bad, possibly downright evil.'), MaskPlane(name='HUNGRY', description=\"Pixel hasn't had "
+        "enough to eat today.\")], dtype=dtype('uint8')))"
+    )
+
+
 def test_construction() -> None:
     """Verify the MaskedImage constructed by make_masked_image has the
     expected attributes.

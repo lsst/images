@@ -30,6 +30,7 @@ from .._image import Image, ImageSerializationModel
 from .._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_legacy_deep_coadd_mask_planes
 from .._masked_image import MaskedImage, MaskedImageSerializationModel
 from .._transforms import SkyProjection, SkyProjectionSerializationModel, TractFrame
+from ..describe import FieldRole, Report, ReportField
 from ..fields import BaseField
 from ..serialization import InputArchive, InvalidParameterError, OutputArchive
 from ._aperture_corrections import CellApertureCorrectionMapSerializationModel, CellField
@@ -263,8 +264,37 @@ class CellCoadd(MaskedImage):
             bbox=bbox,
         )
 
-    def __str__(self) -> str:
-        return f"CellCoadd({self.bbox!s}, tract={self.tract})"
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this cell coadd.
+
+        Parameters
+        ----------
+        **kwargs
+            Render keyword arguments forwarded to all children.
+        """
+        child_kwargs = {k: v for k, v in kwargs.items() if k not in ("exclude", "bbox")}
+        children: dict[str, Report] = {
+            "image": self.image._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
+            "mask": self.mask._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
+            "variance": self.variance._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
+            "sky_projection": self.sky_projection._describe(bbox=self.bbox, **child_kwargs),
+            "psf": self.psf._describe(**child_kwargs),
+            "backgrounds": self.backgrounds._describe(**child_kwargs),
+        }
+        return Report(
+            type_name="CellCoadd",
+            summary=f"CellCoadd({self.bbox!s}, tract={self.tract})",
+            fields=[
+                ReportField(label="skymap", value=self.skymap, role=FieldRole.DERIVED),
+                ReportField(label="tract", value=self.tract, role=FieldRole.DERIVED),
+                ReportField(label="patch", value=self._patch, role=FieldRole.DERIVED),
+                ReportField(label="band", value=self.band, role=FieldRole.DERIVED),
+                ReportField(
+                    label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED
+                ),
+            ],
+            children=children,
+        )
 
     def __repr__(self) -> str:
         return str(self)

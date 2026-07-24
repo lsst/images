@@ -25,7 +25,7 @@ __all__ = (
 
 import dataclasses
 import math
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence, Set
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
@@ -41,6 +41,7 @@ from . import fits
 from ._generalized_image import GeneralizedImage
 from ._geom import YX, Box, NoOverlapError
 from ._transforms import Frame, SkyProjection, SkyProjectionSerializationModel
+from .describe import DescribableMixin, Report, ReportField, ReportTable
 from .serialization import (
     ArchiveReadError,
     ArchiveTree,
@@ -149,7 +150,7 @@ class MaskPlaneBit:
         return bool(value[self.index] & self.mask)
 
 
-class MaskSchema:
+class MaskSchema(DescribableMixin):
     """A schema for a bit-packed mask array.
 
     Parameters
@@ -220,15 +221,52 @@ class MaskSchema:
     def __getitem__(self, i: int) -> MaskPlane | None:
         return self._planes[i]
 
-    def __repr__(self) -> str:
-        return f"MaskSchema({list(self._planes)}, dtype={self._dtype!r})"
+    def _describe(self, *, counts: Mapping[str, int] | None = None, **kwargs: Any) -> Report:
+        """Return a `Report` describing this mask schema.
 
-    def __str__(self) -> str:
-        return "\n".join(
-            [
-                f"{name} [{bit.index}@{hex(bit.mask)}]: {self._descriptions[name]}"
-                for name, bit in self._bits.items()
+        Parameters
+        ----------
+        counts : `~collections.abc.Mapping` [`str`, `int`], optional
+            Number of set pixels per plane name.  When provided, the mask
+            planes table gains a ``"Set pixels"`` column.
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        columns = ["Bit", "Index", "Mask", "Name", "Description"]
+        if counts is not None:
+            columns.append("Set pixels")
+        rows = []
+        for n, plane in enumerate(self._planes):
+            if plane is None:
+                continue
+            row: list[Any] = [
+                n,
+                self._bits[plane.name].index,
+                hex(self._bits[plane.name].mask),
+                plane.name,
+                plane.description,
             ]
+            if counts is not None:
+                row.append(counts.get(plane.name, 0))
+            rows.append(row)
+        return Report(
+            type_name="MaskSchema",
+            fields=[
+                ReportField(
+                    label="planes",
+                    value=f"<{len(self._planes)} planes>",
+                    repr_value=repr(list(self._planes)),
+                    positional=True,
+                ),
+                ReportField(label="dtype", value=str(self._dtype), repr_value=repr(self._dtype)),
+            ],
+            tables=[
+                ReportTable(
+                    title="Mask planes",
+                    columns=columns,
+                    rows=rows,
+                )
+            ],
         )
 
     def __eq__(self, other: object) -> bool:
@@ -548,11 +586,42 @@ class Mask(GeneralizedImage):
         subview.clear()
         subview.update(value)
 
-    def __str__(self) -> str:
-        return f"Mask({self.bbox!s}, {list(self.schema.names)})"
+    def _describe(self, *, exclude: Collection[str] = (), detail: bool = False, **kwargs: Any) -> Report:
+        """Return a `Report` describing this mask.
 
-    def __repr__(self) -> str:
-        return f"Mask(..., bbox={self.bbox!r}, schema={self.schema!r})"
+        Parameters
+        ----------
+        exclude : `~collections.abc.Collection` [`str`], optional
+            Names of report elements (``"bbox"``, ``"sky_projection"``) to
+            omit.  Used by composite containers that display the shared value
+            once at the top level.
+        detail : `bool`, optional
+            When `True`, include per-plane set-pixel counts in the schema
+            table.  This scans the pixel data and is used by the rich, HTML,
+            and command-line renderings.
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        if detail:
+            counts = {name: int(np.count_nonzero(self.get(name))) for name in self.schema.names}
+            schema_report = self.schema._describe(counts=counts)
+        else:
+            schema_report = self.schema._describe()
+        children: dict[str, Report] = {"schema": schema_report}
+        if "sky_projection" not in exclude and self._sky_projection is not None:
+            children["sky_projection"] = self._sky_projection._describe(bbox=self._bbox)
+        fields = [
+            ReportField(label="array", value="<array>", repr_value="...", positional=True),
+        ]
+        if "bbox" not in exclude:
+            fields.append(ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)))
+        fields.append(ReportField(label="schema", value=self.schema, repr_value=repr(self.schema)))
+        return Report(
+            type_name="Mask",
+            summary=f"Mask({self.bbox!s}, {list(self.schema.names)})",
+            fields=fields,
+            children=children,
+        )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Mask):

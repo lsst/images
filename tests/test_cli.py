@@ -447,3 +447,11 @@ def test_schemas_check_fails_when_stale(tmp_path: Path) -> None:
     result = runner.invoke(main, ["schemas", "check", "--dir", str(tmp_path)])
     assert result.exit_code != 0
     assert "schemas write" in result.output
+
+
+def test_cli_describe_visit_image() -> None:
+    """The describe command renders a deserialized VisitImage."""
+    path = os.path.join(os.path.dirname(__file__), "data", "schema_v1", "visit_image.json")
+    result = CliRunner().invoke(main, ["describe", path])
+    assert result.exit_code == 0, result.output
+    assert "VisitImage" in result.output

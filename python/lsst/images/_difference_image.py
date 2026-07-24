@@ -37,6 +37,7 @@ from .aperture_corrections import (
 )
 from .cameras import Detector
 from .convolution_kernels import ConvolutionKernel, ConvolutionKernelSerializationModel
+from .describe import Report
 from .fields import Field
 from .psfs import (
     PointSpreadFunction,
@@ -250,11 +251,20 @@ class DifferenceImage(VisitImage):
             super().__getitem__(bbox), kernel=self._kernel, templates=self._templates
         )
 
-    def __str__(self) -> str:
-        return f"DifferenceImage({self.image!s}, {list(self.mask.schema.names)})"
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this difference image.
 
-    def __repr__(self) -> str:
-        return f"DifferenceImage({self.image!r}, mask_schema={self.mask.schema!r})"
+        Parameters
+        ----------
+        **kwargs
+            Render keyword arguments forwarded to all children.
+        """
+        report = super()._describe(**kwargs)
+        report.type_name = "DifferenceImage"
+        report.summary = f"DifferenceImage({self.image!s}, {list(self.mask.schema.names)})"
+        # ConvolutionKernel does not implement _describe; omit it from the
+        # report until a describe method is added to that class.
+        return report
 
     def copy(self, *, copy_detector: bool = False) -> DifferenceImage:
         """Deep-copy the difference image.

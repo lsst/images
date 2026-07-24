@@ -47,6 +47,7 @@ from .aperture_corrections import (
     aperture_corrections_to_legacy,
 )
 from .cameras import Detector, DetectorSerializationModel
+from .describe import FieldRole, Report, ReportField
 from .fields import BaseField, Field, FieldSerializationModel, field_from_legacy_photo_calib
 from .fits import FitsOpaqueMetadata
 from .psfs import (
@@ -312,11 +313,41 @@ class VisitImage(MaskedImage):
             bbox=bbox,
         )
 
-    def __str__(self) -> str:
-        return f"VisitImage({self.image!s}, {list(self.mask.schema.names)})"
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this visit image.
 
-    def __repr__(self) -> str:
-        return f"VisitImage({self.image!r}, mask_schema={self.mask.schema!r})"
+        Parameters
+        ----------
+        **kwargs
+            Render keyword arguments forwarded to all children.
+        """
+        child_kwargs = {k: v for k, v in kwargs.items() if k not in ("exclude", "bbox")}
+        children: dict[str, Report] = {
+            "image": self.image._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
+            "mask": self.mask._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
+            "variance": self.variance._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
+            "sky_projection": self.sky_projection._describe(bbox=self.bbox, **child_kwargs),
+            "psf": self.psf._describe(**child_kwargs),
+            "detector": self.detector._describe(**child_kwargs),
+            "summary_stats": self.summary_stats._describe(**child_kwargs),
+            "backgrounds": self.backgrounds._describe(**child_kwargs),
+        }
+        if self.photometric_scaling is not None:
+            children["photometric_scaling"] = self.photometric_scaling._describe(**child_kwargs)
+        return Report(
+            type_name="VisitImage",
+            summary=f"VisitImage({self.image!s}, {list(self.mask.schema.names)})",
+            fields=[
+                ReportField(label="image", value=self.image, repr_value=repr(self.image), positional=True),
+                ReportField(label="mask_schema", value=self.mask.schema, repr_value=repr(self.mask.schema)),
+                ReportField(label="band", value=self.band, role=FieldRole.DERIVED),
+                ReportField(label="physical_filter", value=self.physical_filter, role=FieldRole.DERIVED),
+                ReportField(
+                    label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED
+                ),
+            ],
+            children=children,
+        )
 
     def copy(self, *, copy_detector: bool = False) -> VisitImage:
         """Deep-copy the visit image.

@@ -40,6 +40,7 @@ from ._transforms import (
     FocalPlaneFrame,
     Transform,
 )
+from .describe import DescribableMixin, FieldRole, Report, ReportField
 from .serialization import (
     ArchiveReadError,
     ArchiveTree,
@@ -508,7 +509,7 @@ class Amplifier(pydantic.BaseModel, ser_json_inf_nan="constants"):
 
 
 @final
-class Detector:
+class Detector(DescribableMixin):
     """Information about a detector in a camera.
 
     Parameters
@@ -634,6 +635,27 @@ class Detector:
     def amplifiers(self) -> list[Amplifier]:
         """The amplifiers of this detectors (`list` [`Amplifier`])."""
         return self._amplifiers
+
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this detector.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        return Report(
+            type_name="Detector",
+            summary=f"Detector {self.name!r} ({self.instrument})",
+            fields=[
+                ReportField(label="instrument", value=self.instrument, role=FieldRole.DERIVED),
+                ReportField(label="name", value=self.name, role=FieldRole.DERIVED),
+                ReportField(label="id", value=self.id, role=FieldRole.DERIVED),
+                ReportField(label="type", value=self.type, role=FieldRole.DERIVED),
+                ReportField(label="serial", value=self.serial, role=FieldRole.DERIVED),
+                ReportField(label="bbox", value=self.bbox, role=FieldRole.DERIVED),
+            ],
+        )
 
     def copy(self) -> Detector:
         """Copy the detector.

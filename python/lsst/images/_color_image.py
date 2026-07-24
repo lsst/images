@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("ColorImage",)
 
 import functools
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from types import EllipsisType
 from typing import Any, ClassVar, Literal
 
@@ -25,6 +25,7 @@ from ._generalized_image import GeneralizedImage
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
 from ._transforms import SkyProjection, SkyProjectionSerializationModel
+from .describe import Report, ReportField
 from .serialization import ArchiveTree, InputArchive, InvalidParameterError, MetadataValue, OutputArchive
 from .utils import is_none
 
@@ -153,11 +154,35 @@ class ColorImage(GeneralizedImage):
     def __setitem__(self, bbox: Box | EllipsisType, value: ColorImage) -> None:
         self[bbox].array[...] = value.array
 
-    def __str__(self) -> str:
-        return f"ColorImage({self.bbox!s}, {self._array.dtype.type.__name__})"
+    def _describe(self, *, exclude: Collection[str] = (), **kwargs: Any) -> Report:
+        """Return a `Report` describing this color image.
 
-    def __repr__(self) -> str:
-        return f"ColorImage(..., bbox={self.bbox!r}, dtype={self._array.dtype!r})"
+        Parameters
+        ----------
+        exclude : `~collections.abc.Collection` [`str`], optional
+            Names of report elements (``"bbox"``, ``"sky_projection"``) to
+            omit.
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        children = {}
+        sky_projection = self.sky_projection
+        if "sky_projection" not in exclude and sky_projection is not None:
+            children["sky_projection"] = sky_projection._describe(bbox=self.bbox)
+        fields = [
+            ReportField(label="array", value="<array>", repr_value="...", positional=True),
+        ]
+        if "bbox" not in exclude:
+            fields.append(ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)))
+        fields.append(
+            ReportField(label="dtype", value=str(self._array.dtype), repr_value=repr(self._array.dtype))
+        )
+        return Report(
+            type_name="ColorImage",
+            summary=f"ColorImage({self.bbox!s}, {self._array.dtype.type.__name__})",
+            fields=fields,
+            children=children,
+        )
 
     def copy(self) -> ColorImage:
         """Deep-copy the image."""

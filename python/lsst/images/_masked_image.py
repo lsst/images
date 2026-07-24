@@ -33,6 +33,7 @@ from ._geom import Box
 from ._image import DEFAULT_PIXEL_FRAME, Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._transforms import Frame, SkyProjection, SkyProjectionSerializationModel
+from .describe import FieldRole, Report, ReportField
 from .serialization import (
     ArchiveTree,
     InputArchive,
@@ -193,11 +194,34 @@ class MaskedImage(GeneralizedImage):
         self._mask[bbox] = value.mask
         self._variance[bbox] = value.variance
 
-    def __str__(self) -> str:
-        return f"MaskedImage({self.image!s}, {list(self.mask.schema.names)})"
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this masked image.
 
-    def __repr__(self) -> str:
-        return f"MaskedImage({self.image!r}, mask_schema={self.mask.schema!r})"
+        Parameters
+        ----------
+        **kwargs
+            Render keyword arguments forwarded to all children.
+        """
+        child_kwargs = {k: v for k, v in kwargs.items() if k not in ("exclude", "bbox")}
+        children = {
+            "image": self._image._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
+            "mask": self._mask._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
+            "variance": self._variance._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
+        }
+        if self.sky_projection is not None:
+            children["sky_projection"] = self.sky_projection._describe(bbox=self.bbox, **child_kwargs)
+        return Report(
+            type_name="MaskedImage",
+            summary=f"MaskedImage({self.image!s}, {list(self.mask.schema.names)})",
+            fields=[
+                ReportField(label="image", value=self.image, repr_value=repr(self.image), positional=True),
+                ReportField(label="mask_schema", value=self.mask.schema, repr_value=repr(self.mask.schema)),
+                ReportField(
+                    label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED
+                ),
+            ],
+            children=children,
+        )
 
     def copy(self) -> MaskedImage:
         """Deep-copy the masked image and metadata."""
