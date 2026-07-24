@@ -110,4 +110,4 @@ class Describable(Protocol):
 
 
 class DescribableMixin:
-    """Mixin providing default ``__repr__`` and ``__str__`` from `describe`."""
+    """Base class for objects that implement the `Describable` protocol."""
