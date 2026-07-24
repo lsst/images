@@ -746,13 +746,138 @@ Co-Authored-By: SLAC AI"
 
 **Interfaces:**
 - Consumes: `Report`, `ReportField`, `ReportTable`, `FieldRole`, `DescribableMixin` from Tasks 1-4; `Box` from `.._geom`; `make_random_sky_projection` from `lsst.images.tests`.
-- Produces: `SkyProjection._describe(self, *, bbox: Box | None = None, **kwargs) -> Report`. `SkyProjection` gains `DescribableMixin` as a base. The report has:
-  - `title="ICRS coordinates"`, `summary` naming the pixel and sky frames.
-  - `ARG` field `pixel_to_sky` (`repr_value="..."`, lossy) and `DERIVED` fields `domain` (`"ICRS"`), `center` (sky coord of the bbox center, only when a bbox is available), `fits_wcs` (`"available"` / `"approximate"` / `"none"`).
-  - A `DERIVED` `ReportTable` titled `"Axes"` (columns `["Axis", "Label", "Units", "Nominal pixel scale"]`), one row per sky axis; pixel scales only when a bbox is available (otherwise `"-"`).
-  - A `DERIVED` `ReportTable` titled `"Corners"` (columns `["Corner", "RA", "Dec"]`), only when a bbox is available.
+- Produces:
+  - `SkyProjection._nominal_pixel_scale(self, bbox: Box) -> list[float]`: the nominal pixel scale in arcsec/pixel for each sky axis (`[longitude, latitude]`), computed with the Starlink KAPPA algorithm (a port of `KPG1_SCALE`/`KPG1_PXSCL`, written by the AST author). Great-circle (geodesic) distances make it correct near the poles and under coordinate rotation, and it takes the median over a 3×3 grid of test points so a single degenerate sample cannot skew the result. Private for now; a candidate for promotion to a public method later.
+  - `SkyProjection._describe(self, *, bbox: Box | None = None, **kwargs) -> Report`. `SkyProjection` gains `DescribableMixin` as a base. The report has:
+    - `title="ICRS coordinates"`, `summary` naming the pixel and sky frames.
+    - `ARG` field `pixel_to_sky` (`repr_value="..."`, lossy) and `DERIVED` fields `domain` (`"ICRS"`), `center` (sky coord of the bbox center, only when a bbox is available), `fits_wcs` (`"available"` / `"approximate"` / `"none"`).
+    - A `DERIVED` `ReportTable` titled `"Axes"` (columns `["Axis", "Label", "Units", "Nominal pixel scale"]`), one row per sky axis; pixel scales (from `_nominal_pixel_scale`) only when a bbox is available (otherwise `"-"`).
+    - A `DERIVED` `ReportTable` titled `"Corners"` (columns `["Corner", "RA", "Dec"]`), only when a bbox is available.
 
-- [ ] **Step 1: Write the failing test**
+#### The pixel-scale algorithm (Starlink KAPPA port)
+
+The Fortran original is `KPG1_DSFRM` → `KPG1_SCALE` → `KPG1_PXSCL` in Starlink KAPLIBS. Ported faithfully to 2D pixel→sky:
+
+- `KPG1_PXSCL` at one pixel position `(x, y)`: transform the point and all eight of its unit-offset neighbours (`{-1, 0, +1}²` minus the center) to the sky. For each sky axis, pick the neighbour whose transformed position moves *farthest* along that axis; construct a probe sky coordinate that differs from the center only on that axis; measure the great-circle distance to it with `SkyCoord.separation` (the astropy analogue of `AST_DISTANCE` on a sky frame); divide by the pixel-space (Euclidean) distance between the center pixel and the probe transformed back through `sky_to_pixel`. Rounding the center pixel back through `sky_to_pixel` too keeps the grid reference consistent with the probes.
+- `KPG1_SCALE` wrapper: reference position is the bbox center; step is `0.3 × axis extent`; evaluate `KPG1_PXSCL` at the 3×3 grid of test points (offsets `{-step, 0, +step}` on each pixel axis) and take the **median** scale per sky axis.
+
+Do not simplify to a single adjacent-pixel `separation`; that is the heuristic this task deliberately replaces.
+
+- [ ] **Step 1: Write the failing test for the pixel-scale method**
+
+Add to `tests/test_transforms.py` (add `import astropy.wcs` and `from lsst.images._transforms._sky_projection import SkyProjection` to the top-of-file imports if not already present):
+
+```python
+def test_sky_projection_nominal_pixel_scale() -> None:
+    """_nominal_pixel_scale uses geodesic distances, robust to rotation/poles."""
+    bbox = Box.factory[0:200, 0:100]
+    pixel_frame = GeneralFrame(unit=u.pix)
+
+    # A rotated TAN WCS with its reference pixel ~2 arcsec from the north
+    # pole: a naive dRA/dpix scale would blow up near the pole, but the
+    # great-circle algorithm must recover the true 0.2 arcsec/pixel scale.
+    cd = (0.2 * u.arcsec).to_value(u.deg)
+    rot = np.deg2rad(30.0)
+    header = {
+        "CTYPE1": "RA---TAN",
+        "CTYPE2": "DEC--TAN",
+        "CRPIX1": 50,
+        "CRPIX2": 100,
+        "CRVAL1": 45.0,
+        "CRVAL2": 89.9995,
+        "CD1_1": -cd * np.cos(rot),
+        "CD1_2": cd * np.sin(rot),
+        "CD2_1": cd * np.sin(rot),
+        "CD2_2": cd * np.cos(rot),
+    }
+    sky_projection = SkyProjection.from_fits_wcs(astropy.wcs.WCS(header), pixel_frame)
+
+    scales = sky_projection._nominal_pixel_scale(bbox)
+    assert len(scales) == 2
+    np.testing.assert_allclose(scales, [0.2, 0.2], rtol=1e-3)
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `.pyenv/bin/pytest tests/test_transforms.py::test_sky_projection_nominal_pixel_scale -v`
+Expected: FAIL with `AttributeError: 'SkyProjection' object has no attribute '_nominal_pixel_scale'`.
+
+- [ ] **Step 3: Implement the pixel-scale method**
+
+In `python/lsst/images/_transforms/_sky_projection.py`, add these imports near the other package/stdlib imports (skip any already present — `numpy as np`, `astropy.units as u`, and `SkyCoord` are very likely already imported; `itertools` and `statistics` are stdlib):
+
+```python
+import itertools
+import statistics
+
+from .._geom import Box
+```
+
+Add this method to the class (for example, just after `as_fits_wcs`):
+
+```python
+    def _nominal_pixel_scale(self, bbox: Box) -> list[float]:
+        """Return the nominal pixel scale in arcsec for each sky axis.
+
+        Parameters
+        ----------
+        bbox : `Box`
+            Pixel bounding box over which the scale is characterized.
+
+        Returns
+        -------
+        `list` [`float`]
+            Nominal pixel scale in arcsec/pixel for the longitude and
+            latitude axes, in that order.
+
+        Notes
+        -----
+        This is a port of the Starlink KAPPA ``KPG1_SCALE``/``KPG1_PXSCL``
+        routines.  At each of a 3x3 grid of test points it perturbs the pixel
+        position by unit offsets along both axes, finds the neighbour that
+        moves farthest along each sky axis, and takes the ratio of the
+        great-circle sky distance to the pixel-space distance; the per-axis
+        result is the median over the grid.  Great-circle distances make the
+        result correct near the poles and under coordinate rotation.
+        """
+        offsets = [o for o in itertools.product((0.0, 1.0, -1.0), repeat=2) if o != (0.0, 0.0)]
+        step_x = 0.3 * bbox.x.size
+        step_y = 0.3 * bbox.y.size
+        lon_scales: list[float] = []
+        lat_scales: list[float] = []
+        for dx, dy in itertools.product((-step_x, 0.0, step_x), (-step_y, 0.0, step_y)):
+            cx = bbox.x.center + dx
+            cy = bbox.y.center + dy
+            center = self.pixel_to_sky(x=cx, y=cy)
+            neighbours = self.pixel_to_sky(
+                x=np.array([cx + o[0] for o in offsets]),
+                y=np.array([cy + o[1] for o in offsets]),
+            )
+            grid0 = self.sky_to_pixel(center)
+            gx0, gy0 = float(grid0.x), float(grid0.y)
+            lon0 = center.ra.wrap_at(180 * u.deg)
+            lat0 = center.dec
+            # Longitude axis: neighbour with the largest change in RA.
+            dlon = (neighbours.ra.wrap_at(180 * u.deg) - lon0).wrap_at(180 * u.deg)
+            probe = SkyCoord(ra=neighbours.ra[int(np.argmax(np.abs(dlon.rad)))], dec=lat0)
+            grid = self.sky_to_pixel(probe)
+            dpix = np.hypot(float(grid.x) - gx0, float(grid.y) - gy0)
+            lon_scales.append(center.separation(probe).to_value(u.arcsec) / dpix)
+            # Latitude axis: neighbour with the largest change in Dec.
+            dlat = neighbours.dec - lat0
+            probe = SkyCoord(ra=lon0, dec=neighbours.dec[int(np.argmax(np.abs(dlat.rad)))])
+            grid = self.sky_to_pixel(probe)
+            dpix = np.hypot(float(grid.x) - gx0, float(grid.y) - gy0)
+            lat_scales.append(center.separation(probe).to_value(u.arcsec) / dpix)
+        return [statistics.median(lon_scales), statistics.median(lat_scales)]
+```
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `.pyenv/bin/pytest tests/test_transforms.py::test_sky_projection_nominal_pixel_scale -v`
+Expected: PASS (the rotated near-pole WCS yields `[0.2, 0.2]` to within `rtol=1e-3`).
+
+- [ ] **Step 5: Write the failing test for `_describe`**
 
 Add to `tests/test_transforms.py` (top-of-file imports already include `numpy as np`, `astropy.units as u`, `Box`, `GeneralFrame`, and `make_random_sky_projection`; add `from lsst.images.describe import FieldRole, Report`):
 
@@ -795,21 +920,20 @@ def test_sky_projection_describe() -> None:
     assert repr(sky_projection).startswith("SkyProjection(")
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 6: Run test to verify it fails**
 
 Run: `.pyenv/bin/pytest tests/test_transforms.py::test_sky_projection_describe -v`
 Expected: FAIL with `AttributeError: 'SkyProjection' object has no attribute 'describe'`.
 
-- [ ] **Step 3: Adopt the mixin and implement `_describe`**
+- [ ] **Step 7: Adopt the mixin and implement `_describe`**
 
 In `python/lsst/images/_transforms/_sky_projection.py`, add imports near the other package imports:
 
 ```python
-from .._geom import Box
 from ..describe import DescribableMixin, FieldRole, Report, ReportField, ReportTable
 ```
 
-(If `Box` or `SkyCoord`/`astropy.units as u` are already imported, do not duplicate them.)
+(`Box`, `SkyCoord`, and `astropy.units as u` were added or confirmed present in Step 3; do not duplicate them.)
 
 Change the class declaration from `class SkyProjection[F: Frame]:` to `class SkyProjection[F: Frame](DescribableMixin):`.
 
@@ -843,13 +967,7 @@ Add this method to the class (for example, just after `fits_approximation`):
                     role=FieldRole.DERIVED,
                 )
             )
-            base = self.pixel_to_sky(x=bbox.x.center, y=bbox.y.center)
-            step_x = self.pixel_to_sky(x=bbox.x.center + 1, y=bbox.y.center)
-            step_y = self.pixel_to_sky(x=bbox.x.center, y=bbox.y.center + 1)
-            scales = [
-                f"{base.separation(step_x).to_value(u.arcsec):.6g}",
-                f"{base.separation(step_y).to_value(u.arcsec):.6g}",
-            ]
+            scales = [f"{s:.6g}" for s in self._nominal_pixel_scale(bbox)]
             mn, mx = bbox.min, bbox.max
             corner_defs = [
                 ("(min x, min y)", mn.x, mn.y),
@@ -896,26 +1014,26 @@ Add this method to the class (for example, just after `fits_approximation`):
 
 Note: `as_fits_wcs` requires a bbox, so FITS-WCS availability is only tested against the real mapping when a bbox is supplied; with no bbox it is reported as `"available"` optimistically unless a FITS approximation is attached (in which case `"approximate"`).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 8: Run tests to verify they pass**
 
-Run: `.pyenv/bin/pytest tests/test_transforms.py::test_sky_projection_describe -v`
+Run: `.pyenv/bin/pytest tests/test_transforms.py::test_sky_projection_describe tests/test_transforms.py::test_sky_projection_nominal_pixel_scale -v`
 Expected: PASS.
 
-- [ ] **Step 5: Confirm no existing SkyProjection tests regressed**
+- [ ] **Step 9: Confirm no existing SkyProjection tests regressed**
 
 Run: `.pyenv/bin/pytest tests/test_transforms.py -v`
 Expected: PASS (SkyProjection previously had no `__repr__`/`__str__`, so nothing to pin; the mixin only adds behavior).
 
-- [ ] **Step 6: Run ruff and mypy**
+- [ ] **Step 10: Run ruff and mypy**
 
 Run: `.pyenv/bin/ruff check python/lsst/images/_transforms/_sky_projection.py && .pyenv/bin/mypy python/lsst/images/_transforms/_sky_projection.py`
 Expected: no errors.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
 git add python/lsst/images/_transforms/_sky_projection.py tests/test_transforms.py
-git commit -m "Add KAPPA-style describe report to SkyProjection
+git commit -m "Add KAPPA-style describe report and pixel-scale method to SkyProjection
 
 Generated with AI
 
