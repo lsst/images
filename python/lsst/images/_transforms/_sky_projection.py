@@ -702,6 +702,21 @@ class SkyProjectionAstropyView(BaseLowLevelWCS, HighLevelWCSMixin):
             ast_pixel_to_sky = astshim.ShiftMap(list(bbox.start.xy)).then(ast_pixel_to_sky)
         self._ast_pixel_to_sky = ast_pixel_to_sky
 
+    def __str__(self) -> str:
+        region = str(self._bbox) if self._bbox is not None else "unbounded"
+        return f"SkyProjectionAstropyView({region} → ICRS)"
+
+    def __repr__(self) -> str:
+        # The bbox shift is baked into the mapping, so pixel (0, 0) is the
+        # first array pixel in the view's own (Astropy) convention.
+        ra, dec = self.pixel_to_world_values(np.zeros(()), np.zeros(()))
+        reference = _format_pixel_sky(SkyCoord(ra=float(ra) * u.rad, dec=float(dec) * u.rad, frame=ICRS))
+        lines = ["SkyProjectionAstropyView", "  world axes  : ICRS (ra, dec)"]
+        if self._bbox is not None:
+            lines.append(f"  array shape : {self._bbox.shape}")
+        lines.append(f"  pixel (0, 0): {reference}")
+        return "\n".join(lines)
+
     @property
     def low_level_wcs(self) -> Self:
         return self

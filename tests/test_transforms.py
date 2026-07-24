@@ -21,6 +21,7 @@ import astropy.wcs
 import numpy as np
 import pydantic
 import pytest
+from astropy.coordinates import Longitude
 
 from lsst.images import (
     ICRS,
@@ -831,6 +832,31 @@ def test_sky_projection_describe_fits_wcs_availability() -> None:
     report = bounded.describe()
     fits_field = next(f for f in report.fields if f.label == "fits_wcs")
     assert fits_field.value in ("available", "none")
+
+
+def test_sky_projection_astropy_view_repr_str() -> None:
+    """The Astropy view has informative str and repr, not the default object
+    form.
+    """
+    bbox = Box.factory[0:200, 0:100]
+    sky_projection = _rotated_tan(0.0)
+
+    bounded = sky_projection.as_astropy(bbox)
+    assert str(bounded) == "SkyProjectionAstropyView([y=0:200, x=0:100] → ICRS)"
+    bounded_repr = repr(bounded)
+    assert bounded_repr.startswith("SkyProjectionAstropyView\n")
+    assert "ICRS (ra, dec)" in bounded_repr
+    assert str(bbox.shape) in bounded_repr
+    # The reported pixel (0, 0) sky position matches the view's own transform.
+    ra, dec = bounded.pixel_to_world_values(0.0, 0.0)
+    ra_hms = Longitude(float(ra) * u.rad).to_string(unit=u.hour, sep="hms", pad=True, precision=1)
+    assert ra_hms in bounded_repr
+
+    unbounded = sky_projection.as_astropy()
+    assert str(unbounded) == "SkyProjectionAstropyView(unbounded → ICRS)"
+    # An unbounded view omits the array-shape line but keeps the reference.
+    assert "array shape" not in repr(unbounded)
+    assert "pixel (0, 0)" in repr(unbounded)
 
 
 def test_sky_projection_describe_reference_pixel_matches_transform() -> None:
