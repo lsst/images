@@ -843,8 +843,8 @@ def test_sky_projection_describe_reference_pixel_matches_transform() -> None:
     report = sky_projection.describe()
     ref = next(f for f in report.fields if f.label == "reference pixel")
     sky00 = sky_projection.pixel_to_sky(x=0, y=0)
-    assert sky00.ra.to_string(unit=u.hour, sep=":", pad=True) in ref.value
-    assert sky00.dec.to_string(sep=":", pad=True, alwayssign=True) in ref.value
+    assert sky00.ra.to_string(unit=u.hour, sep=":", pad=True, precision=1) in ref.value
+    assert sky00.dec.to_string(sep=":", pad=True, alwayssign=True, precision=0) in ref.value
     axes = next(t for t in report.tables if t.title == "Axes")
     assert all(float(row[3]) > 0 for row in axes.rows)
 

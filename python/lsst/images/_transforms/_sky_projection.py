@@ -58,12 +58,13 @@ def _set_ast_skyframe_system(frame: astshim.SkyFrame, system: str) -> None:
 def _format_sky(sky: SkyCoord) -> str:
     """Return ``"<RA> <Dec>"`` for a scalar sky coordinate.
 
-    Right ascension is rendered in sexagesimal hours and declination in
-    sexagesimal degrees, matching the Corners table in the report.
+    Right ascension is rendered in sexagesimal hours to a tenth of a second
+    and declination in sexagesimal degrees to the nearest arcsecond, matching
+    the ``hh:mm:ss.s`` and ``dd:mm:ss`` axis units reported alongside them.
     """
     return (
-        f"{sky.ra.to_string(unit=u.hour, sep=':', pad=True)} "
-        f"{sky.dec.to_string(sep=':', pad=True, alwayssign=True)}"
+        f"{sky.ra.to_string(unit=u.hour, sep=':', pad=True, precision=1)} "
+        f"{sky.dec.to_string(sep=':', pad=True, alwayssign=True, precision=0)}"
     )
 
 
