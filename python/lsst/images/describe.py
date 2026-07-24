@@ -22,6 +22,7 @@ __all__ = (
 
 import dataclasses
 import enum
+import io
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from rich.console import Console
@@ -158,7 +159,7 @@ class Report:
 
     def _repr_html_(self) -> str:
         """Return an HTML rendering produced by rich."""
-        console = Console(record=True, width=100)
+        console = Console(record=True, width=100, file=io.StringIO())
         console.print(self)
         return console.export_html(inline_styles=True)
 

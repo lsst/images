@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 
 import numpy as np
@@ -112,6 +114,16 @@ def test_repr_html_produces_html() -> None:
     report = Report(type_name="Interval", fields=[ReportField(label="start", value=3)])
     html = report._repr_html_()
     assert "<" in html and ">" in html
+    assert "Interval" in html
+
+
+def test_repr_html_does_not_write_to_stdout() -> None:
+    """_repr_html_ returns HTML without also printing to stdout."""
+    report = Report(type_name="Interval", fields=[ReportField(label="start", value=3)])
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        html = report._repr_html_()
+    assert buffer.getvalue() == ""
     assert "Interval" in html
 
 
