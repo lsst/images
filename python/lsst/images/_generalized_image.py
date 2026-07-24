@@ -24,6 +24,7 @@ from lsst.resources import ResourcePathExpression
 
 from ._geom import YX, Box, NoOverlapError, NotContainedError
 from ._transforms import SkyProjection, SkyProjectionAstropyView
+from .describe import DescribableMixin
 from .serialization import (
     ArchiveTree,
     ButlerInfo,
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
 T = TypeVar("T", bound="GeneralizedImage")  # for sphinx
 
 
-class GeneralizedImage(ABC):
+class GeneralizedImage(DescribableMixin, ABC):
     """A base class for types that represent one or more 2-d image-like arrays
     with the same pixel grid and sky projection.
 

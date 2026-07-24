@@ -577,11 +577,27 @@ class Mask(GeneralizedImage):
         subview.clear()
         subview.update(value)
 
-    def __str__(self) -> str:
-        return f"Mask({self.bbox!s}, {list(self.schema.names)})"
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this mask.
 
-    def __repr__(self) -> str:
-        return f"Mask(..., bbox={self.bbox!r}, schema={self.schema!r})"
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        children: dict[str, Report] = {"schema": self.schema._describe()}
+        if self._sky_projection is not None:
+            children["sky_projection"] = self._sky_projection._describe(bbox=self._bbox)
+        return Report(
+            type_name="Mask",
+            summary=f"Mask({self.bbox!s}, {list(self.schema.names)})",
+            fields=[
+                ReportField(label="array", value="<array>", repr_value="...", positional=True),
+                ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)),
+                ReportField(label="schema", value=self.schema, repr_value=repr(self.schema)),
+            ],
+            children=children,
+        )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Mask):

@@ -530,3 +530,12 @@ def test_legacy_butler_read(legacy_test_data: _LegacyTestData) -> None:
         legacy_mask = roundtrip.get(storageClass="Mask")
         assert isinstance(legacy_mask, lsst.afw.image.Mask)
         compare_mask_to_legacy(legacy_test_data.mask, legacy_mask)
+
+
+def test_mask_repr_str_pinned() -> None:
+    """Mask str/repr match their documented forms."""
+    rng = np.random.default_rng(7)
+    schema = MaskSchema(make_mask_planes(rng, 3, 0), dtype=np.uint8)
+    mask = Mask(0, schema=schema, bbox=Box.factory[0:5, 0:4])
+    assert str(mask) == f"Mask({mask.bbox!s}, {list(mask.schema.names)})"
+    assert repr(mask) == f"Mask(..., bbox={mask.bbox!r}, schema={mask.schema!r})"
