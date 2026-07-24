@@ -55,17 +55,48 @@ def _set_ast_skyframe_system(frame: astshim.SkyFrame, system: str) -> None:
         setattr(frame, "system", system)
 
 
-def _format_sky(sky: SkyCoord) -> str:
-    """Return ``"<RA> <Dec>"`` for a scalar sky coordinate.
+def _ast_skyframe_axis_labels(frame: astshim.SkyFrame) -> tuple[str, str]:
+    """Return the ``(longitude, latitude)`` axis labels of an AST SkyFrame.
 
-    Right ascension is rendered in sexagesimal hours to a tenth of a second
-    and declination in sexagesimal degrees to the nearest arcsecond, matching
-    the ``hh:mm:ss.s`` and ``dd:mm:ss`` axis units reported alongside them.
+    The AST ``LonAxis``/``LatAxis`` attributes say which frame axis carries
+    longitude and which carries latitude, so the labels come back ordered
+    longitude-first regardless of the underlying axis order.  For an ICRS
+    frame these are ``("Right ascension", "Declination")``; for a Galactic
+    frame ``("Galactic longitude", "Galactic latitude")``.
+    """
+    if hasattr(frame, "_impl"):
+        impl = frame._impl
+        lon_axis = impl.LonAxis
+        lat_axis = impl.LatAxis
+        return getattr(impl, f"Label_{lon_axis}"), getattr(impl, f"Label_{lat_axis}")
+    # astshim backend: getLabel/getLonAxis/getLatAxis are only present on the
+    # astshim SkyFrame, which the starlink.Ast type stubs do not describe.
+    get_label = getattr(frame, "getLabel")
+    return get_label(getattr(frame, "getLonAxis")()), get_label(getattr(frame, "getLatAxis")())
+
+
+def _sky_parts(sky: SkyCoord) -> tuple[str, float, str, float]:
+    """Return sexagesimal and decimal-degree pieces of a scalar sky position.
+
+    Returns ``(ra_sexagesimal, ra_deg, dec_sexagesimal, dec_deg)``.  Right
+    ascension is rendered in sexagesimal hours (``hms``) to a tenth of a
+    second and declination in sexagesimal degrees (``dms``) to the nearest
+    arcsecond, so the units are unambiguous.
     """
     return (
-        f"{sky.ra.to_string(unit=u.hour, sep=':', pad=True, precision=1)} "
-        f"{sky.dec.to_string(sep=':', pad=True, alwayssign=True, precision=0)}"
+        sky.ra.to_string(unit=u.hour, sep="hms", pad=True, precision=1),
+        sky.ra.deg,
+        sky.dec.to_string(sep="dms", pad=True, alwayssign=True, precision=0),
+        sky.dec.deg,
     )
+
+
+def _format_pixel_sky(sky: SkyCoord) -> str:
+    """Return the sexagesimal plus labeled decimal-degree form of a sky
+    position, e.g. ``"00h00m29.3s +02d07m51s  (RA 0.122076°, Dec 2.130862°)"``.
+    """
+    ra_sex, ra_deg, dec_sex, dec_deg = _sky_parts(sky)
+    return f"{ra_sex} {dec_sex}  (RA {ra_deg:.6f}°, Dec {dec_deg:+.6f}°)"
 
 
 @final
@@ -202,6 +233,22 @@ class SkyProjection[F: Frame](DescribableMixin):
     def sky_frame(self) -> SkyFrame:
         """Coordinate frame for the sky."""
         return self._pixel_to_sky.out_frame
+
+    def _sky_axis_labels(self) -> tuple[str, str]:
+        """Return the ``(longitude, latitude)`` sky-axis labels.
+
+        The labels are read from the AST SkyFrame when the underlying mapping
+        exposes one, so a non-ICRS frame (e.g. Galactic) reports its own
+        labels.  A projection is always ICRS in practice, so this falls back
+        to ``("Right ascension", "Declination")`` when the mapping is not a
+        frame set.
+        """
+        ast_mapping = self._pixel_to_sky._ast_mapping
+        if isinstance(ast_mapping, astshim.FrameSet):
+            frame = ast_mapping.getFrame(ast_mapping.current, copy=False)
+            if isinstance(frame, astshim.SkyFrame):
+                return _ast_skyframe_axis_labels(frame)
+        return "Right ascension", "Declination"
 
     @property
     def pixel_bounds(self) -> Bounds | None:
@@ -421,79 +468,6 @@ class SkyProjection[F: Frame](DescribableMixin):
             lat_scales.append(center.separation(probe).to_value(u.arcsec) / dpix)
         return [statistics.median(lon_scales), statistics.median(lat_scales)]
 
-    def _pixel_axis_report(
-        self, *, x: float, y: float, extent: tuple[float, float] | None = None
-    ) -> list[tuple[float, str, str, bool]]:
-        """Return per-pixel-axis scale and dominant sky direction.
-
-        Parameters
-        ----------
-        x, y : `float`
-            Reference pixel coordinates at which the axes are characterized.
-        extent : `tuple` [`float`, `float`], optional
-            Pixel extent ``(x_size, y_size)`` of the region to sample.  When
-            given, the scale is the median over a 3x3 grid of test points
-            (the reference point plus/minus 0.3 times each extent); when
-            omitted, a single test point at ``(x, y)`` is used.
-
-        Returns
-        -------
-        `list` [`tuple`]
-            One ``(scale_arcsec, label, units, diagonal)`` entry per pixel
-            axis (``x`` then ``y``).  ``scale_arcsec`` is the nominal pixel
-            scale in arcsec/pixel along that pixel axis, ``label``/``units``
-            name the sky direction the axis predominantly tracks
-            (``"Right ascension"``/``"hh:mm:ss.s"`` or
-            ``"Declination"``/``"dd:mm:ss"``), and ``diagonal`` is `True` when
-            the axis runs near 45 deg to both sky directions (label
-            ambiguous).
-
-        Notes
-        -----
-        This adapts the Starlink KAPPA ``KPG1_SCALE``/``KPG1_PXSCL`` technique
-        to per-pixel-axis reporting.  The scale is the great-circle sky
-        distance for a unit step along the pixel axis (the astropy analogue of
-        AST's ``AST_DISTANCE``).  Great-circle distances keep the result
-        correct near the poles and under coordinate rotation; reporting per
-        pixel axis keeps each scale attached to its pixel axis while the label
-        follows the sky direction, so a ~90 deg rotation swaps the RA/Dec
-        labels correctly.
-        """
-        if extent is not None:
-            step_x = 0.3 * extent[0]
-            step_y = 0.3 * extent[1]
-            grid = list(itertools.product((-step_x, 0.0, step_x), (-step_y, 0.0, step_y)))
-        else:
-            grid = [(0.0, 0.0)]
-        unit_steps = ((1.0, 0.0), (0.0, 1.0))
-        scales: tuple[list[float], list[float]] = ([], [])
-        ra_components: tuple[list[float], list[float]] = ([], [])
-        dec_components: tuple[list[float], list[float]] = ([], [])
-        for dx, dy in grid:
-            cx = x + dx
-            cy = y + dy
-            center = self.pixel_to_sky(x=cx, y=cy)
-            for axis, (ox, oy) in enumerate(unit_steps):
-                step = self.pixel_to_sky(x=cx + ox, y=cy + oy)
-                scales[axis].append(center.separation(step).to_value(u.arcsec))
-                dra = (step.ra - center.ra).wrap_at(180 * u.deg).rad * np.cos(center.dec.rad)
-                ddec = (step.dec - center.dec).rad
-                ra_components[axis].append(abs(dra))
-                dec_components[axis].append(abs(ddec))
-        report: list[tuple[float, str, str, bool]] = []
-        for axis in (0, 1):
-            scale = statistics.median(scales[axis])
-            dra = statistics.median(ra_components[axis])
-            ddec = statistics.median(dec_components[axis])
-            hi = max(dra, ddec)
-            diagonal = hi > 0.0 and min(dra, ddec) / hi > 0.8
-            if dra > ddec:
-                label, units = "Right ascension", "hh:mm:ss.s"
-            else:
-                label, units = "Declination", "dd:mm:ss"
-            report.append((scale, label, units, diagonal))
-        return report
-
     def _describe(self, *, bbox: Box | None = None, **kwargs: Any) -> Report:
         """Return a `Report` describing this sky projection.
 
@@ -502,23 +476,19 @@ class SkyProjection[F: Frame](DescribableMixin):
         bbox : `Box`, optional
             Pixel bounding box.  When provided, the report gains the sky
             coordinates of the box center and corners and the nominal pixel
-            scale along each axis characterized over the box.  When omitted,
-            the pixel scale and axis labels are characterized at the reference
-            pixel (0, 0).
+            scale characterized over the box.  When omitted, the pixel scale is
+            characterized at the reference pixel (0, 0).
         **kwargs
             Unused; accepted for interface compatibility.
         """
-        fields = [
-            ReportField(label="pixel_to_sky", value="<transform>", repr_value="...", positional=True),
-            ReportField(label="domain", value=self.sky_frame.value, role=FieldRole.DERIVED),
-        ]
+        fields: list[ReportField] = []
         # The reference pixel is always (0, 0); the array this projection
         # describes may lie far from it, so name the pixel explicitly.
         reference_sky = self.pixel_to_sky(x=0, y=0)
         fields.append(
             ReportField(
                 label="reference pixel",
-                value=f"(x=0, y=0) → {_format_sky(reference_sky)}",
+                value=f"(x=0, y=0) → {_format_pixel_sky(reference_sky)}",
                 role=FieldRole.DERIVED,
             )
         )
@@ -530,35 +500,51 @@ class SkyProjection[F: Frame](DescribableMixin):
             fields.append(
                 ReportField(
                     label="center pixel",
-                    value=f"(x={cx:g}, y={cy:g}) → {_format_sky(center_sky)}",
+                    value=f"(x={cx:g}, y={cy:g}) → {_format_pixel_sky(center_sky)}",
                     role=FieldRole.DERIVED,
                 )
             )
-            axis_report = self._pixel_axis_report(x=cx, y=cy, extent=(bbox.x.size, bbox.y.size))
-        else:
-            axis_report = self._pixel_axis_report(x=0, y=0)
 
-        # One row per pixel axis; label follows the sky direction the axis
-        # tracks (so a rotation swaps RA/Dec), scale stays with the axis.
-        axis_rows: list[list[Any]] = []
-        for name, (scale, label, units, diagonal) in zip(("x", "y"), axis_report, strict=True):
-            if diagonal:
-                label = f"{label} (diagonal)"
-            axis_rows.append([name, label, units, f"{scale:.6g}"])
+        # The nominal pixel scale is characterized over the box when one is
+        # given, otherwise over a single pixel at the reference pixel (0, 0).
+        lon_label, lat_label = self._sky_axis_labels()
+        lon_scale, lat_scale = self._nominal_pixel_scale(bbox if bbox is not None else Box.factory[0:1, 0:1])
+        # Report a single value when the two axes round to the same 0.01 arcsec
+        # figure; otherwise name each sky axis with its own scale.
+        if round(lon_scale, 2) == round(lat_scale, 2):
+            fields.append(
+                ReportField(
+                    label="Nominal pixel scale", value=f"{lon_scale:.2f} arcsec", role=FieldRole.DERIVED
+                )
+            )
+        else:
+            fields.append(
+                ReportField(
+                    label="Nominal pixel scales",
+                    value=f"{lon_label} {lon_scale:.2f} arcsec; {lat_label} {lat_scale:.2f} arcsec",
+                    role=FieldRole.DERIVED,
+                )
+            )
 
         if bbox is not None:
             mn, mx = bbox.min, bbox.max
             corner_defs = [
-                ("(min x, min y)", mn.x, mn.y),
-                ("(max x, min y)", mx.x, mn.y),
-                ("(max x, max y)", mx.x, mx.y),
-                ("(min x, max y)", mn.x, mx.y),
+                (mn.x, mn.y),
+                (mx.x, mn.y),
+                (mx.x, mx.y),
+                (mn.x, mx.y),
             ]
             rows = []
-            for label, x, y in corner_defs:
-                sky = self.pixel_to_sky(x=x, y=y)
-                rows.append([label, *_format_sky(sky).split(" ", 1)])
-            corners_table.append(ReportTable(title="Corners", columns=["Corner", "RA", "Dec"], rows=rows))
+            for x, y in corner_defs:
+                ra_sex, ra_deg, dec_sex, dec_deg = _sky_parts(self.pixel_to_sky(x=x, y=y))
+                rows.append([f"{x:g}", f"{y:g}", ra_sex, dec_sex, f"{ra_deg:.6f}", f"{dec_deg:+.6f}"])
+            corners_table.append(
+                ReportTable(
+                    title="Corners",
+                    columns=["x", "y", "RA", "Dec", "RA (°)", "Dec (°)"],
+                    rows=rows,
+                )
+            )
 
         if self._fits_approximation is not None:
             fits_wcs = "approximate"
@@ -568,17 +554,12 @@ class SkyProjection[F: Frame](DescribableMixin):
             fits_wcs = "available"
         fields.append(ReportField(label="fits_wcs", value=fits_wcs, role=FieldRole.DERIVED))
 
-        axes = ReportTable(
-            title="Axes",
-            columns=["Axis", "Label", "Units", "Nominal pixel scale"],
-            rows=axis_rows,
-        )
         return Report(
             type_name="SkyProjection",
-            title="ICRS coordinates",
+            title=f"{self.sky_frame.value} coordinates",
             summary=f"{type(self.pixel_frame).__name__} → {self.sky_frame.value}",
             fields=fields,
-            tables=[axes, *corners_table],
+            tables=corners_table,
         )
 
     def serialize[P: pydantic.BaseModel](
