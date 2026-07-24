@@ -127,6 +127,32 @@ def test_repr_html_does_not_write_to_stdout() -> None:
     assert "Interval" in html
 
 
+def test_repr_html_does_not_publish_in_jupyter() -> None:
+    """_repr_html_ returns HTML without also publishing it to the notebook.
+
+    Inside Jupyter a Jupyter-aware rich console publishes its render as a
+    side effect, which would double the displayed output; the console must
+    stay in file mode so only the returned HTML reaches the frontend.
+    """
+    import rich.console as rich_console
+    import rich.jupyter as rich_jupyter
+
+    published: list[str] = []
+    original_is_jupyter = rich_console._is_jupyter
+    original_display = rich_jupyter.display
+    rich_console._is_jupyter = lambda: True
+    rich_jupyter.display = lambda segments, text: published.append(text)
+    try:
+        report = Report(type_name="Interval", fields=[ReportField(label="start", value=3)])
+        html = report._repr_html_()
+    finally:
+        rich_console._is_jupyter = original_is_jupyter
+        rich_jupyter.display = original_display
+
+    assert published == []
+    assert "Interval" in html
+
+
 def test_mixin_derives_dunders_from_describe() -> None:
     """DescribableMixin wires repr/str/html to _describe."""
 

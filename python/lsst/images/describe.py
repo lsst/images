@@ -159,7 +159,10 @@ class Report:
 
     def _repr_html_(self) -> str:
         """Return an HTML rendering produced by rich."""
-        console = Console(record=True, width=100, file=io.StringIO())
+        # force_jupyter=False keeps console.print writing to the recording
+        # buffer; inside a notebook a Jupyter-aware console would instead
+        # publish the render itself, doubling the displayed output.
+        console = Console(record=True, width=100, file=io.StringIO(), force_jupyter=False)
         console.print(self)
         return console.export_html(inline_styles=True)
 
