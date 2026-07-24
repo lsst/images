@@ -35,4 +35,4 @@ def describe(file: str) -> None:  # numpydoc ignore=PR01
         raise click.ClickException(f"Could not read {file}: {err}") from None
     if not isinstance(obj, Describable):
         raise click.ClickException(f"{type(obj).__name__} does not support 'describe'.")
-    Console().print(obj._describe())
+    Console().print(obj.describe())

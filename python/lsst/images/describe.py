@@ -174,6 +174,16 @@ class Describable(Protocol):
         """
         ...
 
+    def describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this object.
+
+        Parameters
+        ----------
+        **kwargs
+            Optional rendering parameters passed through to `_describe`.
+        """
+        ...
+
 
 class DescribableMixin:
     """Mixin that wires repr, str, rich, and HTML rendering to `_describe`."""
