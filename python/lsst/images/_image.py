@@ -13,7 +13,7 @@ from __future__ import annotations
 
 __all__ = ("Image", "ImageSerializationModel")
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from contextlib import ExitStack
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, ClassVar, final
@@ -211,25 +211,33 @@ class Image(GeneralizedImage):
     def __setitem__(self, bbox: Box | EllipsisType, value: Image) -> None:
         self[bbox].quantity[...] = value.quantity
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, *, exclude: Collection[str] = (), **kwargs: Any) -> Report:
         """Return a `Report` describing this image.
 
         Parameters
         ----------
+        exclude : `~collections.abc.Collection` [`str`], optional
+            Names of report elements (``"bbox"``, ``"sky_projection"``) to
+            omit.  Used by composite containers that display the shared value
+            once at the top level.
         **kwargs
             Unused; accepted for interface compatibility.
         """
         children = {}
-        if self._sky_projection is not None:
+        if "sky_projection" not in exclude and self._sky_projection is not None:
             children["sky_projection"] = self._sky_projection._describe(bbox=self._bbox)
+        fields = [
+            ReportField(label="array", value="<array>", repr_value="...", positional=True),
+        ]
+        if "bbox" not in exclude:
+            fields.append(ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)))
+        fields.append(
+            ReportField(label="dtype", value=str(self.array.dtype), repr_value=repr(self.array.dtype))
+        )
         return Report(
             type_name="Image",
             summary=f"Image({self.bbox!s}, {self.array.dtype.type.__name__})",
-            fields=[
-                ReportField(label="array", value="<array>", repr_value="...", positional=True),
-                ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)),
-                ReportField(label="dtype", value=str(self.array.dtype), repr_value=repr(self.array.dtype)),
-            ],
+            fields=fields,
             children=children,
         )
 

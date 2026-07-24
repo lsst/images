@@ -193,3 +193,22 @@ def test_rich_renders_real_image_bbox_literally() -> None:
     assert "[y=0:4, x=0:4]" in text
     html = report._repr_html_()
     assert "[y=0:4, x=0:4]" in html
+
+
+def test_composite_report_deduplicates_bbox_and_sky_projection() -> None:
+    """Composite reports show bbox and sky_projection once, not per
+    component.
+    """
+    path = os.path.join(os.path.dirname(__file__), "data", "schema_v1", "visit_image.json")
+    report = read_archive(path).describe()
+
+    # The composite carries exactly one top-level bbox field and one
+    # top-level sky_projection child.
+    assert sum(1 for f in report.fields if f.label == "bbox") == 1
+    assert "sky_projection" in report.children
+
+    # The image/mask/variance children no longer repeat the shared geometry.
+    for name in ("image", "mask", "variance"):
+        child = report.children[name]
+        assert not any(f.label == "bbox" for f in child.fields), name
+        assert "sky_projection" not in child.children, name

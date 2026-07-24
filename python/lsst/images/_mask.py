@@ -25,7 +25,7 @@ __all__ = (
 
 import dataclasses
 import math
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence, Set
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
@@ -577,25 +577,31 @@ class Mask(GeneralizedImage):
         subview.clear()
         subview.update(value)
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, *, exclude: Collection[str] = (), **kwargs: Any) -> Report:
         """Return a `Report` describing this mask.
 
         Parameters
         ----------
+        exclude : `~collections.abc.Collection` [`str`], optional
+            Names of report elements (``"bbox"``, ``"sky_projection"``) to
+            omit.  Used by composite containers that display the shared value
+            once at the top level.
         **kwargs
             Unused; accepted for interface compatibility.
         """
         children: dict[str, Report] = {"schema": self.schema._describe()}
-        if self._sky_projection is not None:
+        if "sky_projection" not in exclude and self._sky_projection is not None:
             children["sky_projection"] = self._sky_projection._describe(bbox=self._bbox)
+        fields = [
+            ReportField(label="array", value="<array>", repr_value="...", positional=True),
+        ]
+        if "bbox" not in exclude:
+            fields.append(ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)))
+        fields.append(ReportField(label="schema", value=self.schema, repr_value=repr(self.schema)))
         return Report(
             type_name="Mask",
             summary=f"Mask({self.bbox!s}, {list(self.schema.names)})",
-            fields=[
-                ReportField(label="array", value="<array>", repr_value="...", positional=True),
-                ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)),
-                ReportField(label="schema", value=self.schema, repr_value=repr(self.schema)),
-            ],
+            fields=fields,
             children=children,
         )
 

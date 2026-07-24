@@ -273,9 +273,9 @@ class CellCoadd(MaskedImage):
             Unused; accepted for interface compatibility.
         """
         children: dict[str, Report] = {
-            "image": self.image._describe(),
-            "mask": self.mask._describe(),
-            "variance": self.variance._describe(),
+            "image": self.image._describe(exclude={"sky_projection", "bbox"}),
+            "mask": self.mask._describe(exclude={"sky_projection", "bbox"}),
+            "variance": self.variance._describe(exclude={"sky_projection", "bbox"}),
             "sky_projection": self.sky_projection._describe(bbox=self.bbox),
             "psf": self.psf._describe(),
             "backgrounds": self.backgrounds._describe(),
@@ -288,6 +288,9 @@ class CellCoadd(MaskedImage):
                 ReportField(label="tract", value=self.tract, role=FieldRole.DERIVED),
                 ReportField(label="patch", value=self._patch, role=FieldRole.DERIVED),
                 ReportField(label="band", value=self.band, role=FieldRole.DERIVED),
+                ReportField(
+                    label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED
+                ),
             ],
             children=children,
         )

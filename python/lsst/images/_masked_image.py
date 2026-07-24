@@ -33,7 +33,7 @@ from ._geom import Box
 from ._image import DEFAULT_PIXEL_FRAME, Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._transforms import Frame, SkyProjection, SkyProjectionSerializationModel
-from .describe import Report, ReportField
+from .describe import FieldRole, Report, ReportField
 from .serialization import (
     ArchiveTree,
     InputArchive,
@@ -203,9 +203,9 @@ class MaskedImage(GeneralizedImage):
             Unused; accepted for interface compatibility.
         """
         children = {
-            "image": self._image._describe(),
-            "mask": self._mask._describe(),
-            "variance": self._variance._describe(),
+            "image": self._image._describe(exclude={"sky_projection", "bbox"}),
+            "mask": self._mask._describe(exclude={"sky_projection", "bbox"}),
+            "variance": self._variance._describe(exclude={"sky_projection", "bbox"}),
         }
         if self.sky_projection is not None:
             children["sky_projection"] = self.sky_projection._describe(bbox=self.bbox)
@@ -215,6 +215,9 @@ class MaskedImage(GeneralizedImage):
             fields=[
                 ReportField(label="image", value=self.image, repr_value=repr(self.image), positional=True),
                 ReportField(label="mask_schema", value=self.mask.schema, repr_value=repr(self.mask.schema)),
+                ReportField(
+                    label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED
+                ),
             ],
             children=children,
         )

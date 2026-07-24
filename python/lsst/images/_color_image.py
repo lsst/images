@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("ColorImage",)
 
 import functools
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from types import EllipsisType
 from typing import Any, ClassVar, Literal
 
@@ -154,26 +154,33 @@ class ColorImage(GeneralizedImage):
     def __setitem__(self, bbox: Box | EllipsisType, value: ColorImage) -> None:
         self[bbox].array[...] = value.array
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, *, exclude: Collection[str] = (), **kwargs: Any) -> Report:
         """Return a `Report` describing this color image.
 
         Parameters
         ----------
+        exclude : `~collections.abc.Collection` [`str`], optional
+            Names of report elements (``"bbox"``, ``"sky_projection"``) to
+            omit.
         **kwargs
             Unused; accepted for interface compatibility.
         """
         children = {}
         sky_projection = self.sky_projection
-        if sky_projection is not None:
+        if "sky_projection" not in exclude and sky_projection is not None:
             children["sky_projection"] = sky_projection._describe(bbox=self.bbox)
+        fields = [
+            ReportField(label="array", value="<array>", repr_value="...", positional=True),
+        ]
+        if "bbox" not in exclude:
+            fields.append(ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)))
+        fields.append(
+            ReportField(label="dtype", value=str(self._array.dtype), repr_value=repr(self._array.dtype))
+        )
         return Report(
             type_name="ColorImage",
             summary=f"ColorImage({self.bbox!s}, {self._array.dtype.type.__name__})",
-            fields=[
-                ReportField(label="array", value="<array>", repr_value="...", positional=True),
-                ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)),
-                ReportField(label="dtype", value=str(self._array.dtype), repr_value=repr(self._array.dtype)),
-            ],
+            fields=fields,
             children=children,
         )
 
