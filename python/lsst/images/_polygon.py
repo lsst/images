@@ -23,6 +23,7 @@ import shapely
 from pydantic.json_schema import JsonSchemaValue
 
 from ._geom import XY, YX, Bounds, Box
+from .describe import DescribableMixin, Report, ReportField
 from .utils import round_half_down, round_half_up
 
 if TYPE_CHECKING:
@@ -35,7 +36,7 @@ if TYPE_CHECKING:
         type LegacyPolygon = Any  # type: ignore[no-redef]
 
 
-class Region:
+class Region(DescribableMixin):
     """A 2-d Euclidean region represented as one or more polygons with
     optional holes.
 
@@ -87,8 +88,26 @@ class Region:
             raise ValueError("Only Polygon and MultiPolygon geometries can be converted to Regions.")
         return Region(impl).try_to_polygon()
 
-    def __str__(self) -> str:
-        return self._impl.wkt
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this region.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        return Report(
+            type_name="Region",
+            summary=self._impl.wkt,
+            fields=[
+                ReportField(
+                    label="wkt",
+                    value=self._impl.wkt,
+                    repr_value=repr(self._impl.wkt),
+                    positional=True,
+                )
+            ],
+        )
 
     def __repr__(self) -> str:
         return f"Region.from_wkt({self._impl.wkt!r})"
@@ -356,6 +375,23 @@ class Polygon(Region):
         """The centroid of the polygon (`XY` [`float`])."""
         c = self._impl.centroid
         return XY(x=c.x, y=c.y)
+
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this polygon.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        return Report(
+            type_name="Polygon",
+            summary=self._impl.wkt,
+            fields=[
+                ReportField(label="x_vertices", value=self.x_vertices, repr_value=repr(self.x_vertices)),
+                ReportField(label="y_vertices", value=self.y_vertices, repr_value=repr(self.y_vertices)),
+            ],
+        )
 
     def __repr__(self) -> str:
         return f"Polygon(x_vertices={self.x_vertices!r}, y_vertices={self.y_vertices!r})"

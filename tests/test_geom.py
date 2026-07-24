@@ -642,3 +642,16 @@ def test_box_from_sky_circle() -> None:
             SkyCoord(ra=12.0 * u.deg, dec=13.0 * u.deg, frame="icrs"),
             Angle([1.0, 2.0] * u.arcsec),
         )
+
+
+def test_interval_box_repr_str_pinned() -> None:
+    """Interval and Box str/repr match their documented forms."""
+    interval = Interval(start=3, stop=10)
+    assert str(interval) == "3:10"
+    assert repr(interval) == "Interval(start=3, stop=10)"
+
+    box = Box.factory[0:5, 0:4]
+    assert str(box) == f"[y={box.y}, x={box.x}]"
+    assert repr(box) == f"Box(y={box.y!r}, x={box.x!r})"
+    # repr round-trips through eval.
+    assert eval(repr(box), {"Box": Box, "Interval": Interval}) == box

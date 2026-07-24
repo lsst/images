@@ -52,6 +52,7 @@ from pydantic.json_schema import JsonSchemaValue
 
 import starlink.Ast as Ast
 
+from .describe import DescribableMixin, Report, ReportField
 from .utils import round_half_down, round_half_up
 
 if TYPE_CHECKING:
@@ -333,7 +334,7 @@ class _SerializedInterval(TypedDict):
 
 
 @final
-class Interval:
+class Interval(DescribableMixin):
     """A 1-d integer interval with positive size.
 
     Intervals should generally be constructed by a classmethod factory (e.g.
@@ -527,11 +528,22 @@ class Interval:
         """
         return Interval(self.start - padding, self.stop + padding)
 
-    def __str__(self) -> str:
-        return f"{self.start}:{self.stop}"
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this interval.
 
-    def __repr__(self) -> str:
-        return f"Interval(start={self.start}, stop={self.stop})"
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        return Report(
+            type_name="Interval",
+            summary=f"{self.start}:{self.stop}",
+            fields=[
+                ReportField(label="start", value=self.start),
+                ReportField(label="stop", value=self.stop),
+            ],
+        )
 
     def __eq__(self, other: object) -> bool:
         if type(other) is Interval:
@@ -770,7 +782,7 @@ class _SerializedBox(TypedDict):
     x: _SerializedInterval
 
 
-class Box:
+class Box(DescribableMixin):
     """An axis-aligned 2-d rectangular region.
 
     Boxes should generally be constructed by a classmethod factory (e.g.
@@ -1078,11 +1090,22 @@ class Box:
             return self._intervals == other._intervals
         return False
 
-    def __str__(self) -> str:
-        return f"[y={self.y}, x={self.x}]"
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this box.
 
-    def __repr__(self) -> str:
-        return f"Box(y={self.y!r}, x={self.x!r})"
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        return Report(
+            type_name="Box",
+            summary=f"[y={self.y}, x={self.x}]",
+            fields=[
+                ReportField(label="y", value=self.y, repr_value=repr(self.y)),
+                ReportField(label="x", value=self.x, repr_value=repr(self.x)),
+            ],
+        )
 
     @overload
     def contains(self, other: Box, /) -> bool: ...
