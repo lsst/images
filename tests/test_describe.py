@@ -228,10 +228,6 @@ def test_repr_str_do_not_trigger_detail() -> None:
 
 def test_composite_detail_propagates_to_mask_counts() -> None:
     """describe(detail=True) on a composite reaches the nested mask counts."""
-    import os
-
-    from lsst.images.serialization import read_archive
-
     path = os.path.join(os.path.dirname(__file__), "data", "schema_v1", "visit_image.json")
     visit_image = read_archive(path)
 
