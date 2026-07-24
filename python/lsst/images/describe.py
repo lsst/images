@@ -125,7 +125,7 @@ class Report:
         return f"{self.type_name}({inner})"
 
     def _field_line(self, field: ReportField) -> str:
-        """Return a ``label : value unit`` line for a field."""
+        """Return a ``label: value unit`` string for a field."""
         text = f"{field.label}: {field.value}"
         if field.unit is not None:
             text = f"{text} {field.unit}"

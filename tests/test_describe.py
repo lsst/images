@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+from rich.console import Console
+
 from lsst.images.describe import DescribableMixin, FieldRole, Report, ReportField, ReportTable
 
 
@@ -82,8 +84,6 @@ def test_to_str_without_summary_lists_fields() -> None:
 
 def test_rich_renders_fields_tables_and_children() -> None:
     """__rich__ output contains labels, table headers, and child keys."""
-    from rich.console import Console
-
     report = Report(
         type_name="SkyProjection",
         title="ICRS coordinates",
