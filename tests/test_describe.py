@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import os
 
+import numpy as np
 from rich.console import Console
 
+from lsst.images._geom import Box
+from lsst.images._image import Image
 from lsst.images.describe import DescribableMixin, FieldRole, Report, ReportField, ReportTable
 from lsst.images.serialization import read_archive
 
@@ -153,3 +156,40 @@ def test_visit_image_describe_nested() -> None:
     # Rich and HTML renderers run without error.
     assert isinstance(report._repr_html_(), str)
     report.__rich__()
+
+
+def test_rich_renders_bracketed_values_literally() -> None:
+    """Bracketed strings in field values and table cells render verbatim."""
+    report = Report(
+        type_name="TestType",
+        fields=[ReportField(label="region", value="[y=0:4, x=0:4]")],
+        tables=[
+            ReportTable(
+                title="Cells",
+                columns=["Value"],
+                rows=[["[y=0:4, x=0:4]"], ["[/x=0:4]"]],
+            )
+        ],
+    )
+    console = Console(record=True, width=120)
+    console.print(report)
+    text = console.export_text()
+    # Both bracket styles must appear verbatim in the exported text.
+    assert "[y=0:4, x=0:4]" in text
+    assert "[/x=0:4]" in text
+    # _repr_html_ must not raise on either bracket style.
+    html = report._repr_html_()
+    assert "[y=0:4, x=0:4]" in html
+    assert "[/x=0:4]" in html
+
+
+def test_rich_renders_real_image_bbox_literally() -> None:
+    """A real Image with a bracketed bbox renders the bbox verbatim."""
+    img = Image(np.zeros((4, 4), dtype=np.float32), bbox=Box.factory[0:4, 0:4])
+    report = img._describe()
+    console = Console(record=True, width=120)
+    console.print(report)
+    text = console.export_text()
+    assert "[y=0:4, x=0:4]" in text
+    html = report._repr_html_()
+    assert "[y=0:4, x=0:4]" in html

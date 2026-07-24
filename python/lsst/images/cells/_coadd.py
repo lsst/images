@@ -277,10 +277,9 @@ class CellCoadd(MaskedImage):
             "mask": self.mask._describe(),
             "variance": self.variance._describe(),
             "sky_projection": self.sky_projection._describe(bbox=self.bbox),
+            "psf": self.psf._describe(),
+            "backgrounds": self.backgrounds._describe(),
         }
-        for name, comp in [("psf", self.psf), ("backgrounds", self.backgrounds)]:
-            if hasattr(comp, "_describe"):
-                children[name] = comp._describe()
         return Report(
             type_name="CellCoadd",
             summary=f"CellCoadd({self.bbox!s}, tract={self.tract})",

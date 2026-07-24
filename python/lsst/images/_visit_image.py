@@ -326,17 +326,12 @@ class VisitImage(MaskedImage):
             "mask": self.mask._describe(),
             "variance": self.variance._describe(),
             "sky_projection": self.sky_projection._describe(bbox=self.bbox),
+            "psf": self.psf._describe(),
+            "detector": self.detector._describe(),
+            "summary_stats": self.summary_stats._describe(),
+            "backgrounds": self.backgrounds._describe(),
         }
-        for name, comp in [
-            ("psf", self.psf),
-            ("detector", self.detector),
-            ("summary_stats", self.summary_stats),
-            ("aperture_corrections", self.aperture_corrections),
-            ("backgrounds", self.backgrounds),
-        ]:
-            if hasattr(comp, "_describe"):
-                children[name] = comp._describe()
-        if self.photometric_scaling is not None and hasattr(self.photometric_scaling, "_describe"):
+        if self.photometric_scaling is not None:
             children["photometric_scaling"] = self.photometric_scaling._describe()
         return Report(
             type_name="VisitImage",

@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 from rich.tree import Tree
 
 if TYPE_CHECKING:
@@ -133,22 +134,25 @@ class Report:
 
     def _as_table(self, table: ReportTable) -> Table:
         """Convert a `ReportTable` to a `rich.table.Table`."""
-        rich_table = Table(title=table.title, title_justify="left")
+        rich_table = Table(
+            title=Text(table.title) if table.title is not None else None,
+            title_justify="left",
+        )
         for column in table.columns:
-            rich_table.add_column(column)
+            rich_table.add_column(Text(column))
         for row in table.rows:
-            rich_table.add_row(*(str(cell) for cell in row))
+            rich_table.add_row(*(Text(str(cell)) for cell in row))
         return rich_table
 
     def __rich__(self) -> Tree:
         """Return a `rich.tree.Tree` describing this report."""
-        tree = Tree(self.title if self.title is not None else self.type_name)
+        tree = Tree(Text(self.title if self.title is not None else self.type_name))
         for field in self.fields:
-            tree.add(self._field_line(field))
+            tree.add(Text(self._field_line(field)))
         for table in self.tables:
             tree.add(self._as_table(table))
         for key, child in self.children.items():
-            branch = tree.add(key)
+            branch = tree.add(Text(key))
             branch.add(child.__rich__())
         return tree
 

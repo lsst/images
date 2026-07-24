@@ -262,8 +262,8 @@ class DifferenceImage(VisitImage):
         report = super()._describe(**kwargs)
         report.type_name = "DifferenceImage"
         report.summary = f"DifferenceImage({self.image!s}, {list(self.mask.schema.names)})"
-        if self._kernel is not None and hasattr(self._kernel, "_describe"):
-            report.children["kernel"] = self._kernel._describe()
+        # ConvolutionKernel does not implement _describe; omit it from the
+        # report until a describe method is added to that class.
         return report
 
     def copy(self, *, copy_detector: bool = False) -> DifferenceImage:
