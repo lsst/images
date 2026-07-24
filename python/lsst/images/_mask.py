@@ -17,6 +17,7 @@ __all__ = (
     "MaskPlaneBit",
     "MaskSchema",
     "MaskSerializationModel",
+    "MaskSqueezeError",
     "get_legacy_deep_coadd_mask_planes",
     "get_legacy_difference_image_mask_planes",
     "get_legacy_non_cell_coadd_mask_planes",
@@ -62,6 +63,19 @@ if TYPE_CHECKING:
         from lsst.afw.image import Mask as LegacyMask
     except ImportError:
         type LegacyMask = Any  # type: ignore[no-redef]
+
+
+class MaskSqueezeError(RuntimeError):
+    """Exception raised when an operation requires a "squeezable" mask, i.e.
+    one with `MaskSchema.mask_size` equal to one.
+    """
+
+    def __init__(
+        self,
+        msg: str = "Last dimension of Mask.array is not one.  Use 'consolidate' to make a new mask first.",
+        *args: Any,
+    ):
+        super().__init__(msg, *args)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -115,7 +129,7 @@ class MaskPlaneBit:
     is stored.
     """
 
-    mask: np.integer
+    mask: np.unsigned
     """Bitmask that selects just this plane's bit from a mask array value
     (`numpy.integer`).
     """
@@ -244,9 +258,22 @@ class MaskSchema:
     @property
     def mask_size(self) -> int:
         """The number of elements in the last dimension of any mask array that
-        uses this schema.
+        uses this schema (`int`).
         """
         return self._mask_size
+
+    @property
+    def can_squeeze(self) -> bool:
+        """Whether this mask schema has only one array entry for each pixel
+        (`bool`).
+
+        This allows the mask's 3-d array to be reshaped to 2-d ("squeezed")
+        without losing any information.   (see `Mask.array_s` and
+        `MaskSchema.bitmask_s`).
+
+        Use `consolidate` to convert a mask to this form (if possible).
+        """
+        return self._mask_size == 1
 
     @property
     def names(self) -> Set[str]:
@@ -286,6 +313,34 @@ class MaskSchema:
         for plane in planes:
             bit = self._bits[plane]
             result[bit.index] |= bit.mask
+        return result
+
+    def bitmask_s(self, *planes: str) -> np.unsigned:
+        """Return an integer mask pixel value (i.e. bitwise OR) of the planes
+        with the given names.
+
+        Parameters
+        ----------
+        *planes
+            Mask plane names.
+
+        Returns
+        -------
+        int
+            An integer bitmask.  This can be using in regular bitwise
+            arithmetic operators with `Mask.array_s`.
+
+        Raises
+        ------
+        MaskSqueezeError
+            Raised if `can_squeeze` is `False`.
+        """
+        if self.is_flat:
+            raise MaskSqueezeError()
+        result: np.unsigned = self._dtype.type(0)
+        for plane in planes:
+            bit = self._bits[plane]
+            result |= bit.mask
         return result
 
     def with_dtype(self, dtype: npt.DTypeLike, *, keep_placeholders: bool = False) -> MaskSchema:
@@ -540,6 +595,9 @@ class Mask(GeneralizedImage):
     def array(self) -> np.ndarray:
         """The low-level array (`numpy.ndarray`).
 
+        This is a 3-d array with shape ``(height, width, schema.mask_size)``.
+        See if `array_s` for a 2-d array view that may be available.
+
         Assigning to this attribute modifies the existing array in place; the
         bounding box and underlying data pointer are never changed.
         """
@@ -575,6 +633,35 @@ class Mask(GeneralizedImage):
         box ``start`` (i.e. ``yx0``); they are not just array indices.
         """
         return self._sky_projection
+
+    @property
+    def can_squeeze(self) -> bool:
+        """Whether this mask schema has only one array entry for each pixel
+        (`bool`).
+
+        This allows the mask's 3-d array to be reshaped to 2-d ("squeezed")
+        without losing any information (see `Mask.array_s` and
+        `MaskSchema.bitmask_s`).
+
+        Use `consolidate` to convert a mask to this form (if possible).
+        """
+        return self.schema.can_squeeze
+
+    @property
+    def array_s(self) -> np.ndarray:
+        """A 2-d view of `array` that squeezes out the last (i.e. pixel)
+        dimension if its size is one (`numpy.ndarray`).
+
+        Since this array's values are just integers, they can be manipulated
+        directly with bitwise arithmetic operators.  Corresponding scalar
+        values can be obtained from `schema.bitmask_s <MaskSchema.bitmask_s>`.
+
+        Raises `MaskSqueezeError` if the last dimension's size is not one.
+        """
+        try:
+            return self._array.squeeze(axis=2)
+        except ValueError as err:
+            raise MaskSqueezeError() from err
 
     def __getitem__(self, bbox: Box | EllipsisType) -> Mask:
         bbox, indices = self._handle_getitem_args(bbox)
