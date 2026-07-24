@@ -257,7 +257,7 @@ class DifferenceImage(VisitImage):
         Parameters
         ----------
         **kwargs
-            Unused; accepted for interface compatibility.
+            Render keyword arguments forwarded to all children.
         """
         report = super()._describe(**kwargs)
         report.type_name = "DifferenceImage"
