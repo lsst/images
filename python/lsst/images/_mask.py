@@ -221,25 +221,34 @@ class MaskSchema(DescribableMixin):
     def __getitem__(self, i: int) -> MaskPlane | None:
         return self._planes[i]
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, *, counts: Mapping[str, int] | None = None, **kwargs: Any) -> Report:
         """Return a `Report` describing this mask schema.
 
         Parameters
         ----------
+        counts : `~collections.abc.Mapping` [`str`, `int`], optional
+            Number of set pixels per plane name.  When provided, the mask
+            planes table gains a ``"Set pixels"`` column.
         **kwargs
             Unused; accepted for interface compatibility.
         """
-        rows = [
-            [
+        columns = ["Bit", "Index", "Mask", "Name", "Description"]
+        if counts is not None:
+            columns.append("Set pixels")
+        rows = []
+        for n, plane in enumerate(self._planes):
+            if plane is None:
+                continue
+            row: list[Any] = [
                 n,
                 self._bits[plane.name].index,
                 hex(self._bits[plane.name].mask),
                 plane.name,
                 plane.description,
             ]
-            for n, plane in enumerate(self._planes)
-            if plane is not None
-        ]
+            if counts is not None:
+                row.append(counts.get(plane.name, 0))
+            rows.append(row)
         return Report(
             type_name="MaskSchema",
             fields=[
@@ -254,7 +263,7 @@ class MaskSchema(DescribableMixin):
             tables=[
                 ReportTable(
                     title="Mask planes",
-                    columns=["Bit", "Index", "Mask", "Name", "Description"],
+                    columns=columns,
                     rows=rows,
                 )
             ],
@@ -577,7 +586,7 @@ class Mask(GeneralizedImage):
         subview.clear()
         subview.update(value)
 
-    def _describe(self, *, exclude: Collection[str] = (), **kwargs: Any) -> Report:
+    def _describe(self, *, exclude: Collection[str] = (), detail: bool = False, **kwargs: Any) -> Report:
         """Return a `Report` describing this mask.
 
         Parameters
@@ -586,10 +595,19 @@ class Mask(GeneralizedImage):
             Names of report elements (``"bbox"``, ``"sky_projection"``) to
             omit.  Used by composite containers that display the shared value
             once at the top level.
+        detail : `bool`, optional
+            When `True`, include per-plane set-pixel counts in the schema
+            table.  This scans the pixel data and is used by the rich, HTML,
+            and command-line renderings.
         **kwargs
             Unused; accepted for interface compatibility.
         """
-        children: dict[str, Report] = {"schema": self.schema._describe()}
+        if detail:
+            counts = {name: int(np.count_nonzero(self.get(name))) for name in self.schema.names}
+            schema_report = self.schema._describe(counts=counts)
+        else:
+            schema_report = self.schema._describe()
+        children: dict[str, Report] = {"schema": schema_report}
         if "sky_projection" not in exclude and self._sky_projection is not None:
             children["sky_projection"] = self._sky_projection._describe(bbox=self._bbox)
         fields = [

@@ -18,6 +18,7 @@ from rich.console import Console
 
 from lsst.images._geom import Box
 from lsst.images._image import Image
+from lsst.images._mask import Mask, MaskPlane, MaskSchema
 from lsst.images.describe import DescribableMixin, FieldRole, Report, ReportField, ReportTable
 from lsst.images.serialization import read_archive
 
@@ -212,3 +213,14 @@ def test_composite_report_deduplicates_bbox_and_sky_projection() -> None:
         child = report.children[name]
         assert not any(f.label == "bbox" for f in child.fields), name
         assert "sky_projection" not in child.children, name
+
+
+def test_repr_str_do_not_trigger_detail() -> None:
+    """Repr and str never pass detail; a MaskSchema report from repr has no
+    counts column.
+    """
+    schema = MaskSchema([MaskPlane("BAD", "bad")], dtype=np.uint8)
+    mask = Mask(0, schema=schema, bbox=Box.factory[0:2, 0:2])
+    # repr/str must be unaffected and cheap.
+    assert repr(mask).startswith("Mask(")
+    assert str(mask).startswith("Mask(")

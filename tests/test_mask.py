@@ -539,3 +539,23 @@ def test_mask_repr_str_pinned() -> None:
     mask = Mask(0, schema=schema, bbox=Box.factory[0:5, 0:4])
     assert str(mask) == f"Mask({mask.bbox!s}, {list(mask.schema.names)})"
     assert repr(mask) == f"Mask(..., bbox={mask.bbox!r}, schema={mask.schema!r})"
+
+
+def test_mask_describe_detail_reports_set_pixel_counts() -> None:
+    """detail=True adds a 'Set pixels' column with per-plane counts."""
+    schema = MaskSchema([MaskPlane("BAD", "bad"), MaskPlane("DET", "detected")], dtype=np.uint8)
+    mask = Mask(0, schema=schema, bbox=Box.factory[0:4, 0:5])
+    mask.set("BAD", mask.get("BAD") | (np.arange(20).reshape(4, 5) < 3))
+
+    # Cheap path: no counts, no extra column.
+    plain = mask.describe().children["schema"]
+    plain_table = next(t for t in plain.tables if t.title == "Mask planes")
+    assert "Set pixels" not in plain_table.columns
+
+    # Detailed path: 'Set pixels' column present with correct counts.
+    detailed = mask.describe(detail=True).children["schema"]
+    table = next(t for t in detailed.tables if t.title == "Mask planes")
+    assert table.columns[-1] == "Set pixels"
+    counts = {row[3]: row[-1] for row in table.rows}  # row[3] is the Name column
+    assert counts["BAD"] == 3
+    assert counts["DET"] == 0

@@ -219,7 +219,7 @@ class DescribableMixin:
         return self._describe().to_str()
 
     def _repr_html_(self) -> str:
-        return self._describe()._repr_html_()
+        return self._describe(detail=True)._repr_html_()
 
     def __rich__(self) -> RenderableType:
-        return self._describe().__rich__()
+        return self._describe(detail=True).__rich__()
