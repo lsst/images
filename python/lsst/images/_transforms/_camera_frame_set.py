@@ -19,6 +19,7 @@ import astropy.units as u
 import pydantic
 
 from .._geom import Bounds, Box
+from ..describe import FieldRole, Report, ReportField
 from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 from . import _ast as astshim
 from . import _frames  # use this import style to facilitate pattern matching
@@ -98,6 +99,20 @@ class CameraFrameSet(FrameSet):
     def instrument(self) -> str:
         """Name of the instrument (`str`)."""
         return self._focal_plane_frame.instrument
+
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this camera frame set.
+
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        return Report(
+            type_name="CameraFrameSet",
+            summary=f"CameraFrameSet({self.instrument!r})",
+            fields=[ReportField(label="instrument", value=self.instrument, role=FieldRole.DERIVED)],
+        )
 
     def focal_plane(self, visit: int | None = None) -> _frames.FocalPlaneFrame:
         """Return a focal plane frame for this instrument.

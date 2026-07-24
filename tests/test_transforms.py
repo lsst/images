@@ -816,3 +816,15 @@ def test_sky_projection_describe() -> None:
 
     # repr does not depend on a bbox and does not evaluate the mapping.
     assert repr(sky_projection).startswith("SkyProjection(")
+
+
+def test_transform_describe() -> None:
+    """Transform._describe reports its frames and bounds."""
+    pixel_frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=Box.factory[:5, :4])
+    transform = Transform(pixel_frame, ICRS, astshim.UnitMap(2))
+    report = transform.describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "Transform"
+    labels = {f.label for f in report.fields}
+    assert {"in_frame", "out_frame"} <= labels
+    assert any(f.label == "mapping" for f in report.fields)
