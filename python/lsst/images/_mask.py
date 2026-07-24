@@ -41,6 +41,7 @@ from . import fits
 from ._generalized_image import GeneralizedImage
 from ._geom import YX, Box, NoOverlapError
 from ._transforms import Frame, SkyProjection, SkyProjectionSerializationModel
+from .describe import DescribableMixin, Report, ReportField, ReportTable
 from .serialization import (
     ArchiveReadError,
     ArchiveTree,
@@ -149,7 +150,7 @@ class MaskPlaneBit:
         return bool(value[self.index] & self.mask)
 
 
-class MaskSchema:
+class MaskSchema(DescribableMixin):
     """A schema for a bit-packed mask array.
 
     Parameters
@@ -220,15 +221,43 @@ class MaskSchema:
     def __getitem__(self, i: int) -> MaskPlane | None:
         return self._planes[i]
 
-    def __repr__(self) -> str:
-        return f"MaskSchema({list(self._planes)}, dtype={self._dtype!r})"
+    def _describe(self, **kwargs: Any) -> Report:
+        """Return a `Report` describing this mask schema.
 
-    def __str__(self) -> str:
-        return "\n".join(
+        Parameters
+        ----------
+        **kwargs
+            Unused; accepted for interface compatibility.
+        """
+        rows = [
             [
-                f"{name} [{bit.index}@{hex(bit.mask)}]: {self._descriptions[name]}"
-                for name, bit in self._bits.items()
+                n,
+                self._bits[plane.name].index,
+                hex(self._bits[plane.name].mask),
+                plane.name,
+                plane.description,
             ]
+            for n, plane in enumerate(self._planes)
+            if plane is not None
+        ]
+        return Report(
+            type_name="MaskSchema",
+            fields=[
+                ReportField(
+                    label="planes",
+                    value=f"<{len(self._planes)} planes>",
+                    repr_value=repr(list(self._planes)),
+                    positional=True,
+                ),
+                ReportField(label="dtype", value=str(self._dtype), repr_value=repr(self._dtype)),
+            ],
+            tables=[
+                ReportTable(
+                    title="Mask planes",
+                    columns=["Bit", "Index", "Mask", "Name", "Description"],
+                    rows=rows,
+                )
+            ],
         )
 
     def __eq__(self, other: object) -> bool:
