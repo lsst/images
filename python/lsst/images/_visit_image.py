@@ -319,20 +319,21 @@ class VisitImage(MaskedImage):
         Parameters
         ----------
         **kwargs
-            Unused; accepted for interface compatibility.
+            Render keyword arguments forwarded to all children.
         """
+        child_kwargs = {k: v for k, v in kwargs.items() if k not in ("exclude", "bbox")}
         children: dict[str, Report] = {
-            "image": self.image._describe(exclude={"sky_projection", "bbox"}),
-            "mask": self.mask._describe(exclude={"sky_projection", "bbox"}),
-            "variance": self.variance._describe(exclude={"sky_projection", "bbox"}),
-            "sky_projection": self.sky_projection._describe(bbox=self.bbox),
-            "psf": self.psf._describe(),
-            "detector": self.detector._describe(),
-            "summary_stats": self.summary_stats._describe(),
-            "backgrounds": self.backgrounds._describe(),
+            "image": self.image._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
+            "mask": self.mask._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
+            "variance": self.variance._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
+            "sky_projection": self.sky_projection._describe(bbox=self.bbox, **child_kwargs),
+            "psf": self.psf._describe(**child_kwargs),
+            "detector": self.detector._describe(**child_kwargs),
+            "summary_stats": self.summary_stats._describe(**child_kwargs),
+            "backgrounds": self.backgrounds._describe(**child_kwargs),
         }
         if self.photometric_scaling is not None:
-            children["photometric_scaling"] = self.photometric_scaling._describe()
+            children["photometric_scaling"] = self.photometric_scaling._describe(**child_kwargs)
         return Report(
             type_name="VisitImage",
             summary=f"VisitImage({self.image!s}, {list(self.mask.schema.names)})",

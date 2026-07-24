@@ -224,3 +224,24 @@ def test_repr_str_do_not_trigger_detail() -> None:
     # repr/str must be unaffected and cheap.
     assert repr(mask).startswith("Mask(")
     assert str(mask).startswith("Mask(")
+
+
+def test_composite_detail_propagates_to_mask_counts() -> None:
+    """describe(detail=True) on a composite reaches the nested mask counts."""
+    import os
+
+    from lsst.images.serialization import read_archive
+
+    path = os.path.join(os.path.dirname(__file__), "data", "schema_v1", "visit_image.json")
+    visit_image = read_archive(path)
+
+    # Cheap composite report: mask schema table has no counts column.
+    plain = visit_image.describe().children["mask"].children["schema"]
+    plain_table = next(t for t in plain.tables if t.title == "Mask planes")
+    assert "Set pixels" not in plain_table.columns
+
+    # Detailed composite report: the nested mask schema gains the counts
+    # column.
+    detailed = visit_image.describe(detail=True).children["mask"].children["schema"]
+    table = next(t for t in detailed.tables if t.title == "Mask planes")
+    assert table.columns[-1] == "Set pixels"

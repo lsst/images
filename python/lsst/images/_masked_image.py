@@ -200,15 +200,16 @@ class MaskedImage(GeneralizedImage):
         Parameters
         ----------
         **kwargs
-            Unused; accepted for interface compatibility.
+            Render keyword arguments forwarded to all children.
         """
+        child_kwargs = {k: v for k, v in kwargs.items() if k not in ("exclude", "bbox")}
         children = {
-            "image": self._image._describe(exclude={"sky_projection", "bbox"}),
-            "mask": self._mask._describe(exclude={"sky_projection", "bbox"}),
-            "variance": self._variance._describe(exclude={"sky_projection", "bbox"}),
+            "image": self._image._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
+            "mask": self._mask._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
+            "variance": self._variance._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
         }
         if self.sky_projection is not None:
-            children["sky_projection"] = self.sky_projection._describe(bbox=self.bbox)
+            children["sky_projection"] = self.sky_projection._describe(bbox=self.bbox, **child_kwargs)
         return Report(
             type_name="MaskedImage",
             summary=f"MaskedImage({self.image!s}, {list(self.mask.schema.names)})",
