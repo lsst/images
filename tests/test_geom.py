@@ -35,6 +35,15 @@ from lsst.images import (
 )
 from lsst.images.tests import assert_close, check_bounds_contains_broadcasting
 
+try:
+    import galsim
+
+    HAVE_GALSIM = True
+except ImportError:
+    HAVE_GALSIM = False
+
+skip_no_galsim = pytest.mark.skipif(not HAVE_GALSIM, reason="galsim is not installed")
+
 
 class IntervalModel(pydantic.BaseModel):
     """Test Pydantic model with an Interval."""
@@ -667,3 +676,55 @@ def test_interval_box_repr_str_pinned() -> None:
     assert repr(box) == f"Box(y={box.y!r}, x={box.x!r})"
     # repr round-trips through eval.
     assert eval(repr(box), {"Box": Box, "Interval": Interval}) == box
+
+
+@skip_no_galsim
+def test_yx_to_galsim_int_position() -> None:
+    """Test YX.to_galsim_int_position converts to galsim.PositionI."""
+    yx = YX(y=5, x=7)
+    pos = yx.to_galsim_int_position()
+    assert isinstance(pos, galsim.PositionI)
+    assert pos.x == 7
+    assert pos.y == 5
+
+
+@skip_no_galsim
+def test_yx_to_galsim_float_position() -> None:
+    """Test YX.to_galsim_float_position converts to galsim.PositionD."""
+    yx = YX(y=2.5, x=3.7)
+    pos = yx.to_galsim_float_position()
+    assert isinstance(pos, galsim.PositionD)
+    assert pos.x == 3.7
+    assert pos.y == 2.5
+
+
+@skip_no_galsim
+def test_xy_to_galsim_int_position() -> None:
+    """Test XY.to_galsim_int_position converts to galsim.PositionI."""
+    xy = XY(x=7, y=5)
+    pos = xy.to_galsim_int_position()
+    assert isinstance(pos, galsim.PositionI)
+    assert pos.x == 7
+    assert pos.y == 5
+
+
+@skip_no_galsim
+def test_xy_to_galsim_float_position() -> None:
+    """Test XY.to_galsim_float_position converts to galsim.PositionD."""
+    xy = XY(x=3.7, y=2.5)
+    pos = xy.to_galsim_float_position()
+    assert isinstance(pos, galsim.PositionD)
+    assert pos.x == 3.7
+    assert pos.y == 2.5
+
+
+@skip_no_galsim
+def test_box_to_galsim_bounds() -> None:
+    """Test Box.to_galsim_bounds converts to galsim.BoundsI."""
+    box = Box.factory[5:15, 10:30]
+    bounds = box.to_galsim_bounds()
+    assert isinstance(bounds, galsim.BoundsI)
+    assert bounds.xmin == 10
+    assert bounds.xmax == 29
+    assert bounds.ymin == 5
+    assert bounds.ymax == 14

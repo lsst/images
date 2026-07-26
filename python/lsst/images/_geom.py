@@ -72,6 +72,15 @@ if TYPE_CHECKING:
         type LegacyExtent2D = Any  # type: ignore[no-redef]
         type LegacyPoint2D = Any  # type: ignore[no-redef]
 
+    try:
+        from galsim import BoundsI as GalSimBoundsI
+        from galsim import PositionD as GalSimPositionD
+        from galsim import PositionI as GalSimPositionI
+    except ImportError:
+        type GalSimBoundsI = Any  # type: ignore[no-redef]
+        type GalSimPositionD = Any  # type: ignore[no-redef]
+        type GalSimPositionI = Any  # type: ignore[no-redef]
+
 # This pre-python-3.12 declaration is needed by Sphinx (probably the
 # autodoc-typehints plugin.
 T = TypeVar("T")
@@ -166,6 +175,18 @@ class YX[T](NamedTuple):
         from lsst.geom import Point2D as LegacyPoint2D
 
         return LegacyPoint2D(self.x, self.y)
+
+    def to_galsim_int_position(self) -> GalSimPositionI:
+        """Convert to a `galsim.PositionI` object."""
+        from galsim import PositionI
+
+        return PositionI(self.x, self.y)
+
+    def to_galsim_float_position(self) -> GalSimPositionD:
+        """Convert to a `galsim.PositionD` object."""
+        from galsim import PositionD
+
+        return PositionD(self.x, self.y)
 
     @classmethod
     def __get_pydantic_core_schema__(
@@ -275,6 +296,18 @@ class XY[T](NamedTuple):
         from lsst.geom import Point2D as LegacyPoint2D
 
         return LegacyPoint2D(self.x, self.y)
+
+    def to_galsim_int_position(self) -> GalSimPositionI:
+        """Convert to a `galsim.PositionI` object."""
+        from galsim import PositionI
+
+        return PositionI(self.x, self.y)
+
+    def to_galsim_float_position(self) -> GalSimPositionD:
+        """Convert to a `galsim.PositionD` object."""
+        from galsim import PositionD
+
+        return PositionD(self.x, self.y)
 
     @classmethod
     def __get_pydantic_core_schema__(
@@ -1276,6 +1309,12 @@ class Box:
         from lsst.geom import Box2I
 
         return Box2I(x=self.x.to_legacy(), y=self.y.to_legacy())
+
+    def to_galsim_bounds(self) -> GalSimBoundsI:
+        """Convert to a `galsim.BoundsI` instance."""
+        from galsim import BoundsI
+
+        return BoundsI(xmin=self.x.min, xmax=self.x.max, ymin=self.y.min, ymax=self.y.max)
 
     @classmethod
     def __get_pydantic_core_schema__(

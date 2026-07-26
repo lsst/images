@@ -40,6 +40,13 @@ try:
 except ImportError:
     HAVE_H5PY = False
 
+try:
+    import galsim  # noqa: F401
+
+    HAVE_GALSIM = True
+except ImportError:
+    HAVE_GALSIM = False
+
 if TYPE_CHECKING:
     try:
         from lsst.afw.image import MaskedImageReader as LegacyMaskedImageReader
@@ -49,6 +56,8 @@ if TYPE_CHECKING:
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
+
+skip_no_galsim = pytest.mark.skipif(not HAVE_GALSIM, reason="galsim is not installed")
 
 
 @dataclasses.dataclass
@@ -288,3 +297,35 @@ def test_image_repr_str_pinned() -> None:
     image = Image(np.zeros((5, 4), dtype=np.float32), bbox=Box.factory[0:5, 0:4])
     assert str(image) == f"Image({image.bbox!s}, float32)"
     assert repr(image) == f"Image(..., bbox={image.bbox!r}, dtype={image.array.dtype!r})"
+
+
+@skip_no_galsim
+def test_to_galsim() -> None:
+    """Test Image.to_galsim conversion."""
+    # Basic conversion with a non-zero bbox offset.
+    data = np.arange(12, dtype=np.float64).reshape(3, 4)
+    image = Image(data, bbox=Box.factory[-2:1, 3:7])
+    galsim_image = image.to_galsim()
+
+    # Array data should match.
+    np.testing.assert_array_equal(galsim_image.array, data)
+    # Bbox offset should be propagated to xmin/ymin.
+    assert galsim_image.xmin == image.bbox.x.min
+    assert galsim_image.ymin == image.bbox.y.min
+    assert galsim_image.xmax == image.bbox.x.max
+    assert galsim_image.ymax == image.bbox.y.max
+    # Default is a view (copy=False).
+    assert np.shares_memory(galsim_image.array, image.array)
+
+    # copy=True should produce an independent copy.
+    galsim_copy = image.to_galsim(copy=True)
+    np.testing.assert_array_equal(galsim_copy.array, data)
+    assert not np.shares_memory(galsim_copy.array, image.array)
+
+    # Modifying the copy should not affect the original.
+    galsim_copy.array[0, 0] = 999.0
+    assert image.array[0, 0] != 999.0
+
+    # Modifying the view should affect the original.
+    galsim_image.array[0, 0] = 42.0
+    assert image.array[0, 0] == 42.0
