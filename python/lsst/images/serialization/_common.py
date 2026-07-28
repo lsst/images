@@ -116,13 +116,18 @@ class ArchiveTree(
     subclass and surfaced by
     `~lsst.images.serialization.public_type_for_schema`."""
 
+    # These mirror the SCHEMA_VERSION / MIN_READ_VERSION class constants and
+    # are never passed on construction, so repr omits them; they say nothing
+    # about the object that its type does not already say.
     schema_version: str = pydantic.Field(
         default="1.0.0",
         description="Data-model schema version of this tree (major.minor.patch).",
+        repr=False,
     )
     min_read_version: int = pydantic.Field(
         default=1,
         description="Smallest reader major that can interpret this tree.",
+        repr=False,
     )
     metadata: dict[str, MetadataValue] = pydantic.Field(
         default_factory=dict, description="Additional unstructured metadata.", exclude_if=operator.not_

@@ -1153,3 +1153,33 @@ def test_observation_summary_stats_pydantic_repr() -> None:
     r = repr(stats)
     assert r.startswith("ObservationSummaryStats(")
     assert "psfSigma=2.5" in r
+
+
+def test_observation_summary_stats_str_is_the_report_summary() -> None:
+    """The str output reports the count, not pydantic's field-by-field dump.
+
+    The repr keeps the exhaustive form, since that is the one that
+    round-trips.
+    """
+    stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4)
+    assert str(stats) == stats.describe().to_str()
+    # The two set here, plus the integer counters, which default to a genuine
+    # zero rather than to NaN.
+    assert str(stats) == "ObservationSummaryStats(4 of 66 statistics set)"
+    assert stats.nPsfStar == 0 and stats.nShapeletsStar == 0
+    # The unset statistics reach repr but not str.
+    assert "nan" not in str(stats)
+    assert "nan" in repr(stats)
+
+
+def test_archive_tree_repr_omits_schema_bookkeeping() -> None:
+    """Schema version fields mirror class constants, so repr leaves them out.
+
+    They are never passed on construction and say nothing the type does not.
+    """
+    stats = ObservationSummaryStats(psfSigma=2.5)
+    assert "schema_version" not in repr(stats)
+    assert "min_read_version" not in repr(stats)
+    # They are still real fields, and still serialized.
+    assert stats.schema_version == ObservationSummaryStats.SCHEMA_VERSION
+    assert "schema_version" in stats.model_dump()

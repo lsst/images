@@ -505,6 +505,13 @@ class ObservationSummaryStats(ArchiveTree, DescribableMixin):
             value_groups=[ReportValueGroup(values=scalars)] if scalars else [],
         )
 
+    def __str__(self) -> str:
+        # pydantic's __str__ precedes the mixin's in the MRO and spells out all
+        # of the fields, nearly all of which are unset.  ``repr`` keeps that
+        # exhaustive form, since it is the one that round-trips; ``str`` is the
+        # readable one, so it takes the report's summary.
+        return DescribableMixin.__str__(self)
+
     def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> Self:
         """Extract this object from an archive.
 
