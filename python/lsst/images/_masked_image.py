@@ -205,21 +205,21 @@ class MaskedImage(GeneralizedImage):
         **kwargs
             Render keyword arguments forwarded to all children.
         """
-        image_field = ReportField(
-            label="image", value=self.image, repr_value=repr(self.image), positional=True
-        )
         bbox_field = ReportField(
             label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED
         )
         summary = f"MaskedImage({self.image!s}, {list(self.mask.schema.names)})"
         if brief:
-            # ``repr`` needs the mask schema inline; full reports get it from
-            # the "mask" child instead.
+            # ``repr`` needs the image and mask schema inline.  A full report
+            # renders both as children, and the image renders as
+            # ``Image(bbox, dtype)``, which would duplicate the shared bbox.
             return Report(
                 type_name="MaskedImage",
                 summary=summary,
                 fields=[
-                    image_field,
+                    ReportField(
+                        label="image", value=self.image, repr_value=repr(self.image), positional=True
+                    ),
                     ReportField(
                         label="mask_schema", value=self.mask.schema, repr_value=repr(self.mask.schema)
                     ),
@@ -237,7 +237,7 @@ class MaskedImage(GeneralizedImage):
         return Report(
             type_name="MaskedImage",
             summary=summary,
-            fields=[image_field, bbox_field],
+            fields=[bbox_field],
             children=children,
         )
 

@@ -325,15 +325,15 @@ class VisitImage(MaskedImage):
         **kwargs
             Render keyword arguments forwarded to all children.
         """
-        fields = [
-            ReportField(label="image", value=self.image, repr_value=repr(self.image), positional=True),
-        ]
+        fields: list[ReportField] = []
         if brief:
-            # ``repr`` needs the mask schema inline; full reports get it from
-            # the "mask" child instead.
-            fields.append(
-                ReportField(label="mask_schema", value=self.mask.schema, repr_value=repr(self.mask.schema))
-            )
+            # ``repr`` needs the image and mask schema inline.  A full report
+            # renders both as children, and the image renders as
+            # ``Image(bbox, dtype)``, which would duplicate the shared bbox.
+            fields += [
+                ReportField(label="image", value=self.image, repr_value=repr(self.image), positional=True),
+                ReportField(label="mask_schema", value=self.mask.schema, repr_value=repr(self.mask.schema)),
+            ]
         fields += [
             ReportField(label="band", value=self.band, role=FieldRole.DERIVED),
             ReportField(label="physical_filter", value=self.physical_filter, role=FieldRole.DERIVED),
