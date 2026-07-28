@@ -271,7 +271,7 @@ class CellCoadd(MaskedImage):
         ----------
         brief : `bool`, optional
             When `True`, populate only the fields and summary that ``repr``
-            and ``str`` read, skipping the children.
+            and ``str`` return, skipping the children.
         **kwargs
             Render keyword arguments forwarded to all children.
         """

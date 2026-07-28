@@ -187,7 +187,7 @@ class Describable(Protocol):
         **kwargs
             Optional rendering parameters (e.g. a ``bbox`` to compute derived
             sky-coordinate fields, or ``brief=True`` to skip the children and
-            derived content that ``repr`` and ``str`` never read).
+            derived content that ``repr`` and ``str`` never return).
         """
         ...
 

@@ -481,7 +481,7 @@ class SkyProjection[F: Frame](DescribableMixin):
             characterized at the reference pixel (0, 0).
         brief : `bool`, optional
             When `True`, return only the type, title, and summary that ``repr``
-            and ``str`` read, skipping the pixel and WCS characterization.
+            and ``str`` return, skipping the pixel and WCS characterization.
         **kwargs
             Unused; accepted for interface compatibility.
         """
