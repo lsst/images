@@ -750,9 +750,9 @@ def test_sky_projection_describe() -> None:
     pixel_frame = GeneralFrame(unit=u.pix)
     sky_projection = make_random_sky_projection(rng, pixel_frame, bbox)
 
-    # Without a bbox: the pixel scale is characterized at pixel (0, 0); there
-    # is a reference-pixel field but no center-pixel field and no Corners
-    # table.
+    # Without a bbox this projection still has pixel_bounds, so the report is
+    # characterized over those rather than falling back to the pixel origin.
+    assert sky_projection.pixel_bounds is not None
     report = sky_projection.describe()
     assert isinstance(report, Report)
     assert report.type_name == "SkyProjection"
@@ -761,17 +761,15 @@ def test_sky_projection_describe() -> None:
     assert not any(f.label == "domain" for f in report.fields)
     # The uninformative pixel_to_sky field is gone, so repr has no ARG fields.
     assert not any(f.role is FieldRole.ARG for f in report.fields)
-    assert not any(t.title == "Corners" for t in report.tables)
-    ref = next(f for f in report.fields if f.label == "reference pixel")
-    assert ref.role is FieldRole.DERIVED
-    assert ref.value.startswith("(x=0, y=0) →")
-    assert not any(f.label == "center pixel" for f in report.fields)
+    assert not any(f.label == "origin pixel" for f in report.fields)
+    assert any(f.label == "center pixel" for f in report.fields)
+    assert any(t.title == "Corners" for t in report.tables)
     # Exactly one nominal-pixel-scale field is present (single or dual form).
     scale_fields = [f for f in report.fields if f.label.startswith("Nominal pixel scale")]
     assert len(scale_fields) == 1
 
-    # With a bbox: Corners table, a reference-pixel field (still (0, 0)) and an
-    # additional center-pixel field for the box center.
+    # With a bbox: a Corners table and a center-pixel field for the box
+    # center, and still no origin-pixel fallback.
     report = sky_projection.describe(bbox=bbox)
     corners = next(t for t in report.tables if t.title == "Corners")
     assert corners.columns == ["x", "y", "RA", "Dec", "RA (°)", "Dec (°)"]
@@ -785,8 +783,7 @@ def test_sky_projection_describe() -> None:
         ("99.5", "199.5"),
         ("99.5", "-0.5"),
     ]
-    ref = next(f for f in report.fields if f.label == "reference pixel")
-    assert ref.value.startswith("(x=0, y=0) →")
+    assert not any(f.label == "origin pixel" for f in report.fields)
     center = next(f for f in report.fields if f.label == "center pixel")
     assert center.role is FieldRole.DERIVED
     assert center.value.startswith("(x=")
@@ -861,15 +858,41 @@ def test_sky_projection_astropy_view_repr_str() -> None:
     assert "pixel (0, 0)" in repr(unbounded)
 
 
-def test_sky_projection_describe_reference_pixel_matches_transform() -> None:
-    """The reference-pixel field reports pixel (0, 0)'s actual sky position."""
+def test_sky_projection_describe_origin_pixel_is_a_last_resort() -> None:
+    """The origin pixel appears only when no bounding box can be had.
+
+    Pixel (0, 0) is not a reference point of a projection, so it is reported
+    only when neither the caller nor the projection itself supplies a box to
+    characterize over.
+    """
     rng = np.random.default_rng(43)
     bbox = Box.factory[0:200, 0:100]
-    pixel_frame = GeneralFrame(unit=u.pix)
-    sky_projection = make_random_sky_projection(rng, pixel_frame, bbox)
+    bounded = make_random_sky_projection(rng, GeneralFrame(unit=u.pix), bbox)
+    assert bounded.pixel_bounds is not None
+    # A box from either source displaces the origin fallback.
+    for report in (bounded.describe(), bounded.describe(bbox=bbox)):
+        assert not any(f.label == "origin pixel" for f in report.fields)
+
+    # With neither, the origin is all that is left, and the corners table and
+    # FITS-WCS probe drop out with it.
+    unbounded = _rotated_tan(0.0)
+    assert unbounded.pixel_bounds is None
+    report = unbounded.describe()
+    assert not any(f.label == "center pixel" for f in report.fields)
+    assert not any(t.title == "Corners" for t in report.tables)
+    assert next(f for f in report.fields if f.label == "fits_wcs").value == "unknown"
+    origin = next(f for f in report.fields if f.label == "origin pixel")
+    assert origin.role is FieldRole.DERIVED
+    assert origin.value.startswith("(x=0, y=0) →")
+
+
+def test_sky_projection_describe_origin_pixel_matches_transform() -> None:
+    """The origin-pixel field reports pixel (0, 0)'s actual sky position."""
+    sky_projection = _rotated_tan(0.0)
+    assert sky_projection.pixel_bounds is None
 
     report = sky_projection.describe()
-    ref = next(f for f in report.fields if f.label == "reference pixel")
+    ref = next(f for f in report.fields if f.label == "origin pixel")
     sky00 = sky_projection.pixel_to_sky(x=0, y=0)
     # Sexagesimal (hms/dms) and labeled decimal degrees both appear.
     assert sky00.ra.to_string(unit=u.hour, sep="hms", pad=True, precision=1) in ref.value

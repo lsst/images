@@ -464,11 +464,12 @@ class SkyProjection[F: Frame](DescribableMixin):
             Rendering options.  `DescribeOptions.brief` returns only the type,
             title, and summary, skipping the pixel and WCS characterization.
         bbox : `Box`, optional
-            Pixel bounding box.  When provided, the report gains the sky
-            coordinates of the box center and of the corners of the area the
-            box covers, along with the nominal pixel scale characterized over
-            the box.  When omitted, the pixel scale is characterized at the
-            reference pixel (0, 0).
+            Pixel bounding box to characterize the projection over.  Defaults
+            to the projection's own `pixel_bounds` when it has them.  Given
+            either, the report gains the sky coordinates of the box center and
+            of the corners of the area the box covers, and the nominal pixel
+            scale is characterized over the box; given neither, it falls back
+            to the pixel origin.
         """
         if options.brief:
             return Report(
@@ -477,20 +478,15 @@ class SkyProjection[F: Frame](DescribableMixin):
                 summary=f"{type(self.pixel_frame).__name__} → {self.sky_frame.value}",
             )
         fields: list[ReportField] = []
-        # The reference pixel is always (0, 0); the array this projection
-        # describes may lie far from it, so name the pixel explicitly.
-        reference_sky = self.pixel_to_sky(x=0, y=0)
-        fields.append(
-            ReportField(
-                label="reference pixel",
-                value=f"(x=0, y=0) → {_format_pixel_sky(reference_sky)}",
-                role=FieldRole.DERIVED,
-            )
-        )
+        # Characterize over the box the caller supplied, falling back to the
+        # region the projection itself declares valid.
+        box = bbox
+        if box is None and self.pixel_bounds is not None:
+            box = self.pixel_bounds.bbox
 
         corners_table: list[ReportTable] = []
-        if bbox is not None:
-            cx, cy = bbox.x.center, bbox.y.center
+        if box is not None:
+            cx, cy = box.x.center, box.y.center
             center_sky = self.pixel_to_sky(x=cx, y=cy)
             fields.append(
                 ReportField(
@@ -499,11 +495,24 @@ class SkyProjection[F: Frame](DescribableMixin):
                     role=FieldRole.DERIVED,
                 )
             )
+        else:
+            # No box is available from either source, so the pixel origin is
+            # the only place left to sample.  It carries no special meaning
+            # for the projection -- the array this describes may lie far from
+            # it -- so name the pixel explicitly rather than implying one.
+            origin_sky = self.pixel_to_sky(x=0, y=0)
+            fields.append(
+                ReportField(
+                    label="origin pixel",
+                    value=f"(x=0, y=0) → {_format_pixel_sky(origin_sky)}",
+                    role=FieldRole.DERIVED,
+                )
+            )
 
-        # The nominal pixel scale is characterized over the box when one is
-        # given, otherwise over a single pixel at the reference pixel (0, 0).
+        # The nominal pixel scale is characterized over the box when there is
+        # one, otherwise over a single pixel at the origin.
         lon_label, lat_label = self._sky_axis_labels()
-        lon_scale, lat_scale = self._nominal_pixel_scale(bbox if bbox is not None else Box.factory[0:1, 0:1])
+        lon_scale, lat_scale = self._nominal_pixel_scale(box if box is not None else Box.factory[0:1, 0:1])
         # Report a single value when the two axes round to the same 0.01 arcsec
         # figure; otherwise name each sky axis with its own scale.
         if round(lon_scale, 2) == round(lat_scale, 2):
@@ -521,11 +530,11 @@ class SkyProjection[F: Frame](DescribableMixin):
                 )
             )
 
-        if bbox is not None:
+        if box is not None:
             # The box corners are pixel centers, so walk the polygon
             # representation instead: its vertices are expanded by half a pixel
             # to cover the full area the image occupies on the sky.
-            corners = bbox.to_polygon()
+            corners = box.to_polygon()
             rows = []
             for x, y in zip(corners.x_vertices, corners.y_vertices, strict=True):
                 ra_sex, ra_deg, dec_sex, dec_deg = _sky_parts(self.pixel_to_sky(x=x, y=y))
@@ -538,19 +547,14 @@ class SkyProjection[F: Frame](DescribableMixin):
                 )
             )
 
-        # Representability as a FITS WCS depends on the box, so probe with the
-        # supplied bbox, or fall back to the projection's own pixel bounds.
-        # Without either box the answer cannot be determined.
+        # Representability as a FITS WCS depends on the box; without one the
+        # answer cannot be determined.
         if self._fits_approximation is not None:
             fits_wcs = "approximate"
+        elif box is None:
+            fits_wcs = "unknown"
         else:
-            probe_bbox = bbox
-            if probe_bbox is None and self.pixel_bounds is not None:
-                probe_bbox = self.pixel_bounds.bbox
-            if probe_bbox is None:
-                fits_wcs = "unknown"
-            else:
-                fits_wcs = "available" if self.as_fits_wcs(probe_bbox) is not None else "none"
+            fits_wcs = "available" if self.as_fits_wcs(box) is not None else "none"
         fields.append(ReportField(label="fits_wcs", value=fits_wcs, role=FieldRole.DERIVED))
 
         return Report(
