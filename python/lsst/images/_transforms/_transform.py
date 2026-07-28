@@ -265,20 +265,23 @@ class Transform[I: Frame, O: Frame](DescribableMixin):
             ast_mapping = ast_mapping.simplified()
         return ast_mapping.show(comments)
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, *, brief: bool = False, **kwargs: Any) -> Report:
         """Return a `Report` describing this transform.
 
         Parameters
         ----------
+        brief : `bool`, optional
+            When `True`, report only the input and output frames, skipping the
+            bounds and the (potentially very long) AST mapping dump.
         **kwargs
             Unused; accepted for interface compatibility.
         """
-        return Report(
-            type_name="Transform",
-            summary=f"{self.in_frame!s} → {self.out_frame!s}",
-            fields=[
-                ReportField(label="in_frame", value=self.in_frame, role=FieldRole.DERIVED),
-                ReportField(label="out_frame", value=self.out_frame, role=FieldRole.DERIVED),
+        fields = [
+            ReportField(label="in_frame", value=self.in_frame, role=FieldRole.DERIVED),
+            ReportField(label="out_frame", value=self.out_frame, role=FieldRole.DERIVED),
+        ]
+        if not brief:
+            fields += [
                 ReportField(label="in_bounds", value=self.in_bounds, role=FieldRole.DERIVED),
                 ReportField(label="out_bounds", value=self.out_bounds, role=FieldRole.DERIVED),
                 ReportField(
@@ -286,7 +289,11 @@ class Transform[I: Frame, O: Frame](DescribableMixin):
                     value=self.show(simplified=True),
                     role=FieldRole.DERIVED,
                 ),
-            ],
+            ]
+        return Report(
+            type_name="Transform",
+            summary=f"{self.in_frame!s} → {self.out_frame!s}",
+            fields=fields,
         )
 
     @overload
