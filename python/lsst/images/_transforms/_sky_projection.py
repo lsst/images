@@ -482,9 +482,10 @@ class SkyProjection[F: Frame](DescribableMixin):
             title, and summary, skipping the pixel and WCS characterization.
         bbox : `Box`, optional
             Pixel bounding box.  When provided, the report gains the sky
-            coordinates of the box center and corners and the nominal pixel
-            scale characterized over the box.  When omitted, the pixel scale is
-            characterized at the reference pixel (0, 0).
+            coordinates of the box center and of the corners of the area the
+            box covers, along with the nominal pixel scale characterized over
+            the box.  When omitted, the pixel scale is characterized at the
+            reference pixel (0, 0).
         """
         if options.brief:
             return Report(
@@ -538,15 +539,12 @@ class SkyProjection[F: Frame](DescribableMixin):
             )
 
         if bbox is not None:
-            mn, mx = bbox.min, bbox.max
-            corner_defs = [
-                (mn.x, mn.y),
-                (mx.x, mn.y),
-                (mx.x, mx.y),
-                (mn.x, mx.y),
-            ]
+            # The box corners are pixel centers, so walk the polygon
+            # representation instead: its vertices are expanded by half a pixel
+            # to cover the full area the image occupies on the sky.
+            corners = bbox.to_polygon()
             rows = []
-            for x, y in corner_defs:
+            for x, y in zip(corners.x_vertices, corners.y_vertices, strict=True):
                 ra_sex, ra_deg, dec_sex, dec_deg = _sky_parts(self.pixel_to_sky(x=x, y=y))
                 rows.append([f"{x:g}", f"{y:g}", ra_sex, dec_sex, f"{ra_deg:.6f}", f"{dec_deg:+.6f}"])
             corners_table.append(

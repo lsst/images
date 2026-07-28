@@ -776,12 +776,14 @@ def test_sky_projection_describe() -> None:
     corners = next(t for t in report.tables if t.title == "Corners")
     assert corners.columns == ["x", "y", "RA", "Dec", "RA (°)", "Dec (°)"]
     assert len(corners.rows) == 4
-    # The first two columns carry the actual pixel coordinates of each corner.
+    # The first two columns carry the pixel coordinates of each corner.  These
+    # are the box corners expanded by half a pixel, so that they bound the full
+    # area the image covers rather than the centers of the outermost pixels.
     assert [(row[0], row[1]) for row in corners.rows] == [
-        ("0", "0"),
-        ("99", "0"),
-        ("99", "199"),
-        ("0", "199"),
+        ("-0.5", "-0.5"),
+        ("-0.5", "199.5"),
+        ("99.5", "199.5"),
+        ("99.5", "-0.5"),
     ]
     ref = next(f for f in report.fields if f.label == "reference pixel")
     assert ref.value.startswith("(x=0, y=0) →")
