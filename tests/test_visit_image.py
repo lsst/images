@@ -1177,9 +1177,12 @@ def test_archive_tree_repr_omits_schema_bookkeeping() -> None:
 
     They are never passed on construction and say nothing the type does not.
     """
-    stats = ObservationSummaryStats(psfSigma=2.5)
-    assert "schema_version" not in repr(stats)
-    assert "min_read_version" not in repr(stats)
-    # They are still real fields, and still serialized.
+    stats = ObservationSummaryStats(psfSigma=2.5, indirect=[1])
+    for name in ("schema_version", "min_read_version", "indirect"):
+        assert name not in repr(stats), name
+    # They are still real fields, and hiding them from repr does not hide them
+    # from serialization.
     assert stats.schema_version == ObservationSummaryStats.SCHEMA_VERSION
-    assert "schema_version" in stats.model_dump()
+    dumped = stats.model_dump()
+    for name in ("schema_version", "min_read_version", "indirect"):
+        assert name in dumped, name

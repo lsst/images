@@ -137,10 +137,13 @@ class ArchiveTree(
         description="Information about the butler dataset backed by this file.",
         exclude_if=is_none,
     )
+    # Populated by the archive machinery rather than by a caller, so repr
+    # omits it as well.
     indirect: list[Any] = pydantic.Field(
         default_factory=list,
         description="Serialized nested objects that may be saved or read more than once.",
         exclude_if=operator.not_,
+        repr=False,
     )
 
     @pydantic.computed_field(description="Canonical schema URL for this tree.")  # type: ignore[prop-decorator]
