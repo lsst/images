@@ -24,11 +24,35 @@ def _simple_image() -> Image:
     return Image(0.0, shape=(4, 4), dtype="float32")
 
 
+def _at_date_precision(time: astropy.time.Time) -> astropy.time.Time:
+    """Return ``time`` at the precision a FITS ``DATE`` card preserves.
+
+    Parameters
+    ----------
+    time : `astropy.time.Time`
+        Time to truncate.
+
+    Returns
+    -------
+    truncated : `astropy.time.Time`
+        ``time`` truncated to milliseconds.
+
+    Notes
+    -----
+    ``Time.fits`` truncates to milliseconds, so a DATE card records an instant
+    up to a millisecond earlier than the write that produced it.  A lower bound
+    is only comparable against a stored DATE once it has been through the same
+    truncation; because truncation is monotonic, doing so keeps the bound
+    exact rather than trading it for a tolerance.
+    """
+    return astropy.time.Time(time.fits, format="fits")
+
+
 def test_every_hdu_has_a_fits_compliant_date(tmp_path: Path) -> None:
     """Test that each HDU carries a DATE card recording approximately when
     the file was written.
     """
-    before = astropy.time.Time.now()
+    before = _at_date_precision(astropy.time.Time.now())
     path = tmp_path / "x.fits"
     _simple_image().write(path)
     after = astropy.time.Time.now()
@@ -48,7 +72,7 @@ def test_update_header_cannot_set_a_stale_primary_date(tmp_path: Path) -> None:
     """Test that an ``update_header`` callback cannot leave a stale DATE in
     the primary header.
     """
-    before = astropy.time.Time.now()
+    before = _at_date_precision(astropy.time.Time.now())
     path = tmp_path / "x.fits"
     _simple_image().write(path, update_header=lambda h: h.set("DATE", "1999-01-01T00:00:00"))
     after = astropy.time.Time.now()
