@@ -25,7 +25,7 @@ __all__ = (
 
 import dataclasses
 import math
-from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence, Set
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
@@ -41,7 +41,7 @@ from . import fits
 from ._generalized_image import GeneralizedImage
 from ._geom import YX, Box, NoOverlapError
 from ._transforms import Frame, SkyProjection, SkyProjectionSerializationModel
-from .describe import DescribableMixin, Report, ReportField, ReportTable
+from .describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField, ReportTable
 from .serialization import (
     ArchiveReadError,
     ArchiveTree,
@@ -222,37 +222,36 @@ class MaskSchema(DescribableMixin):
         return self._planes[i]
 
     def _describe(
-        self, *, counts: Mapping[str, int] | None = None, brief: bool = False, **kwargs: Any
+        self,
+        options: DescribeOptions = DescribeOptions(),
+        /,
+        *,
+        counts: Mapping[str, int] | None = None,
     ) -> Report:
         """Return a `Report` describing this mask schema.
 
         Parameters
         ----------
+        options : `DescribeOptions`, optional
+            Rendering options.
         counts : `~collections.abc.Mapping` [`str`, `int`], optional
             Number of set pixels per plane name.  When provided, the mask
             planes table gains a ``"Set pixels"`` column.
-        brief : `bool`, optional
-            When `True`, populate only the fields that ``repr`` and ``str``
-            return, skipping the mask planes table.
-        **kwargs
-            Unused; accepted for interface compatibility.
         """
-        dtype_field = ReportField(label="dtype", value=str(self._dtype), repr_value=repr(self._dtype))
-        if brief:
-            return Report(
-                type_name="MaskSchema",
-                fields=[
-                    ReportField(
-                        label="planes",
-                        value=f"<{len(self._planes)} planes>",
-                        repr_value=repr(list(self._planes)),
-                        positional=True,
-                    ),
-                    dtype_field,
-                ],
-            )
-        # The table below lists every plane, so a plane count alongside it
-        # would just be noise.
+        # The table lists every plane, so the plane count is REPR_ONLY: repr
+        # needs it to round-trip, but next to the table it would just be noise.
+        fields = [
+            ReportField(
+                label="planes",
+                value=f"<{len(self._planes)} planes>",
+                repr_value=repr(list(self._planes)),
+                positional=True,
+                role=FieldRole.REPR_ONLY,
+            ),
+            ReportField(label="dtype", value=str(self._dtype), repr_value=repr(self._dtype)),
+        ]
+        if options.brief:
+            return Report(type_name="MaskSchema", fields=fields)
         columns = ["Bit", "Index", "Mask", "Name", "Description"]
         if counts is not None:
             columns.append("Set pixels")
@@ -272,7 +271,7 @@ class MaskSchema(DescribableMixin):
             rows.append(row)
         return Report(
             type_name="MaskSchema",
-            fields=[dtype_field],
+            fields=fields,
             tables=[
                 ReportTable(
                     title="Mask planes",
@@ -599,51 +598,50 @@ class Mask(GeneralizedImage):
         subview.clear()
         subview.update(value)
 
-    def _describe(
-        self,
-        *,
-        exclude: Collection[str] = (),
-        detail: bool = False,
-        brief: bool = False,
-        **kwargs: Any,
-    ) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this mask.
 
         Parameters
         ----------
-        exclude : `~collections.abc.Collection` [`str`], optional
-            Names of report elements (``"bbox"``, ``"sky_projection"``) to
-            omit.  Used by composite containers that display the shared value
-            once at the top level.
-        detail : `bool`, optional
-            When `True`, include per-plane set-pixel counts in the schema
-            table.  This scans the pixel data and is used by the rich, HTML,
-            and command-line renderings.
-        brief : `bool`, optional
-            When `True`, populate only the fields and summary that ``repr``
-            and ``str`` return, skipping the children.
-        **kwargs
-            Unused; accepted for interface compatibility.
+        options : `DescribeOptions`, optional
+            Rendering options.  ``"bbox"`` and ``"sky_projection"`` are
+            recognized in `DescribeOptions.exclude`, and
+            `DescribeOptions.detail` adds per-plane set-pixel counts to the
+            schema table, which scans the pixel data.
         """
         summary = f"Mask({self.bbox!s}, {list(self.schema.names)})"
         fields = [
-            ReportField(label="array", value="<array>", repr_value="...", positional=True),
+            ReportField(
+                label="array",
+                value="<array>",
+                repr_value="...",
+                positional=True,
+                role=FieldRole.REPR_ONLY,
+            ),
         ]
-        if "bbox" not in exclude:
+        if "bbox" not in options.exclude:
             fields.append(ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)))
-        if brief:
-            # ``repr`` needs the schema inline; full reports get it from the
-            # "schema" child instead.
-            fields.append(ReportField(label="schema", value=self.schema, repr_value=repr(self.schema)))
+        # The schema is rendered as a child below, so repr is the only place
+        # this field needs to appear.
+        fields.append(
+            ReportField(
+                label="schema",
+                value=self.schema,
+                repr_value=repr(self.schema),
+                role=FieldRole.REPR_ONLY,
+            )
+        )
+        if options.brief:
             return Report(type_name="Mask", summary=summary, fields=fields)
-        if detail:
+        child = options.for_child()
+        if options.detail:
             counts = {name: int(np.count_nonzero(self.get(name))) for name in self.schema.names}
-            schema_report = self.schema._describe(counts=counts)
+            schema_report = self.schema._describe(child, counts=counts)
         else:
-            schema_report = self.schema._describe()
+            schema_report = self.schema._describe(child)
         children: dict[str, Report] = {"schema": schema_report}
-        if "sky_projection" not in exclude and self._sky_projection is not None:
-            children["sky_projection"] = self._sky_projection._describe(bbox=self._bbox)
+        if "sky_projection" not in options.exclude and self._sky_projection is not None:
+            children["sky_projection"] = self._sky_projection._describe(child, bbox=self._bbox)
         return Report(
             type_name="Mask",
             summary=summary,

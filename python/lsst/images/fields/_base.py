@@ -22,7 +22,7 @@ import numpy.typing as npt
 
 from .._geom import XY, YX, Bounds, Box
 from .._image import Image
-from ..describe import DescribableMixin, FieldRole, Report, ReportField
+from ..describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
 
 if TYPE_CHECKING:
     try:
@@ -189,12 +189,12 @@ class BaseField(DescribableMixin, ABC):
         """
         raise NotImplementedError()
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this field.
 
         Parameters
         ----------
-        **kwargs
+        options : `DescribeOptions`, optional
             Unused; accepted for interface compatibility.
         """
         return Report(

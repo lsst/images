@@ -21,7 +21,15 @@ from rich.console import Console
 from lsst.images._geom import Box
 from lsst.images._image import Image
 from lsst.images._mask import Mask, MaskPlane, MaskSchema
-from lsst.images.describe import DescribableMixin, FieldRole, Report, ReportField, ReportTable
+from lsst.images._masked_image import MaskedImage
+from lsst.images.describe import (
+    DescribableMixin,
+    DescribeOptions,
+    FieldRole,
+    Report,
+    ReportField,
+    ReportTable,
+)
 from lsst.images.serialization import read_archive
 
 
@@ -157,7 +165,7 @@ def test_mixin_derives_dunders_from_describe() -> None:
     """DescribableMixin wires repr/str/html to _describe."""
 
     class Widget(DescribableMixin):
-        def _describe(self, **kwargs: object) -> Report:
+        def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
             return Report(
                 type_name="Widget",
                 summary="Widget(size=5)",
@@ -175,7 +183,15 @@ def test_public_api_importable_from_package() -> None:
     """The describe public API is re-exported from lsst.images."""
     import lsst.images as images
 
-    for name in ("Describable", "DescribableMixin", "FieldRole", "Report", "ReportField", "ReportTable"):
+    for name in (
+        "Describable",
+        "DescribableMixin",
+        "DescribeOptions",
+        "FieldRole",
+        "Report",
+        "ReportField",
+        "ReportTable",
+    ):
         assert hasattr(images, name), name
 
 
@@ -279,3 +295,77 @@ def test_composite_detail_propagates_to_mask_counts() -> None:
     detailed = visit_image.describe(detail=True).children["mask"].children["schema"]
     table = next(t for t in detailed.tables if t.title == "Mask planes")
     assert table.columns[-1] == "Set pixels"
+
+
+def test_field_role_display_predicates() -> None:
+    """Each FieldRole reports where its fields appear."""
+    assert FieldRole.ARG.in_repr and FieldRole.ARG.in_display
+    assert FieldRole.REPR_ONLY.in_repr and not FieldRole.REPR_ONLY.in_display
+    assert not FieldRole.DERIVED.in_repr and FieldRole.DERIVED.in_display
+
+
+def test_repr_only_fields_are_hidden_from_the_expanded_report() -> None:
+    """REPR_ONLY fields feed repr and str but never the rendered tree."""
+    report = Report(
+        type_name="Widget",
+        fields=[
+            ReportField(
+                label="data", value="<array>", repr_value="...", positional=True, role=FieldRole.REPR_ONLY
+            ),
+            ReportField(label="size", value=5),
+            ReportField(label="area", value=25, role=FieldRole.DERIVED),
+        ],
+    )
+    assert report.to_repr() == "Widget(..., size=5)"
+    # to_str has no summary here, so it falls back to the repr-feeding fields.
+    assert report.to_str() == "Widget(<array>, 5)"
+
+    console = Console(record=True, width=80, file=io.StringIO(), force_jupyter=False)
+    console.print(report)
+    rendered = console.export_text()
+    assert "size: 5" in rendered
+    assert "area: 25" in rendered
+    assert "data" not in rendered
+
+
+def test_describe_options_for_child_replaces_exclude_and_keeps_the_rest() -> None:
+    """for_child carries brief and detail down but resets exclude."""
+    options = DescribeOptions(brief=True, detail=True, exclude=frozenset({"bbox"}))
+    child = options.for_child("sky_projection")
+    assert child.brief is True
+    assert child.detail is True
+    assert child.exclude == frozenset({"sky_projection"})
+    # With no arguments the child inherits no exclusions at all.
+    assert options.for_child().exclude == frozenset()
+    # The original is untouched; DescribeOptions is frozen.
+    assert options.exclude == frozenset({"bbox"})
+
+
+def test_describe_options_are_optional_for_implementations() -> None:
+    """An implementation may ignore options entirely and still describe."""
+
+    class Widget(DescribableMixin):
+        def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
+            return Report(type_name="Widget", fields=[ReportField(label="size", value=5)])
+
+    widget = Widget()
+    assert widget.describe(brief=True, detail=True, exclude=("bbox",)).to_repr() == "Widget(size=5)"
+    assert repr(widget) == "Widget(size=5)"
+
+
+def test_masked_image_report_states_the_bbox_once() -> None:
+    """The image and mask schema reach repr without duplicating the tree."""
+    bbox = Box.factory[0:4, 0:4]
+    schema = MaskSchema([MaskPlane("BAD", "Bad pixel")], dtype=np.uint8)
+    masked = MaskedImage(
+        image=Image(0.0, bbox=bbox),
+        mask=Mask(0, bbox=bbox, schema=schema),
+        variance=Image(1.0, bbox=bbox),
+    )
+    report = masked.describe()
+    labels = [f.label for f in report.fields if f.role.in_display]
+    assert labels == ["bbox"]
+    # Both are still recoverable from repr, and appear as children.
+    assert "mask_schema=" in repr(masked)
+    assert repr(masked).startswith("MaskedImage(Image(")
+    assert {"image", "mask", "variance"} <= set(report.children)

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, final, get_origin
 
 import pydantic
 
-from lsst.images.describe import DescribableMixin, FieldRole, Report, ReportField
+from lsst.images.describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
 from lsst.images.serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 
 if TYPE_CHECKING:
@@ -448,12 +448,12 @@ class ObservationSummaryStats(ArchiveTree, DescribableMixin):
                 return False
         return True
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing these summary statistics.
 
         Parameters
         ----------
-        **kwargs
+        options : `DescribeOptions`, optional
             Unused; accepted for interface compatibility.
         """
         fields = [

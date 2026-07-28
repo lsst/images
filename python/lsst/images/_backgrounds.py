@@ -19,7 +19,7 @@ from typing import Any, ClassVar, cast, final
 
 import pydantic
 
-from .describe import DescribableMixin, Report, ReportTable
+from .describe import DescribableMixin, DescribeOptions, Report, ReportTable
 from .fields import Field, FieldSerializationModel
 from .serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 
@@ -130,12 +130,12 @@ class BackgroundMap(DescribableMixin, Mapping[str, Background]):
         if is_subtracted:
             self._subtracted = name
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this background map.
 
         Parameters
         ----------
-        **kwargs
+        options : `DescribeOptions`, optional
             Unused; accepted for interface compatibility.
         """
         subtracted_name = self._subtracted

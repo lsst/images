@@ -24,14 +24,14 @@ __all__ = (
 )
 
 import enum
-from typing import Annotated, Any, Literal, Protocol, final
+from typing import Annotated, Literal, Protocol, final
 
 import astropy.units as u
 import numpy as np
 import pydantic
 
 from .._geom import Box
-from ..describe import DescribableMixin, FieldRole, Report, ReportField
+from ..describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
 from ..serialization import Unit
 from ..utils import is_none
 
@@ -152,12 +152,12 @@ class DetectorFrame(pydantic.BaseModel, DescribableMixin, frozen=True):
         """
         return y
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this detector frame.
 
         Parameters
         ----------
-        **kwargs
+        options : `DescribeOptions`, optional
             Unused; accepted for interface compatibility.
         """
         return _frame_report(self)
@@ -214,12 +214,12 @@ class FocalPlaneFrame(pydantic.BaseModel, DescribableMixin, frozen=True):
         """
         return y
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this focal plane frame.
 
         Parameters
         ----------
-        **kwargs
+        options : `DescribeOptions`, optional
             Unused; accepted for interface compatibility.
         """
         return _frame_report(self)
@@ -288,12 +288,12 @@ class FieldAngleFrame(pydantic.BaseModel, DescribableMixin, frozen=True):
         """
         return _wrap_symmetric(y)
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this field angle frame.
 
         Parameters
         ----------
-        **kwargs
+        options : `DescribeOptions`, optional
             Unused; accepted for interface compatibility.
         """
         return _frame_report(self)
@@ -352,12 +352,12 @@ class TractFrame(pydantic.BaseModel, DescribableMixin, frozen=True):
         """
         return y
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this tract frame.
 
         Parameters
         ----------
-        **kwargs
+        options : `DescribeOptions`, optional
             Unused; accepted for interface compatibility.
         """
         return _frame_report(self)
@@ -405,12 +405,12 @@ class GeneralFrame(pydantic.BaseModel, DescribableMixin, frozen=True):
         """
         return y
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this general frame.
 
         Parameters
         ----------
-        **kwargs
+        options : `DescribeOptions`, optional
             Unused; accepted for interface compatibility.
         """
         return _frame_report(self)

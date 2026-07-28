@@ -23,7 +23,7 @@ from scipy.interpolate import Akima1DInterpolator
 from .._concrete_bounds import BoundsSerializationModel
 from .._geom import Bounds, Box, Interval
 from .._image import Image
-from ..describe import FieldRole, Report, ReportField
+from ..describe import DescribeOptions, FieldRole, Report, ReportField
 from ..serialization import (
     ArchiveTree,
     ArrayReferenceModel,
@@ -156,12 +156,12 @@ class SplineField(BaseField):
         # We really do want an exact floating-point comparison here.
         return (self._data == self._data[0, 0]).all()
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this spline field.
 
         Parameters
         ----------
-        **kwargs
+        options : `DescribeOptions`, optional
             Unused; accepted for interface compatibility.
         """
         return Report(

@@ -23,7 +23,7 @@ import pydantic
 from .._concrete_bounds import BoundsSerializationModel
 from .._geom import YX, Bounds, Box
 from .._image import Image
-from ..describe import FieldRole, Report, ReportField
+from ..describe import DescribeOptions, FieldRole, Report, ReportField
 from ..serialization import ArchiveTree, InlineArray, InputArchive, InvalidParameterError, OutputArchive, Unit
 from ._base import BaseField
 
@@ -222,12 +222,12 @@ class ChebyshevField(BaseField):
     def is_constant(self) -> bool:
         return self.x_order == 0 and self.y_order == 0
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this Chebyshev field.
 
         Parameters
         ----------
-        **kwargs
+        options : `DescribeOptions`, optional
             Unused; accepted for interface compatibility.
         """
         return Report(

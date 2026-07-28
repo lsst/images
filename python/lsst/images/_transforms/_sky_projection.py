@@ -16,6 +16,7 @@ __all__ = ("SkyProjection", "SkyProjectionAstropyView", "SkyProjectionSerializat
 import functools
 import itertools
 import statistics
+from collections.abc import Collection
 from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeVar, assert_type, cast, final, overload
 
 import astropy.units as u
@@ -27,7 +28,7 @@ from astropy.coordinates import ICRS, Latitude, Longitude, SkyCoord
 from astropy.wcs.wcsapi import BaseLowLevelWCS, HighLevelWCSMixin
 
 from .._geom import XY, YX, Bounds, Box
-from ..describe import DescribableMixin, FieldRole, Report, ReportField, ReportTable
+from ..describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField, ReportTable
 from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 from ..utils import is_none
 from . import _ast as astshim
@@ -469,23 +470,23 @@ class SkyProjection[F: Frame](DescribableMixin):
             lat_scales.append(center.separation(probe).to_value(u.arcsec) / dpix)
         return [statistics.median(lon_scales), statistics.median(lat_scales)]
 
-    def _describe(self, *, bbox: Box | None = None, brief: bool = False, **kwargs: Any) -> Report:
+    def _describe(
+        self, options: DescribeOptions = DescribeOptions(), /, *, bbox: Box | None = None
+    ) -> Report:
         """Return a `Report` describing this sky projection.
 
         Parameters
         ----------
+        options : `DescribeOptions`, optional
+            Rendering options.  `DescribeOptions.brief` returns only the type,
+            title, and summary, skipping the pixel and WCS characterization.
         bbox : `Box`, optional
             Pixel bounding box.  When provided, the report gains the sky
             coordinates of the box center and corners and the nominal pixel
             scale characterized over the box.  When omitted, the pixel scale is
             characterized at the reference pixel (0, 0).
-        brief : `bool`, optional
-            When `True`, return only the type, title, and summary that ``repr``
-            and ``str`` return, skipping the pixel and WCS characterization.
-        **kwargs
-            Unused; accepted for interface compatibility.
         """
-        if brief:
+        if options.brief:
             return Report(
                 type_name="SkyProjection",
                 title=f"{self.sky_frame.value} coordinates",
@@ -577,6 +578,37 @@ class SkyProjection[F: Frame](DescribableMixin):
             summary=f"{type(self.pixel_frame).__name__} → {self.sky_frame.value}",
             fields=fields,
             tables=corners_table,
+        )
+
+    def describe(
+        self,
+        *,
+        brief: bool = False,
+        detail: bool = False,
+        exclude: Collection[str] = (),
+        bbox: Box | None = None,
+    ) -> Report:
+        """Return a `~lsst.images.Report` describing this sky projection.
+
+        Parameters
+        ----------
+        brief : `bool`, optional
+            Whether to build only what ``repr`` and ``str`` read.
+        detail : `bool`, optional
+            Whether to include extras that are too expensive for a default
+            report.
+        exclude : `~collections.abc.Collection` [`str`], optional
+            Names of report elements to omit.
+        bbox : `~lsst.images.Box`, optional
+            Pixel bounding box to characterize the projection over.
+
+        Returns
+        -------
+        report : `~lsst.images.Report`
+            Report describing this sky projection.
+        """
+        return self._describe(
+            DescribeOptions(brief=brief, detail=detail, exclude=frozenset(exclude)), bbox=bbox
         )
 
     def serialize[P: pydantic.BaseModel](

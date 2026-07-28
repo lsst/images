@@ -22,7 +22,7 @@ import pydantic
 
 from .._geom import Bounds, Box
 from .._image import Image
-from ..describe import FieldRole, Report, ReportField
+from ..describe import DescribeOptions, FieldRole, Report, ReportField
 from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 from ._base import BaseField
 
@@ -89,13 +89,13 @@ class ProductField(BaseField):
     def is_constant(self) -> bool:
         return all(operand.is_constant for operand in self._operands)
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this product field.
 
         Parameters
         ----------
-        **kwargs
-            Unused; accepted for interface compatibility.
+        options : `DescribeOptions`, optional
+            Rendering options; forwarded to the operand children.
         """
         return Report(
             type_name="ProductField",
@@ -104,7 +104,13 @@ class ProductField(BaseField):
                 ReportField(label="bounds", value=self.bounds, role=FieldRole.DERIVED),
                 ReportField(label="unit", value=self.unit, role=FieldRole.DERIVED),
             ],
-            children={str(i): operand._describe(**kwargs) for i, operand in enumerate(self._operands)},
+            children=(
+                {}
+                if options.brief
+                else {
+                    str(i): operand._describe(options.for_child()) for i, operand in enumerate(self._operands)
+                }
+            ),
         )
 
     def _evaluate(

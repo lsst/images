@@ -18,7 +18,7 @@ from typing import Any
 
 from .._geom import Bounds, Box
 from .._image import Image
-from ..describe import DescribableMixin, FieldRole, Report, ReportField
+from ..describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
 
 
 class PointSpreadFunction(DescribableMixin, ABC):
@@ -138,12 +138,12 @@ class PointSpreadFunction(DescribableMixin, ABC):
             case _:
                 raise TypeError(f"{type(legacy_psf).__name__!r} is not a recognized legacy PSF type.")
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this PSF.
 
         Parameters
         ----------
-        **kwargs
+        options : `DescribeOptions`, optional
             Unused; accepted for interface compatibility.
         """
         return Report(

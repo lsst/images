@@ -23,7 +23,7 @@ import shapely
 from pydantic.json_schema import JsonSchemaValue
 
 from ._geom import XY, YX, Bounds, Box
-from .describe import DescribableMixin, Report, ReportField
+from .describe import DescribableMixin, DescribeOptions, Report, ReportField
 from .utils import round_half_down, round_half_up
 
 if TYPE_CHECKING:
@@ -88,12 +88,12 @@ class Region(DescribableMixin):
             raise ValueError("Only Polygon and MultiPolygon geometries can be converted to Regions.")
         return Region(impl).try_to_polygon()
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this region.
 
         Parameters
         ----------
-        **kwargs
+        options : `DescribeOptions`, optional
             Unused; accepted for interface compatibility.
         """
         return Report(
@@ -376,12 +376,12 @@ class Polygon(Region):
         c = self._impl.centroid
         return XY(x=c.x, y=c.y)
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this polygon.
 
         Parameters
         ----------
-        **kwargs
+        options : `DescribeOptions`, optional
             Unused; accepted for interface compatibility.
         """
         return Report(

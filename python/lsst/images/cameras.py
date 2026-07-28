@@ -40,7 +40,7 @@ from ._transforms import (
     FocalPlaneFrame,
     Transform,
 )
-from .describe import DescribableMixin, FieldRole, Report, ReportField
+from .describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
 from .serialization import (
     ArchiveReadError,
     ArchiveTree,
@@ -636,12 +636,12 @@ class Detector(DescribableMixin):
         """The amplifiers of this detectors (`list` [`Amplifier`])."""
         return self._amplifiers
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this detector.
 
         Parameters
         ----------
-        **kwargs
+        options : `DescribeOptions`, optional
             Unused; accepted for interface compatibility.
         """
         return Report(

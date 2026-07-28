@@ -13,7 +13,7 @@ from __future__ import annotations
 
 __all__ = ("Image", "ImageSerializationModel")
 
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, ClassVar, final
@@ -31,7 +31,7 @@ from . import fits
 from ._generalized_image import GeneralizedImage
 from ._geom import YX, Box
 from ._transforms import Frame, GeneralFrame, SkyProjection, SkyProjectionSerializationModel
-from .describe import Report, ReportField
+from .describe import DescribeOptions, FieldRole, Report, ReportField
 from .serialization import (
     ArchiveTree,
     ArrayReferenceModel,
@@ -211,32 +211,35 @@ class Image(GeneralizedImage):
     def __setitem__(self, bbox: Box | EllipsisType, value: Image) -> None:
         self[bbox].quantity[...] = value.quantity
 
-    def _describe(self, *, exclude: Collection[str] = (), **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this image.
 
         Parameters
         ----------
-        exclude : `~collections.abc.Collection` [`str`], optional
-            Names of report elements (``"bbox"``, ``"sky_projection"``) to
-            omit.  Used by composite containers that display the shared value
-            once at the top level.
-        **kwargs
-            Unused; accepted for interface compatibility.
+        options : `DescribeOptions`, optional
+            Rendering options.  ``"bbox"`` and ``"sky_projection"`` are
+            recognized in `DescribeOptions.exclude`.
         """
         dtype_name = self.array.dtype.type.__name__
         # When a composite excludes the shared bbox, this image is a child that
         # only needs to convey its dtype, so it collapses to a single line.
-        if "bbox" in exclude:
+        if "bbox" in options.exclude:
             return Report(
                 type_name="Image",
                 summary=f"(dtype {dtype_name})",
                 inline=True,
             )
         children = {}
-        if "sky_projection" not in exclude and self._sky_projection is not None:
-            children["sky_projection"] = self._sky_projection._describe(bbox=self._bbox)
+        if not options.brief and "sky_projection" not in options.exclude and self._sky_projection is not None:
+            children["sky_projection"] = self._sky_projection._describe(options.for_child(), bbox=self._bbox)
         fields = [
-            ReportField(label="array", value="<array>", repr_value="...", positional=True),
+            ReportField(
+                label="array",
+                value="<array>",
+                repr_value="...",
+                positional=True,
+                role=FieldRole.REPR_ONLY,
+            ),
             ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)),
             ReportField(label="dtype", value=str(self.array.dtype), repr_value=repr(self.array.dtype)),
         ]

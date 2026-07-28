@@ -33,7 +33,7 @@ from ._geom import Box
 from ._image import DEFAULT_PIXEL_FRAME, Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._transforms import Frame, SkyProjection, SkyProjectionSerializationModel
-from .describe import FieldRole, Report, ReportField
+from .describe import DescribeOptions, FieldRole, Report, ReportField
 from .serialization import (
     ArchiveTree,
     InputArchive,
@@ -194,50 +194,48 @@ class MaskedImage(GeneralizedImage):
         self._mask[bbox] = value.mask
         self._variance[bbox] = value.variance
 
-    def _describe(self, *, brief: bool = False, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this masked image.
 
         Parameters
         ----------
-        brief : `bool`, optional
-            When `True`, populate only the fields and summary that ``repr``
-            and ``str`` return, skipping the children.
-        **kwargs
-            Render keyword arguments forwarded to all children.
+        options : `DescribeOptions`, optional
+            Rendering options; forwarded to all children.
         """
-        bbox_field = ReportField(
-            label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED
-        )
+        # The image and mask schema are rendered as children below, and the
+        # image renders as ``Image(bbox, dtype)``, which would restate the
+        # shared bbox.  Both are REPR_ONLY so only repr sees them.
+        fields = [
+            ReportField(
+                label="image",
+                value=self.image,
+                repr_value=repr(self.image),
+                positional=True,
+                role=FieldRole.REPR_ONLY,
+            ),
+            ReportField(
+                label="mask_schema",
+                value=self.mask.schema,
+                repr_value=repr(self.mask.schema),
+                role=FieldRole.REPR_ONLY,
+            ),
+            ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED),
+        ]
         summary = f"MaskedImage({self.image!s}, {list(self.mask.schema.names)})"
-        if brief:
-            # ``repr`` needs the image and mask schema inline.  A full report
-            # renders both as children, and the image renders as
-            # ``Image(bbox, dtype)``, which would duplicate the shared bbox.
-            return Report(
-                type_name="MaskedImage",
-                summary=summary,
-                fields=[
-                    ReportField(
-                        label="image", value=self.image, repr_value=repr(self.image), positional=True
-                    ),
-                    ReportField(
-                        label="mask_schema", value=self.mask.schema, repr_value=repr(self.mask.schema)
-                    ),
-                    bbox_field,
-                ],
-            )
-        child_kwargs = {k: v for k, v in kwargs.items() if k not in ("exclude", "bbox")}
+        if options.brief:
+            return Report(type_name="MaskedImage", summary=summary, fields=fields)
+        plane = options.for_child("sky_projection", "bbox")
         children = {
-            "image": self._image._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
-            "mask": self._mask._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
-            "variance": self._variance._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
+            "image": self._image._describe(plane),
+            "mask": self._mask._describe(plane),
+            "variance": self._variance._describe(plane),
         }
         if self.sky_projection is not None:
-            children["sky_projection"] = self.sky_projection._describe(bbox=self.bbox, **child_kwargs)
+            children["sky_projection"] = self.sky_projection._describe(options.for_child(), bbox=self.bbox)
         return Report(
             type_name="MaskedImage",
             summary=summary,
-            fields=[bbox_field],
+            fields=fields,
             children=children,
         )
 

@@ -29,7 +29,7 @@ import pydantic
 
 from .._concrete_bounds import BoundsSerializationModel
 from .._geom import XY, YX, Bounds, Box
-from ..describe import DescribableMixin, FieldRole, Report, ReportField
+from ..describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
 from ..serialization import ArchiveReadError, ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 from . import _ast as astshim
 from ._frames import Frame, SerializableFrame, SkyFrame
@@ -265,22 +265,21 @@ class Transform[I: Frame, O: Frame](DescribableMixin):
             ast_mapping = ast_mapping.simplified()
         return ast_mapping.show(comments)
 
-    def _describe(self, *, brief: bool = False, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this transform.
 
         Parameters
         ----------
-        brief : `bool`, optional
-            When `True`, report only the input and output frames, skipping the
-            bounds and the (potentially very long) AST mapping dump.
-        **kwargs
-            Unused; accepted for interface compatibility.
+        options : `DescribeOptions`, optional
+            Rendering options.  `DescribeOptions.brief` reports only the input
+            and output frames, skipping the bounds and the (potentially very
+            long) AST mapping dump.
         """
         fields = [
             ReportField(label="in_frame", value=self.in_frame, role=FieldRole.DERIVED),
             ReportField(label="out_frame", value=self.out_frame, role=FieldRole.DERIVED),
         ]
-        if not brief:
+        if not options.brief:
             fields += [
                 ReportField(label="in_bounds", value=self.in_bounds, role=FieldRole.DERIVED),
                 ReportField(label="out_bounds", value=self.out_bounds, role=FieldRole.DERIVED),

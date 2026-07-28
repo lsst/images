@@ -30,7 +30,7 @@ from .._image import Image, ImageSerializationModel
 from .._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_legacy_deep_coadd_mask_planes
 from .._masked_image import MaskedImage, MaskedImageSerializationModel
 from .._transforms import SkyProjection, SkyProjectionSerializationModel, TractFrame
-from ..describe import FieldRole, Report, ReportField
+from ..describe import DescribeOptions, FieldRole, Report, ReportField
 from ..fields import BaseField
 from ..serialization import InputArchive, InvalidParameterError, OutputArchive
 from ._aperture_corrections import CellApertureCorrectionMapSerializationModel, CellField
@@ -264,16 +264,13 @@ class CellCoadd(MaskedImage):
             bbox=bbox,
         )
 
-    def _describe(self, *, brief: bool = False, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this cell coadd.
 
         Parameters
         ----------
-        brief : `bool`, optional
-            When `True`, populate only the fields and summary that ``repr``
-            and ``str`` return, skipping the children.
-        **kwargs
-            Render keyword arguments forwarded to all children.
+        options : `DescribeOptions`, optional
+            Rendering options; forwarded to all children.
         """
         fields = [
             ReportField(label="skymap", value=self.skymap, role=FieldRole.DERIVED),
@@ -283,16 +280,17 @@ class CellCoadd(MaskedImage):
             ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED),
         ]
         summary = f"CellCoadd({self.bbox!s}, tract={self.tract})"
-        if brief:
+        if options.brief:
             return Report(type_name="CellCoadd", summary=summary, fields=fields)
-        child_kwargs = {k: v for k, v in kwargs.items() if k not in ("exclude", "bbox")}
+        child = options.for_child()
+        plane = options.for_child("sky_projection", "bbox")
         children: dict[str, Report] = {
-            "image": self.image._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
-            "mask": self.mask._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
-            "variance": self.variance._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
-            "sky_projection": self.sky_projection._describe(bbox=self.bbox, **child_kwargs),
-            "psf": self.psf._describe(**child_kwargs),
-            "backgrounds": self.backgrounds._describe(**child_kwargs),
+            "image": self.image._describe(plane),
+            "mask": self.mask._describe(plane),
+            "variance": self.variance._describe(plane),
+            "sky_projection": self.sky_projection._describe(child, bbox=self.bbox),
+            "psf": self.psf._describe(child),
+            "backgrounds": self.backgrounds._describe(child),
         }
         return Report(
             type_name="CellCoadd",

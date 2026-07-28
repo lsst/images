@@ -14,6 +14,7 @@ from __future__ import annotations
 __all__ = (
     "Describable",
     "DescribableMixin",
+    "DescribeOptions",
     "FieldRole",
     "Report",
     "ReportField",
@@ -23,6 +24,7 @@ __all__ = (
 import dataclasses
 import enum
 import io
+from collections.abc import Collection
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from rich.console import Console
@@ -35,15 +37,82 @@ if TYPE_CHECKING:
 
 
 class FieldRole(enum.Enum):
-    """Whether a report field reconstructs the object or merely informs."""
+    """Where a report field appears: in ``repr``, in the expanded report, or
+    both.
+    """
 
     ARG = "arg"
-    """A constructor argument; part of the object's identity and reproduced
-    in ``repr``.
+    """A constructor argument that also informs; reproduced in ``repr`` and
+    shown in the expanded report.
+    """
+
+    REPR_ONLY = "repr_only"
+    """A constructor argument that ``repr`` needs to round-trip but that would
+    duplicate a child or a more readable field in the expanded report.
     """
 
     DERIVED = "derived"
-    """An informational or computed value; never reproduced in ``repr``."""
+    """An informational or computed value; shown in the expanded report but
+    never reproduced in ``repr``.
+    """
+
+    @property
+    def in_repr(self) -> bool:
+        """Whether fields with this role feed ``repr`` and ``str`` (`bool`)."""
+        return self is not FieldRole.DERIVED
+
+    @property
+    def in_display(self) -> bool:
+        """Whether fields with this role appear in the expanded report
+        (`bool`).
+        """
+        return self is not FieldRole.REPR_ONLY
+
+
+@dataclasses.dataclass(frozen=True)
+class DescribeOptions:
+    """Rendering options threaded through a tree of `Report` objects.
+
+    Options that apply to a single type only (such as the ``bbox`` understood
+    by `~lsst.images.SkyProjection`) are explicit keyword arguments on that
+    type's ``_describe`` instead of members here, so that this class stays
+    meaningful at every level of a report tree.
+    """
+
+    brief: bool = False
+    """Whether to build only what ``repr`` and ``str`` read.
+
+    When `True`, implementations skip children, tables, and any derived value
+    that is expensive to compute.  Which *fields* feed ``repr`` is governed by
+    `FieldRole`, not by this flag.
+    """
+
+    detail: bool = False
+    """Whether to include extras that are too expensive for a default report,
+    such as per-plane set-pixel counts that must scan the mask.
+    """
+
+    exclude: frozenset[str] = frozenset()
+    """Names of report elements a composite has already shown once at the top
+    level, and which its children should therefore omit.
+    """
+
+    def for_child(self, *exclude: str) -> DescribeOptions:
+        """Return the options a child report should be built with.
+
+        Parameters
+        ----------
+        *exclude
+            Names of report elements the child should omit because the parent
+            displays them once at the top level.  Replaces, rather than adds
+            to, any `exclude` set on ``self``.
+
+        Returns
+        -------
+        options : `DescribeOptions`
+            Options carrying this object's `brief` and `detail` settings.
+        """
+        return dataclasses.replace(self, exclude=frozenset(exclude))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -63,7 +132,7 @@ class ReportField:
     """Eval-ish fragment used in ``repr``; defaults to ``repr(value)``."""
 
     role: FieldRole = FieldRole.ARG
-    """Whether this field feeds ``repr`` (`FieldRole.ARG`) or not."""
+    """Where this field appears (`FieldRole`)."""
 
     positional: bool = False
     """If `True`, ``repr`` emits the value positionally (no ``label=``)."""
@@ -114,10 +183,12 @@ class Report:
     """
 
     def to_repr(self) -> str:
-        """Return an eval-ish ``repr`` string built from ``ARG`` fields."""
+        """Return an eval-ish ``repr`` string built from the fields whose role
+        feeds ``repr``.
+        """
         parts: list[str] = []
         for field in self.fields:
-            if field.role is not FieldRole.ARG:
+            if not field.role.in_repr:
                 continue
             value = field.repr_value if field.repr_value is not None else repr(field.value)
             parts.append(value if field.positional else f"{field.label}={value}")
@@ -127,7 +198,7 @@ class Report:
         """Return a compact one-line summary."""
         if self.summary is not None:
             return self.summary
-        args = [str(field.value) for field in self.fields if field.role is FieldRole.ARG]
+        args = [str(field.value) for field in self.fields if field.role.in_repr]
         inner = ", ".join(args[:3])
         return f"{self.type_name}({inner})"
 
@@ -154,6 +225,8 @@ class Report:
         """Return a `rich.tree.Tree` describing this report."""
         tree = Tree(Text(self.title if self.title is not None else self.type_name))
         for field in self.fields:
+            if not field.role.in_display:
+                continue
             tree.add(Text(self._field_line(field)))
         for table in self.tables:
             tree.add(self._as_table(table))
@@ -175,29 +248,53 @@ class Report:
         return console.export_html(inline_styles=True)
 
 
+# runtime_checkable supports the isinstance check in the "describe" command
+# line subcommand, which must decide whether an arbitrary deserialized object
+# can be described at all.
 @runtime_checkable
 class Describable(Protocol):
-    """An object that can produce a `Report` describing itself."""
+    """An object that can produce a `Report` describing itself.
 
-    def _describe(self, **kwargs: Any) -> Report:
+    `describe` is the entry point callers use; `_describe` is the recursive
+    contract composites use to build child reports.  They differ in signature:
+    `describe` spells its options out as keyword arguments for convenience,
+    while `_describe` takes the single `DescribeOptions` value that composites
+    thread down the tree.
+    """
+
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this object.
 
         Parameters
         ----------
-        **kwargs
-            Optional rendering parameters (e.g. a ``bbox`` to compute derived
-            sky-coordinate fields, or ``brief=True`` to skip the children and
-            derived content that ``repr`` and ``str`` never return).
+        options : `DescribeOptions`, optional
+            Rendering options.  Implementations ignore the members they have
+            no use for, so new members can be added without breaking them.
+
+        Returns
+        -------
+        report : `Report`
+            Report describing this object.
         """
         ...
 
-    def describe(self, **kwargs: Any) -> Report:
+    def describe(self, *, brief: bool = False, detail: bool = False, exclude: Collection[str] = ()) -> Report:
         """Return a `Report` describing this object.
 
         Parameters
         ----------
-        **kwargs
-            Optional rendering parameters passed through to `_describe`.
+        brief : `bool`, optional
+            Whether to build only what ``repr`` and ``str`` read.
+        detail : `bool`, optional
+            Whether to include extras that are too expensive for a default
+            report.
+        exclude : `~collections.abc.Collection` [`str`], optional
+            Names of report elements to omit.
+
+        Returns
+        -------
+        report : `Report`
+            Report describing this object.
         """
         ...
 
@@ -205,34 +302,49 @@ class Describable(Protocol):
 class DescribableMixin:
     """Mixin that wires repr, str, rich, and HTML rendering to `_describe`."""
 
-    def _describe(self, **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this object.
 
         Parameters
         ----------
-        **kwargs
-            Optional rendering parameters.
+        options : `DescribeOptions`, optional
+            Rendering options.
+
+        Returns
+        -------
+        report : `Report`
+            Report describing this object.
         """
         raise NotImplementedError()
 
-    def describe(self, **kwargs: Any) -> Report:
+    def describe(self, *, brief: bool = False, detail: bool = False, exclude: Collection[str] = ()) -> Report:
         """Return a `~lsst.images.Report` describing this object.
 
         Parameters
         ----------
-        **kwargs
-            Optional rendering parameters passed through to `_describe`.
+        brief : `bool`, optional
+            Whether to build only what ``repr`` and ``str`` read.
+        detail : `bool`, optional
+            Whether to include extras that are too expensive for a default
+            report, such as per-plane set-pixel counts.
+        exclude : `~collections.abc.Collection` [`str`], optional
+            Names of report elements to omit.
+
+        Returns
+        -------
+        report : `~lsst.images.Report`
+            Report describing this object.
         """
-        return self._describe(**kwargs)
+        return self._describe(DescribeOptions(brief=brief, detail=detail, exclude=frozenset(exclude)))
 
     def __repr__(self) -> str:
-        return self._describe(brief=True).to_repr()
+        return self._describe(DescribeOptions(brief=True)).to_repr()
 
     def __str__(self) -> str:
-        return self._describe(brief=True).to_str()
+        return self._describe(DescribeOptions(brief=True)).to_str()
 
     def _repr_html_(self) -> str:
-        return self._describe(detail=True)._repr_html_()
+        return self._describe(DescribeOptions(detail=True))._repr_html_()
 
     def __rich__(self) -> RenderableType:
-        return self._describe(detail=True).__rich__()
+        return self._describe(DescribeOptions(detail=True)).__rich__()

@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("ColorImage",)
 
 import functools
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from types import EllipsisType
 from typing import Any, ClassVar, Literal
 
@@ -25,7 +25,7 @@ from ._generalized_image import GeneralizedImage
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
 from ._transforms import SkyProjection, SkyProjectionSerializationModel
-from .describe import Report, ReportField
+from .describe import DescribeOptions, FieldRole, Report, ReportField
 from .serialization import ArchiveTree, InputArchive, InvalidParameterError, MetadataValue, OutputArchive
 from .utils import is_none
 
@@ -154,25 +154,29 @@ class ColorImage(GeneralizedImage):
     def __setitem__(self, bbox: Box | EllipsisType, value: ColorImage) -> None:
         self[bbox].array[...] = value.array
 
-    def _describe(self, *, exclude: Collection[str] = (), **kwargs: Any) -> Report:
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this color image.
 
         Parameters
         ----------
-        exclude : `~collections.abc.Collection` [`str`], optional
-            Names of report elements (``"bbox"``, ``"sky_projection"``) to
-            omit.
-        **kwargs
-            Unused; accepted for interface compatibility.
+        options : `DescribeOptions`, optional
+            Rendering options.  ``"bbox"`` and ``"sky_projection"`` are
+            recognized in `DescribeOptions.exclude`.
         """
         children = {}
         sky_projection = self.sky_projection
-        if "sky_projection" not in exclude and sky_projection is not None:
-            children["sky_projection"] = sky_projection._describe(bbox=self.bbox)
+        if not options.brief and "sky_projection" not in options.exclude and sky_projection is not None:
+            children["sky_projection"] = sky_projection._describe(options.for_child(), bbox=self.bbox)
         fields = [
-            ReportField(label="array", value="<array>", repr_value="...", positional=True),
+            ReportField(
+                label="array",
+                value="<array>",
+                repr_value="...",
+                positional=True,
+                role=FieldRole.REPR_ONLY,
+            ),
         ]
-        if "bbox" not in exclude:
+        if "bbox" not in options.exclude:
             fields.append(ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)))
         fields.append(
             ReportField(label="dtype", value=str(self._array.dtype), repr_value=repr(self._array.dtype))
