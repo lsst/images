@@ -201,18 +201,31 @@ class MaskedImage(GeneralizedImage):
         ----------
         brief : `bool`, optional
             When `True`, populate only the fields and summary that ``repr``
-            and ``str`` read, skipping the children.
+            and ``str`` return, skipping the children.
         **kwargs
             Render keyword arguments forwarded to all children.
         """
-        fields = [
-            ReportField(label="image", value=self.image, repr_value=repr(self.image), positional=True),
-            ReportField(label="mask_schema", value=self.mask.schema, repr_value=repr(self.mask.schema)),
-            ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED),
-        ]
+        image_field = ReportField(
+            label="image", value=self.image, repr_value=repr(self.image), positional=True
+        )
+        bbox_field = ReportField(
+            label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED
+        )
         summary = f"MaskedImage({self.image!s}, {list(self.mask.schema.names)})"
         if brief:
-            return Report(type_name="MaskedImage", summary=summary, fields=fields)
+            # ``repr`` needs the mask schema inline; full reports get it from
+            # the "mask" child instead.
+            return Report(
+                type_name="MaskedImage",
+                summary=summary,
+                fields=[
+                    image_field,
+                    ReportField(
+                        label="mask_schema", value=self.mask.schema, repr_value=repr(self.mask.schema)
+                    ),
+                    bbox_field,
+                ],
+            )
         child_kwargs = {k: v for k, v in kwargs.items() if k not in ("exclude", "bbox")}
         children = {
             "image": self._image._describe(exclude={"sky_projection", "bbox"}, **child_kwargs),
@@ -224,7 +237,7 @@ class MaskedImage(GeneralizedImage):
         return Report(
             type_name="MaskedImage",
             summary=summary,
-            fields=fields,
+            fields=[image_field, bbox_field],
             children=children,
         )
 

@@ -320,14 +320,21 @@ class VisitImage(MaskedImage):
         ----------
         brief : `bool`, optional
             When `True`, populate only the fields and summary that ``repr``
-            and ``str`` read, skipping the children (whose construction can be
-            expensive or raise for an unreadable component).
+            and ``str`` return, skipping the children (whose construction can
+            be expensive or raise for an unreadable component).
         **kwargs
             Render keyword arguments forwarded to all children.
         """
         fields = [
             ReportField(label="image", value=self.image, repr_value=repr(self.image), positional=True),
-            ReportField(label="mask_schema", value=self.mask.schema, repr_value=repr(self.mask.schema)),
+        ]
+        if brief:
+            # ``repr`` needs the mask schema inline; full reports get it from
+            # the "mask" child instead.
+            fields.append(
+                ReportField(label="mask_schema", value=self.mask.schema, repr_value=repr(self.mask.schema))
+            )
+        fields += [
             ReportField(label="band", value=self.band, role=FieldRole.DERIVED),
             ReportField(label="physical_filter", value=self.physical_filter, role=FieldRole.DERIVED),
             ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED),
