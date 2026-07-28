@@ -106,13 +106,31 @@ class CameraFrameSet(FrameSet):
         Parameters
         ----------
         options : `DescribeOptions`, optional
-            Unused; accepted for interface compatibility.
+            Rendering options.  `DescribeOptions.brief` omits the detector
+            list, which is one entry per detector in the camera.
         """
-        return Report(
-            type_name="CameraFrameSet",
-            summary=f"CameraFrameSet({self.instrument!r})",
-            fields=[ReportField(label="instrument", value=self.instrument, role=FieldRole.DERIVED)],
-        )
+        detectors = sorted(self._detector_frame_ids)
+        count = len(detectors)
+        summary = f"CameraFrameSet({self.instrument!r}, {count} detector{'' if count == 1 else 's'})"
+        fields = [
+            ReportField(label="instrument", value=self.instrument, role=FieldRole.DERIVED),
+            # The focal plane and field angle frames are required by the
+            # constructor, so only their configuration is worth reporting.
+            ReportField(
+                label="focal plane unit",
+                value=self._focal_plane_frame.unit,
+                role=FieldRole.DERIVED,
+            ),
+        ]
+        if not options.brief:
+            fields.append(
+                ReportField(
+                    label="detectors",
+                    value=", ".join(str(detector) for detector in detectors),
+                    role=FieldRole.DERIVED,
+                )
+            )
+        return Report(type_name="CameraFrameSet", summary=summary, fields=fields)
 
     def focal_plane(self, visit: int | None = None) -> _frames.FocalPlaneFrame:
         """Return a focal plane frame for this instrument.
