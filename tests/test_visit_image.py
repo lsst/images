@@ -615,6 +615,55 @@ def test_sum_background_round_trip_ndf(visit_image_components: dict[str, Any]) -
         _check_sum_background_round_trip(roundtrip.result, visit)
 
 
+@pytest.mark.parametrize(
+    "scaling_unit,operation",
+    [(u.electron / u.nJy, "multiply"), (u.nJy / u.electron, "divide")],
+    ids=["multiply", "divide"],
+)
+def test_convert_unit_subimage(
+    visit_image_components: dict[str, Any],
+    scaling_unit: u.UnitBase,
+    operation: Literal["multiply", "divide"],
+) -> None:
+    """Verify that converting the units of a subimage applies only the portion
+    of the photometric scaling that overlaps the subimage.
+
+    A photometric scaling keeps the bounds it was modeled over when the image
+    is subset, so both branches of the conversion must render it over the
+    subimage's bbox rather than over its own bounds.
+    """
+    # The shared fixture's image has an integer dtype, which the photometric
+    # scaling cannot be rendered at; use float pixels as real visit images do.
+    components = dict(visit_image_components)
+    components["image"] = Image(42.0, shape=(1024, 1024), unit=u.nJy, dtype=np.float32)
+    components["variance"] = Image(5.0, shape=(1024, 1024), unit=u.nJy * u.nJy, dtype=np.float32)
+    visit_image = make_visit_image(components)
+    scaling = ChebyshevField(
+        visit_image.bbox,
+        np.array([[4.0, 0.5, 0.125], [0.25, 0.0625, 0.0], [0.03125, 0.0, 0.0]]),
+        unit=scaling_unit,
+    )
+    visit_image.photometric_scaling = scaling
+    # Trim a different number of pixels from each side so a scaling rendered
+    # over the wrong box cannot match by chance.
+    subbox = Box.factory[
+        visit_image.bbox.y.start + 7 : visit_image.bbox.y.stop - 13,
+        visit_image.bbox.x.start + 3 : visit_image.bbox.x.stop - 21,
+    ]
+    subimage = visit_image[subbox]
+    assert subimage.photometric_scaling.bounds.bbox == visit_image.bbox
+
+    converted = subimage.convert_unit(u.electron)
+
+    assert converted.unit == u.electron
+    assert converted.image.bbox == subbox
+    scaling_array = scaling.render(subbox, dtype=subimage.image.array.dtype).array
+    if operation == "divide":
+        scaling_array = 1.0 / scaling_array
+    assert_close(converted.image.array, subimage.image.array * scaling_array)
+    assert_close(converted.variance.array, subimage.variance.array * scaling_array**2)
+
+
 @dataclasses.dataclass
 class _LegacyTestData:
     filename: str
