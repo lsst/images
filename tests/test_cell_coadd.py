@@ -21,6 +21,7 @@ import pytest
 
 from lsst.images import YX, Box, Interval, MaskPlane, get_legacy_deep_coadd_mask_planes
 from lsst.images.cells import CellCoadd, CellGrid, CellGridBounds, CellIJ, PatchDefinition
+from lsst.images.fields import ChebyshevField
 from lsst.images.fits import FitsCompressionOptions
 from lsst.images.serialization import read_archive
 from lsst.images.tests import (
@@ -378,6 +379,86 @@ def test_ndf_roundtrip(legacy_test_data: _LegacyTestData) -> None:
     """Test that CellCoadd round-trips through NDF."""
     with RoundtripNdf(legacy_test_data.cell_coadd, "CellCoadd") as roundtrip:
         assert_cell_coadds_equal(roundtrip.result, legacy_test_data.cell_coadd, expect_view=False)
+
+
+# The float32 image pixels are of order 10 nJy, as is the test background
+# below, so background arithmetic is only reproducible to a few ULPs at that
+# scale.
+BACKGROUND_ATOL = 1e-5
+
+
+def _add_gradient_background(coadd: CellCoadd, name: str = "pretty") -> ChebyshevField:
+    """Add a non-constant background over the coadd's full bbox and return the
+    field that was added.
+    """
+    field = ChebyshevField(
+        coadd.bbox,
+        np.array([[10.0, 2.0, 0.5], [1.0, 0.75, 0.0], [0.25, 0.0, 0.0]]),
+        unit=coadd.unit,
+    )
+    coadd.backgrounds.add(name, field, description="Gradient background for tests.")
+    return field
+
+
+def _make_background_subbox(coadd: CellCoadd) -> Box:
+    """Make a box that trims a different number of pixels from each side of the
+    coadd, so a background rendered over the wrong box cannot match by chance.
+    """
+    return Box.factory[
+        coadd.bbox.y.start + 2 : coadd.bbox.y.stop - 3,
+        coadd.bbox.x.start + 1 : coadd.bbox.x.stop - 2,
+    ]
+
+
+def test_apply_background_subimage(minified_cell_coadd: CellCoadd) -> None:
+    """Test that applying a background to a subimage subtracts only the
+    portion of the background model that overlaps the subimage.
+    """
+    field = _add_gradient_background(minified_cell_coadd)
+    subbox = _make_background_subbox(minified_cell_coadd)
+    subimage = minified_cell_coadd[subbox]
+    original = subimage.image.array.copy()
+
+    subimage.apply_background("pretty")
+
+    assert subimage.backgrounds.subtracted is not None
+    assert subimage.backgrounds.subtracted.name == "pretty"
+    assert subimage.image.bbox == subbox
+    expected = field.render(subbox, dtype=subimage.image.array.dtype).array
+    np.testing.assert_allclose(original - subimage.image.array, expected, atol=BACKGROUND_ATOL)
+
+
+def test_restore_background_subimage(minified_cell_coadd: CellCoadd) -> None:
+    """Test that restoring the original background on a subimage adds back
+    only the portion of the background model that overlaps the subimage.
+    """
+    _add_gradient_background(minified_cell_coadd)
+    subbox = _make_background_subbox(minified_cell_coadd)
+    subimage = minified_cell_coadd[subbox]
+    original = subimage.image.array.copy()
+    subimage.apply_background("pretty")
+
+    subimage.apply_background(None)
+
+    assert subimage.backgrounds.subtracted is None
+    np.testing.assert_allclose(subimage.image.array, original, atol=BACKGROUND_ATOL)
+
+
+def test_apply_background_after_bounded_read(minified_cell_coadd: CellCoadd) -> None:
+    """Test that a background can be applied to a coadd read with a bbox
+    parameter.
+    """
+    field = _add_gradient_background(minified_cell_coadd)
+    subbox = _make_background_subbox(minified_cell_coadd)
+    with RoundtripJson(minified_cell_coadd, "CellCoadd") as roundtrip:
+        subimage = roundtrip.get(bbox=subbox)
+        original = subimage.image.array.copy()
+
+        subimage.apply_background("pretty")
+
+        assert subimage.image.bbox == subbox
+        expected = field.render(subbox, dtype=subimage.image.array.dtype).array
+        np.testing.assert_allclose(original - subimage.image.array, expected, atol=BACKGROUND_ATOL)
 
 
 def test_cell_grid_bounds_contains_broadcasting(minified_cell_coadd: CellCoadd) -> None:
