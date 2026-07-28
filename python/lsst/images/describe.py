@@ -19,6 +19,7 @@ __all__ = (
     "Report",
     "ReportField",
     "ReportTable",
+    "ReportValueGroup",
 )
 
 import dataclasses
@@ -139,6 +140,23 @@ class ReportField:
 
 
 @dataclasses.dataclass(frozen=True)
+class ReportValueGroup:
+    """Short labeled values packed several to a rendered line.
+
+    Use this where a report has many small scalars that would each be
+    uninformative on a line of their own.  The renderer joins them and lets
+    them wrap to the available width, so long values (a list, say) belong in
+    a `ReportField` instead, where they get a line to themselves.
+    """
+
+    values: list[tuple[str, Any]]
+    """Ordered ``(label, value)`` pairs."""
+
+    role: FieldRole = FieldRole.DERIVED
+    """Value groups never feed ``repr``; always `FieldRole.DERIVED`."""
+
+
+@dataclasses.dataclass(frozen=True)
 class ReportTable:
     """Homogeneous columnar data rendered as an aligned table."""
 
@@ -173,6 +191,9 @@ class Report:
 
     tables: list[ReportTable] = dataclasses.field(default_factory=list)
     """Ordered tables of columnar data."""
+
+    value_groups: list[ReportValueGroup] = dataclasses.field(default_factory=list)
+    """Ordered groups of short values packed several to a line."""
 
     children: dict[str, Report] = dataclasses.field(default_factory=dict)
     """Named nested sub-reports."""
@@ -228,6 +249,10 @@ class Report:
             if not field.role.in_display:
                 continue
             tree.add(Text(self._field_line(field)))
+        for group in self.value_groups:
+            # A plain Text wraps to the available width, packing as many
+            # values onto each line as will fit.
+            tree.add(Text("  ".join(f"{label}={value}" for label, value in group.values)))
         for table in self.tables:
             tree.add(self._as_table(table))
         for key, child in self.children.items():

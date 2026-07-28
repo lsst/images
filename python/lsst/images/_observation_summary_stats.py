@@ -18,7 +18,14 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, final, get_origin
 
 import pydantic
 
-from lsst.images.describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
+from lsst.images.describe import (
+    DescribableMixin,
+    DescribeOptions,
+    FieldRole,
+    Report,
+    ReportField,
+    ReportValueGroup,
+)
 from lsst.images.serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 
 if TYPE_CHECKING:
@@ -454,22 +461,37 @@ class ObservationSummaryStats(ArchiveTree, DescribableMixin):
         Parameters
         ----------
         options : `DescribeOptions`, optional
-            Unused; accepted for interface compatibility.
+            Rendering options.  `DescribeOptions.brief` omits the statistics,
+            which would mean inspecting every field.
+
+        Notes
+        -----
+        Which statistics an observation carries depends on which pipeline
+        steps produced it, and most of the many fields are unset in any given
+        one, so the report covers whichever of them hold a value rather than a
+        fixed selection.
         """
-        fields = [
-            ReportField(label=name, value=getattr(self, name), role=FieldRole.DERIVED)
-            for name in (
-                "psfSigma",
-                "psfArea",
-                "zeroPoint",
-                "skyBg",
-                "expTime",
-                "ra",
-                "dec",
-                "pixelScale",
-            )
-        ]
-        return Report(type_name="ObservationSummaryStats", fields=fields)
+        if options.brief:
+            return Report(type_name="ObservationSummaryStats")
+        # Everything this class adds to ArchiveTree is a statistic; what it
+        # inherits from it is serialization plumbing.
+        names = sorted(set(type(self).model_fields) - set(ArchiveTree.model_fields))
+        scalars: list[tuple[str, Any]] = []
+        fields: list[ReportField] = []
+        for name in names:
+            value = getattr(self, name)
+            if _is_empty(value):
+                continue
+            if isinstance(value, list | tuple):
+                # Too long to pack alongside the scalars; give it a line.
+                fields.append(ReportField(label=name, value=value, role=FieldRole.DERIVED))
+            else:
+                scalars.append((name, value))
+        return Report(
+            type_name="ObservationSummaryStats",
+            fields=fields,
+            value_groups=[ReportValueGroup(values=scalars)] if scalars else [],
+        )
 
     def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> Self:
         """Extract this object from an archive.

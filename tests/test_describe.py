@@ -29,6 +29,7 @@ from lsst.images.describe import (
     Report,
     ReportField,
     ReportTable,
+    ReportValueGroup,
 )
 from lsst.images.serialization import read_archive
 
@@ -191,6 +192,7 @@ def test_public_api_importable_from_package() -> None:
         "Report",
         "ReportField",
         "ReportTable",
+        "ReportValueGroup",
     ):
         assert hasattr(images, name), name
 
@@ -369,3 +371,22 @@ def test_masked_image_report_states_the_bbox_once() -> None:
     assert "mask_schema=" in repr(masked)
     assert repr(masked).startswith("MaskedImage(Image(")
     assert {"image", "mask", "variance"} <= set(report.children)
+
+
+def test_value_groups_pack_and_wrap() -> None:
+    """A ReportValueGroup packs several values per line, wrapping to width."""
+    report = Report(
+        type_name="Stats",
+        value_groups=[ReportValueGroup(values=[(f"field{n}", n) for n in range(12)])],
+    )
+    console = Console(record=True, width=60, file=io.StringIO(), force_jupyter=False)
+    console.print(report)
+    rendered = console.export_text()
+    body = [line for line in rendered.splitlines() if "field0=" in line or "field11=" in line]
+    # All twelve values are present, packed onto fewer lines than values.
+    for n in range(12):
+        assert f"field{n}={n}" in rendered
+    assert len(body) >= 1
+    assert len(rendered.splitlines()) < 12
+    # Groups are display-only and never reach repr.
+    assert report.to_repr() == "Stats()"

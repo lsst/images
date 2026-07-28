@@ -43,7 +43,7 @@ from lsst.images import (
 )
 from lsst.images.aperture_corrections import ApertureCorrectionMap, aperture_corrections_to_legacy
 from lsst.images.cameras import Detector
-from lsst.images.describe import DescribableMixin, FieldRole, Report
+from lsst.images.describe import DescribableMixin, DescribeOptions, FieldRole, Report
 from lsst.images.fields import ChebyshevField, SplineField, SumField, field_from_legacy_photo_calib
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
 from lsst.images.psfs import GaussianPointSpreadFunction, PointSpreadFunction
@@ -1073,19 +1073,52 @@ def test_visit_image_repr_str_with_unreadable_psf() -> None:
 
 
 def test_observation_summary_stats_describe() -> None:
-    """ObservationSummaryStats._describe returns a Report."""
+    """ObservationSummaryStats._describe reports the statistics that are set.
+
+    Unset ones are omitted rather than shown as NaN.
+    """
     stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4, ra=180.0, dec=-30.0)
     assert isinstance(stats, DescribableMixin)
     report = stats._describe()
     assert isinstance(report, Report)
     assert report.type_name == "ObservationSummaryStats"
-    labels = {f.label for f in report.fields}
-    assert "psfSigma" in labels
-    assert "ra" in labels
-    assert "dec" in labels
-    assert "zeroPoint" in labels
-    for rf in report.fields:
-        assert rf.role is FieldRole.DERIVED
+    # Scalars are packed into one group, ordered by name.
+    (group,) = report.value_groups
+    assert group.role is FieldRole.DERIVED
+    assert [name for name, _ in group.values] == sorted(name for name, _ in group.values)
+    values = dict(group.values)
+    assert values["psfSigma"] == 2.5
+    assert values["zeroPoint"] == 31.4
+    assert values["ra"] == 180.0
+    assert values["dec"] == -30.0
+    # Unset statistics are omitted rather than reported as NaN, and the
+    # serialization plumbing this class inherits never appears at all.
+    assert "expTime" not in values
+    assert "skyBg" not in values
+    assert not {"metadata", "butler_info", "schema_version"} & set(values)
+
+
+def test_observation_summary_stats_describe_omits_empty_sequences() -> None:
+    """Sequence statistics appear only when they carry a value."""
+    empty = ObservationSummaryStats(psfSigma=2.5)
+    # raCorners defaults to all-NaN, which carries no more information than an
+    # empty sequence does.
+    assert all(math.isnan(v) for v in empty.raCorners)
+    assert not any(f.label == "raCorners" for f in empty._describe().fields)
+
+    filled = ObservationSummaryStats(psfSigma=2.5, raCorners=(5.2, 5.4, 5.4, 5.2))
+    corners = next(f for f in filled._describe().fields if f.label == "raCorners")
+    assert corners.value == (5.2, 5.4, 5.4, 5.2)
+    assert corners.role is FieldRole.DERIVED
+
+
+def test_observation_summary_stats_describe_brief() -> None:
+    """A brief report skips the per-field scan entirely."""
+    stats = ObservationSummaryStats(psfSigma=2.5, raCorners=(5.2, 5.4, 5.4, 5.2))
+    report = stats._describe(DescribeOptions(brief=True))
+    assert report.type_name == "ObservationSummaryStats"
+    assert report.fields == []
+    assert report.value_groups == []
 
 
 def test_observation_summary_stats_pydantic_repr() -> None:
