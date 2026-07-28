@@ -388,5 +388,42 @@ def test_value_groups_pack_and_wrap() -> None:
         assert f"field{n}={n}" in rendered
     assert len(body) >= 1
     assert len(rendered.splitlines()) < 12
-    # Groups are display-only and never reach repr.
-    assert report.to_repr() == "Stats()"
+    # Groups are display-only, so nothing here feeds repr and the report falls
+    # back to the descriptive form.
+    assert report.to_repr() == "<Stats>"
+    assert not any(f"field{n}" in report.to_repr() for n in range(12))
+
+
+def test_to_repr_is_descriptive_when_nothing_feeds_it() -> None:
+    """A report with no repr-feeding fields gets the angle-bracket form.
+
+    An empty ``Type()`` would read as a constructor call that reproduces the
+    object, which is exactly what these types cannot do.
+    """
+    # With a summary, the type name and the summary both appear.
+    report = Report(
+        type_name="SkyProjection",
+        summary="DetectorFrame → ICRS",
+        fields=[ReportField(label="scale", value="0.2 arcsec", role=FieldRole.DERIVED)],
+    )
+    assert report.to_repr() == "<SkyProjection: DetectorFrame → ICRS>"
+
+    # Without one, the type name alone.
+    assert Report(type_name="SkyProjection").to_repr() == "<SkyProjection>"
+
+    # A summary that already opens with the type name does not repeat it.
+    named = Report(type_name="Detector", summary="Detector 'R21_S11' (LSSTCam)")
+    assert named.to_repr() == "<Detector 'R21_S11' (LSSTCam)>"
+
+
+def test_to_repr_prefers_fields_over_the_descriptive_form() -> None:
+    """A single repr-feeding field is enough to keep the eval-ish form."""
+    report = Report(
+        type_name="Image",
+        summary="Image([y=0:4, x=0:4], float32)",
+        fields=[
+            ReportField(label="dtype", value="float32", repr_value="dtype('float32')"),
+            ReportField(label="bbox", value="[y=0:4]", role=FieldRole.DERIVED),
+        ],
+    )
+    assert report.to_repr() == "Image(dtype=dtype('float32'))"

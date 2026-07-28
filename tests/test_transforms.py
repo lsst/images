@@ -792,8 +792,10 @@ def test_sky_projection_describe() -> None:
     fits_field = next(f for f in report.fields if f.label == "fits_wcs")
     assert fits_field.value == "available"
 
-    # repr does not depend on a bbox and does not evaluate the mapping.
-    assert repr(sky_projection).startswith("SkyProjection(")
+    # A projection cannot be rebuilt from a string, so repr is descriptive
+    # rather than an eval-ish call.  It does not depend on a bbox and does not
+    # evaluate the mapping.
+    assert repr(sky_projection) == "<SkyProjection: GeneralFrame → ICRS>"
 
 
 def test_sky_projection_describe_pixel_scale_forms() -> None:

@@ -204,8 +204,16 @@ class Report:
     """
 
     def to_repr(self) -> str:
-        """Return an eval-ish ``repr`` string built from the fields whose role
-        feeds ``repr``.
+        """Return a ``repr`` string built from the fields whose role feeds
+        ``repr``.
+
+        Notes
+        -----
+        Reports with no such fields describe objects that cannot be rebuilt
+        from a string, such as those wrapping an AST mapping.  Those get the
+        angle-bracket form Python uses for objects whose ``repr`` is
+        descriptive, rather than an empty call that would claim an
+        eval-ability they do not have.
         """
         parts: list[str] = []
         for field in self.fields:
@@ -213,6 +221,14 @@ class Report:
                 continue
             value = field.repr_value if field.repr_value is not None else repr(field.value)
             parts.append(value if field.positional else f"{field.label}={value}")
+        if not parts:
+            if self.summary is None:
+                return f"<{self.type_name}>"
+            # Some summaries already open with the type name, which reads
+            # naturally on its own; do not state it twice.
+            if self.summary.startswith(self.type_name):
+                return f"<{self.summary}>"
+            return f"<{self.type_name}: {self.summary}>"
         return f"{self.type_name}({', '.join(parts)})"
 
     def to_str(self) -> str:

@@ -17,6 +17,7 @@ __all__ = (
     "TransformSerializationModel",
 )
 
+import enum
 import textwrap
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, assert_type, cast, final, overload
@@ -49,6 +50,18 @@ P = TypeVar("P", bound=pydantic.BaseModel)
 
 class TransformCompositionError(RuntimeError):
     """Exception raised when two transforms cannot be composed."""
+
+
+def _frame_label(frame: Frame) -> str:
+    """Return a short name identifying a coordinate frame.
+
+    Most frames are pydantic models whose ``str`` spells out every field,
+    which is far too much for a one-line summary, so the type name stands in
+    for them.  The sky frames are an enum, where the member is the name.
+    """
+    if isinstance(frame, enum.Enum):
+        return str(frame.value)
+    return type(frame).__name__
 
 
 @final
@@ -291,7 +304,7 @@ class Transform[I: Frame, O: Frame](DescribableMixin):
             ]
         return Report(
             type_name="Transform",
-            summary=f"{self.in_frame!s} → {self.out_frame!s}",
+            summary=f"{_frame_label(self.in_frame)} → {_frame_label(self.out_frame)}",
             fields=fields,
         )
 
