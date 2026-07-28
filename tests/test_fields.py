@@ -621,8 +621,10 @@ def test_product_field_describe() -> None:
     assert isinstance(report, Report)
     assert report.type_name == "ProductField"
     assert len(report.children) == 2
+    assert report.summary is not None
+    assert "2 operands" in report.summary
     labels = {f.label for f in report.fields}
-    assert "n_operands" in labels
+    assert "bounds" in labels
 
 
 def test_sum_field_describe() -> None:
@@ -633,5 +635,7 @@ def test_sum_field_describe() -> None:
     assert isinstance(report, Report)
     assert report.type_name == "SumField"
     assert len(report.children) == 2
+    assert report.summary is not None
+    assert "2 operands" in report.summary
     labels = {f.label for f in report.fields}
-    assert "n_operands" in labels
+    assert "bounds" in labels

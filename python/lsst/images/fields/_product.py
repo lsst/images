@@ -103,8 +103,6 @@ class ProductField(BaseField):
             fields=[
                 ReportField(label="bounds", value=self.bounds, role=FieldRole.DERIVED),
                 ReportField(label="unit", value=self.unit, role=FieldRole.DERIVED),
-                ReportField(label="n_operands", value=len(self._operands), role=FieldRole.DERIVED),
-                ReportField(label="is_constant", value=self.is_constant, role=FieldRole.DERIVED),
             ],
             children={str(i): operand._describe(**kwargs) for i, operand in enumerate(self._operands)},
         )

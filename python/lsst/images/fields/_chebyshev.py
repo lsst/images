@@ -239,7 +239,6 @@ class ChebyshevField(BaseField):
                 ReportField(label="order", value=self.order, role=FieldRole.DERIVED),
                 ReportField(label="x_order", value=self.x_order, role=FieldRole.DERIVED),
                 ReportField(label="y_order", value=self.y_order, role=FieldRole.DERIVED),
-                ReportField(label="is_constant", value=self.is_constant, role=FieldRole.DERIVED),
             ],
         )
 
