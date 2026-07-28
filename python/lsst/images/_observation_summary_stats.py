@@ -461,8 +461,8 @@ class ObservationSummaryStats(ArchiveTree, DescribableMixin):
         Parameters
         ----------
         options : `DescribeOptions`, optional
-            Rendering options.  `DescribeOptions.brief` omits the statistics,
-            which would mean inspecting every field.
+            Rendering options.  `DescribeOptions.brief` reports how many
+            statistics are set instead of listing them.
 
         Notes
         -----
@@ -471,17 +471,28 @@ class ObservationSummaryStats(ArchiveTree, DescribableMixin):
         one, so the report covers whichever of them hold a value rather than a
         fixed selection.
         """
-        if options.brief:
-            return Report(type_name="ObservationSummaryStats")
         # Everything this class adds to ArchiveTree is a statistic; what it
         # inherits from it is serialization plumbing.
         names = sorted(set(type(self).model_fields) - set(ArchiveTree.model_fields))
+        present = [(name, value) for name in names if not _is_empty(value := getattr(self, name))]
+        summary = f"ObservationSummaryStats({len(present)} of {len(names)} statistics set)"
+        if options.brief:
+            # The count is worth stating on its own where the values are not
+            # listed; alongside them it would only restate what is visible.
+            return Report(
+                type_name="ObservationSummaryStats",
+                summary=summary,
+                fields=[
+                    ReportField(
+                        label="statistics set",
+                        value=f"{len(present)} of {len(names)}",
+                        role=FieldRole.DERIVED,
+                    )
+                ],
+            )
         scalars: list[tuple[str, Any]] = []
         fields: list[ReportField] = []
-        for name in names:
-            value = getattr(self, name)
-            if _is_empty(value):
-                continue
+        for name, value in present:
             if isinstance(value, list | tuple):
                 # Too long to pack alongside the scalars; give it a line.
                 fields.append(ReportField(label=name, value=value, role=FieldRole.DERIVED))
@@ -489,6 +500,7 @@ class ObservationSummaryStats(ArchiveTree, DescribableMixin):
                 scalars.append((name, value))
         return Report(
             type_name="ObservationSummaryStats",
+            summary=summary,
             fields=fields,
             value_groups=[ReportValueGroup(values=scalars)] if scalars else [],
         )

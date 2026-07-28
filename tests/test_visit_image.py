@@ -1112,13 +1112,23 @@ def test_observation_summary_stats_describe_omits_empty_sequences() -> None:
     assert corners.role is FieldRole.DERIVED
 
 
-def test_observation_summary_stats_describe_brief() -> None:
-    """A brief report skips the per-field scan entirely."""
+def test_observation_summary_stats_describe_brief_counts() -> None:
+    """A brief report gives the number set rather than listing them."""
     stats = ObservationSummaryStats(psfSigma=2.5, raCorners=(5.2, 5.4, 5.4, 5.2))
-    report = stats._describe(DescribeOptions(brief=True))
-    assert report.type_name == "ObservationSummaryStats"
-    assert report.fields == []
-    assert report.value_groups == []
+    brief = stats._describe(DescribeOptions(brief=True))
+    assert brief.type_name == "ObservationSummaryStats"
+    assert brief.value_groups == []
+    (field,) = brief.fields
+    assert field.label == "statistics set"
+    assert field.role is FieldRole.DERIVED
+
+    # The count must agree with what the full report actually shows: two
+    # scalars set by default plus psfSigma, and raCorners as a sequence.
+    full = stats._describe()
+    listed = len(full.fields) + sum(len(g.values) for g in full.value_groups)
+    assert field.value.startswith(f"{listed} of ")
+    assert brief.to_str() == full.to_str()
+    assert f"{listed} of " in brief.to_str()
 
 
 def test_observation_summary_stats_pydantic_repr() -> None:
