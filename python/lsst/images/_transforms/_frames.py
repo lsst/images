@@ -44,8 +44,10 @@ def _frame_report(frame: pydantic.BaseModel) -> Report:
     frame
         A frozen pydantic model representing a coordinate frame.
     """
+    # These are the model's own fields, so they are constructor arguments even
+    # though pydantic's repr, not the report, is what currently renders them.
     fields = [
-        ReportField(label=name, value=getattr(frame, name), role=FieldRole.DERIVED)
+        ReportField(label=name, value=getattr(frame, name), role=FieldRole.ARG)
         for name in type(frame).model_fields
     ]
     return Report(type_name=type(frame).__name__, fields=fields)
