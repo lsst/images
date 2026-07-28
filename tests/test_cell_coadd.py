@@ -148,9 +148,14 @@ def make_subbox(full_bbox: Box) -> Box:
 
 
 def test_cell_coadd_repr_str_pinned(minified_cell_coadd: CellCoadd) -> None:
-    """Pin the exact str and repr output of a CellCoadd."""
+    """Pin the exact str and repr output of a CellCoadd.
+
+    A coadd takes component types no string can express, so repr is the
+    descriptive form rather than a constructor call.  Both come from the
+    report, as they do for the sibling `VisitImage`.
+    """
     assert str(minified_cell_coadd) == "CellCoadd([y=48:60, x=36:48], tract=9813)"
-    assert repr(minified_cell_coadd) == "CellCoadd([y=48:60, x=36:48], tract=9813)"
+    assert repr(minified_cell_coadd) == "<CellCoadd([y=48:60, x=36:48], tract=9813)>"
 
 
 def test_cell_grid_patch_str_uses_clean_geometry() -> None:

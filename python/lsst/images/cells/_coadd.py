@@ -299,9 +299,6 @@ class CellCoadd(MaskedImage):
             children=children,
         )
 
-    def __repr__(self) -> str:
-        return str(self)
-
     def copy(self) -> CellCoadd:
         """Deep-copy the coadd."""
         return self._transfer_metadata(
