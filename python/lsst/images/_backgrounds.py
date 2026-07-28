@@ -19,7 +19,7 @@ from typing import Any, ClassVar, cast, final
 
 import pydantic
 
-from .describe import DescribableMixin, DescribeOptions, Report, ReportTable
+from .describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
 from .fields import Field, FieldSerializationModel
 from .serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 
@@ -136,7 +136,13 @@ class BackgroundMap(DescribableMixin, Mapping[str, Background]):
         Parameters
         ----------
         options : `DescribeOptions`, optional
-            Unused; accepted for interface compatibility.
+            Rendering options; forwarded to the background models.
+
+        Notes
+        -----
+        The report is ``inline``, so a composite that holds a map shows only
+        the summary line.  The children below are what a map describes on its
+        own, where the background models themselves are the point.
         """
         subtracted_name = self._subtracted
         if not self._backgrounds:
@@ -145,22 +151,31 @@ class BackgroundMap(DescribableMixin, Mapping[str, Background]):
             summary = ", ".join(
                 f"{name} (subtracted)" if name == subtracted_name else name for name in self._backgrounds
             )
-        tables = []
-        if self._backgrounds:
-            tables.append(
-                ReportTable(
-                    title="Backgrounds",
-                    columns=["Name", "Subtracted", "Description"],
-                    rows=[
-                        [name, "yes" if name == subtracted_name else "", bg.description]
-                        for name, bg in self._backgrounds.items()
-                    ],
-                )
-            )
+        children: dict[str, Report] = {}
+        if not options.brief:
+            child = options.for_child()
+            for name, background in self._backgrounds.items():
+                # The model builds its own report; putting the background's
+                # attributes at the top of it keeps them beside the model they
+                # describe, rather than behind another level of nesting.
+                report = background.field._describe(child)
+                attributes = []
+                if name == subtracted_name:
+                    attributes.append(ReportField(label="subtracted", value="yes", role=FieldRole.DERIVED))
+                if background.description:
+                    attributes.append(
+                        ReportField(
+                            label="description",
+                            value=background.description,
+                            role=FieldRole.DERIVED,
+                        )
+                    )
+                report.fields[:0] = attributes
+                children[name] = report
         return Report(
             type_name="BackgroundMap",
             summary=summary,
-            tables=tables,
+            children=children,
             inline=True,
         )
 

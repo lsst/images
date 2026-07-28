@@ -1034,28 +1034,44 @@ def test_background_map_describe() -> None:
     assert report.type_name == "BackgroundMap"
     assert report.inline
     assert report.summary == "no backgrounds"
-    assert report.tables == []
+    assert report.children == {}
 
 
 def test_background_map_with_entries_describe() -> None:
-    """BackgroundMap._describe lists backgrounds inline and in a table."""
+    """BackgroundMap._describe recurses into each background model."""
     cheby = ChebyshevField(Box.factory[0:100, 0:200], np.array([[1.0]]))
     bg_map = BackgroundMap(
-        [Background("sky", cheby), Background("fringe", cheby)],
+        [Background("sky", cheby, "Sky model."), Background("fringe", cheby)],
         subtracted="sky",
     )
     report = bg_map._describe()
     assert report.type_name == "BackgroundMap"
     assert report.inline
-    # The inline summary lists every background and marks the subtracted one.
+    # The inline summary lists every background and marks the subtracted one,
+    # since that is all a composite holding this map will show.
     assert report.summary == "sky (subtracted), fringe"
-    assert len(report.tables) == 1
-    table = report.tables[0]
-    assert table.columns == ["Name", "Subtracted", "Description"]
-    rows_by_name = {row[0]: row for row in table.rows}
-    assert set(rows_by_name) == {"sky", "fringe"}
-    assert rows_by_name["sky"][1] == "yes"
-    assert rows_by_name["fringe"][1] == ""
+    # Standalone, each background is a child carrying its own model's report.
+    assert set(report.children) == {"sky", "fringe"}
+    sky = report.children["sky"]
+    assert sky.type_name == "ChebyshevField"
+    sky_fields = {f.label: f.value for f in sky.fields}
+    assert sky_fields["subtracted"] == "yes"
+    assert sky_fields["description"] == "Sky model."
+    # The model's own fields survive alongside the background's attributes.
+    assert "bounds" in sky_fields
+    # Only the subtracted one is marked, and an absent description is omitted.
+    fringe_fields = {f.label: f.value for f in report.children["fringe"].fields}
+    assert "subtracted" not in fringe_fields
+    assert "description" not in fringe_fields
+
+
+def test_background_map_describe_brief_skips_children() -> None:
+    """A brief background map report keeps the summary but not the models."""
+    cheby = ChebyshevField(Box.factory[0:100, 0:200], np.array([[1.0]]))
+    bg_map = BackgroundMap([Background("sky", cheby)], subtracted="sky")
+    report = bg_map._describe(DescribeOptions(brief=True))
+    assert report.summary == "sky (subtracted)"
+    assert report.children == {}
 
 
 def test_visit_image_repr_str_with_unreadable_psf() -> None:
