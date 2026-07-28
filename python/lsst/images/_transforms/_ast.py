@@ -284,6 +284,14 @@ if USING_STARLINK_PYAST:
         def domain(self, value: str) -> None:
             self._impl.Domain = value
 
+        @property
+        def system(self) -> str:
+            return self._impl.System
+
+        @system.setter
+        def system(self, value: str) -> None:
+            self._impl.System = value
+
         def setUnit(self, axis: int, unit: str) -> None:
             setattr(self._impl, f"Unit_{axis}", unit)
 
@@ -292,6 +300,9 @@ if USING_STARLINK_PYAST:
 
         def setLabel(self, axis: int, label: str) -> None:
             setattr(self._impl, f"Label_{axis}", label)
+
+        def getLabel(self, axis: int) -> str:
+            return getattr(self._impl, f"Label_{axis}")
 
         def getBottom(self, axis: int) -> float:
             return getattr(self._impl, f"Bottom_{axis}")
@@ -304,6 +315,14 @@ if USING_STARLINK_PYAST:
             Object.__init__(self, starlink.Ast.SkyFrame(options))
 
         _IMPL_TYPE: ClassVar[type[starlink.Ast.SkyFrame]] = starlink.Ast.SkyFrame
+
+        @property
+        def lonAxis(self) -> int:
+            return self._impl.LonAxis
+
+        @property
+        def latAxis(self) -> int:
+            return self._impl.LatAxis
 
     class CmpFrame(Frame):
         def __init__(self, frame_a: Frame, frame_b: Frame) -> None:

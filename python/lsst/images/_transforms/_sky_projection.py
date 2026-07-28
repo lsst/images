@@ -48,14 +48,6 @@ F = TypeVar("F", bound=Frame)
 P = TypeVar("P", bound=pydantic.BaseModel)
 
 
-def _set_ast_skyframe_system(frame: astshim.SkyFrame, system: str) -> None:
-    """Set an AST SkyFrame coordinate system across supported wrappers."""
-    if hasattr(frame, "_impl"):
-        frame._impl.System = system
-    else:
-        setattr(frame, "system", system)
-
-
 def _ast_skyframe_axis_labels(frame: astshim.SkyFrame) -> tuple[str, str]:
     """Return the ``(longitude, latitude)`` axis labels of an AST SkyFrame.
 
@@ -65,16 +57,7 @@ def _ast_skyframe_axis_labels(frame: astshim.SkyFrame) -> tuple[str, str]:
     frame these are ``("Right ascension", "Declination")``; for a Galactic
     frame ``("Galactic longitude", "Galactic latitude")``.
     """
-    if hasattr(frame, "_impl"):
-        impl = frame._impl
-        lon_axis = impl.LonAxis
-        lat_axis = impl.LatAxis
-        return getattr(impl, f"Label_{lon_axis}"), getattr(impl, f"Label_{lat_axis}")
-    # astshim backend: getLabel and the lonAxis/latAxis properties are only
-    # present on the astshim SkyFrame, which the starlink.Ast type stubs do
-    # not describe.
-    get_label = getattr(frame, "getLabel")
-    return get_label(getattr(frame, "lonAxis")), get_label(getattr(frame, "latAxis"))
+    return frame.getLabel(frame.lonAxis), frame.getLabel(frame.latAxis)
 
 
 def _sky_parts(sky: SkyCoord) -> tuple[str, float, str, float]:
@@ -223,7 +206,7 @@ class SkyProjection[F: Frame](DescribableMixin):
                 "The current frame of the AST FrameSet is not a SkyFrame "
                 f"(got {type(current_frame).__name__})."
             )
-        _set_ast_skyframe_system(current_frame, "ICRS")
+        current_frame.system = "ICRS"
         return SkyProjection(Transform(pixel_frame, SkyFrame.ICRS, ast_frame_set, in_bounds=pixel_bounds))
 
     @property
