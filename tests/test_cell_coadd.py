@@ -264,6 +264,63 @@ def test_coadd_provenance_report_handles_empty_tables() -> None:
     report.__rich__()
 
 
+def test_cell_coadd_report_accounts_for_every_component(minified_cell_coadd: CellCoadd) -> None:
+    """Nothing the coadd carries is absent from its report."""
+    report = minified_cell_coadd.describe()
+    fields = report_fields(report)
+    assert fields["mask_fractions"] == "rejected"
+    assert fields["noise_realizations"] == "1 image (dtype float32)"
+    assert fields["aperture_corrections"] == "3 fields"
+    # Provenance is a child, so it needs no field line of its own.
+    assert "provenance" not in fields
+    assert list(report.children) == [
+        "image",
+        "mask",
+        "variance",
+        "sky_projection",
+        "psf",
+        "provenance",
+        "backgrounds",
+    ]
+    provenance = report.children["provenance"]
+    assert provenance.type_name == "CoaddProvenance"
+    # The coadd passed its cells down, so coverage is stated as a fraction.
+    assert report_fields(provenance)["cells"] == "3 of 3 with contributions"
+
+
+def test_cell_coadd_report_lists_aperture_corrections_on_detail(minified_cell_coadd: CellCoadd) -> None:
+    """A coadd can carry dozens of aperture corrections with long names, so
+    the names wait for detail.
+    """
+    plain = report_fields(minified_cell_coadd.describe())["aperture_corrections"]
+    assert plain == "3 fields"
+    detailed = report_fields(minified_cell_coadd.describe(detail=True))["aperture_corrections"]
+    assert detailed.startswith("3 fields (")
+    assert "modelfit_CModel_initial_instFlux" in detailed
+
+
+def test_cell_coadd_report_states_absent_provenance(minified_cell_coadd: CellCoadd) -> None:
+    """A coadd with no provenance says so, while components that are merely
+    empty stay out of the report.
+    """
+    bare = CellCoadd(
+        minified_cell_coadd.image,
+        mask=minified_cell_coadd.mask,
+        variance=minified_cell_coadd.variance,
+        sky_projection=minified_cell_coadd.sky_projection,
+        band=minified_cell_coadd.band,
+        psf=minified_cell_coadd.psf,
+        patch=minified_cell_coadd.patch,
+    )
+    report = bare.describe()
+    fields = report_fields(report)
+    assert fields["provenance"] == "none"
+    assert "provenance" not in report.children
+    assert "mask_fractions" not in fields
+    assert "noise_realizations" not in fields
+    assert "aperture_corrections" not in fields
+
+
 def test_cell_grid_patch_str_uses_clean_geometry() -> None:
     """CellGrid, PatchDefinition and CellGridBounds str drop the
     Interval/YX/Box/CellIJ wrappers.
