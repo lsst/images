@@ -271,7 +271,6 @@ class CellCoadd(MaskedImage):
         ----------
         options : `DescribeOptions`, optional
             Rendering options; forwarded to all children.
-            `DescribeOptions.detail` also lists the aperture correction names.
         """
         fields = [
             ReportField(label="skymap", value=self.skymap, role=FieldRole.DERIVED),

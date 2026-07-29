@@ -311,9 +311,9 @@ def test_cell_coadd_report_accounts_for_every_component(minified_cell_coadd: Cel
     assert report_fields(provenance)["cells"] == "3 of 3 with contributions"
 
 
-def test_cell_coadd_report_lists_aperture_corrections_on_detail(minified_cell_coadd: CellCoadd) -> None:
+def test_cell_coadd_report_counts_aperture_corrections_only(minified_cell_coadd: CellCoadd) -> None:
     """A coadd can carry dozens of aperture corrections with long names, so
-    the names wait for detail.
+    the report counts them and never names them, detail or not.
     """
     plain = report_fields(minified_cell_coadd.describe())["aperture_corrections"]
     assert plain == "3 fields"
