@@ -84,6 +84,21 @@ def _format_pixel_sky(sky: SkyCoord) -> str:
     return f"{ra_sex} {dec_sex}  (RA {ra_deg:.6f}°, Dec {dec_deg:+.6f}°)"
 
 
+def _angular_unit(size: u.Quantity) -> u.UnitBase:
+    """Return the unit that states an angular size at a readable scale.
+
+    Parameters
+    ----------
+    size
+        Angular size to choose a unit for.
+    """
+    if size < 1.0 * u.arcmin:
+        return u.arcsec
+    if size < 1.0 * u.deg:
+        return u.arcmin
+    return u.deg
+
+
 def _format_extent(width: u.Quantity, height: u.Quantity, position_angle: u.Quantity) -> str:
     """Return the angular size and orientation of a box on the sky.
 
@@ -101,20 +116,22 @@ def _format_extent(width: u.Quantity, height: u.Quantity, position_angle: u.Quan
 
     Notes
     -----
-    Both extents are given in the same unit, chosen from the larger of the
-    two, so that they can be compared at a glance.
+    Each extent gets the unit that suits it, named once when the two agree.
+    A long, thin box has no unit that reads well for both of its sides.
     """
-    largest = max(width, height)
-    if largest < 1.0 * u.arcmin:
-        unit = u.arcsec
-    elif largest < 1.0 * u.deg:
-        unit = u.arcmin
+    width_unit = _angular_unit(width)
+    height_unit = _angular_unit(height)
+    if width_unit == height_unit:
+        size = f"{width.to_value(width_unit):.3g} x {height.to_value(height_unit):.3g} {width_unit!s}"
     else:
-        unit = u.deg
+        size = (
+            f"{width.to_value(width_unit):.3g} {width_unit!s}"
+            f" x {height.to_value(height_unit):.3g} {height_unit!s}"
+        )
     # Whole degrees are as fine as an orientation needs to be read to, and
     # rounding takes an angle just short of a full turn back to zero.
     angle = round(position_angle.to_value(u.deg)) % 360
-    return f"{width.to_value(unit):.3g} x {height.to_value(unit):.3g} {unit!s} @ {angle} deg E of N"
+    return f"{size} @ {angle} deg E of N"
 
 
 @final

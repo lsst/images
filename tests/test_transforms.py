@@ -947,6 +947,16 @@ def test_sky_projection_describe_extent() -> None:
     assert "arcmin" in size(4000)
     assert "deg" in size(60000)
 
+    # A long, thin box has no unit that suits both sides, so each gets its
+    # own; a square one names the shared unit once.
+    def extent_of(x_pixels: int, y_pixels: int) -> str:
+        report = projection.describe(bbox=Box.factory[0:y_pixels, 0:x_pixels])
+        return next(f.value for f in report.fields if f.label == "Image extent")
+
+    assert extent_of(10, 1000).startswith("2 arcsec x 3.33 arcmin ")
+    assert extent_of(1000, 10).startswith("3.33 arcmin x 2 arcsec ")
+    assert extent_of(275, 275).startswith("55 x 55 arcsec ")
+
     # No box, so no extent to report.
     assert projection.pixel_bounds is None
     assert not any(f.label == "Image extent" for f in projection.describe().fields)
