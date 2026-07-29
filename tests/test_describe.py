@@ -427,3 +427,52 @@ def test_to_repr_prefers_fields_over_the_descriptive_form() -> None:
         ],
     )
     assert report.to_repr() == "Image(dtype=dtype('float32'))"
+
+
+def test_rich_folds_the_child_heading_into_its_key() -> None:
+    """A nested child names itself and its type on the key's own line.
+
+    Rendering the key and the child's heading on separate lines would spend a
+    level of indentation on each nesting step without adding information.
+    """
+    report = Report(
+        type_name="Mask",
+        children={
+            "schema": Report(
+                type_name="MaskSchema",
+                fields=[ReportField(label="dtype", value="uint8")],
+            )
+        },
+    )
+    console = Console(record=True, width=80, file=io.StringIO(), force_jupyter=False)
+    console.print(report)
+    lines = [line.rstrip() for line in console.export_text().splitlines() if line.strip()]
+    assert lines[0] == "Mask"
+    assert lines[1].endswith("schema (MaskSchema)")
+    # The child's fields sit one level in, not two.
+    assert lines[2].endswith("dtype: uint8")
+    assert len(lines) == 3
+
+
+def test_rich_child_heading_prefers_the_title() -> None:
+    """A child with a title is named by it rather than by its type."""
+    report = Report(
+        type_name="VisitImage",
+        children={"sky_projection": Report(type_name="SkyProjection", title="ICRS coordinates")},
+    )
+    console = Console(record=True, width=80, file=io.StringIO(), force_jupyter=False)
+    console.print(report)
+    assert "sky_projection (ICRS coordinates)" in console.export_text()
+
+
+def test_rich_inline_children_stay_on_one_line() -> None:
+    """An inline child keeps its summary form and gains no type suffix."""
+    report = Report(
+        type_name="MaskedImage",
+        children={"image": Report(type_name="Image", summary="(dtype float32)", inline=True)},
+    )
+    console = Console(record=True, width=80, file=io.StringIO(), force_jupyter=False)
+    console.print(report)
+    text = console.export_text()
+    assert "image: (dtype float32)" in text
+    assert "(Image)" not in text

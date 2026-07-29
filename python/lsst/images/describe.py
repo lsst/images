@@ -258,9 +258,20 @@ class Report:
             rich_table.add_row(*(Text(str(cell)) for cell in row))
         return rich_table
 
-    def __rich__(self) -> Tree:
-        """Return a `rich.tree.Tree` describing this report."""
-        tree = Tree(Text(self.title if self.title is not None else self.type_name))
+    @property
+    def _heading(self) -> str:
+        """Text naming this report where it heads a tree (`str`)."""
+        return self.title if self.title is not None else self.type_name
+
+    def _as_tree(self, heading: str) -> Tree:
+        """Return a `rich.tree.Tree` for this report under the given heading.
+
+        Parameters
+        ----------
+        heading
+            Text to label the root of the tree with.
+        """
+        tree = Tree(Text(heading))
         for field in self.fields:
             if not field.role.in_display:
                 continue
@@ -275,9 +286,14 @@ class Report:
             if child.inline:
                 tree.add(Text(f"{key}: {child.to_str()}"))
             else:
-                branch = tree.add(Text(key))
-                branch.add(child.__rich__())
+                # Name the child and what it is on one line, rather than
+                # spending a level and a line on each.
+                tree.add(child._as_tree(f"{key} ({child._heading})"))
         return tree
+
+    def __rich__(self) -> Tree:
+        """Return a `rich.tree.Tree` describing this report."""
+        return self._as_tree(self._heading)
 
     def _repr_html_(self) -> str:
         """Return an HTML rendering produced by rich."""
