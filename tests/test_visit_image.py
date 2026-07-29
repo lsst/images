@@ -99,8 +99,10 @@ def visit_image_components() -> dict[str, Any]:
         "flux2": ChebyshevField(det_frame.bbox, np.array([0.625])),
     }
     detector = read_archive(os.path.join(LOCAL_DATA_DIR, "detector.json"), Detector)
-    image = Image(42, shape=(1024, 1024), unit=u.nJy)
-    variance = Image(5.0, shape=(1024, 1024), unit=u.nJy * u.nJy)
+    # Real visit images have float pixels, and some operations (e.g. rendering
+    # a photometric scaling) are only defined for floating-point images.
+    image = Image(42.0, shape=(1024, 1024), unit=u.nJy, dtype=np.float32)
+    variance = Image(5.0, shape=(1024, 1024), unit=u.nJy * u.nJy, dtype=np.float32)
     # polygon is the lower triangle of the image.
     polygon = Polygon(x_vertices=[-0.5, 1023.5, -0.5], y_vertices=[-0.5, -0.5, 1023.5])
     sky_projection = make_random_sky_projection(rng, det_frame, det_frame.bbox)
@@ -225,10 +227,10 @@ def _check_sum_background_round_trip(result: VisitImage, original: VisitImage) -
 def test_visit_image_repr_str_pinned(visit_image_components: dict[str, Any]) -> None:
     """Pin the exact str and repr output of a VisitImage."""
     visit = make_simplest_visit_image(visit_image_components)
-    assert str(visit) == "VisitImage(Image([y=0:1024, x=0:1024], int64), ['M1'])"
+    assert str(visit) == "VisitImage(Image([y=0:1024, x=0:1024], float32), ['M1'])"
     assert repr(visit) == (
         "VisitImage(Image(..., bbox=Box(y=Interval(start=0, stop=1024), x=Interval(start=0, stop=1024)),"
-        " dtype=dtype('int64')), mask_schema=MaskSchema([MaskPlane(name='M1', description='D1')],"
+        " dtype=dtype('float32')), mask_schema=MaskSchema([MaskPlane(name='M1', description='D1')],"
         " dtype=dtype('uint8')))"
     )
 
@@ -240,10 +242,10 @@ def test_basics(visit_image_components: dict[str, Any]) -> None:
     visit = make_simplest_visit_image(c)
     assert visit.variance.array[0, 0] == 1.0
     assert visit[...] is not visit
-    assert str(visit) == "VisitImage(Image([y=0:1024, x=0:1024], int64), ['M1'])"
+    assert str(visit) == "VisitImage(Image([y=0:1024, x=0:1024], float32), ['M1'])"
     assert repr(visit) == (
         "VisitImage(Image(..., bbox=Box(y=Interval(start=0, stop=1024), x=Interval(start=0, stop=1024)),"
-        " dtype=dtype('int64')), mask_schema=MaskSchema([MaskPlane(name='M1', description='D1')],"
+        " dtype=dtype('float32')), mask_schema=MaskSchema([MaskPlane(name='M1', description='D1')],"
         " dtype=dtype('uint8')))"
     )
 
@@ -613,6 +615,50 @@ def test_sum_background_round_trip_ndf(visit_image_components: dict[str, Any]) -
     visit = _make_sum_background_visit_image(visit_image_components, visit_image)
     with RoundtripNdf(visit) as roundtrip:
         _check_sum_background_round_trip(roundtrip.result, visit)
+
+
+@pytest.mark.parametrize(
+    "scaling_unit,operation",
+    [(u.electron / u.nJy, "multiply"), (u.nJy / u.electron, "divide")],
+    ids=["multiply", "divide"],
+)
+def test_convert_unit_subimage(
+    visit_image_components: dict[str, Any],
+    scaling_unit: u.UnitBase,
+    operation: Literal["multiply", "divide"],
+) -> None:
+    """Verify that converting the units of a subimage applies only the portion
+    of the photometric scaling that overlaps the subimage.
+
+    A photometric scaling keeps the bounds it was modeled over when the image
+    is subset, so both branches of the conversion must render it over the
+    subimage's bbox rather than over its own bounds.
+    """
+    visit_image = make_visit_image(visit_image_components)
+    scaling = ChebyshevField(
+        visit_image.bbox,
+        np.array([[4.0, 0.5, 0.125], [0.25, 0.0625, 0.0], [0.03125, 0.0, 0.0]]),
+        unit=scaling_unit,
+    )
+    visit_image.photometric_scaling = scaling
+    # Trim a different number of pixels from each side so a scaling rendered
+    # over the wrong box cannot match by chance.
+    subbox = Box.factory[
+        visit_image.bbox.y.start + 7 : visit_image.bbox.y.stop - 13,
+        visit_image.bbox.x.start + 3 : visit_image.bbox.x.stop - 21,
+    ]
+    subimage = visit_image[subbox]
+    assert subimage.photometric_scaling.bounds.bbox == visit_image.bbox
+
+    converted = subimage.convert_unit(u.electron)
+
+    assert converted.unit == u.electron
+    assert converted.image.bbox == subbox
+    scaling_array = scaling.render(subbox, dtype=subimage.image.array.dtype).array
+    if operation == "divide":
+        scaling_array = 1.0 / scaling_array
+    assert_close(converted.image.array, subimage.image.array * scaling_array)
+    assert_close(converted.variance.array, subimage.variance.array * scaling_array**2)
 
 
 @dataclasses.dataclass

@@ -335,12 +335,12 @@ class CellCoadd(MaskedImage):
         if current_bg is not None:
             if name == current_bg.name:
                 return
-            self.image.quantity += current_bg.field.render(dtype=self.image.array.dtype).quantity
+            self.image.quantity += current_bg.field.render(self.bbox, dtype=self.image.array.dtype).quantity
         if name is None:
             self._backgrounds._subtracted = None
             return
         new_bg = self.backgrounds[name]
-        self.image.quantity -= new_bg.field.render(dtype=self.image.array.dtype).quantity
+        self.image.quantity -= new_bg.field.render(self.bbox, dtype=self.image.array.dtype).quantity
         self._backgrounds._subtracted = name
 
     def serialize(self, archive: OutputArchive[Any]) -> CellCoaddSerializationModel:
