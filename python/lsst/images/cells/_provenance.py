@@ -21,8 +21,9 @@ import astropy.units as u
 import numpy as np
 import pydantic
 
-from .._cell_grid import CellIJ
+from .._cell_grid import CellGridBounds, CellIJ
 from .._polygon import Polygon
+from ..describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
 from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive, TableModel
 
 if TYPE_CHECKING:
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
         type LegacyObservationIdentifiers = Any  # type: ignore[no-redef]
 
 
-class CoaddProvenance:
+class CoaddProvenance(DescribableMixin):
     """A pair of tables that record the inputs to a cell-based coadd.
 
     Parameters
@@ -170,6 +171,86 @@ class CoaddProvenance:
         inputs = astropy.table.join(contributions["instrument", "visit", "detector"], self._inputs)
         assert inputs.columns.keys() == {name for name, _, _ in self._INPUT_TABLE_COLUMNS}
         return CoaddProvenance(inputs=inputs, contributions=contributions)
+
+    def _describe(
+        self,
+        options: DescribeOptions = DescribeOptions(),
+        /,
+        *,
+        bounds: CellGridBounds | None = None,
+    ) -> Report:
+        """Return a `Report` describing this provenance.
+
+        Parameters
+        ----------
+        options : `DescribeOptions`, optional
+            Rendering options.  `DescribeOptions.brief` reports only the
+            number of input images, which no column scan is needed to count.
+        bounds : `.CellGridBounds`, optional
+            Cells the image this provenance belongs to has data for.  When
+            given, the number of cells with contributions is reported as a
+            fraction of them.
+
+        Notes
+        -----
+        The report summarizes the tables rather than rendering them.  Rich
+        renders an embedded `astropy.table.Table` as plain text and never
+        consults the table's own ``_repr_html_``, so `inputs` and
+        `contributions` describe themselves better than this report could,
+        and a patch has tens of thousands of contribution rows.
+        """
+        n_inputs = len(self._inputs)
+        summary = (
+            f"CoaddProvenance({n_inputs} input images)" if n_inputs else "CoaddProvenance(no input images)"
+        )
+        if options.brief:
+            return Report(type_name="CoaddProvenance", summary=summary)
+        fields: list[ReportField] = []
+        if n_inputs:
+            for column in ("instrument", "physical_filter"):
+                fields.append(
+                    ReportField(
+                        label=column,
+                        value=", ".join(sorted({str(value) for value in self._inputs[column]})),
+                        role=FieldRole.DERIVED,
+                    )
+                )
+            n_visits = len(np.unique(self._inputs["visit"]))
+            input_images = f"{n_inputs} from {n_visits} visit{'s' if n_visits != 1 else ''}"
+        else:
+            input_images = "none"
+        fields.append(ReportField(label="input images", value=input_images, role=FieldRole.DERIVED))
+        if n_inputs:
+            first_night = int(self._inputs["day_obs"].min())
+            last_night = int(self._inputs["day_obs"].max())
+            fields.append(
+                ReportField(
+                    label="day_obs",
+                    value=str(first_night) if first_night == last_night else f"{first_night} - {last_night}",
+                    role=FieldRole.DERIVED,
+                )
+            )
+        _, counts = np.unique(
+            np.column_stack([self._contributions["cell_i"], self._contributions["cell_j"]]),
+            axis=0,
+            return_counts=True,
+        )
+        if bounds is not None:
+            n_cells_with_data = bounds.subgrid_size.i * bounds.subgrid_size.j - len(bounds.missing)
+            cells = f"{len(counts)} of {n_cells_with_data} with contributions"
+        else:
+            cells = f"{len(counts)} with contributions" if len(counts) else "none"
+        fields.append(ReportField(label="cells", value=cells, role=FieldRole.DERIVED))
+        if len(counts):
+            low = int(counts.min())
+            high = int(counts.max())
+            per_cell = (
+                f"{low} input images"
+                if low == high
+                else f"{low} - {high} input images (median {np.median(counts):g})"
+            )
+            fields.append(ReportField(label="per cell", value=per_cell, role=FieldRole.DERIVED))
+        return Report(type_name="CoaddProvenance", summary=summary, fields=fields)
 
     def serialize(self, archive: OutputArchive[Any]) -> CoaddProvenanceSerializationModel:
         """Serialize the provenance to an output archive.
