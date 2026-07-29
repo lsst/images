@@ -99,8 +99,10 @@ def visit_image_components() -> dict[str, Any]:
         "flux2": ChebyshevField(det_frame.bbox, np.array([0.625])),
     }
     detector = read_archive(os.path.join(LOCAL_DATA_DIR, "detector.json"), Detector)
-    image = Image(42, shape=(1024, 1024), unit=u.nJy)
-    variance = Image(5.0, shape=(1024, 1024), unit=u.nJy * u.nJy)
+    # Real visit images have float pixels, and some operations (e.g. rendering
+    # a photometric scaling) are only defined for floating-point images.
+    image = Image(42.0, shape=(1024, 1024), unit=u.nJy, dtype=np.float32)
+    variance = Image(5.0, shape=(1024, 1024), unit=u.nJy * u.nJy, dtype=np.float32)
     # polygon is the lower triangle of the image.
     polygon = Polygon(x_vertices=[-0.5, 1023.5, -0.5], y_vertices=[-0.5, -0.5, 1023.5])
     sky_projection = make_random_sky_projection(rng, det_frame, det_frame.bbox)
@@ -225,10 +227,10 @@ def _check_sum_background_round_trip(result: VisitImage, original: VisitImage) -
 def test_visit_image_repr_str_pinned(visit_image_components: dict[str, Any]) -> None:
     """Pin the exact str and repr output of a VisitImage."""
     visit = make_simplest_visit_image(visit_image_components)
-    assert str(visit) == "VisitImage(Image([y=0:1024, x=0:1024], int64), ['M1'])"
+    assert str(visit) == "VisitImage(Image([y=0:1024, x=0:1024], float32), ['M1'])"
     assert repr(visit) == (
         "VisitImage(Image(..., bbox=Box(y=Interval(start=0, stop=1024), x=Interval(start=0, stop=1024)),"
-        " dtype=dtype('int64')), mask_schema=MaskSchema([MaskPlane(name='M1', description='D1')],"
+        " dtype=dtype('float32')), mask_schema=MaskSchema([MaskPlane(name='M1', description='D1')],"
         " dtype=dtype('uint8')))"
     )
 
@@ -240,10 +242,10 @@ def test_basics(visit_image_components: dict[str, Any]) -> None:
     visit = make_simplest_visit_image(c)
     assert visit.variance.array[0, 0] == 1.0
     assert visit[...] is not visit
-    assert str(visit) == "VisitImage(Image([y=0:1024, x=0:1024], int64), ['M1'])"
+    assert str(visit) == "VisitImage(Image([y=0:1024, x=0:1024], float32), ['M1'])"
     assert repr(visit) == (
         "VisitImage(Image(..., bbox=Box(y=Interval(start=0, stop=1024), x=Interval(start=0, stop=1024)),"
-        " dtype=dtype('int64')), mask_schema=MaskSchema([MaskPlane(name='M1', description='D1')],"
+        " dtype=dtype('float32')), mask_schema=MaskSchema([MaskPlane(name='M1', description='D1')],"
         " dtype=dtype('uint8')))"
     )
 
@@ -632,12 +634,7 @@ def test_convert_unit_subimage(
     is subset, so both branches of the conversion must render it over the
     subimage's bbox rather than over its own bounds.
     """
-    # The shared fixture's image has an integer dtype, which the photometric
-    # scaling cannot be rendered at; use float pixels as real visit images do.
-    components = dict(visit_image_components)
-    components["image"] = Image(42.0, shape=(1024, 1024), unit=u.nJy, dtype=np.float32)
-    components["variance"] = Image(5.0, shape=(1024, 1024), unit=u.nJy * u.nJy, dtype=np.float32)
-    visit_image = make_visit_image(components)
+    visit_image = make_visit_image(visit_image_components)
     scaling = ChebyshevField(
         visit_image.bbox,
         np.array([[4.0, 0.5, 0.125], [0.25, 0.0625, 0.0], [0.03125, 0.0, 0.0]]),
