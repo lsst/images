@@ -5,11 +5,11 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     cooldown:
       default-days: 7
     groups:
-      weekly-batch:
+      monthly-batch:
         patterns:
           - "*"
 
@@ -18,10 +18,10 @@ updates:
       - "/"
       - "/doc"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     cooldown:
       default-days: 7
     groups:
-      weekly-batch:
+      monthly-batch:
         patterns:
           - "*"
