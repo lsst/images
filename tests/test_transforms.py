@@ -923,3 +923,67 @@ def test_transform_describe() -> None:
     labels = {f.label for f in report.fields}
     assert {"in_frame", "out_frame"} <= labels
     assert any(f.label == "mapping" for f in report.fields)
+
+
+def test_sky_projection_describe_extent() -> None:
+    """The extent gives the box's angular size and its orientation.
+
+    The size is the great-circle distance across the area the box covers, and
+    the orientation is the position angle of the pixel y axis.
+    """
+    projection = _rotated_tan(40.0)
+    # 275 pixels at 0.2 arcsec/pixel spans 55 arcsec.
+    report = projection.describe(bbox=Box.factory[0:275, 0:275])
+    extent = next(f for f in report.fields if f.label == "Image extent")
+    assert extent.role is FieldRole.DERIVED
+    assert extent.value == "55 x 55 arcsec @ 140 deg E of N"
+
+    # The unit follows the scale of the box.
+    def size(pixels: int) -> str:
+        report = projection.describe(bbox=Box.factory[0:pixels, 0:pixels])
+        return next(f.value for f in report.fields if f.label == "Image extent")
+
+    assert "arcsec" in size(275)
+    assert "arcmin" in size(4000)
+    assert "deg" in size(60000)
+
+    # No box, so no extent to report.
+    assert projection.pixel_bounds is None
+    assert not any(f.label == "Image extent" for f in projection.describe().fields)
+
+
+def test_sky_projection_describe_extent_position_angle() -> None:
+    """The reported angle is the position angle of the pixel y axis.
+
+    ``_rotated_tan`` builds a CD matrix whose y axis lands at ``180 - rot``
+    degrees East of North, which pins both the axis and the direction of
+    increasing angle.
+    """
+    bbox = Box.factory[0:200, 0:100]
+    for rot in (0.0, 30.0, 90.0, 270.0):
+        report = _rotated_tan(rot).describe(bbox=bbox)
+        value = next(f.value for f in report.fields if f.label == "Image extent")
+        assert value.endswith(f"@ {(180 - rot) % 360:g} deg E of N"), (rot, value)
+
+
+def test_sky_projection_describe_extent_is_measured_at_the_box() -> None:
+    """The orientation is sampled at the box, not at the pixel origin.
+
+    Meridians converge near the pole, so the position angle at a pixel far
+    outside the box says nothing about the box: here the origin differs from
+    the box by nearly 200 degrees.
+    """
+    projection = _rotated_tan(40.0, crval2=89.9995)
+    bbox = Box.factory[0:200, 0:100]
+
+    def position_angle_at(x: float, y: float) -> float:
+        here = projection.pixel_to_sky(x=x, y=y)
+        up = projection.pixel_to_sky(x=x, y=y + 1.0)
+        return here.position_angle(up).to_value(u.deg) % 360.0
+
+    at_origin = position_angle_at(0.0, 0.0)
+    at_center = position_angle_at(bbox.x.center, bbox.y.center)
+    assert abs(at_origin - at_center) > 100.0
+
+    value = next(f.value for f in projection.describe(bbox=bbox).fields if f.label == "Image extent")
+    assert value.endswith(f"@ {round(at_center) % 360} deg E of N")

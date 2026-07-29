@@ -84,6 +84,39 @@ def _format_pixel_sky(sky: SkyCoord) -> str:
     return f"{ra_sex} {dec_sex}  (RA {ra_deg:.6f}°, Dec {dec_deg:+.6f}°)"
 
 
+def _format_extent(width: u.Quantity, height: u.Quantity, position_angle: u.Quantity) -> str:
+    """Return the angular size and orientation of a box on the sky.
+
+    Parameters
+    ----------
+    width, height
+        Great-circle extent along the pixel x and y axes.
+    position_angle
+        Orientation of the pixel y axis, measured from North toward East.
+
+    Returns
+    -------
+    extent : `str`
+        For example ``"55 x 54 arcsec @ 40 deg E of N"``.
+
+    Notes
+    -----
+    Both extents are given in the same unit, chosen from the larger of the
+    two, so that they can be compared at a glance.
+    """
+    largest = max(width, height)
+    if largest < 1.0 * u.arcmin:
+        unit = u.arcsec
+    elif largest < 1.0 * u.deg:
+        unit = u.arcmin
+    else:
+        unit = u.deg
+    # Whole degrees are as fine as an orientation needs to be read to, and
+    # rounding takes an angle just short of a full turn back to zero.
+    angle = round(position_angle.to_value(u.deg)) % 360
+    return f"{width.to_value(unit):.3g} x {height.to_value(unit):.3g} {unit!s} @ {angle} deg E of N"
+
+
 @final
 class SkyProjection[F: Frame](DescribableMixin):
     """A transform from pixel coordinates to sky coordinates.
@@ -495,6 +528,26 @@ class SkyProjection[F: Frame](DescribableMixin):
                     role=FieldRole.DERIVED,
                 )
             )
+            # Measure the area the box covers rather than the span between
+            # outermost pixel centers, so let the polygon own the half-pixel
+            # expansion; its vertex order is not part of its interface, so
+            # take the bounds from the vertices themselves.
+            corners = box.to_polygon()
+            x0, x1 = corners.x_vertices.min(), corners.x_vertices.max()
+            y0, y1 = corners.y_vertices.min(), corners.y_vertices.max()
+            origin = self.pixel_to_sky(x=x0, y=y0)
+            width = origin.separation(self.pixel_to_sky(x=x1, y=y0))
+            height = origin.separation(self.pixel_to_sky(x=x0, y=y1))
+            # Orientation of the pixel y axis at the box center, which is what
+            # "E of N" conventionally describes for an image.
+            up_sky = self.pixel_to_sky(x=cx, y=cy + 1.0)
+            fields.append(
+                ReportField(
+                    label="Image extent",
+                    value=_format_extent(width, height, center_sky.position_angle(up_sky)),
+                    role=FieldRole.DERIVED,
+                )
+            )
         else:
             # No box is available from either source, so the pixel origin is
             # the only place left to sample.  It carries no special meaning
@@ -531,10 +584,9 @@ class SkyProjection[F: Frame](DescribableMixin):
             )
 
         if box is not None:
-            # The box corners are pixel centers, so walk the polygon
-            # representation instead: its vertices are expanded by half a pixel
-            # to cover the full area the image occupies on the sky.
-            corners = box.to_polygon()
+            # Walk the same polygon the extent was measured over, whose
+            # vertices are expanded by half a pixel to cover the full area the
+            # image occupies on the sky rather than its pixel centers.
             rows = []
             for x, y in zip(corners.x_vertices, corners.y_vertices, strict=True):
                 ra_sex, ra_deg, dec_sex, dec_deg = _sky_parts(self.pixel_to_sky(x=x, y=y))
