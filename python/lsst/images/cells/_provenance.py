@@ -186,7 +186,7 @@ class CoaddProvenance(DescribableMixin):
         options : `DescribeOptions`, optional
             Rendering options.  `DescribeOptions.brief` reports only the
             number of input images, which no column scan is needed to count.
-        bounds : `.CellGridBounds`, optional
+        bounds : `CellGridBounds`, optional
             Cells the image this provenance belongs to has data for.  When
             given, the number of cells with contributions is reported as a
             fraction of them.
@@ -201,7 +201,9 @@ class CoaddProvenance(DescribableMixin):
         """
         n_inputs = len(self._inputs)
         summary = (
-            f"CoaddProvenance({n_inputs} input images)" if n_inputs else "CoaddProvenance(no input images)"
+            f"CoaddProvenance({n_inputs} input image{'s' if n_inputs != 1 else ''})"
+            if n_inputs
+            else "CoaddProvenance(no input images)"
         )
         if options.brief:
             return Report(type_name="CoaddProvenance", summary=summary)
@@ -245,7 +247,7 @@ class CoaddProvenance(DescribableMixin):
             low = int(counts.min())
             high = int(counts.max())
             per_cell = (
-                f"{low} input images"
+                f"{low} input image{'s' if low != 1 else ''}"
                 if low == high
                 else f"{low} - {high} input images (median {np.median(counts):g})"
             )

@@ -224,7 +224,7 @@ def test_coadd_provenance_report_summarizes_its_tables(minified_cell_coadd: Cell
     # Rich renders an astropy table as plain text and never consults its
     # _repr_html_, so the report tabulates nothing.
     assert not report.tables
-    assert isinstance(report._repr_html_(), str)
+    assert "input images" in report._repr_html_()
 
 
 def test_coadd_provenance_report_counts_cells_against_bounds(minified_cell_coadd: CellCoadd) -> None:
@@ -262,6 +262,29 @@ def test_coadd_provenance_report_handles_empty_tables() -> None:
     report = provenance.describe()
     assert report_fields(report) == {"input images": "none", "cells": "none"}
     report.__rich__()
+
+
+def test_coadd_provenance_report_counts_one_input_image_in_the_singular() -> None:
+    """Pin the singular forms of the counted phrases.
+
+    One input image is what the standalone ``coadd_provenance`` file holds,
+    and what a single-cell subset of a coadd holds, so this is the case the
+    ``describe`` command line subcommand shows most often.
+    """
+    inputs = CoaddProvenance.make_empty_input_table(1)
+    inputs["instrument"] = "LSSTCam"
+    inputs["physical_filter"] = "r_57"
+    inputs["visit"] = [101]
+    inputs["detector"] = [1]
+    inputs["day_obs"] = [20250520]
+    provenance = CoaddProvenance(
+        inputs=inputs, contributions=CoaddProvenance.make_empty_contribution_table(1)
+    )
+    assert str(provenance) == "CoaddProvenance(1 input image)"
+    assert repr(provenance) == "<CoaddProvenance(1 input image)>"
+    fields = report_fields(provenance.describe())
+    assert fields["input images"] == "1 from 1 visit"
+    assert fields["per cell"] == "1 input image"
 
 
 def test_cell_coadd_report_accounts_for_every_component(minified_cell_coadd: CellCoadd) -> None:
