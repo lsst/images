@@ -295,8 +295,7 @@ def test_cell_coadd_report_lists_aperture_corrections_on_detail(minified_cell_co
     plain = report_fields(minified_cell_coadd.describe())["aperture_corrections"]
     assert plain == "3 fields"
     detailed = report_fields(minified_cell_coadd.describe(detail=True))["aperture_corrections"]
-    assert detailed.startswith("3 fields (")
-    assert "modelfit_CModel_initial_instFlux" in detailed
+    assert detailed == "3 fields"  # No additional detail
 
 
 def test_cell_coadd_report_states_absent_provenance(minified_cell_coadd: CellCoadd) -> None:

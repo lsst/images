@@ -305,11 +305,9 @@ class CellCoadd(MaskedImage):
             )
         if self._aperture_corrections:
             n_ap_corr = len(self._aperture_corrections)
+            # Never print all the keys even in detailed mode since there
+            # are usually many of them and they swamp the report.
             ap_corr = f"{n_ap_corr} field{'s' if n_ap_corr != 1 else ''}"
-            if options.detail:
-                # Dozens of these, at forty characters a name, would bury the
-                # rest of the report.
-                ap_corr = f"{ap_corr} ({', '.join(self._aperture_corrections)})"
             fields.append(ReportField(label="aperture_corrections", value=ap_corr, role=FieldRole.DERIVED))
         if self._provenance is None:
             # A coadd without provenance is a meaningful state: it is what
