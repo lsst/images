@@ -17,6 +17,7 @@ import astropy.units as u
 import numpy as np
 import pydantic
 import pytest
+import shapely
 
 from lsst.images import (
     XY,
@@ -275,3 +276,24 @@ def test_region_model_field() -> None:
         _RegionHolder.model_json_schema()["properties"]["region"]
         == RegionSerializationModel.model_json_schema()
     )
+
+
+def test_region_polygon_repr_str_pinned() -> None:
+    """Region and Polygon str/repr match their documented forms."""
+    poly = Polygon(x_vertices=[0.0, 4.0, 4.0, 0.0], y_vertices=[0.0, 0.0, 5.0, 5.0])
+    assert repr(poly) == f"Polygon(x_vertices={poly.x_vertices!r}, y_vertices={poly.y_vertices!r})"
+    # str is inherited from Region and uses WKT.
+    assert str(poly) == poly.wkt
+
+    # Region.from_wkt on a simple polygon returns a Polygon via try_to_polygon.
+    # To test Region.__str__/__repr__ directly, construct a true Region
+    # (multi-polygon), which is not coerced to Polygon.
+    multi = shapely.MultiPolygon(
+        [
+            shapely.Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
+            shapely.Polygon([(2, 2), (3, 2), (3, 3), (2, 3)]),
+        ]
+    )
+    region = Region(multi)
+    assert str(region) == region.wkt
+    assert repr(region) == f"Region.from_wkt({region.wkt!r})"

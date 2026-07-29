@@ -31,6 +31,7 @@ from . import fits
 from ._generalized_image import GeneralizedImage
 from ._geom import YX, Box
 from ._transforms import Frame, GeneralFrame, SkyProjection, SkyProjectionSerializationModel
+from .describe import DescribeOptions, FieldRole, Report, ReportField
 from .serialization import (
     ArchiveTree,
     ArrayReferenceModel,
@@ -210,11 +211,44 @@ class Image(GeneralizedImage):
     def __setitem__(self, bbox: Box | EllipsisType, value: Image) -> None:
         self[bbox].quantity[...] = value.quantity
 
-    def __str__(self) -> str:
-        return f"Image({self.bbox!s}, {self.array.dtype.type.__name__})"
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
+        """Return a `Report` describing this image.
 
-    def __repr__(self) -> str:
-        return f"Image(..., bbox={self.bbox!r}, dtype={self.array.dtype!r})"
+        Parameters
+        ----------
+        options : `DescribeOptions`, optional
+            Rendering options.  ``"bbox"`` and ``"sky_projection"`` are
+            recognized in `DescribeOptions.exclude`.
+        """
+        dtype_name = self.array.dtype.type.__name__
+        # When a composite excludes the shared bbox, this image is a child that
+        # only needs to convey its dtype, so it collapses to a single line.
+        if "bbox" in options.exclude:
+            return Report(
+                type_name="Image",
+                summary=f"(dtype {dtype_name})",
+                inline=True,
+            )
+        children = {}
+        if not options.brief and "sky_projection" not in options.exclude and self._sky_projection is not None:
+            children["sky_projection"] = self._sky_projection._describe(options.for_child(), bbox=self._bbox)
+        fields = [
+            ReportField(
+                label="array",
+                value="<array>",
+                repr_value="...",
+                positional=True,
+                role=FieldRole.REPR_ONLY,
+            ),
+            ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)),
+            ReportField(label="dtype", value=str(self.array.dtype), repr_value=repr(self.array.dtype)),
+        ]
+        return Report(
+            type_name="Image",
+            summary=f"Image({self.bbox!s}, {dtype_name})",
+            fields=fields,
+            children=children,
+        )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Image):

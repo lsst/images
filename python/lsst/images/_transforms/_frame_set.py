@@ -15,6 +15,7 @@ __all__ = ("FrameLookupError", "FrameSet")
 
 from abc import ABC, abstractmethod
 
+from ..describe import DescribableMixin
 from . import _frames  # use this import style to facilitate pattern matching
 from ._transform import Transform
 
@@ -23,7 +24,7 @@ class FrameLookupError(LookupError):
     """Exception raised when a frame cannot be found in a `FrameSet`."""
 
 
-class FrameSet(ABC):
+class FrameSet(DescribableMixin, ABC):
     """A container or factory for `Transform` objects that relates frames.
 
     Notes

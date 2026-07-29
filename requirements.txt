@@ -9,3 +9,4 @@ astro-metadata-translator @ git+https://github.com/lsst/astro_metadata_translato
 starlink-pyast >= 4.0.0
 scipy >= 1.13
 shapely >= 2.1
+rich

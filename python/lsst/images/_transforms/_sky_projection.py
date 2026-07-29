@@ -14,6 +14,9 @@ from __future__ import annotations
 __all__ = ("SkyProjection", "SkyProjectionAstropyView", "SkyProjectionSerializationModel")
 
 import functools
+import itertools
+import statistics
+from collections.abc import Collection
 from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeVar, assert_type, cast, final, overload
 
 import astropy.units as u
@@ -25,6 +28,7 @@ from astropy.coordinates import ICRS, Latitude, Longitude, SkyCoord
 from astropy.wcs.wcsapi import BaseLowLevelWCS, HighLevelWCSMixin
 
 from .._geom import XY, YX, Bounds, Box
+from ..describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField, ReportTable
 from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 from ..utils import is_none
 from . import _ast as astshim
@@ -44,16 +48,94 @@ F = TypeVar("F", bound=Frame)
 P = TypeVar("P", bound=pydantic.BaseModel)
 
 
-def _set_ast_skyframe_system(frame: astshim.SkyFrame, system: str) -> None:
-    """Set an AST SkyFrame coordinate system across supported wrappers."""
-    if hasattr(frame, "_impl"):
-        frame._impl.System = system
+def _ast_skyframe_axis_labels(frame: astshim.SkyFrame) -> tuple[str, str]:
+    """Return the ``(longitude, latitude)`` axis labels of an AST SkyFrame.
+
+    The AST ``LonAxis``/``LatAxis`` attributes say which frame axis carries
+    longitude and which carries latitude, so the labels come back ordered
+    longitude-first regardless of the underlying axis order.  For an ICRS
+    frame these are ``("Right ascension", "Declination")``; for a Galactic
+    frame ``("Galactic longitude", "Galactic latitude")``.
+    """
+    return frame.getLabel(frame.lonAxis), frame.getLabel(frame.latAxis)
+
+
+def _sky_parts(sky: SkyCoord) -> tuple[str, float, str, float]:
+    """Return sexagesimal and decimal-degree pieces of a scalar sky position.
+
+    Returns ``(ra_sexagesimal, ra_deg, dec_sexagesimal, dec_deg)``.  Right
+    ascension is rendered in sexagesimal hours (``hms``) to a tenth of a
+    second and declination in sexagesimal degrees (``dms``) to the nearest
+    arcsecond, so the units are unambiguous.
+    """
+    return (
+        sky.ra.to_string(unit=u.hour, sep="hms", pad=True, precision=1),
+        sky.ra.deg,
+        sky.dec.to_string(sep="dms", pad=True, alwayssign=True, precision=0),
+        sky.dec.deg,
+    )
+
+
+def _format_pixel_sky(sky: SkyCoord) -> str:
+    """Return the sexagesimal plus labeled decimal-degree form of a sky
+    position, e.g. ``"00h00m29.3s +02d07m51s  (RA 0.122076°, Dec 2.130862°)"``.
+    """
+    ra_sex, ra_deg, dec_sex, dec_deg = _sky_parts(sky)
+    return f"{ra_sex} {dec_sex}  (RA {ra_deg:.6f}°, Dec {dec_deg:+.6f}°)"
+
+
+def _angular_unit(size: u.Quantity) -> u.UnitBase:
+    """Return the unit that states an angular size at a readable scale.
+
+    Parameters
+    ----------
+    size
+        Angular size to choose a unit for.
+    """
+    if size < 1.0 * u.arcmin:
+        return u.arcsec
+    if size < 1.0 * u.deg:
+        return u.arcmin
+    return u.deg
+
+
+def _format_extent(width: u.Quantity, height: u.Quantity, position_angle: u.Quantity) -> str:
+    """Return the angular size and orientation of a box on the sky.
+
+    Parameters
+    ----------
+    width, height
+        Great-circle extent along the pixel x and y axes.
+    position_angle
+        Orientation of the pixel y axis, measured from North toward East.
+
+    Returns
+    -------
+    extent : `str`
+        For example ``"55 x 54 arcsec @ 40 deg E of N"``.
+
+    Notes
+    -----
+    Each extent gets the unit that suits it, named once when the two agree.
+    A long, thin box has no unit that reads well for both of its sides.
+    """
+    width_unit = _angular_unit(width)
+    height_unit = _angular_unit(height)
+    if width_unit == height_unit:
+        size = f"{width.to_value(width_unit):.3g} x {height.to_value(height_unit):.3g} {width_unit!s}"
     else:
-        setattr(frame, "system", system)
+        size = (
+            f"{width.to_value(width_unit):.3g} {width_unit!s}"
+            f" x {height.to_value(height_unit):.3g} {height_unit!s}"
+        )
+    # Whole degrees are as fine as an orientation needs to be read to, and
+    # rounding takes an angle just short of a full turn back to zero.
+    angle = round(position_angle.to_value(u.deg)) % 360
+    return f"{size} @ {angle} deg E of N"
 
 
 @final
-class SkyProjection[F: Frame]:
+class SkyProjection[F: Frame](DescribableMixin):
     """A transform from pixel coordinates to sky coordinates.
 
     Parameters
@@ -174,7 +256,7 @@ class SkyProjection[F: Frame]:
                 "The current frame of the AST FrameSet is not a SkyFrame "
                 f"(got {type(current_frame).__name__})."
             )
-        _set_ast_skyframe_system(current_frame, "ICRS")
+        current_frame.system = "ICRS"
         return SkyProjection(Transform(pixel_frame, SkyFrame.ICRS, ast_frame_set, in_bounds=pixel_bounds))
 
     @property
@@ -186,6 +268,22 @@ class SkyProjection[F: Frame]:
     def sky_frame(self) -> SkyFrame:
         """Coordinate frame for the sky."""
         return self._pixel_to_sky.out_frame
+
+    def _sky_axis_labels(self) -> tuple[str, str]:
+        """Return the ``(longitude, latitude)`` sky-axis labels.
+
+        The labels are read from the AST SkyFrame when the underlying mapping
+        exposes one, so a non-ICRS frame (e.g. Galactic) reports its own
+        labels.  A projection is always ICRS in practice, so this falls back
+        to ``("Right ascension", "Declination")`` when the mapping is not a
+        frame set.
+        """
+        ast_mapping = self._pixel_to_sky._ast_mapping
+        if isinstance(ast_mapping, astshim.FrameSet):
+            frame = ast_mapping.getFrame(ast_mapping.current, copy=False)
+            if isinstance(frame, astshim.SkyFrame):
+                return _ast_skyframe_axis_labels(frame)
+        return "Right ascension", "Declination"
 
     @property
     def pixel_bounds(self) -> Bounds | None:
@@ -348,6 +446,225 @@ class SkyProjection[F: Frame]:
             return self._fits_approximation.as_fits_wcs(bbox)
         return self._pixel_to_sky.as_fits_wcs(bbox)
 
+    def _nominal_pixel_scale(self, bbox: Box) -> list[float]:
+        """Return the nominal pixel scale in arcsec for each sky axis.
+
+        Parameters
+        ----------
+        bbox : `Box`
+            Pixel bounding box over which the scale is characterized.
+
+        Returns
+        -------
+        `list` [`float`]
+            Nominal pixel scale in arcsec/pixel for the longitude and
+            latitude axes, in that order.
+
+        Notes
+        -----
+        This is a port of the Starlink KAPPA ``KPG1_SCALE``/``KPG1_PXSCL``
+        routines.  At each of a 3x3 grid of test points it perturbs the pixel
+        position by unit offsets along both axes, finds the neighbour that
+        moves farthest along each sky axis, and takes the ratio of the
+        great-circle sky distance to the pixel-space distance; the per-axis
+        result is the median over the grid.  Great-circle distances make the
+        result correct near the poles and under coordinate rotation.  The
+        scale attaches to the sky axis, so a 90 degree rotation swaps the two
+        returned values.
+        """
+        offsets = [o for o in itertools.product((0.0, 1.0, -1.0), repeat=2) if o != (0.0, 0.0)]
+        step_x = 0.3 * bbox.x.size
+        step_y = 0.3 * bbox.y.size
+        lon_scales: list[float] = []
+        lat_scales: list[float] = []
+        for dx, dy in itertools.product((-step_x, 0.0, step_x), (-step_y, 0.0, step_y)):
+            cx = bbox.x.center + dx
+            cy = bbox.y.center + dy
+            center = self.pixel_to_sky(x=cx, y=cy)
+            neighbours = self.pixel_to_sky(
+                x=np.array([cx + o[0] for o in offsets]),
+                y=np.array([cy + o[1] for o in offsets]),
+            )
+            grid0 = self.sky_to_pixel(center)
+            gx0, gy0 = float(grid0.x), float(grid0.y)
+            lon0 = center.ra.wrap_at(180 * u.deg)
+            lat0 = center.dec
+            # Longitude axis: neighbour with the largest change in RA.
+            dlon = (neighbours.ra.wrap_at(180 * u.deg) - lon0).wrap_at(180 * u.deg)
+            probe = SkyCoord(ra=neighbours.ra[int(np.argmax(np.abs(dlon.rad)))], dec=lat0)
+            grid = self.sky_to_pixel(probe)
+            dpix = np.hypot(float(grid.x) - gx0, float(grid.y) - gy0)
+            lon_scales.append(center.separation(probe).to_value(u.arcsec) / dpix)
+            # Latitude axis: neighbour with the largest change in Dec.
+            dlat = neighbours.dec - lat0
+            probe = SkyCoord(ra=lon0, dec=neighbours.dec[int(np.argmax(np.abs(dlat.rad)))])
+            grid = self.sky_to_pixel(probe)
+            dpix = np.hypot(float(grid.x) - gx0, float(grid.y) - gy0)
+            lat_scales.append(center.separation(probe).to_value(u.arcsec) / dpix)
+        return [statistics.median(lon_scales), statistics.median(lat_scales)]
+
+    def _describe(
+        self, options: DescribeOptions = DescribeOptions(), /, *, bbox: Box | None = None
+    ) -> Report:
+        """Return a `Report` describing this sky projection.
+
+        Parameters
+        ----------
+        options : `DescribeOptions`, optional
+            Rendering options.  `DescribeOptions.brief` returns only the type,
+            title, and summary, skipping the pixel and WCS characterization.
+        bbox : `Box`, optional
+            Pixel bounding box to characterize the projection over.  Defaults
+            to the projection's own `pixel_bounds` when it has them.  Given
+            either, the report gains the sky coordinates of the box center and
+            of the corners of the area the box covers, and the nominal pixel
+            scale is characterized over the box; given neither, it falls back
+            to the pixel origin.
+        """
+        if options.brief:
+            return Report(
+                type_name="SkyProjection",
+                title=f"{self.sky_frame.value} coordinates",
+                summary=f"{type(self.pixel_frame).__name__} → {self.sky_frame.value}",
+            )
+        fields: list[ReportField] = []
+        # Characterize over the box the caller supplied, falling back to the
+        # region the projection itself declares valid.
+        box = bbox
+        if box is None and self.pixel_bounds is not None:
+            box = self.pixel_bounds.bbox
+
+        corners_table: list[ReportTable] = []
+        if box is not None:
+            cx, cy = box.x.center, box.y.center
+            center_sky = self.pixel_to_sky(x=cx, y=cy)
+            fields.append(
+                ReportField(
+                    label="center pixel",
+                    value=f"(x={cx:g}, y={cy:g}) → {_format_pixel_sky(center_sky)}",
+                    role=FieldRole.DERIVED,
+                )
+            )
+            # Measure the area the box covers rather than the span between
+            # outermost pixel centers, so let the polygon own the half-pixel
+            # expansion; its vertex order is not part of its interface, so
+            # take the bounds from the vertices themselves.
+            corners = box.to_polygon()
+            x0, x1 = corners.x_vertices.min(), corners.x_vertices.max()
+            y0, y1 = corners.y_vertices.min(), corners.y_vertices.max()
+            origin = self.pixel_to_sky(x=x0, y=y0)
+            width = origin.separation(self.pixel_to_sky(x=x1, y=y0))
+            height = origin.separation(self.pixel_to_sky(x=x0, y=y1))
+            # Orientation of the pixel y axis at the box center, which is what
+            # "E of N" conventionally describes for an image.
+            up_sky = self.pixel_to_sky(x=cx, y=cy + 1.0)
+            fields.append(
+                ReportField(
+                    label="Image extent",
+                    value=_format_extent(width, height, center_sky.position_angle(up_sky)),
+                    role=FieldRole.DERIVED,
+                )
+            )
+        else:
+            # No box is available from either source, so the pixel origin is
+            # the only place left to sample.  It carries no special meaning
+            # for the projection -- the array this describes may lie far from
+            # it -- so name the pixel explicitly rather than implying one.
+            origin_sky = self.pixel_to_sky(x=0, y=0)
+            fields.append(
+                ReportField(
+                    label="origin pixel",
+                    value=f"(x=0, y=0) → {_format_pixel_sky(origin_sky)}",
+                    role=FieldRole.DERIVED,
+                )
+            )
+
+        # The nominal pixel scale is characterized over the box when there is
+        # one, otherwise over a single pixel at the origin.
+        lon_label, lat_label = self._sky_axis_labels()
+        lon_scale, lat_scale = self._nominal_pixel_scale(box if box is not None else Box.factory[0:1, 0:1])
+        # Report a single value when the two axes round to the same 0.01 arcsec
+        # figure; otherwise name each sky axis with its own scale.
+        if round(lon_scale, 2) == round(lat_scale, 2):
+            fields.append(
+                ReportField(
+                    label="Nominal pixel scale", value=f"{lon_scale:.2f} arcsec", role=FieldRole.DERIVED
+                )
+            )
+        else:
+            fields.append(
+                ReportField(
+                    label="Nominal pixel scales",
+                    value=f"{lon_label} {lon_scale:.2f} arcsec; {lat_label} {lat_scale:.2f} arcsec",
+                    role=FieldRole.DERIVED,
+                )
+            )
+
+        if box is not None:
+            # Walk the same polygon the extent was measured over, whose
+            # vertices are expanded by half a pixel to cover the full area the
+            # image occupies on the sky rather than its pixel centers.
+            rows = []
+            for x, y in zip(corners.x_vertices, corners.y_vertices, strict=True):
+                ra_sex, ra_deg, dec_sex, dec_deg = _sky_parts(self.pixel_to_sky(x=x, y=y))
+                rows.append([f"{x:g}", f"{y:g}", ra_sex, dec_sex, f"{ra_deg:.6f}", f"{dec_deg:+.6f}"])
+            corners_table.append(
+                ReportTable(
+                    title="Corners",
+                    columns=["x", "y", "RA", "Dec", "RA (°)", "Dec (°)"],
+                    rows=rows,
+                )
+            )
+
+        # Representability as a FITS WCS depends on the box; without one the
+        # answer cannot be determined.
+        if self._fits_approximation is not None:
+            fits_wcs = "approximate"
+        elif box is None:
+            fits_wcs = "unknown"
+        else:
+            fits_wcs = "available" if self.as_fits_wcs(box) is not None else "none"
+        fields.append(ReportField(label="fits_wcs", value=fits_wcs, role=FieldRole.DERIVED))
+
+        return Report(
+            type_name="SkyProjection",
+            title=f"{self.sky_frame.value} coordinates",
+            summary=f"{type(self.pixel_frame).__name__} → {self.sky_frame.value}",
+            fields=fields,
+            tables=corners_table,
+        )
+
+    def describe(
+        self,
+        *,
+        brief: bool = False,
+        detail: bool = False,
+        exclude: Collection[str] = (),
+        bbox: Box | None = None,
+    ) -> Report:
+        """Return a `~lsst.images.Report` describing this sky projection.
+
+        Parameters
+        ----------
+        brief : `bool`, optional
+            Whether to build only what ``repr`` and ``str`` read.
+        detail : `bool`, optional
+            Whether to include extras that are too expensive for a default
+            report.
+        exclude : `~collections.abc.Collection` [`str`], optional
+            Names of report elements to omit.
+        bbox : `~lsst.images.Box`, optional
+            Pixel bounding box to characterize the projection over.
+
+        Returns
+        -------
+        report : `~lsst.images.Report`
+            Report describing this sky projection.
+        """
+        return self._describe(
+            DescribeOptions(brief=brief, detail=detail, exclude=frozenset(exclude)), bbox=bbox
+        )
+
     def serialize[P: pydantic.BaseModel](
         self, archive: OutputArchive[P], *, use_frame_sets: bool = False
     ) -> SkyProjectionSerializationModel[P]:
@@ -470,6 +787,21 @@ class SkyProjectionAstropyView(BaseLowLevelWCS, HighLevelWCSMixin):
         if bbox is not None:
             ast_pixel_to_sky = astshim.ShiftMap(list(bbox.start.xy)).then(ast_pixel_to_sky)
         self._ast_pixel_to_sky = ast_pixel_to_sky
+
+    def __str__(self) -> str:
+        region = str(self._bbox) if self._bbox is not None else "unbounded"
+        return f"SkyProjectionAstropyView({region} → ICRS)"
+
+    def __repr__(self) -> str:
+        # The bbox shift is baked into the mapping, so pixel (0, 0) is the
+        # first array pixel in the view's own (Astropy) convention.
+        ra, dec = self.pixel_to_world_values(np.zeros(()), np.zeros(()))
+        reference = _format_pixel_sky(SkyCoord(ra=float(ra) * u.rad, dec=float(dec) * u.rad, frame=ICRS))
+        lines = ["SkyProjectionAstropyView", "  world axes  : ICRS (ra, dec)"]
+        if self._bbox is not None:
+            lines.append(f"  array shape : {self._bbox.shape}")
+        lines.append(f"  pixel (0, 0): {reference}")
+        return "\n".join(lines)
 
     @property
     def low_level_wcs(self) -> Self:

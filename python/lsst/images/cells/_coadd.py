@@ -30,6 +30,7 @@ from .._image import Image, ImageSerializationModel
 from .._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_legacy_deep_coadd_mask_planes
 from .._masked_image import MaskedImage, MaskedImageSerializationModel
 from .._transforms import SkyProjection, SkyProjectionSerializationModel, TractFrame
+from ..describe import DescribeOptions, FieldRole, Report, ReportField
 from ..fields import BaseField
 from ..serialization import InputArchive, InvalidParameterError, OutputArchive
 from ._aperture_corrections import CellApertureCorrectionMapSerializationModel, CellField
@@ -263,11 +264,40 @@ class CellCoadd(MaskedImage):
             bbox=bbox,
         )
 
-    def __str__(self) -> str:
-        return f"CellCoadd({self.bbox!s}, tract={self.tract})"
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
+        """Return a `Report` describing this cell coadd.
 
-    def __repr__(self) -> str:
-        return str(self)
+        Parameters
+        ----------
+        options : `DescribeOptions`, optional
+            Rendering options; forwarded to all children.
+        """
+        fields = [
+            ReportField(label="skymap", value=self.skymap, role=FieldRole.DERIVED),
+            ReportField(label="tract", value=self.tract, role=FieldRole.DERIVED),
+            ReportField(label="patch", value=self._patch, role=FieldRole.DERIVED),
+            ReportField(label="band", value=self.band, role=FieldRole.DERIVED),
+            ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED),
+        ]
+        summary = f"CellCoadd({self.bbox!s}, tract={self.tract})"
+        if options.brief:
+            return Report(type_name="CellCoadd", summary=summary, fields=fields)
+        child = options.for_child()
+        plane = options.for_child("sky_projection", "bbox")
+        children: dict[str, Report] = {
+            "image": self.image._describe(plane),
+            "mask": self.mask._describe(plane),
+            "variance": self.variance._describe(plane),
+            "sky_projection": self.sky_projection._describe(child, bbox=self.bbox),
+            "psf": self.psf._describe(child),
+            "backgrounds": self.backgrounds._describe(child),
+        }
+        return Report(
+            type_name="CellCoadd",
+            summary=summary,
+            fields=fields,
+            children=children,
+        )
 
     def copy(self) -> CellCoadd:
         """Deep-copy the coadd."""

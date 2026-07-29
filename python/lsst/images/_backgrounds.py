@@ -19,6 +19,7 @@ from typing import Any, ClassVar, cast, final
 
 import pydantic
 
+from .describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
 from .fields import Field, FieldSerializationModel
 from .serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 
@@ -39,7 +40,7 @@ class Background:
     """
 
 
-class BackgroundMap(Mapping[str, Background]):
+class BackgroundMap(DescribableMixin, Mapping[str, Background]):
     """A mapping of background models associated with an image.
 
     Unlike most image characterization objects, the best background model
@@ -128,6 +129,55 @@ class BackgroundMap(Mapping[str, Background]):
         self._backgrounds[name] = Background(name, field, description)
         if is_subtracted:
             self._subtracted = name
+
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
+        """Return a `Report` describing this background map.
+
+        Parameters
+        ----------
+        options : `DescribeOptions`, optional
+            Rendering options; forwarded to the background models.
+
+        Notes
+        -----
+        The report is ``inline``, so a composite that holds a map shows only
+        the summary line.  The children below are what a map describes on its
+        own, where the background models themselves are the point.
+        """
+        subtracted_name = self._subtracted
+        if not self._backgrounds:
+            summary = "no backgrounds"
+        else:
+            summary = ", ".join(
+                f"{name} (subtracted)" if name == subtracted_name else name for name in self._backgrounds
+            )
+        children: dict[str, Report] = {}
+        if not options.brief:
+            child = options.for_child()
+            for name, background in self._backgrounds.items():
+                # The model builds its own report; putting the background's
+                # attributes at the top of it keeps them beside the model they
+                # describe, rather than behind another level of nesting.
+                report = background.field._describe(child)
+                attributes = []
+                if name == subtracted_name:
+                    attributes.append(ReportField(label="subtracted", value="yes", role=FieldRole.DERIVED))
+                if background.description:
+                    attributes.append(
+                        ReportField(
+                            label="description",
+                            value=background.description,
+                            role=FieldRole.DERIVED,
+                        )
+                    )
+                report.fields[:0] = attributes
+                children[name] = report
+        return Report(
+            type_name="BackgroundMap",
+            summary=summary,
+            children=children,
+            inline=True,
+        )
 
     def serialize(self, archive: OutputArchive[Any]) -> BackgroundMapSerializationModel:
         """Write a background map to an archive.

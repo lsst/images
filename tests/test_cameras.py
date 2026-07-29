@@ -18,7 +18,11 @@ import pytest
 
 from lsst.images import YX
 from lsst.images.cameras import AmplifierRawGeometry, Detector, ReadoutCorner
+from lsst.images.describe import DescribableMixin, Report
+from lsst.images.serialization import read_archive
 from lsst.images.tests import DP2_VISIT_DETECTOR_DATA_ID, RoundtripFits, compare_detector_to_legacy
+
+LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
@@ -137,3 +141,21 @@ def test_apply_flips() -> None:
     assert ReadoutCorner.LR.apply_flips(y=False, x=True) is ReadoutCorner.LL
     assert ReadoutCorner.UL.apply_flips(y=True, x=False) is ReadoutCorner.LL
     assert ReadoutCorner.UR.apply_flips(y=True, x=True) is ReadoutCorner.LL
+
+
+def test_detector_describe() -> None:
+    """Detector._describe returns a Report with the expected fields."""
+    detector = read_archive(os.path.join(LOCAL_DATA_DIR, "detector.json"), Detector)
+    assert isinstance(detector, DescribableMixin)
+    report = detector._describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "Detector"
+    labels = {f.label for f in report.fields}
+    assert "instrument" in labels
+    assert "name" in labels
+    assert "id" in labels
+    assert "type" in labels
+    assert "serial" in labels
+    assert "bbox" in labels
+    name_field = next(f for f in report.fields if f.label == "name")
+    assert name_field.value == detector.name

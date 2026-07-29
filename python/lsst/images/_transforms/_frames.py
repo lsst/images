@@ -31,8 +31,26 @@ import numpy as np
 import pydantic
 
 from .._geom import Box
+from ..describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
 from ..serialization import Unit
 from ..utils import is_none
+
+
+def _frame_report(frame: pydantic.BaseModel) -> Report:
+    """Return a `Report` describing a pydantic frame model.
+
+    Parameters
+    ----------
+    frame
+        A frozen pydantic model representing a coordinate frame.
+    """
+    # These are the model's own fields, so they are constructor arguments even
+    # though pydantic's repr, not the report, is what currently renders them.
+    fields = [
+        ReportField(label=name, value=getattr(frame, name), role=FieldRole.ARG)
+        for name in type(frame).model_fields
+    ]
+    return Report(type_name=type(frame).__name__, fields=fields)
 
 
 class Frame(Protocol):
@@ -85,7 +103,7 @@ class Frame(Protocol):
 
 
 @final
-class DetectorFrame(pydantic.BaseModel, frozen=True):
+class DetectorFrame(pydantic.BaseModel, DescribableMixin, frozen=True):
     """A coordinate frame for a particular detector's pixels.
 
     Notes
@@ -136,6 +154,16 @@ class DetectorFrame(pydantic.BaseModel, frozen=True):
         """
         return y
 
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
+        """Return a `Report` describing this detector frame.
+
+        Parameters
+        ----------
+        options : `DescribeOptions`, optional
+            Unused; accepted for interface compatibility.
+        """
+        return _frame_report(self)
+
     def serialize(self) -> DetectorFrame:
         """Return a Pydantic-serializable version of this Frame."""
         return self
@@ -150,7 +178,7 @@ class DetectorFrame(pydantic.BaseModel, frozen=True):
 
 
 @final
-class FocalPlaneFrame(pydantic.BaseModel, frozen=True):
+class FocalPlaneFrame(pydantic.BaseModel, DescribableMixin, frozen=True):
     """A Euclidean coordinate frame for the focal plane of a camera."""
 
     instrument: str = pydantic.Field(description="Name of the instrument.")
@@ -188,6 +216,16 @@ class FocalPlaneFrame(pydantic.BaseModel, frozen=True):
         """
         return y
 
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
+        """Return a `Report` describing this focal plane frame.
+
+        Parameters
+        ----------
+        options : `DescribeOptions`, optional
+            Unused; accepted for interface compatibility.
+        """
+        return _frame_report(self)
+
     def serialize(self) -> FocalPlaneFrame:
         """Return a Pydantic-serializable version of this Frame."""
         return self
@@ -202,7 +240,7 @@ class FocalPlaneFrame(pydantic.BaseModel, frozen=True):
 
 
 @final
-class FieldAngleFrame(pydantic.BaseModel, frozen=True):
+class FieldAngleFrame(pydantic.BaseModel, DescribableMixin, frozen=True):
     """An angular coordinate frame that maps a camera onto the sky about its
     boresight.
 
@@ -252,6 +290,16 @@ class FieldAngleFrame(pydantic.BaseModel, frozen=True):
         """
         return _wrap_symmetric(y)
 
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
+        """Return a `Report` describing this field angle frame.
+
+        Parameters
+        ----------
+        options : `DescribeOptions`, optional
+            Unused; accepted for interface compatibility.
+        """
+        return _frame_report(self)
+
     def serialize(self) -> FieldAngleFrame:
         """Return a Pydantic-serializable version of this Frame."""
         return self
@@ -266,7 +314,7 @@ class FieldAngleFrame(pydantic.BaseModel, frozen=True):
 
 
 @final
-class TractFrame(pydantic.BaseModel, frozen=True):
+class TractFrame(pydantic.BaseModel, DescribableMixin, frozen=True):
     """The pixel coordinates of a tract: a region on the sky used for
     coaddition, defined by a 'skymap' and split into 'patches' that share
     a common pixel grid.
@@ -306,6 +354,16 @@ class TractFrame(pydantic.BaseModel, frozen=True):
         """
         return y
 
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
+        """Return a `Report` describing this tract frame.
+
+        Parameters
+        ----------
+        options : `DescribeOptions`, optional
+            Unused; accepted for interface compatibility.
+        """
+        return _frame_report(self)
+
     def serialize(self) -> TractFrame:
         """Return a Pydantic-serializable version of this Frame."""
         return self
@@ -320,7 +378,7 @@ class TractFrame(pydantic.BaseModel, frozen=True):
 
 
 @final
-class GeneralFrame(pydantic.BaseModel, frozen=True):
+class GeneralFrame(pydantic.BaseModel, DescribableMixin, frozen=True):
     """An arbitrary Euclidean coordinate system."""
 
     unit: Unit = pydantic.Field(description="Units of the coordinates in this frame.")
@@ -348,6 +406,16 @@ class GeneralFrame(pydantic.BaseModel, frozen=True):
             Coordinates to standardize.
         """
         return y
+
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
+        """Return a `Report` describing this general frame.
+
+        Parameters
+        ----------
+        options : `DescribeOptions`, optional
+            Unused; accepted for interface compatibility.
+        """
+        return _frame_report(self)
 
     def serialize(self) -> GeneralFrame:
         """Return a Pydantic-serializable version of this Frame."""

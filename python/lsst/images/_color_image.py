@@ -25,6 +25,7 @@ from ._generalized_image import GeneralizedImage
 from ._geom import Box
 from ._image import Image, ImageSerializationModel
 from ._transforms import SkyProjection, SkyProjectionSerializationModel
+from .describe import DescribeOptions, FieldRole, Report, ReportField
 from .serialization import ArchiveTree, InputArchive, InvalidParameterError, MetadataValue, OutputArchive
 from .utils import is_none
 
@@ -153,11 +154,39 @@ class ColorImage(GeneralizedImage):
     def __setitem__(self, bbox: Box | EllipsisType, value: ColorImage) -> None:
         self[bbox].array[...] = value.array
 
-    def __str__(self) -> str:
-        return f"ColorImage({self.bbox!s}, {self._array.dtype.type.__name__})"
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
+        """Return a `Report` describing this color image.
 
-    def __repr__(self) -> str:
-        return f"ColorImage(..., bbox={self.bbox!r}, dtype={self._array.dtype!r})"
+        Parameters
+        ----------
+        options : `DescribeOptions`, optional
+            Rendering options.  ``"bbox"`` and ``"sky_projection"`` are
+            recognized in `DescribeOptions.exclude`.
+        """
+        children = {}
+        sky_projection = self.sky_projection
+        if not options.brief and "sky_projection" not in options.exclude and sky_projection is not None:
+            children["sky_projection"] = sky_projection._describe(options.for_child(), bbox=self.bbox)
+        fields = [
+            ReportField(
+                label="array",
+                value="<array>",
+                repr_value="...",
+                positional=True,
+                role=FieldRole.REPR_ONLY,
+            ),
+        ]
+        if "bbox" not in options.exclude:
+            fields.append(ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox)))
+        fields.append(
+            ReportField(label="dtype", value=str(self._array.dtype), repr_value=repr(self._array.dtype))
+        )
+        return Report(
+            type_name="ColorImage",
+            summary=f"ColorImage({self.bbox!s}, {self._array.dtype.type.__name__})",
+            fields=fields,
+            children=children,
+        )
 
     def copy(self) -> ColorImage:
         """Deep-copy the image."""

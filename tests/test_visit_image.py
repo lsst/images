@@ -25,6 +25,7 @@ import pytest
 from astro_metadata_translator import ObservationInfo
 
 from lsst.images import (
+    Background,
     BackgroundMap,
     Box,
     DetectorFrame,
@@ -42,10 +43,11 @@ from lsst.images import (
 )
 from lsst.images.aperture_corrections import ApertureCorrectionMap, aperture_corrections_to_legacy
 from lsst.images.cameras import Detector
+from lsst.images.describe import DescribableMixin, DescribeOptions, FieldRole, Report
 from lsst.images.fields import ChebyshevField, SplineField, SumField, field_from_legacy_photo_calib
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
 from lsst.images.psfs import GaussianPointSpreadFunction, PointSpreadFunction
-from lsst.images.serialization import read_archive
+from lsst.images.serialization import ArchiveReadError, read_archive
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
@@ -218,6 +220,17 @@ def _check_sum_background_round_trip(result: VisitImage, original: VisitImage) -
     assert len(round_field.operands) == len(original_field.operands)
     for round_op, orig_op in zip(round_field.operands, original_field.operands, strict=True):
         assert round_op == orig_op
+
+
+def test_visit_image_repr_str_pinned(visit_image_components: dict[str, Any]) -> None:
+    """Pin the exact str and repr output of a VisitImage."""
+    visit = make_simplest_visit_image(visit_image_components)
+    assert str(visit) == "VisitImage(Image([y=0:1024, x=0:1024], int64), ['M1'])"
+    assert repr(visit) == (
+        "VisitImage(Image(..., bbox=Box(y=Interval(start=0, stop=1024), x=Interval(start=0, stop=1024)),"
+        " dtype=dtype('int64')), mask_schema=MaskSchema([MaskPlane(name='M1', description='D1')],"
+        " dtype=dtype('uint8')))"
+    )
 
 
 def test_basics(visit_image_components: dict[str, Any]) -> None:
@@ -1010,3 +1023,166 @@ def test_convert_unit(legacy_test_data_calibrated: _LegacyTestData) -> None:
     legacy_masked_image_nJy = legacy_exposure_e.getPhotoCalib().calibrateImage(legacy_exposure_e.maskedImage)
     assert_close(visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
     assert_close(visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)
+
+
+def test_background_map_describe() -> None:
+    """An empty BackgroundMap._describe reports no backgrounds inline."""
+    bg_map = BackgroundMap()
+    assert isinstance(bg_map, DescribableMixin)
+    report = bg_map._describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "BackgroundMap"
+    assert report.inline
+    assert report.summary == "no backgrounds"
+    assert report.children == {}
+
+
+def test_background_map_with_entries_describe() -> None:
+    """BackgroundMap._describe recurses into each background model."""
+    cheby = ChebyshevField(Box.factory[0:100, 0:200], np.array([[1.0]]))
+    bg_map = BackgroundMap(
+        [Background("sky", cheby, "Sky model."), Background("fringe", cheby)],
+        subtracted="sky",
+    )
+    report = bg_map._describe()
+    assert report.type_name == "BackgroundMap"
+    assert report.inline
+    # The inline summary lists every background and marks the subtracted one,
+    # since that is all a composite holding this map will show.
+    assert report.summary == "sky (subtracted), fringe"
+    # Standalone, each background is a child carrying its own model's report.
+    assert set(report.children) == {"sky", "fringe"}
+    sky = report.children["sky"]
+    assert sky.type_name == "ChebyshevField"
+    sky_fields = {f.label: f.value for f in sky.fields}
+    assert sky_fields["subtracted"] == "yes"
+    assert sky_fields["description"] == "Sky model."
+    # The model's own fields survive alongside the background's attributes.
+    assert "bounds" in sky_fields
+    # Only the subtracted one is marked, and an absent description is omitted.
+    fringe_fields = {f.label: f.value for f in report.children["fringe"].fields}
+    assert "subtracted" not in fringe_fields
+    assert "description" not in fringe_fields
+
+
+def test_background_map_describe_brief_skips_children() -> None:
+    """A brief background map report keeps the summary but not the models."""
+    cheby = ChebyshevField(Box.factory[0:100, 0:200], np.array([[1.0]]))
+    bg_map = BackgroundMap([Background("sky", cheby)], subtracted="sky")
+    report = bg_map._describe(DescribeOptions(brief=True))
+    assert report.summary == "sky (subtracted)"
+    assert report.children == {}
+
+
+def test_visit_image_repr_str_with_unreadable_psf() -> None:
+    """Repr and str succeed even when the PSF stored an ArchiveReadError.
+
+    An unreadable component is a supported state; repr and str read only the
+    cheap fields and summary, so they must not build the child tree (which
+    would raise when it accesses the PSF).
+    """
+    path = os.path.join(LOCAL_DATA_DIR, "schema_v1", "visit_image.json")
+    visit_image = read_archive(path)
+    visit_image._psf = ArchiveReadError("psf unreadable")
+    assert repr(visit_image).startswith("VisitImage(")
+    assert str(visit_image).startswith("VisitImage(")
+
+
+def test_observation_summary_stats_describe() -> None:
+    """ObservationSummaryStats._describe reports the statistics that are set.
+
+    Unset ones are omitted rather than shown as NaN.
+    """
+    stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4, ra=180.0, dec=-30.0)
+    assert isinstance(stats, DescribableMixin)
+    report = stats._describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "ObservationSummaryStats"
+    # Scalars are packed into one group, ordered by name.
+    (group,) = report.value_groups
+    assert group.role is FieldRole.DERIVED
+    assert [name for name, _ in group.values] == sorted(name for name, _ in group.values)
+    values = dict(group.values)
+    assert values["psfSigma"] == 2.5
+    assert values["zeroPoint"] == 31.4
+    assert values["ra"] == 180.0
+    assert values["dec"] == -30.0
+    # Unset statistics are omitted rather than reported as NaN, and the
+    # serialization plumbing this class inherits never appears at all.
+    assert "expTime" not in values
+    assert "skyBg" not in values
+    assert not {"metadata", "butler_info", "schema_version"} & set(values)
+
+
+def test_observation_summary_stats_describe_omits_empty_sequences() -> None:
+    """Sequence statistics appear only when they carry a value."""
+    empty = ObservationSummaryStats(psfSigma=2.5)
+    # raCorners defaults to all-NaN, which carries no more information than an
+    # empty sequence does.
+    assert all(math.isnan(v) for v in empty.raCorners)
+    assert not any(f.label == "raCorners" for f in empty._describe().fields)
+
+    filled = ObservationSummaryStats(psfSigma=2.5, raCorners=(5.2, 5.4, 5.4, 5.2))
+    corners = next(f for f in filled._describe().fields if f.label == "raCorners")
+    assert corners.value == (5.2, 5.4, 5.4, 5.2)
+    assert corners.role is FieldRole.DERIVED
+
+
+def test_observation_summary_stats_describe_brief_counts() -> None:
+    """A brief report gives the number set rather than listing them."""
+    stats = ObservationSummaryStats(psfSigma=2.5, raCorners=(5.2, 5.4, 5.4, 5.2))
+    brief = stats._describe(DescribeOptions(brief=True))
+    assert brief.type_name == "ObservationSummaryStats"
+    assert brief.value_groups == []
+    (field,) = brief.fields
+    assert field.label == "statistics set"
+    assert field.role is FieldRole.DERIVED
+
+    # The count must agree with what the full report actually shows: two
+    # scalars set by default plus psfSigma, and raCorners as a sequence.
+    full = stats._describe()
+    listed = len(full.fields) + sum(len(g.values) for g in full.value_groups)
+    assert field.value.startswith(f"{listed} of ")
+    assert brief.to_str() == full.to_str()
+    assert f"{listed} of " in brief.to_str()
+
+
+def test_observation_summary_stats_pydantic_repr() -> None:
+    """ObservationSummaryStats uses pydantic's repr, not the mixin's."""
+    stats = ObservationSummaryStats(psfSigma=2.5)
+    r = repr(stats)
+    assert r.startswith("ObservationSummaryStats(")
+    assert "psfSigma=2.5" in r
+
+
+def test_observation_summary_stats_str_is_the_report_summary() -> None:
+    """The str output reports the count, not pydantic's field-by-field dump.
+
+    The repr keeps the exhaustive form, since that is the one that
+    round-trips.
+    """
+    stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4)
+    assert str(stats) == stats.describe().to_str()
+    # The two set here, plus the integer counters, which default to a genuine
+    # zero rather than to NaN.
+    assert str(stats) == "ObservationSummaryStats(4 of 66 statistics set)"
+    assert stats.nPsfStar == 0 and stats.nShapeletsStar == 0
+    # The unset statistics reach repr but not str.
+    assert "nan" not in str(stats)
+    assert "nan" in repr(stats)
+
+
+def test_archive_tree_repr_omits_schema_bookkeeping() -> None:
+    """Schema version fields mirror class constants, so repr leaves them out.
+
+    They are never passed on construction and say nothing the type does not.
+    """
+    stats = ObservationSummaryStats(psfSigma=2.5, indirect=[1])
+    for name in ("schema_version", "min_read_version", "indirect"):
+        assert name not in repr(stats), name
+    # They are still real fields, and hiding them from repr does not hide them
+    # from serialization.
+    assert stats.schema_version == ObservationSummaryStats.SCHEMA_VERSION
+    dumped = stats.model_dump()
+    for name in ("schema_version", "min_read_version", "indirect"):
+        assert name in dumped, name

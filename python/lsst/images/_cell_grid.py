@@ -120,6 +120,9 @@ class CellGrid(pydantic.BaseModel, frozen=True):
     )
     cell_shape: SerializableYX[int] = pydantic.Field(description="Shape of each cell in pixels.")
 
+    def __str__(self) -> str:
+        return f"{self.bbox}, cell_shape=(y={self.cell_shape.y}, x={self.cell_shape.x})"
+
     @property
     def grid_size(self) -> CellIJ:
         """The number of cells in each dimension (`CellIJ`)."""
@@ -205,6 +208,13 @@ class CellGridBounds(pydantic.BaseModel, frozen=True):
             "Indices of cells that are missing, where (i=0, j=0) is the cell that starts at grid.bbox.start."
         ),
     )
+
+    def __str__(self) -> str:
+        text = f"{self.bbox} in grid ({self.grid})"
+        if self.missing:
+            missing = ", ".join(f"(i={c.i}, j={c.j})" for c in sorted(self.missing))
+            text = f"{text}, missing={{{missing}}}"
+        return text
 
     @cached_property
     def subgrid_start(self) -> CellIJ:
@@ -365,6 +375,12 @@ class PatchDefinition(pydantic.BaseModel, frozen=True):
     index: SerializableYX[int] = pydantic.Field(description="2-d index of this patch within the tract.")
     inner_bbox: Box = pydantic.Field(description="Inner bounding box of this patch.")
     cells: CellGrid = pydantic.Field(description="Cell grid for the full patch.")
+
+    def __str__(self) -> str:
+        return (
+            f"id={self.id}, index=(y={self.index.y}, x={self.index.x}), "
+            f"inner_bbox={self.inner_bbox}, cells=({self.cells})"
+        )
 
     @property
     def outer_bbox(self) -> Box:

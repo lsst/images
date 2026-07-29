@@ -40,6 +40,12 @@ class IntersectionBounds:
         self._a = a
         self._b = b
 
+    def __str__(self) -> str:
+        return f"({self._a}) ∩ ({self._b})"
+
+    def __repr__(self) -> str:
+        return f"IntersectionBounds(a={self._a!r}, b={self._b!r})"
+
     @property
     def bbox(self) -> Box:
         """The intersection of the bounding boxes of the operands (`.Box`)."""

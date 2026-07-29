@@ -527,11 +527,11 @@ class Interval:
         """
         return Interval(self.start - padding, self.stop + padding)
 
-    def __str__(self) -> str:
-        return f"{self.start}:{self.stop}"
-
     def __repr__(self) -> str:
         return f"Interval(start={self.start}, stop={self.stop})"
+
+    def __str__(self) -> str:
+        return f"{self.start}:{self.stop}"
 
     def __eq__(self, other: object) -> bool:
         if type(other) is Interval:
@@ -1078,11 +1078,11 @@ class Box:
             return self._intervals == other._intervals
         return False
 
-    def __str__(self) -> str:
-        return f"[y={self.y}, x={self.x}]"
-
     def __repr__(self) -> str:
         return f"Box(y={self.y!r}, x={self.x!r})"
+
+    def __str__(self) -> str:
+        return f"[y={self.y}, x={self.x}]"
 
     @overload
     def contains(self, other: Box, /) -> bool: ...

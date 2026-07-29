@@ -16,15 +16,30 @@ import math
 import os
 from typing import Any
 
+import astropy.units as u
+import numpy as np
 import pytest
+from astro_metadata_translator import ObservationInfo
 
-from lsst.images import Box, DetectorFrame, DifferenceImage, DifferenceImageTemplateInfo
+from lsst.images import (
+    Box,
+    DetectorFrame,
+    DifferenceImage,
+    DifferenceImageTemplateInfo,
+    Image,
+    MaskPlane,
+    MaskSchema,
+)
+from lsst.images.cameras import Detector
 from lsst.images.convolution_kernels import ConvolutionKernel, ImageBasisConvolutionKernel
+from lsst.images.psfs import GaussianPointSpreadFunction
+from lsst.images.serialization import read_archive
 from lsst.images.tests import (
     DP2_TEMPLATE_COADD_DATASETS,
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
     assert_close,
+    make_random_sky_projection,
 )
 
 try:
@@ -155,3 +170,32 @@ def test_template_info(legacy_test_data: _LegacyTestData) -> None:
         DP2_TEMPLATE_COADD_DATASETS,
     )
     _sanity_check_template_info(template_info, legacy_test_data.detector_frame)
+
+
+LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+
+
+def test_difference_image_repr_str_pinned() -> None:
+    """Pin the exact str and repr output of a DifferenceImage."""
+    rng = np.random.default_rng(500)
+    det_frame = DetectorFrame(instrument="Inst", visit=1234, detector=1, bbox=Box.factory[1:4096, 1:4096])
+    mask_schema = MaskSchema([MaskPlane("M1", "D1")])
+    obs_info = ObservationInfo(instrument="LSSTCam", detector_num=4, physical_filter="r1")
+    detector = read_archive(os.path.join(LOCAL_DATA_DIR, "detector.json"), Detector)
+    image = Image(42, shape=(1024, 1024), unit=u.nJy)
+    sky_projection = make_random_sky_projection(rng, det_frame, det_frame.bbox)
+    di = DifferenceImage(
+        image,
+        psf=GaussianPointSpreadFunction(2.5, stamp_size=33, bounds=Box.factory[-10:10, -12:13]),
+        mask_schema=mask_schema,
+        sky_projection=sky_projection,
+        detector=detector,
+        obs_info=obs_info,
+        band="r",
+    )
+    assert str(di) == "DifferenceImage(Image([y=0:1024, x=0:1024], int64), ['M1'])"
+    assert repr(di) == (
+        "DifferenceImage(Image(..., bbox=Box(y=Interval(start=0, stop=1024), x=Interval(start=0, stop=1024)),"
+        " dtype=dtype('int64')), mask_schema=MaskSchema([MaskPlane(name='M1', description='D1')],"
+        " dtype=dtype('uint8')))"
+    )

@@ -33,6 +33,7 @@ from ._geom import Box
 from ._image import DEFAULT_PIXEL_FRAME, Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel
 from ._transforms import Frame, SkyProjection, SkyProjectionSerializationModel
+from .describe import DescribeOptions, FieldRole, Report, ReportField
 from .serialization import (
     ArchiveTree,
     InputArchive,
@@ -193,11 +194,50 @@ class MaskedImage(GeneralizedImage):
         self._mask[bbox] = value.mask
         self._variance[bbox] = value.variance
 
-    def __str__(self) -> str:
-        return f"MaskedImage({self.image!s}, {list(self.mask.schema.names)})"
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
+        """Return a `Report` describing this masked image.
 
-    def __repr__(self) -> str:
-        return f"MaskedImage({self.image!r}, mask_schema={self.mask.schema!r})"
+        Parameters
+        ----------
+        options : `DescribeOptions`, optional
+            Rendering options; forwarded to all children.
+        """
+        # The image and mask schema are rendered as children below, and the
+        # image renders as ``Image(bbox, dtype)``, which would restate the
+        # shared bbox.  Both are REPR_ONLY so only repr sees them.
+        fields = [
+            ReportField(
+                label="image",
+                value=self.image,
+                repr_value=repr(self.image),
+                positional=True,
+                role=FieldRole.REPR_ONLY,
+            ),
+            ReportField(
+                label="mask_schema",
+                value=self.mask.schema,
+                repr_value=repr(self.mask.schema),
+                role=FieldRole.REPR_ONLY,
+            ),
+            ReportField(label="bbox", value=self.bbox, repr_value=repr(self.bbox), role=FieldRole.DERIVED),
+        ]
+        summary = f"MaskedImage({self.image!s}, {list(self.mask.schema.names)})"
+        if options.brief:
+            return Report(type_name="MaskedImage", summary=summary, fields=fields)
+        plane = options.for_child("sky_projection", "bbox")
+        children = {
+            "image": self._image._describe(plane),
+            "mask": self._mask._describe(plane),
+            "variance": self._variance._describe(plane),
+        }
+        if self.sky_projection is not None:
+            children["sky_projection"] = self.sky_projection._describe(options.for_child(), bbox=self.bbox)
+        return Report(
+            type_name="MaskedImage",
+            summary=summary,
+            fields=fields,
+            children=children,
+        )
 
     def copy(self) -> MaskedImage:
         """Deep-copy the masked image and metadata."""

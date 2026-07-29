@@ -163,3 +163,13 @@ def _cls(node: h5py.Group) -> str:
     if isinstance(val, bytes):
         return val.decode("ascii")
     return str(val)
+
+
+def test_color_image_repr_str_pinned() -> None:
+    """ColorImage str/repr match their documented forms."""
+    array = np.zeros((5, 4, 3), dtype=np.uint8)
+    color_image = ColorImage(array, bbox=Box.factory[0:5, 0:4])
+    bbox = color_image.bbox
+    dtype = color_image.array.dtype
+    assert str(color_image) == f"ColorImage({bbox!s}, uint8)"
+    assert repr(color_image) == f"ColorImage(..., bbox={bbox!r}, dtype={dtype!r})"

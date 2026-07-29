@@ -17,9 +17,11 @@ import os
 from typing import Any, ClassVar
 
 import astropy.units as u
+import astropy.wcs
 import numpy as np
 import pydantic
 import pytest
+from astropy.coordinates import Longitude
 
 from lsst.images import (
     ICRS,
@@ -36,6 +38,7 @@ from lsst.images import (
     TransformSerializationModel,
 )
 from lsst.images._transforms import _ast as astshim
+from lsst.images.describe import FieldRole, Report
 from lsst.images.fits import PointerModel
 from lsst.images.serialization import ArchiveTree, InputArchive, JsonRef, OutputArchive
 from lsst.images.tests import (
@@ -693,3 +696,304 @@ def test_pixel_to_sky_xy_yx(broadcast_test_data: _BroadcastTestData) -> None:
         p.sky_proj.pixel_to_sky(YX(sy, sx), y=sy)
     with pytest.raises(TypeError):
         p.sky_proj.pixel_to_sky()
+
+
+def _rotated_tan(rot_deg: float, *, crval2: float = 30.0, scale_y: float = 0.2) -> SkyProjection:
+    """Return a rotated TAN projection with given pixel scales."""
+    cx = (0.2 * u.arcsec).to_value(u.deg)
+    cy = (scale_y * u.arcsec).to_value(u.deg)
+    t = np.deg2rad(rot_deg)
+    header = {
+        "CTYPE1": "RA---TAN",
+        "CTYPE2": "DEC--TAN",
+        "CRPIX1": 50,
+        "CRPIX2": 100,
+        "CRVAL1": 45.0,
+        "CRVAL2": crval2,
+        "CD1_1": -cx * np.cos(t),
+        "CD1_2": cy * np.sin(t),
+        "CD2_1": -cx * np.sin(t),
+        "CD2_2": -cy * np.cos(t),
+    }
+    return SkyProjection.from_fits_wcs(astropy.wcs.WCS(header), GeneralFrame(unit=u.pix))
+
+
+def test_sky_projection_nominal_pixel_scale() -> None:
+    """_nominal_pixel_scale reports per sky axis [longitude, latitude].
+
+    Faithful KPG1_PXSCL port: the scale attaches to the sky axis, so a 90 deg
+    rotation swaps the returned [RA, Dec] scales.  Great-circle distances keep
+    it correct near the poles.
+    """
+    bbox = Box.factory[0:200, 0:100]
+
+    # Unrotated anisotropic WCS: RA scale 0.2, Dec scale 0.3.
+    np.testing.assert_allclose(
+        _rotated_tan(0.0, scale_y=0.3)._nominal_pixel_scale(bbox), [0.2, 0.3], rtol=1e-3
+    )
+    # Rotated 90 deg: the sky-axis scales swap.
+    np.testing.assert_allclose(
+        _rotated_tan(90.0, scale_y=0.3)._nominal_pixel_scale(bbox), [0.3, 0.2], rtol=1e-3
+    )
+    # Reference pixel ~2 arcsec from the north pole: great-circle scale holds.
+    np.testing.assert_allclose(
+        _rotated_tan(30.0, crval2=89.9995)._nominal_pixel_scale(bbox), [0.2, 0.2], rtol=1e-3
+    )
+
+
+def test_sky_projection_describe() -> None:
+    """SkyProjection._describe reports pixels, pixel scale, and a corners
+    table.
+    """
+    rng = np.random.default_rng(43)
+    bbox = Box.factory[0:200, 0:100]
+    pixel_frame = GeneralFrame(unit=u.pix)
+    sky_projection = make_random_sky_projection(rng, pixel_frame, bbox)
+
+    # Without a bbox this projection still has pixel_bounds, so the report is
+    # characterized over those rather than falling back to the pixel origin.
+    assert sky_projection.pixel_bounds is not None
+    report = sky_projection.describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "SkyProjection"
+    assert report.title == "ICRS coordinates"
+    # The title carries the sky frame, so it is not repeated as a field.
+    assert not any(f.label == "domain" for f in report.fields)
+    # The uninformative pixel_to_sky field is gone, so repr has no ARG fields.
+    assert not any(f.role is FieldRole.ARG for f in report.fields)
+    assert not any(f.label == "origin pixel" for f in report.fields)
+    assert any(f.label == "center pixel" for f in report.fields)
+    assert any(t.title == "Corners" for t in report.tables)
+    # Exactly one nominal-pixel-scale field is present (single or dual form).
+    scale_fields = [f for f in report.fields if f.label.startswith("Nominal pixel scale")]
+    assert len(scale_fields) == 1
+
+    # With a bbox: a Corners table and a center-pixel field for the box
+    # center, and still no origin-pixel fallback.
+    report = sky_projection.describe(bbox=bbox)
+    corners = next(t for t in report.tables if t.title == "Corners")
+    assert corners.columns == ["x", "y", "RA", "Dec", "RA (°)", "Dec (°)"]
+    assert len(corners.rows) == 4
+    # The first two columns carry the pixel coordinates of each corner.  These
+    # are the box corners expanded by half a pixel, so that they bound the full
+    # area the image covers rather than the centers of the outermost pixels.
+    assert [(row[0], row[1]) for row in corners.rows] == [
+        ("-0.5", "-0.5"),
+        ("-0.5", "199.5"),
+        ("99.5", "199.5"),
+        ("99.5", "-0.5"),
+    ]
+    assert not any(f.label == "origin pixel" for f in report.fields)
+    center = next(f for f in report.fields if f.label == "center pixel")
+    assert center.role is FieldRole.DERIVED
+    assert center.value.startswith("(x=")
+
+    # FITS-WCS availability is reported (projection is FITS-representable).
+    fits_field = next(f for f in report.fields if f.label == "fits_wcs")
+    assert fits_field.value == "available"
+
+    # A projection cannot be rebuilt from a string, so repr is descriptive
+    # rather than an eval-ish call.  It does not depend on a bbox and does not
+    # evaluate the mapping.
+    assert repr(sky_projection) == "<SkyProjection: GeneralFrame → ICRS>"
+
+
+def test_sky_projection_describe_pixel_scale_forms() -> None:
+    """The pixel-scale field collapses to one value when the axes agree."""
+    bbox = Box.factory[0:200, 0:100]
+
+    # Isotropic scale: a single "Nominal pixel scale" field to 0.01 arcsec.
+    report = _rotated_tan(0.0).describe(bbox=bbox)
+    scale = next(f for f in report.fields if f.label == "Nominal pixel scale")
+    assert scale.value == "0.20 arcsec"
+    assert not any(f.label == "Nominal pixel scales" for f in report.fields)
+
+    # Anisotropic scale: axes are named with the AST SkyFrame sky-axis labels.
+    report = _rotated_tan(0.0, scale_y=0.3).describe(bbox=bbox)
+    scales = next(f for f in report.fields if f.label == "Nominal pixel scales")
+    assert scales.value == "Right ascension 0.20 arcsec; Declination 0.30 arcsec"
+    assert not any(f.label == "Nominal pixel scale" for f in report.fields)
+
+
+def test_sky_projection_describe_fits_wcs_availability() -> None:
+    """fits_wcs is probed against a box, never blindly reported available."""
+    # No supplied bbox and no pixel bounds: representability cannot be checked.
+    projection = _rotated_tan(0.0)
+    assert projection.pixel_bounds is None
+    report = projection.describe()
+    fits_field = next(f for f in report.fields if f.label == "fits_wcs")
+    assert fits_field.value == "unknown"
+
+    # A projection with pixel bounds probes those bounds when no bbox is given.
+    bounded = SkyProjection.from_fits_wcs(
+        _rotated_tan(0.0).pixel_to_sky_transform.as_fits_wcs(Box.factory[0:32, 0:32]),
+        GeneralFrame(unit=u.pix),
+        pixel_bounds=Box.factory[0:32, 0:32],
+    )
+    report = bounded.describe()
+    fits_field = next(f for f in report.fields if f.label == "fits_wcs")
+    assert fits_field.value in ("available", "none")
+
+
+def test_sky_projection_astropy_view_repr_str() -> None:
+    """The Astropy view has informative str and repr, not the default object
+    form.
+    """
+    bbox = Box.factory[0:200, 0:100]
+    sky_projection = _rotated_tan(0.0)
+
+    bounded = sky_projection.as_astropy(bbox)
+    assert str(bounded) == "SkyProjectionAstropyView([y=0:200, x=0:100] → ICRS)"
+    bounded_repr = repr(bounded)
+    assert bounded_repr.startswith("SkyProjectionAstropyView\n")
+    assert "ICRS (ra, dec)" in bounded_repr
+    assert str(bbox.shape) in bounded_repr
+    # The reported pixel (0, 0) sky position matches the view's own transform.
+    ra, dec = bounded.pixel_to_world_values(0.0, 0.0)
+    ra_hms = Longitude(float(ra) * u.rad).to_string(unit=u.hour, sep="hms", pad=True, precision=1)
+    assert ra_hms in bounded_repr
+
+    unbounded = sky_projection.as_astropy()
+    assert str(unbounded) == "SkyProjectionAstropyView(unbounded → ICRS)"
+    # An unbounded view omits the array-shape line but keeps the reference.
+    assert "array shape" not in repr(unbounded)
+    assert "pixel (0, 0)" in repr(unbounded)
+
+
+def test_sky_projection_describe_origin_pixel_is_a_last_resort() -> None:
+    """The origin pixel appears only when no bounding box can be had.
+
+    Pixel (0, 0) is not a reference point of a projection, so it is reported
+    only when neither the caller nor the projection itself supplies a box to
+    characterize over.
+    """
+    rng = np.random.default_rng(43)
+    bbox = Box.factory[0:200, 0:100]
+    bounded = make_random_sky_projection(rng, GeneralFrame(unit=u.pix), bbox)
+    assert bounded.pixel_bounds is not None
+    # A box from either source displaces the origin fallback.
+    for report in (bounded.describe(), bounded.describe(bbox=bbox)):
+        assert not any(f.label == "origin pixel" for f in report.fields)
+
+    # With neither, the origin is all that is left, and the corners table and
+    # FITS-WCS probe drop out with it.
+    unbounded = _rotated_tan(0.0)
+    assert unbounded.pixel_bounds is None
+    report = unbounded.describe()
+    assert not any(f.label == "center pixel" for f in report.fields)
+    assert not any(t.title == "Corners" for t in report.tables)
+    assert next(f for f in report.fields if f.label == "fits_wcs").value == "unknown"
+    origin = next(f for f in report.fields if f.label == "origin pixel")
+    assert origin.role is FieldRole.DERIVED
+    assert origin.value.startswith("(x=0, y=0) →")
+
+
+def test_sky_projection_describe_origin_pixel_matches_transform() -> None:
+    """The origin-pixel field reports pixel (0, 0)'s actual sky position."""
+    sky_projection = _rotated_tan(0.0)
+    assert sky_projection.pixel_bounds is None
+
+    report = sky_projection.describe()
+    ref = next(f for f in report.fields if f.label == "origin pixel")
+    sky00 = sky_projection.pixel_to_sky(x=0, y=0)
+    # Sexagesimal (hms/dms) and labeled decimal degrees both appear.
+    assert sky00.ra.to_string(unit=u.hour, sep="hms", pad=True, precision=1) in ref.value
+    assert sky00.dec.to_string(sep="dms", pad=True, alwayssign=True, precision=0) in ref.value
+    assert f"RA {sky00.ra.deg:.6f}°" in ref.value
+    assert f"Dec {sky00.dec.deg:+.6f}°" in ref.value
+
+
+def test_frame_describe_preserves_pydantic_repr() -> None:
+    """Frames expose describe() while retaining pydantic's repr."""
+    frame = GeneralFrame(unit=u.pix)
+    report = frame.describe()
+    assert report.type_name == "GeneralFrame"
+    assert {f.label for f in report.fields} >= {"unit"}
+    # The mixin must not shadow pydantic's repr.
+    assert repr(frame).startswith("GeneralFrame(")
+
+
+def test_transform_describe() -> None:
+    """Transform._describe reports its frames and bounds."""
+    pixel_frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=Box.factory[:5, :4])
+    transform = Transform(pixel_frame, ICRS, astshim.UnitMap(2))
+    report = transform.describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "Transform"
+    labels = {f.label for f in report.fields}
+    assert {"in_frame", "out_frame"} <= labels
+    assert any(f.label == "mapping" for f in report.fields)
+
+
+def test_sky_projection_describe_extent() -> None:
+    """The extent gives the box's angular size and its orientation.
+
+    The size is the great-circle distance across the area the box covers, and
+    the orientation is the position angle of the pixel y axis.
+    """
+    projection = _rotated_tan(40.0)
+    # 275 pixels at 0.2 arcsec/pixel spans 55 arcsec.
+    report = projection.describe(bbox=Box.factory[0:275, 0:275])
+    extent = next(f for f in report.fields if f.label == "Image extent")
+    assert extent.role is FieldRole.DERIVED
+    assert extent.value == "55 x 55 arcsec @ 140 deg E of N"
+
+    # The unit follows the scale of the box.
+    def size(pixels: int) -> str:
+        report = projection.describe(bbox=Box.factory[0:pixels, 0:pixels])
+        return next(f.value for f in report.fields if f.label == "Image extent")
+
+    assert "arcsec" in size(275)
+    assert "arcmin" in size(4000)
+    assert "deg" in size(60000)
+
+    # A long, thin box has no unit that suits both sides, so each gets its
+    # own; a square one names the shared unit once.
+    def extent_of(x_pixels: int, y_pixels: int) -> str:
+        report = projection.describe(bbox=Box.factory[0:y_pixels, 0:x_pixels])
+        return next(f.value for f in report.fields if f.label == "Image extent")
+
+    assert extent_of(10, 1000).startswith("2 arcsec x 3.33 arcmin ")
+    assert extent_of(1000, 10).startswith("3.33 arcmin x 2 arcsec ")
+    assert extent_of(275, 275).startswith("55 x 55 arcsec ")
+
+    # No box, so no extent to report.
+    assert projection.pixel_bounds is None
+    assert not any(f.label == "Image extent" for f in projection.describe().fields)
+
+
+def test_sky_projection_describe_extent_position_angle() -> None:
+    """The reported angle is the position angle of the pixel y axis.
+
+    ``_rotated_tan`` builds a CD matrix whose y axis lands at ``180 - rot``
+    degrees East of North, which pins both the axis and the direction of
+    increasing angle.
+    """
+    bbox = Box.factory[0:200, 0:100]
+    for rot in (0.0, 30.0, 90.0, 270.0):
+        report = _rotated_tan(rot).describe(bbox=bbox)
+        value = next(f.value for f in report.fields if f.label == "Image extent")
+        assert value.endswith(f"@ {(180 - rot) % 360:g} deg E of N"), (rot, value)
+
+
+def test_sky_projection_describe_extent_is_measured_at_the_box() -> None:
+    """The orientation is sampled at the box, not at the pixel origin.
+
+    Meridians converge near the pole, so the position angle at a pixel far
+    outside the box says nothing about the box: here the origin differs from
+    the box by nearly 200 degrees.
+    """
+    projection = _rotated_tan(40.0, crval2=89.9995)
+    bbox = Box.factory[0:200, 0:100]
+
+    def position_angle_at(x: float, y: float) -> float:
+        here = projection.pixel_to_sky(x=x, y=y)
+        up = projection.pixel_to_sky(x=x, y=y + 1.0)
+        return here.position_angle(up).to_value(u.deg) % 360.0
+
+    at_origin = position_angle_at(0.0, 0.0)
+    at_center = position_angle_at(bbox.x.center, bbox.y.center)
+    assert abs(at_origin - at_center) > 100.0
+
+    value = next(f.value for f in projection.describe(bbox=bbox).fields if f.label == "Image extent")
+    assert value.endswith(f"@ {round(at_center) % 360} deg E of N")

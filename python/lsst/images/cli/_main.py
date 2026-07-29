@@ -17,6 +17,7 @@ import click
 from ..tests.extract_legacy_test_data import extract_test_data
 from ..tests.verify_rewrite import verify_rewrite
 from ._convert import convert
+from ._describe import describe
 from ._diagram import diagram
 from ._fuzz import fuzz_masked_image
 from ._inspect import inspect
@@ -31,6 +32,7 @@ def main() -> None:
 
 
 main.add_command(convert)
+main.add_command(describe)
 main.add_command(diagram)
 main.add_command(inspect)
 main.add_command(minify)

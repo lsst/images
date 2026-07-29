@@ -18,7 +18,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from lsst.images import Box
+from lsst.images import Box, Image
+from lsst.images.describe import DescribableMixin, Report
 from lsst.images.psfs import GaussianPointSpreadFunction, PiffWrapper, PointSpreadFunction, PSFExWrapper
 from lsst.images.psfs._piff import _ArchivePiffWriter
 from lsst.images.tests import RoundtripFits, RoundtripJson, RoundtripNdf, compare_psf_to_legacy
@@ -81,6 +82,62 @@ def legacy_psfex_psf_and_bbox() -> tuple[LegacyPsf, Box]:
     legacy_psf = reader.readPsf()
     bounds = Box.from_legacy(reader.readBBox())
     return legacy_psf, bounds
+
+
+def test_gaussian_psf_repr_pinned() -> None:
+    """GaussianPointSpreadFunction repr matches its documented form."""
+    psf = GaussianPointSpreadFunction(2.5, bounds=Box.factory[0:10, 0:10], stamp_size=21)
+    assert repr(psf) == f"GaussianPointSpreadFunction(2.5, stamp_size=21, bounds={psf.bounds!r})"
+
+
+def test_gaussian_psf_describe() -> None:
+    """GaussianPointSpreadFunction._describe returns a Report."""
+    psf = GaussianPointSpreadFunction(2.5, bounds=Box.factory[0:10, 0:10], stamp_size=21)
+    assert isinstance(psf, DescribableMixin)
+    report = psf._describe()
+    assert isinstance(report, Report)
+    assert report.type_name == "GaussianPointSpreadFunction"
+    labels = {f.label for f in report.fields}
+    assert "sigma" in labels
+    assert "stamp_size" in labels
+    assert "bounds" in labels
+
+
+def test_psf_base_describe() -> None:
+    """Base _describe uses type(self).__name__ and includes bounds/kernel_bbox.
+
+    GaussianPointSpreadFunction overrides _describe, so a minimal concrete
+    subclass is used to exercise the actual base implementation.
+    """
+
+    class _MinimalPSF(PointSpreadFunction):
+        """Minimal concrete subclass that exercises the base _describe path."""
+
+        @property
+        def bounds(self) -> Box:
+            return Box.factory[-5:5, -5:5]
+
+        @property
+        def kernel_bbox(self) -> Box:
+            return Box.factory[-2:3, -2:3]
+
+        def compute_kernel_image(self, *, x: float, y: float) -> Image:
+            arr = np.zeros((5, 5))
+            arr[2, 2] = 1.0
+            return Image(arr, bbox=self.kernel_bbox)
+
+        def compute_stellar_image(self, *, x: float, y: float) -> Image:
+            return self.compute_kernel_image(x=x, y=y)
+
+        def compute_stellar_bbox(self, *, x: float, y: float) -> Box:
+            return self.kernel_bbox
+
+    psf = _MinimalPSF()
+    report = psf._describe()
+    assert report.type_name == "_MinimalPSF"
+    labels = {f.label for f in report.fields}
+    assert "bounds" in labels
+    assert "kernel_bbox" in labels
 
 
 def test_gaussian() -> None:

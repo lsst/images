@@ -28,6 +28,7 @@ dependencies = [
     "numpy >= 2.0",
     "packaging",
     "pydantic >= 2.12",
+    "rich >= 13",
     "scipy >= 1.13",
     "lsst-resources",
     "astro-metadata-translator >=30.2026.900",

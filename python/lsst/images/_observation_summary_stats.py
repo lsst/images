@@ -18,6 +18,14 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, final, get_origin
 
 import pydantic
 
+from lsst.images.describe import (
+    DescribableMixin,
+    DescribeOptions,
+    FieldRole,
+    Report,
+    ReportField,
+    ReportValueGroup,
+)
 from lsst.images.serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 
 if TYPE_CHECKING:
@@ -46,7 +54,7 @@ def _is_empty(value: Any) -> bool:
 
 
 @final
-class ObservationSummaryStats(ArchiveTree):
+class ObservationSummaryStats(ArchiveTree, DescribableMixin):
     """Various statistics obtained from a single observation."""
 
     SCHEMA_NAME: ClassVar[str] = "observation_summary_stats"
@@ -446,6 +454,63 @@ class ObservationSummaryStats(ArchiveTree):
             elif a != b and not (math.isnan(a) and math.isnan(b)):
                 return False
         return True
+
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
+        """Return a `Report` describing these summary statistics.
+
+        Parameters
+        ----------
+        options : `DescribeOptions`, optional
+            Rendering options.  `DescribeOptions.brief` reports how many
+            statistics are set instead of listing them.
+
+        Notes
+        -----
+        Which statistics an observation carries depends on which pipeline
+        steps produced it, and most of the many fields are unset in any given
+        one, so the report covers whichever of them hold a value rather than a
+        fixed selection.
+        """
+        # Everything this class adds to ArchiveTree is a statistic; what it
+        # inherits from it is serialization plumbing.
+        names = sorted(set(type(self).model_fields) - set(ArchiveTree.model_fields))
+        present = [(name, value) for name in names if not _is_empty(value := getattr(self, name))]
+        summary = f"ObservationSummaryStats({len(present)} of {len(names)} statistics set)"
+        if options.brief:
+            # The count is worth stating on its own where the values are not
+            # listed; alongside them it would only restate what is visible.
+            return Report(
+                type_name="ObservationSummaryStats",
+                summary=summary,
+                fields=[
+                    ReportField(
+                        label="statistics set",
+                        value=f"{len(present)} of {len(names)}",
+                        role=FieldRole.DERIVED,
+                    )
+                ],
+            )
+        scalars: list[tuple[str, Any]] = []
+        fields: list[ReportField] = []
+        for name, value in present:
+            if isinstance(value, list | tuple):
+                # Too long to pack alongside the scalars; give it a line.
+                fields.append(ReportField(label=name, value=value, role=FieldRole.DERIVED))
+            else:
+                scalars.append((name, value))
+        return Report(
+            type_name="ObservationSummaryStats",
+            summary=summary,
+            fields=fields,
+            value_groups=[ReportValueGroup(values=scalars)] if scalars else [],
+        )
+
+    def __str__(self) -> str:
+        # pydantic's __str__ precedes the mixin's in the MRO and spells out all
+        # of the fields, nearly all of which are unset.  ``repr`` keeps that
+        # exhaustive form, since it is the one that round-trips; ``str`` is the
+        # readable one, so it takes the report's summary.
+        return DescribableMixin.__str__(self)
 
     def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> Self:
         """Extract this object from an archive.
