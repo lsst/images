@@ -14,6 +14,7 @@ from ._color_image import *
 from ._difference_image import *
 from ._generalized_image import *
 from ._geom import *
+from ._ellipses import *
 from ._image import *
 from ._mask import *
 from ._masked_image import *
