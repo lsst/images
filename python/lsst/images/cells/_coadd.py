@@ -282,6 +282,37 @@ class CellCoadd(MaskedImage):
         summary = f"CellCoadd({self.bbox!s}, tract={self.tract})"
         if options.brief:
             return Report(type_name="CellCoadd", summary=summary, fields=fields)
+        # Components with no report of their own get a line each, so that
+        # nothing the coadd carries is absent from its description.
+        if self._mask_fractions:
+            fields.append(
+                ReportField(
+                    label="mask_fractions", value=", ".join(self._mask_fractions), role=FieldRole.DERIVED
+                )
+            )
+        if self._noise_realizations:
+            n_noise = len(self._noise_realizations)
+            fields.append(
+                ReportField(
+                    label="noise_realizations",
+                    value=(
+                        f"{n_noise} image{'s' if n_noise != 1 else ''} "
+                        f"(dtype {self._noise_realizations[0].array.dtype})"
+                    ),
+                    role=FieldRole.DERIVED,
+                )
+            )
+        if self._aperture_corrections:
+            n_ap_corr = len(self._aperture_corrections)
+            # Never print all the keys even in detailed mode since there
+            # are usually many of them and they swamp the report.
+            ap_corr = f"{n_ap_corr} field{'s' if n_ap_corr != 1 else ''}"
+            fields.append(ReportField(label="aperture_corrections", value=ap_corr, role=FieldRole.DERIVED))
+        if self._provenance is None:
+            # A coadd without provenance is a meaningful state: it is what
+            # reading with provenance=False gives, and it is what makes
+            # to_legacy_cell_coadd fail.
+            fields.append(ReportField(label="provenance", value="none", role=FieldRole.DERIVED))
         child = options.for_child()
         plane = options.for_child("sky_projection", "bbox")
         children: dict[str, Report] = {
@@ -290,8 +321,12 @@ class CellCoadd(MaskedImage):
             "variance": self.variance._describe(plane),
             "sky_projection": self.sky_projection._describe(child, bbox=self.bbox),
             "psf": self.psf._describe(child),
-            "backgrounds": self.backgrounds._describe(child),
         }
+        if self._provenance is not None:
+            # The provenance property raises when there is none.  Its cells
+            # come from this coadd, so pass them down for the coverage ratio.
+            children["provenance"] = self._provenance._describe(child, bounds=self.bounds)
+        children["backgrounds"] = self.backgrounds._describe(child)
         return Report(
             type_name="CellCoadd",
             summary=summary,

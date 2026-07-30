@@ -455,3 +455,16 @@ def test_cli_describe_visit_image() -> None:
     result = CliRunner().invoke(main, ["describe", path])
     assert result.exit_code == 0, result.output
     assert "VisitImage" in result.output
+
+
+def test_cli_describe_coadd_provenance() -> None:
+    """The describe command renders a deserialized CoaddProvenance.
+
+    Provenance is describable in its own right, not only as part of a coadd,
+    so the command must not fall back to the default object repr for it.
+    """
+    path = os.path.join(os.path.dirname(__file__), "data", "schema_v1", "coadd_provenance.json")
+    result = CliRunner().invoke(main, ["describe", path])
+    assert result.exit_code == 0, result.output
+    assert "CoaddProvenance" in result.output
+    assert "input images" in result.output

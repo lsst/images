@@ -20,7 +20,8 @@ import numpy as np
 import pytest
 
 from lsst.images import YX, Box, Interval, MaskPlane, get_legacy_deep_coadd_mask_planes
-from lsst.images.cells import CellCoadd, CellGrid, CellGridBounds, CellIJ, PatchDefinition
+from lsst.images.cells import CellCoadd, CellGrid, CellGridBounds, CellIJ, CoaddProvenance, PatchDefinition
+from lsst.images.describe import DescribeOptions, Report
 from lsst.images.fields import ChebyshevField
 from lsst.images.fits import FitsCompressionOptions
 from lsst.images.serialization import read_archive
@@ -157,6 +158,189 @@ def test_cell_coadd_repr_str_pinned(minified_cell_coadd: CellCoadd) -> None:
     """
     assert str(minified_cell_coadd) == "CellCoadd([y=48:60, x=36:48], tract=9813)"
     assert repr(minified_cell_coadd) == "<CellCoadd([y=48:60, x=36:48], tract=9813)>"
+
+
+def report_fields(report: Report) -> dict[str, Any]:
+    """Return a mapping from report field label to field value."""
+    return {field.label: field.value for field in report.fields}
+
+
+def make_test_provenance() -> CoaddProvenance:
+    """Return a provenance with three input images taken over two nights,
+    whose contributions cover three cells unevenly.
+    """
+    inputs = CoaddProvenance.make_empty_input_table(3)
+    inputs["instrument"] = "LSSTCam"
+    inputs["physical_filter"] = "r_57"
+    inputs["visit"] = [101, 102, 103]
+    inputs["detector"] = [1, 2, 3]
+    inputs["day_obs"] = [20250520, 20250520, 20250521]
+    contributions = CoaddProvenance.make_empty_contribution_table(6)
+    contributions["cell_i"] = [0, 0, 0, 1, 1, 2]
+    contributions["cell_j"] = 0
+    return CoaddProvenance(inputs=inputs, contributions=contributions)
+
+
+def test_coadd_provenance_repr_str_pinned(minified_cell_coadd: CellCoadd) -> None:
+    """Pin the str and repr of a CoaddProvenance.
+
+    Neither table can be expressed in an eval-able string, so repr is the
+    descriptive form, and both report only what len() can answer.
+    """
+    provenance = minified_cell_coadd.provenance
+    assert str(provenance) == "CoaddProvenance(6 input images)"
+    assert repr(provenance) == "<CoaddProvenance(6 input images)>"
+
+
+def test_coadd_provenance_brief_report_skips_column_scans(minified_cell_coadd: CellCoadd) -> None:
+    """The brief report carries no fields, so repr and str never scan a
+    column of either table.
+    """
+    report = minified_cell_coadd.provenance._describe(DescribeOptions(brief=True))
+    assert not report.fields
+    assert report.to_repr() == "<CoaddProvenance(6 input images)>"
+
+
+def test_coadd_provenance_report_summarizes_its_tables(minified_cell_coadd: CellCoadd) -> None:
+    """The expanded report summarizes both tables instead of rendering them."""
+    report = minified_cell_coadd.provenance.describe()
+    assert report.type_name == "CoaddProvenance"
+    assert report_fields(report) == {
+        "instrument": "LSSTCam",
+        "physical_filter": "r_57",
+        "input images": "6 from 2 visits",
+        "day_obs": "20250520",
+        "cells": "3 with contributions",
+        "per cell": "2 input images",
+    }
+    assert list(report_fields(report)) == [
+        "instrument",
+        "physical_filter",
+        "input images",
+        "day_obs",
+        "cells",
+        "per cell",
+    ]
+    # Rich renders an astropy table as plain text and never consults its
+    # _repr_html_, so the report tabulates nothing.
+    assert not report.tables
+    assert "input images" in report._repr_html_()
+
+
+def test_coadd_provenance_report_counts_cells_against_bounds(minified_cell_coadd: CellCoadd) -> None:
+    """Given the image's cells, the report states coverage as a fraction."""
+    report = minified_cell_coadd.provenance._describe(bounds=minified_cell_coadd.bounds)
+    assert report_fields(report)["cells"] == "3 of 3 with contributions"
+
+
+def test_coadd_provenance_report_shows_partial_cell_coverage() -> None:
+    """Cells with image data but no contribution rows show up in the ratio."""
+    grid = CellGrid(bbox=Box.from_shape((30, 30)), cell_shape=YX(10, 10))
+    bounds = CellGridBounds(grid=grid, bbox=Box.factory[0:30, 0:30])
+    report = make_test_provenance()._describe(bounds=bounds)
+    assert report_fields(report)["cells"] == "3 of 9 with contributions"
+
+
+def test_coadd_provenance_report_ranges_over_nights_and_cells() -> None:
+    """Several visits, several nights and uneven cell coverage give the
+    ranged forms of each field.
+    """
+    fields = report_fields(make_test_provenance().describe())
+    assert fields["input images"] == "3 from 3 visits"
+    assert fields["day_obs"] == "20250520 - 20250521"
+    assert fields["cells"] == "3 with contributions"
+    assert fields["per cell"] == "1 - 3 input images (median 2)"
+
+
+def test_coadd_provenance_report_handles_empty_tables() -> None:
+    """A provenance with no rows describes without raising."""
+    provenance = CoaddProvenance(
+        inputs=CoaddProvenance.make_empty_input_table(0),
+        contributions=CoaddProvenance.make_empty_contribution_table(0),
+    )
+    assert str(provenance) == "CoaddProvenance(no input images)"
+    report = provenance.describe()
+    assert report_fields(report) == {"input images": "none", "cells": "none"}
+    report.__rich__()
+
+
+def test_coadd_provenance_report_counts_one_input_image_in_the_singular() -> None:
+    """Pin the singular forms of the counted phrases.
+
+    One input image is what the standalone ``coadd_provenance`` file holds,
+    and what a single-cell subset of a coadd holds, so this is the case the
+    ``describe`` command line subcommand shows most often.
+    """
+    inputs = CoaddProvenance.make_empty_input_table(1)
+    inputs["instrument"] = "LSSTCam"
+    inputs["physical_filter"] = "r_57"
+    inputs["visit"] = [101]
+    inputs["detector"] = [1]
+    inputs["day_obs"] = [20250520]
+    provenance = CoaddProvenance(
+        inputs=inputs, contributions=CoaddProvenance.make_empty_contribution_table(1)
+    )
+    assert str(provenance) == "CoaddProvenance(1 input image)"
+    assert repr(provenance) == "<CoaddProvenance(1 input image)>"
+    fields = report_fields(provenance.describe())
+    assert fields["input images"] == "1 from 1 visit"
+    assert fields["per cell"] == "1 input image"
+
+
+def test_cell_coadd_report_accounts_for_every_component(minified_cell_coadd: CellCoadd) -> None:
+    """Nothing the coadd carries is absent from its report."""
+    report = minified_cell_coadd.describe()
+    fields = report_fields(report)
+    assert fields["mask_fractions"] == "rejected"
+    assert fields["noise_realizations"] == "1 image (dtype float32)"
+    assert fields["aperture_corrections"] == "3 fields"
+    # Provenance is a child, so it needs no field line of its own.
+    assert "provenance" not in fields
+    assert list(report.children) == [
+        "image",
+        "mask",
+        "variance",
+        "sky_projection",
+        "psf",
+        "provenance",
+        "backgrounds",
+    ]
+    provenance = report.children["provenance"]
+    assert provenance.type_name == "CoaddProvenance"
+    # The coadd passed its cells down, so coverage is stated as a fraction.
+    assert report_fields(provenance)["cells"] == "3 of 3 with contributions"
+
+
+def test_cell_coadd_report_counts_aperture_corrections_only(minified_cell_coadd: CellCoadd) -> None:
+    """A coadd can carry dozens of aperture corrections with long names, so
+    the report counts them and never names them, detail or not.
+    """
+    plain = report_fields(minified_cell_coadd.describe())["aperture_corrections"]
+    assert plain == "3 fields"
+    detailed = report_fields(minified_cell_coadd.describe(detail=True))["aperture_corrections"]
+    assert detailed == "3 fields"  # No additional detail
+
+
+def test_cell_coadd_report_states_absent_provenance(minified_cell_coadd: CellCoadd) -> None:
+    """A coadd with no provenance says so, while components that are merely
+    empty stay out of the report.
+    """
+    bare = CellCoadd(
+        minified_cell_coadd.image,
+        mask=minified_cell_coadd.mask,
+        variance=minified_cell_coadd.variance,
+        sky_projection=minified_cell_coadd.sky_projection,
+        band=minified_cell_coadd.band,
+        psf=minified_cell_coadd.psf,
+        patch=minified_cell_coadd.patch,
+    )
+    report = bare.describe()
+    fields = report_fields(report)
+    assert fields["provenance"] == "none"
+    assert "provenance" not in report.children
+    assert "mask_fractions" not in fields
+    assert "noise_realizations" not in fields
+    assert "aperture_corrections" not in fields
 
 
 def test_cell_grid_patch_str_uses_clean_geometry() -> None:
