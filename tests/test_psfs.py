@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from lsst.images import Box, Image
+from lsst.images import Box, Ellipse, Image
 from lsst.images.describe import DescribableMixin, Report
 from lsst.images.psfs import GaussianPointSpreadFunction, PiffWrapper, PointSpreadFunction, PSFExWrapper
 from lsst.images.psfs._piff import _ArchivePiffWriter
@@ -26,6 +26,7 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
     RoundtripNdf,
+    assert_close,
     compare_psf_to_legacy,
     reset_afw_mask_planes,  # noqa: F401
 )
@@ -38,6 +39,13 @@ except ImportError:
     HAVE_H5PY = False
 
 try:
+    import galsim  # noqa: F401
+
+    HAVE_GALSIM = True
+except ImportError:
+    HAVE_GALSIM = False
+
+try:
     from lsst.afw.detection import Psf as LegacyPsf
 except ImportError:
     type LegacyPsf = Any  # type: ignore[no-redef]
@@ -45,6 +53,7 @@ except ImportError:
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
+skip_no_galsim = pytest.mark.skipif(not HAVE_GALSIM, reason="galsim is not installed")
 
 
 @pytest.fixture
@@ -209,6 +218,82 @@ def test_gaussian_from_legacy(reset_afw_mask_planes: None) -> None:  # noqa: F81
 
     with pytest.raises(ValueError, match="must be square"):
         PointSpreadFunction.from_legacy(GaussianPsf(33, 31, 2.5), bounds)
+
+
+def _make_moments_psf() -> GaussianPointSpreadFunction:
+    """Return a Gaussian PSF with a large, odd size for moments measurement.
+
+    The size must be large enough that truncation of the Gaussian tails is
+    negligible at the 1e-7 test tolerance; a 33-pixel size is a 16-pixel
+    half-width (6.4 sigma for sigma=2.5), well past where the tails are
+    numerically significant.
+    """
+    return GaussianPointSpreadFunction(2.5, bounds=Box.factory[0:10, 0:10], stamp_size=33)
+
+
+def test_compute_effective_area_gaussian() -> None:
+    """Test that the effective area of a Gaussian PSF equals 4*pi*sigma^2."""
+    psf = _make_moments_psf()
+    expected = 4.0 * np.pi * 2.5**2
+    for x, y in [(0.0, 0.0), (5.25, 3.75)]:
+        assert_close(psf.compute_effective_area(x=x, y=y), expected, rtol=1e-7)
+    assert_close(psf.compute_effective_area(x=5.25, y=3.75, use_stellar_image=True), expected, rtol=1e-7)
+
+
+def test_compute_moments_kernel_unweighted() -> None:
+    """Test compute_moments with use_stellar_image=False, adaptive=False."""
+    psf = _make_moments_psf()
+    ell = psf.compute_moments(x=5.0, y=3.0, adaptive=False)
+    assert isinstance(ell, Ellipse)
+    assert_close(ell.center.x, 0.0, atol=1e-7)
+    assert_close(ell.center.y, 0.0, atol=1e-7)
+    assert_close(ell.xx, 2.5**2, rtol=1e-7)
+    assert_close(ell.yy, 2.5**2, rtol=1e-7)
+    assert_close(ell.xy, 0.0, atol=1e-7)
+    assert_close(ell.r_tr, 2.5, rtol=1e-7)
+
+
+def test_compute_moments_stellar_unweighted() -> None:
+    """Test compute_moments with use_stellar_image=True, adaptive=False."""
+    psf = _make_moments_psf()
+    x, y = 5.25, 3.75
+    ell = psf.compute_moments(x=x, y=y, adaptive=False, use_stellar_image=True)
+    assert isinstance(ell, Ellipse)
+    assert_close(ell.center.x, x, atol=1e-7)
+    assert_close(ell.center.y, y, atol=1e-7)
+    assert_close(ell.xx, 2.5**2, rtol=1e-7)
+    assert_close(ell.yy, 2.5**2, rtol=1e-7)
+    assert_close(ell.xy, 0.0, atol=1e-7)
+    assert_close(ell.r_tr, 2.5, rtol=1e-7)
+
+
+@skip_no_galsim
+def test_compute_moments_kernel_adaptive() -> None:
+    """Test compute_moments with use_stellar_image=False, adaptive=True."""
+    psf = _make_moments_psf()
+    ell = psf.compute_moments(x=5.0, y=3.0, adaptive=True)
+    assert isinstance(ell, Ellipse)
+    assert_close(ell.center.x, 0.0, atol=1e-7)
+    assert_close(ell.center.y, 0.0, atol=1e-7)
+    assert_close(ell.xx, 2.5**2, rtol=1e-7)
+    assert_close(ell.yy, 2.5**2, rtol=1e-7)
+    assert_close(ell.xy, 0.0, atol=1e-7)
+    assert_close(ell.r_tr, 2.5, rtol=1e-7)
+
+
+@skip_no_galsim
+def test_compute_moments_stellar_adaptive() -> None:
+    """Test compute_moments with use_stellar_image=True, adaptive=True."""
+    psf = _make_moments_psf()
+    x, y = 5.25, 3.75
+    ell = psf.compute_moments(x=x, y=y, adaptive=True, use_stellar_image=True)
+    assert isinstance(ell, Ellipse)
+    assert_close(ell.center.x, x, atol=1e-7)
+    assert_close(ell.center.y, y, atol=1e-7)
+    assert_close(ell.xx, 2.5**2, rtol=1e-7)
+    assert_close(ell.yy, 2.5**2, rtol=1e-7)
+    assert_close(ell.xy, 0.0, atol=1e-7)
+    assert_close(ell.r_tr, 2.5, rtol=1e-7)
 
 
 def test_piff_writer_normalizes_tuple_metadata():  # intentionally untyped
