@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 import astropy.io.fits
 import astropy.units
 import astropy.wcs
+import numpy as np
 import pydantic
 
 from .._backgrounds import BackgroundMap, BackgroundMapSerializationModel
@@ -609,7 +610,12 @@ class CellCoadd(MaskedImage):
                 noise_realizations=[n[cell_bbox].to_legacy(copy=copy) for n in self.noise_realizations],
             )
             legacy_aperture_correction_map = frozendict(
-                {name: field.value_in_cell(cell_index) for name, field in self.aperture_corrections.items()}
+                {
+                    name: field.value_in_cell(cell_index)
+                    if cell_index not in field.bounds.missing
+                    else np.nan
+                    for name, field in self.aperture_corrections.items()
+                }
             )
             cells.append(
                 LegacySingleCellCoadd(
