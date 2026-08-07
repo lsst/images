@@ -23,6 +23,7 @@ from lsst.images import json as images_json
 from lsst.images.fits import FitsInputArchive
 from lsst.images.json import JsonInputArchive
 from lsst.images.serialization import ArchiveTree, read_archive
+from lsst.images.tests import current_fixture_path
 
 try:
     import h5py  # noqa: F401
@@ -36,13 +37,14 @@ except ImportError:
 
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
 
-LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
+FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
 
 
 @pytest.fixture(scope="session")
 def visit_image() -> VisitImage:
     """Return a VisitImage loaded once from the committed JSON fixture."""
-    return read_archive(os.path.join(LOCAL_DATA_DIR, "visit_image.json"))  # type: ignore[return-value]
+    path = current_fixture_path(FIXTURE_DIR, "visit_image")
+    return read_archive(path)  # type: ignore[return-value]
 
 
 @contextlib.contextmanager

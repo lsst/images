@@ -13,3 +13,4 @@ from ._checks import *
 from ._creation import *
 from ._data_ids import *
 from ._roundtrip import *
+from ._schema_fixtures import *

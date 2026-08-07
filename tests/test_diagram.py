@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import importlib.metadata
-import os.path
 from pathlib import Path
 from typing import Annotated, Any
 from unittest import mock
@@ -33,8 +32,9 @@ from lsst.images.diagram import (
     render,
 )
 from lsst.images.serialization import JsonRef
+from lsst.images.tests import current_fixture_path
 
-TESTDIR = os.path.abspath(os.path.dirname(__file__))
+FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
 
 
 class Child(pydantic.BaseModel):
@@ -485,8 +485,8 @@ def test_graph_from_file_collapses_psf() -> None:
     """Test that graph_from_file collapses a union PSF field to the concrete
     type stored in the file.
     """
-    path = os.path.join(TESTDIR, "data", "schema_v1", "visit_image.json")
-    graph = graph_from_file(path)
+    path = current_fixture_path(FIXTURE_DIR, "visit_image")
+    graph = graph_from_file(str(path))
     assert graph.nodes[graph.root].label.startswith("VisitImageSerializationModel")
     refs = {r.name: r for r in graph.nodes[graph.root].references}
     psf_labels = {graph.nodes[t].label for t in refs["psf"].targets}
@@ -645,7 +645,7 @@ def test_diagram_model_and_file_are_mutually_exclusive() -> None:
     exit code.
     """
     runner = CliRunner()
-    fixture = os.path.join(TESTDIR, "data", "schema_v1", "visit_image.json")
+    fixture = str(current_fixture_path(FIXTURE_DIR, "visit_image"))
     assert _invoke(runner, "visit-image", "--from-file", fixture).exit_code != 0
     assert _invoke(runner).exit_code != 0
 
@@ -655,7 +655,7 @@ def test_diagram_from_file_collapses_psf() -> None:
     the JSON file.
     """
     runner = CliRunner()
-    fixture = os.path.join(TESTDIR, "data", "schema_v1", "visit_image.json")
+    fixture = str(current_fixture_path(FIXTURE_DIR, "visit_image"))
     result = _invoke(runner, "--from-file", fixture, "--format", "tree")
     assert result.exit_code == 0, result.output
     assert "GaussianPointSpreadFunction" in result.output

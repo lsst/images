@@ -16,7 +16,7 @@ from pathlib import Path
 
 import click
 
-from ..serialization import check_frozen_schemas, write_frozen_schemas
+from ..serialization import FrozenSchemaError, check_frozen_schemas, write_frozen_schemas
 
 _DIR_OPTION = click.option(
     "--dir",
@@ -53,11 +53,19 @@ def write(directory: Path, package: str) -> None:
     place until the first data release) and never touches files for
     superseded versions.
     """
-    changed = write_frozen_schemas(directory, package)
+    try:
+        changed = write_frozen_schemas(directory, package)
+    except FrozenSchemaError as exc:
+        raise click.ClickException(str(exc)) from exc
     for path in changed:
         click.echo(f"wrote {path}")
     if not changed:
         click.echo("all frozen schema files are already up to date")
+    else:
+        click.echo(
+            "if any of the above is a newly finalized schema, now run "
+            "'lsst-images-admin fixtures freeze' to pair its fixture"
+        )
 
 
 @schemas.command(name="check")

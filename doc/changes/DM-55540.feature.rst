@@ -1,0 +1,4 @@
+Reworked the schema test fixtures into a per-version tree at ``tests/data/schemas`` that mirrors the frozen schema documents, and made every fixture read through its live model on every test run.
+
+Fixtures for development schemas were previously never validated at all; twelve of the twenty-five schemas were affected, and fourteen of the twenty-three committed fixtures had drifted from what their models produce.
+Freezing and retiring a schema are now checked steps, with ``lsst-images-admin fixtures check|refresh|freeze`` to manage the tree.

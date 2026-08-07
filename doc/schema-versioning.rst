@@ -144,6 +144,85 @@ Which *older* sub-schema versions a reader accepts is not recorded in the schema
 Consequently a version bump in an embedded schema (e.g. ``sky_projection``) changes the frozen document of every schema that embeds it (e.g. ``visit_image``), and after the first data release those containing schemas must take a minor bump of their own even though their fields did not change.
 ``schemas write`` identifies exactly which containing schemas are affected.
 
+.. _lsst.images-schema-fixtures:
+
+Test fixtures
+=============
+
+Every retained fixture under ``tests/data/schemas`` is the instance-level twin of the frozen schema document of the same version under ``schemas``.
+The layout mirrors it: ``{name}/{name}-{version}[-{variant}].json``, where ``{version}`` is ``X.Y.Z`` for a finalized schema or ``X.Y.Z.dev`` for one still in development.
+A filename carries only the release part of the version, so a development schema has exactly one fixture path whatever its ``devN`` counter, and the counter lives only in the ``schema_version`` stamp inside the file.
+
+Every fixture is read through its live model on every test run, so a model change that alters what a file looks like fails a test rather than passing silently.
+
+Lifecycle
+---------
+
+Editing a development model means running ``lsst-images-admin fixtures refresh``, which rewrites the ``.dev`` fixture in canonical form; the fixture update lands in the same commit as the model change because ``fixtures check --schema-dir schemas`` fails while it is stale.
+Finalizing a schema means dropping the ``.devN`` suffix, running ``schemas write`` to write the frozen document for the first time, and running ``fixtures freeze``, which writes the final-version fixture and deletes the ``.dev`` one.
+Both directions are checked: a frozen document with no same-version fixture and a fixture at a version that was never frozen are each reported, so an incomplete freeze cannot be committed unnoticed.
+Finalizing is also the point at which to review what the fixture set actually exercises, because a frozen fixture cannot be widened afterwards without a ``SCHEMA_VERSION`` bump; `Variants`_ is how to widen it.
+
+Retiring a fixture means moving it into the schema's ``retired`` subdirectory, where the contract inverts: it must then raise `~lsst.images.serialization.ArchiveReadError`.
+``MIN_READ_VERSION`` does not retire a fixture on its own — it gates old readers refusing new files, and says nothing about new code refusing old files.
+A fixture is retired when the current model genuinely can no longer validate that shape and no migration covers it, and retirement is how a read contract ends: it asserts the new behavior rather than merely stopping to test the old one.
+Because retirement keeps a *superseded* version's fixture, a retired file must be at a version older than the live one; a retired fixture at the live version is reported, since nothing else would catch a file misplaced there — self-consistent stamps and being rejected are what a retired fixture is supposed to look like.
+
+Why ``refresh`` stays strict
+-----------------------------
+
+``refresh_schema_fixtures`` refuses to rewrite a fixture at a finalized version, raising `~lsst.images.tests.SchemaFixtureError` rather than silently updating it; the remedy it names is bumping ``SCHEMA_VERSION``, not editing the frozen fixture in place.
+It stays strict even when a finalized fixture is genuinely stale, because fixture drift is the *only* signal available when a writer switches which union branch it emits: that kind of change leaves the JSON Schema document byte-identical, so relaxing ``refresh`` to accept "the schema document didn't change" would remove the one thing that would ever catch it.
+Correcting such a fixture is therefore a deliberate, reviewed, by-hand act.
+Two were corrected that way once (``cell_psf-1.0.0`` and ``cell_aperture_correction_map-1.0.0``, which still spelled ``cell_shape`` as ``[4, 4]`` after the writer began emitting ``{"y": 4, "x": 4}``), against `~lsst.images.serialization.check_frozen_schemas` confirming no finalized model had changed.
+
+What the checks prove
+----------------------
+
+Reading a fixture proves only that it was accepted.
+Storing it in canonical form — ``model_dump_json(indent=2)`` plus a trailing newline — and asserting byte-identity proves the read was lossless, because a dropped, mis-defaulted, or renamed field surfaces as a diff.
+That check cannot police the payload itself: it compares a fixture against what the model makes of that same fixture, so any edit that still round-trips cleanly is self-consistent by construction, and editing a plain data value inside the fixture does not fail it.
+For a version older than the current one that check cannot apply at all, since one model class serves every version and re-serializing always emits the current shape; instead the older fixture's read is compared against the current-version fixture on every path the older file actually expresses, with later-born fields ignored.
+When a migration renames or restructures a path, that version pair must be listed in the test's explicit expected-divergence mapping with a reason, and the migration's dedicated test must assert the transformed value directly.
+This makes every place where the generic projection oracle cannot apply a reviewed declaration rather than a silent omission.
+What pins the actual payload data is, instead, the ``as_shipped``/``canonical`` pairwise check described below, the cross-version projection check just described, and git history; none of those three is satisfied by a value that merely happens to round-trip.
+
+Variants
+--------
+
+A variant is a further fixture of the same schema at the same version, marked by a ``-{variant}`` suffix on the filename; variant names match ``[a-z0-9_]+``.
+Variants exist because one exemplar cannot express every branch of a composite model's optional and union fields, and because a fixture derived from a real file should sit beside a synthetic one rather than replace it.
+``visit_image`` shows both: its synthetic base fixture takes the ``gaussian_psf`` branch of the ``psf`` union, while its ``dp1`` and ``dp2`` variants come from real files and take the ``piff_psf`` branch.
+
+Every check applies to each variant independently, and the machinery tracks variants separately end to end: ``refresh`` seeds a missing fixture per variant from the newest existing version of that same variant, ``freeze`` carries every ordinary variant over to the finalized version, and the cross-version projection oracle pairs an older fixture with the current one of the same variant.
+
+Adding a variant means writing the file and putting it in canonical form.
+Write it at ``{name}/{name}-{version}-{variant}.json``, generated by serializing a model rather than hand-authored: the round-trip check cannot police payload values, as `What the checks prove`_ describes, so a hand-edited value is held by nothing but review.
+``lsst.images.tests._minify_for_fixtures`` does this for a fixture derived from a real on-disk file, reading a real archive and writing back a small representative subset.
+Then canonicalize it: ``fixtures refresh`` does that while the version is in development, but at a finalized version it refuses to write and reports the file as needing a version bump, so a variant added after the freeze has to be written canonically from the start.
+
+The fixture sweep in ``tests/test_serialization_io.py`` also keys its expected-type mapping by ``(name, variant)`` and has to name the new pair, but that is not a step anyone needs to remember: the mapping is asserted to match the fixture tree exactly, so the suite fails until the pair is listed and the failure names what to add.
+
+Reserved variants
+-----------------
+
+Two variant names are reserved, and they come as a pair.
+``as_shipped`` marks a fixture whose bytes are preserved exactly as a real shipped file produced them; it is never canonicalized or rewritten.
+``canonical`` is its generated twin, and comparing the two pins how a shipped file is normalized on read.
+``fixtures refresh`` may regenerate that twin only while its version is in development; at a finalized version a mismatch is a compatibility failure that requires a schema-version bump, not an artifact the command may overwrite.
+
+``cell_coadd`` 1.0.0 is the only schema that is both finalized and shipped, and it shipped before validated schema management existed, so shipped files spell an XY pair as ``[4, 4]`` where the code now writes ``{"y": 4, "x": 4}``.
+Both spellings must keep reading, and the ``as_shipped`` fixture is what records that requirement.
+
+When fixture validation was introduced, fourteen of the twenty-three committed fixtures had drifted from what their models produce.
+Thirteen of those were rewritten in canonical form; the fourteenth was ``cell_coadd``, whose drift is exactly the reserved XY spelling above, and it was deliberately left byte-identical rather than rewritten, with its canonical form emitted separately as the ``canonical`` twin instead.
+
+External packages
+------------------
+
+An external package providing its own schemas can reuse this machinery: keep a fixture tree in the same layout, guard it with `lsst.images.tests.check_schema_fixtures` in its own test, and manage it with ``lsst-images-admin fixtures check --schema-dir <their schemas> --package <their.package>`` and the corresponding ``fixtures refresh|freeze --package <their.package>`` commands.
+
+
 Schema discovery and entry points
 =================================
 

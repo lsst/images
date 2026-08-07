@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import io
-import os
+from pathlib import Path
 
 import numpy as np
 from rich.console import Console
@@ -32,6 +32,9 @@ from lsst.images.describe import (
     ReportValueGroup,
 )
 from lsst.images.serialization import read_archive
+from lsst.images.tests import current_fixture_path
+
+FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
 
 
 def test_report_model_defaults() -> None:
@@ -199,7 +202,7 @@ def test_public_api_importable_from_package() -> None:
 
 def test_visit_image_describe_nested() -> None:
     """A deserialized VisitImage produces a nested report with WCS corners."""
-    path = os.path.join(os.path.dirname(__file__), "data", "schema_v1", "visit_image.json")
+    path = current_fixture_path(FIXTURE_DIR, "visit_image")
     visit_image = read_archive(path)
     report = visit_image.describe()
     assert report.type_name == "VisitImage"
@@ -256,7 +259,7 @@ def test_composite_report_deduplicates_bbox_and_sky_projection() -> None:
     """Composite reports show bbox and sky_projection once, not per
     component.
     """
-    path = os.path.join(os.path.dirname(__file__), "data", "schema_v1", "visit_image.json")
+    path = current_fixture_path(FIXTURE_DIR, "visit_image")
     report = read_archive(path).describe()
 
     # The composite carries exactly one top-level bbox field and one
@@ -284,7 +287,7 @@ def test_repr_str_do_not_trigger_detail() -> None:
 
 def test_composite_detail_propagates_to_mask_counts() -> None:
     """describe(detail=True) on a composite reaches the nested mask counts."""
-    path = os.path.join(os.path.dirname(__file__), "data", "schema_v1", "visit_image.json")
+    path = current_fixture_path(FIXTURE_DIR, "visit_image")
     visit_image = read_archive(path)
 
     # Cheap composite report: mask schema table has no counts column.

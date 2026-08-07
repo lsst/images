@@ -10,7 +10,6 @@
 # license that can be found in the LICENSE file.
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +17,7 @@ import pytest
 
 from lsst.images import Box, Image, VisitImage
 from lsst.images.serialization import ArchiveReadError, read_archive, write_archive
+from lsst.images.tests import current_fixture_path, iter_schema_fixtures
 from lsst.utils.introspection import get_full_type_name
 
 try:
@@ -36,36 +36,45 @@ except ImportError:
 
 skip_no_h5py = pytest.mark.skipif(not H5PY_AVAILABLE, reason="h5py is not installed")
 
-LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
+FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
 
 # Full Python type produced when each fixture is read through the generic
-# read_archive() API, keyed by the fixture's file name.  These are pinned
-# here rather than derived from the schema registry so the test asserts
-# the externally-observable type instead of re-running read_archive()'s
-# own lookup against itself.
-EXPECTED_TYPES = {
-    "aperture_correction_map.json": "dict",
-    "background_map.json": "lsst.images.BackgroundMap",
-    "cell_psf.json": "lsst.images.cells.CellPointSpreadFunction",
-    "cell_aperture_correction_map.json": "dict",
-    "chebyshev_field.json": "lsst.images.fields.ChebyshevField",
-    "coadd_provenance.json": "lsst.images.cells.CoaddProvenance",
-    "color_image.json": "lsst.images.ColorImage",
-    "detector.json": "lsst.images.cameras.Detector",
-    "gaussian_psf.json": "lsst.images.psfs.GaussianPointSpreadFunction",
-    "image.json": "lsst.images.Image",
-    "mask.json": "lsst.images.Mask",
-    "masked_image.json": "lsst.images.MaskedImage",
-    "piff_psf.json": "lsst.images.psfs.PiffWrapper",
-    "product_field.json": "lsst.images.fields.ProductField",
-    "sky_projection.json": "lsst.images.SkyProjection",
-    "sum_field.json": "lsst.images.fields.SumField",
-    "transform.json": "lsst.images.Transform",
-    "visit_image.json": "lsst.images.VisitImage",
-    "cell_coadd.json": "lsst.images.cells.CellCoadd",
-    "visit_image_dp1.json": "lsst.images.VisitImage",
-    "visit_image_dp2.json": "lsst.images.VisitImage",
-    "difference_image_dp2.json": "lsst.images.DifferenceImage",
+# read_archive() API, keyed by (schema name, variant).  These are pinned here
+# rather than derived from the schema registry so the test asserts the
+# externally-observable type instead of re-running read_archive()'s own
+# lookup against itself.  Keying by name and variant rather than by file name
+# keeps the table stable across version bumps.
+EXPECTED_TYPES: dict[tuple[str, str | None], str] = {
+    ("aperture_correction_map", None): "dict",
+    ("background_map", None): "lsst.images.BackgroundMap",
+    ("camera_frame_set", None): "lsst.images.CameraFrameSet",
+    ("cell_aperture_correction_map", None): "dict",
+    ("cell_coadd", "as_shipped"): "lsst.images.cells.CellCoadd",
+    ("cell_coadd", "canonical"): "lsst.images.cells.CellCoadd",
+    ("cell_psf", None): "lsst.images.cells.CellPointSpreadFunction",
+    ("chebyshev_field", None): "lsst.images.fields.ChebyshevField",
+    ("coadd_provenance", None): "lsst.images.cells.CoaddProvenance",
+    ("color_image", None): "lsst.images.ColorImage",
+    ("detector", None): "lsst.images.cameras.Detector",
+    ("difference_image", "dp2"): "lsst.images.DifferenceImage",
+    ("gaussian_psf", None): "lsst.images.psfs.GaussianPointSpreadFunction",
+    ("image", None): "lsst.images.Image",
+    (
+        "image_basis_convolution_kernel",
+        None,
+    ): "lsst.images.convolution_kernels.ImageBasisConvolutionKernel",
+    ("mask", None): "lsst.images.Mask",
+    ("masked_image", None): "lsst.images.MaskedImage",
+    ("observation_summary_stats", None): "lsst.images.ObservationSummaryStats",
+    ("piff_psf", None): "lsst.images.psfs.PiffWrapper",
+    ("product_field", None): "lsst.images.fields.ProductField",
+    ("sky_projection", None): "lsst.images.SkyProjection",
+    ("spline_field", None): "lsst.images.fields.SplineField",
+    ("sum_field", None): "lsst.images.fields.SumField",
+    ("transform", None): "lsst.images.Transform",
+    ("visit_image", None): "lsst.images.VisitImage",
+    ("visit_image", "dp1"): "lsst.images.VisitImage",
+    ("visit_image", "dp2"): "lsst.images.VisitImage",
 }
 
 
@@ -73,14 +82,14 @@ def test_generic_read_visit_image_json() -> None:
     """Verify read_archive() on a visit_image JSON fixture returns a
     VisitImage.
     """
-    path = os.path.join(LOCAL_DATA_DIR, "visit_image.json")
+    path = current_fixture_path(FIXTURE_DIR, "visit_image")
     result = read_archive(path)
     assert isinstance(result, VisitImage)
 
 
 def test_generic_read_image_json() -> None:
     """Verify read_archive() on an image JSON fixture returns an Image."""
-    path = os.path.join(LOCAL_DATA_DIR, "image.json")
+    path = current_fixture_path(FIXTURE_DIR, "image")
     result = read_archive(path)
     assert isinstance(result, Image)
 
@@ -111,19 +120,59 @@ def test_read_unregistered_schema(tmp_path: Path) -> None:
     assert "no-such-schema" in str(exc_info.value)
 
 
-@pytest.mark.parametrize("entry", sorted(EXPECTED_TYPES))
-def test_fixture_sweep(entry: str) -> None:
-    """Verify every schema_v1 JSON fixture reads to the pinned Python type."""
-    if entry == "piff_psf.json" and not PIFF_AVAILABLE:
+def _sweep_sort_key(entry: tuple[str, str | None]) -> tuple[str, str]:
+    """Return a sort key for an ``EXPECTED_TYPES`` entry, ``None`` sorting
+    first within a schema name.
+    """
+    name, variant = entry
+    return (name, variant or "")
+
+
+# Assigned to an explicitly annotated variable rather than sorted() inline in
+# the decorator below: parametrize()'s stub types its arguments as `object`,
+# and that context leaks into bidirectional generic inference for a bare
+# sorted() call, defeating the key function's type.
+_SWEEP_ENTRIES: list[tuple[str, str | None]] = sorted(EXPECTED_TYPES, key=_sweep_sort_key)
+
+
+def test_expected_types_enumerates_every_committed_fixture_variant() -> None:
+    """Verify EXPECTED_TYPES matches the fixture tree's (name, variant) pairs
+    exactly, so a committed fixture cannot go missing unnoticed.
+
+    Each rung below may legitimately skip an individual case when an optional
+    dependency (piff) is unavailable, but that must never be confused with a
+    committed fixture file itself going missing: this closes the presence
+    gap for every variant at once, rather than relying on each consumer's own
+    guard against a missing path (which a stray ``git rm`` or an interrupted
+    freeze would otherwise defeat with a silent skip instead of a failure).
+
+    The two directions fail separately and name their own remedy, because
+    adding a fixture variant and losing one are unrelated mistakes with
+    opposite fixes, and this test is the only thing that catches either.
+    """
+    present = {(f.name, f.variant) for f in iter_schema_fixtures(FIXTURE_DIR) if not f.retired}
+    unlisted = sorted(present - set(EXPECTED_TYPES))
+    absent = sorted(set(EXPECTED_TYPES) - present)
+    assert not unlisted, (
+        f"committed fixture variants missing from EXPECTED_TYPES: {unlisted}; add each with the "
+        "full type name its fixture deserializes to, so test_fixture_sweep covers it"
+    )
+    assert not absent, (
+        f"EXPECTED_TYPES entries with no committed fixture: {absent}; delete each entry, or "
+        "restore the fixture file if it went missing by accident"
+    )
+
+
+@pytest.mark.parametrize("entry", _SWEEP_ENTRIES)
+def test_fixture_sweep(entry: tuple[str, str | None]) -> None:
+    """Verify every schema fixture reads to its pinned Python type."""
+    name, variant = entry
+    if name == "piff_psf" and not PIFF_AVAILABLE:
         pytest.skip("piff not available")
-    roots = [LOCAL_DATA_DIR, os.path.join(LOCAL_DATA_DIR, "legacy")]
-    for root in roots:
-        path = os.path.join(root, entry)
-        if os.path.exists(path):
-            result = read_archive(path)
-            assert get_full_type_name(type(result)) == EXPECTED_TYPES[entry], entry
-            return
-    pytest.skip(f"fixture {entry!r} not found on disk")
+    path = current_fixture_path(FIXTURE_DIR, name, variant=variant)
+    assert path.exists(), f"{path} is a committed fixture and must not go missing"
+    result = read_archive(path)
+    assert get_full_type_name(type(result)) == EXPECTED_TYPES[entry], entry
 
 
 def _make_image() -> Image:
@@ -184,7 +233,7 @@ def test_read_cls_match() -> None:
     """Verify read_archive() with cls= returns the expected type when it
     matches.
     """
-    path = os.path.join(LOCAL_DATA_DIR, "image.json")
+    path = current_fixture_path(FIXTURE_DIR, "image")
     result = read_archive(path, cls=Image)
     assert isinstance(result, Image)
 
@@ -195,7 +244,7 @@ def test_read_cls_mismatch_raises() -> None:
     """
     from lsst.images import Mask
 
-    path = os.path.join(LOCAL_DATA_DIR, "image.json")
+    path = current_fixture_path(FIXTURE_DIR, "image")
     with pytest.raises(TypeError) as exc_info:
         read_archive(path, cls=Mask)
     msg = str(exc_info.value)

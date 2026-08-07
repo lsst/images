@@ -255,25 +255,6 @@ def test_write_preserves_superseded_versions(tmp_path: Path) -> None:
     assert old.exists()
 
 
-def test_fixtures_validate_against_frozen_schemas() -> None:
-    """Verify representative archive fixtures validate against the frozen
-    schemas with a strict draft 2020-12 validator, which also proves every
-    reference inside the published documents is resolvable.
-    """
-    jsonschema = pytest.importorskip("jsonschema")
-    checked = 0
-    for fixture_path in sorted((Path(__file__).parent / "data" / "schema_v1").glob("*.json")):
-        instance = json.loads(fixture_path.read_text())
-        name, _, version = instance["schema_url"].rsplit("/", 1)[-1].rpartition("-")
-        schema_file = REPO_SCHEMA_DIR / name / f"{name}-{version}.json"
-        if not schema_file.exists():
-            continue  # development schema: no frozen document to validate against
-        schema = json.loads(schema_file.read_text())
-        jsonschema.Draft202012Validator(schema).validate(instance)
-        checked += 1
-    assert checked
-
-
 _DEVELOPMENT_SCHEMAS = {
     "aperture_correction_map",
     "camera_frame_set",

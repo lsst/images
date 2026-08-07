@@ -30,9 +30,13 @@ from lsst.images.serialization import (
     warn_for_development_schemas,
 )
 from lsst.images.serialization._common import _check_compat, _check_format_version
-from lsst.images.tests import check_archive_tree_class_invariants, iter_concrete_archive_tree_subclasses
+from lsst.images.tests import (
+    check_archive_tree_class_invariants,
+    current_fixture_path,
+    iter_concrete_archive_tree_subclasses,
+)
 
-SCHEMA_DIR = Path(__file__).parent / "data" / "schema_v1"
+FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
 
 
 class _DummyArchiveTree(ArchiveTree):
@@ -230,8 +234,8 @@ def test_schema_names_unique() -> None:
 
 @pytest.fixture
 def fixture_path() -> Path:
-    """Return the path to the committed image.json schema fixture."""
-    path = SCHEMA_DIR / "image.json"
+    """Return the path to the committed image schema fixture."""
+    path = current_fixture_path(FIXTURE_DIR, "image")
     assert path.exists()
     return path
 

@@ -13,9 +13,9 @@
 
 Reads a FITS or NDF file via the appropriate input archive, takes a
 small subset of the in-memory object, and writes JSON via
-``JsonOutputArchive``. Used to populate ``tests/data/schema_v1/legacy/``
-with derived-from-real test data that exercises the full read path
-including the absence-of-stamp legacy default.
+``JsonOutputArchive``. Used to populate the ``as_shipped`` and ``dp1`` /
+``dp2`` fixture variants under ``tests/data/schemas/`` with
+derived-from-real test data that exercises the full read path.
 
 Per top-level type the subset rule is:
 
@@ -58,9 +58,13 @@ VisitImage needs a full Rubin environment so the real PSF can be read)::
 
     python -c "
     from lsst.images.tests._minify_for_fixtures import minify
-    minify('cell_example.fits', 'tests/data/schema_v1/legacy/cell_coadd.json')
-    minify('dp1.fits', 'tests/data/schema_v1/legacy/visit_image_dp1.json')
-    minify('dp2.fits', 'tests/data/schema_v1/legacy/visit_image_dp2.json')
+    schemas = 'tests/data/schemas'
+    minify(
+        'cell_example.fits',
+        f'{schemas}/cell_coadd/cell_coadd-1.0.0-as_shipped.json',
+    )
+    minify('dp1.fits', f'{schemas}/visit_image/visit_image-1.0.0.dev-dp1.json')
+    minify('dp2.fits', f'{schemas}/visit_image/visit_image-1.0.0.dev-dp2.json')
     "
 
 The helper is invoked manually by developers when they have a real

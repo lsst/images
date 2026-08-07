@@ -1,0 +1,1 @@
+Added fixture-management helpers to ``lsst.images.tests``: ``SchemaFixture``, ``SchemaFixtureError``, ``canonical_fixture_text``, ``check_schema_fixtures``, ``compare_fixture_versions``, ``current_fixture_path``, ``fixture_version``, ``freeze_schema_fixtures``, ``iter_schema_fixtures``, ``read_fixture_tree`` and ``refresh_schema_fixtures``.
