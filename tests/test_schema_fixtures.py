@@ -261,13 +261,22 @@ def test_retired_fixture_is_rejected(fixture: SchemaFixture) -> None:
         read_fixture_tree(fixture)
 
 
-EXPECTED_DIVERGENCE: dict[tuple[str, str], str] = {}
+EXPECTED_DIVERGENCE: dict[tuple[str, str], str] = {
+    ("migration_test", "1.0.0"): (
+        "the 1-to-2 migration renames 'original' to 'renamed'; "
+        "test_migration_test_fixture_reads_from_disk asserts the transformed value"
+    ),
+}
 """Fixture pairs whose projection is expected to fail, with the reason each.
 
-A path-based oracle cannot compare a field whose spelling changed, so such a
-pair is registered here with a reason and a dedicated test asserts the
-result directly.  This is the sole registry of those declarations, and it is
-empty until a schema has a second version.
+A migration that renames or restructures a field defeats path-based
+comparison by construction, and does so silently: the renamed path is absent
+from the older file, so the oracle reads it as later-born and never compares
+it, leaving a pair that passes while proving nothing about the migration.
+Such a pair is registered here and its migration test asserts the morphed
+result directly.  This is the sole registry of those declarations, and the
+only entry is a purpose-built double: no shipped schema has a second version
+yet.
 """
 
 

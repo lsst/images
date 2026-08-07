@@ -2,6 +2,8 @@ Added fixture-management helpers to ``lsst.images.tests``: ``SchemaFixture``, ``
 
 Added fixture-coverage helpers to ``lsst.images.tests``: ``CoverageReport``, ``SchemaCoverage``, ``SubSchemaPosition``, ``format_coverage_report`` and ``schema_coverage``.
 
+Added ``lsst.images.serialization.migration``, the decorator that registers a per-schema migration from one data-model major to the next.
+
 Version stamps are now required when reading an archive rather than defaulting to the v1 values.
 An archive tree with no ``schema_version`` is rejected, as is a FITS file with no ``FMTVER`` card and an NDF that carries an LSST JSON tree but no ``FORMAT_VERSION``; all three were previously read as version 1.
 Every file this package has written carries these stamps, so this affects only damaged files.

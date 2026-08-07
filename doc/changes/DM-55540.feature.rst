@@ -5,3 +5,5 @@ Freezing and retiring a schema are now checked steps, with ``lsst-images-admin f
 
 Added ``lsst-images-admin fixtures coverage``, which reports what the fixture set exercises of each schema: the declared paths no fixture expresses, and the places a schema can hold another stamped schema with the candidates each admits against the ones fixtures reach.
 Coverage is credited to the schema owning each stamped subtree rather than to the file it was found in, so a sub-model embedded by several containers is credited by all of them.
+
+Implemented the schema migration chain, so a backward-incompatible major bump can ship a registered per-schema migration and current code will read older files by morphing them before validation.

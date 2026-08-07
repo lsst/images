@@ -80,7 +80,7 @@ Bumping ``schema_version`` from ``1.0.0`` to ``2.0.0`` does not force ``min_read
 The compatibility rule
 ======================
 
-On read, ``min_read_version`` is the *sole* gate:
+On read, ``min_read_version`` is the gate for the *old reader vs new file* direction:
 
 .. code-block:: text
 
@@ -89,8 +89,10 @@ On read, ``min_read_version`` is the *sole* gate:
 The check deliberately ignores the on-disk ``schema_version`` major.
 A redundant ``on_disk_major > in_code_major`` test would re-impose a symmetric rule and reject the files this asymmetry exists to allow: a ``2.0.0`` file deliberately written with ``min_read_version = 1`` so major-1 code can still read it.
 
-The "new code reading an old file" direction is not gated here at all: if the current Pydantic model validates the older tree, the read succeeds; otherwise Pydantic raises its own validation error.
-Making new code handle an older incompatible shape means adding backfill logic in the model validator (or, in the future, a migration).
+The "new code reading an old file" direction has no gate of this kind for a schema that has never registered a migration: if the current Pydantic model validates the older tree, the read succeeds; otherwise Pydantic raises its own validation error.
+A schema that *has* registered at least one migration (see :ref:`lsst.images-schema-versioning-migration` below) adds a second gate on this same direction, ahead of Pydantic's own validation: an on-disk major with no registered step to the next major raises a clean `~lsst.images.serialization.ArchiveReadError` naming the missing step, regardless of what the tree actually contains.
+This second gate is scoped to the schema being read — whether some *other*, unrelated schema has registered a migration is irrelevant to it.
+Making new code handle an older incompatible shape means adding backfill logic in the model validator, or registering a migration for a schema that needs one.
 
 Container versions are integer-only and gated the same way: a newer on-disk container version than the running release is rejected; older ones are accepted.
 
@@ -117,7 +119,7 @@ When the Pydantic shape of a subclass changes, bump its ``SCHEMA_VERSION``:
 - **Backward-incompatible change** (a new required field, a renamed or retyped field, a new discriminated-union variant): bump the major (``1.0.0`` → ``2.0.0``).
   Whether to also bump ``MIN_READ_VERSION`` is a *separate* decision driven only by "does the new shape mislead an old reader?":
 
-  - If old readers can safely ignore the change, or new readers carry backfill logic for old files, leave ``MIN_READ_VERSION`` at 1.
+  - If old readers can safely ignore the change, or new readers carry backfill logic for old files (in the model validator directly, or through a registered migration; see :ref:`lsst.images-schema-versioning-migration`), leave ``MIN_READ_VERSION`` at 1.
   - If silently dropping the new data is dangerous, bump ``MIN_READ_VERSION`` so old code refuses the file.
 
 Bump the container version (independently of any data model) only when the backend layout itself changes.
@@ -126,6 +128,129 @@ A patch bump (``1.0.0`` → ``1.0.1``) is for changes that do not affect file-fo
 
 A unit test enforces that every concrete subclass declares all three constants, that every ``SCHEMA_NAME`` is unique, and that ``MIN_READ_VERSION`` does not exceed the schema major.
 It does *not* enforce that a shape change was accompanied by a version bump — that remains a review-time discipline.
+
+.. _lsst.images-schema-versioning-migration:
+
+Schema migration (morphing v1 into v2)
+=======================================
+
+The asymmetric design above lets new code read an *old* file whenever the current Pydantic model can validate the older shape directly; that covers additive changes, where defaulting the new fields on input is enough.
+A migration is what is needed when it is *not* enough: a backward-incompatible v2 (a renamed or retyped field, a split or merged field, a restructured sub-tree) that the v2 model cannot validate against a raw v1 tree.
+The goal is to keep ``MIN_READ_VERSION = 2`` (so v1 code refuses v2 files it would otherwise mis-read) while still letting v2 code read v1 files by *morphing* the v1 tree into the v2 shape before validation.
+
+A migration is a per-schema function that rewrites an on-disk tree from one major to the next, registered one adjacent major pair at a time (1→2, 2→3, …) with `~lsst.images.serialization.migration`:
+
+.. code-block:: python
+
+   type Migration = Callable[[dict[str, Any]], dict[str, Any]]
+
+   _MIGRATIONS: dict[tuple[str, int], Migration] = {}
+   _MIGRATABLE_NAMES: set[str] = set()
+
+
+   def migration(schema_name: str, from_major: int) -> Callable[[Migration], Migration]:
+       def register(func: Migration) -> Migration:
+           key = (schema_name, from_major)
+           if (existing := _MIGRATIONS.get(key)) is not None and existing is not func:
+               raise RuntimeError(
+                   f"A migration for {schema_name!r} major {from_major} is already "
+                   f"registered to {existing.__qualname__}; refusing to replace it "
+                   f"with {func.__qualname__}."
+               )
+           _MIGRATIONS[key] = func
+           _MIGRATABLE_NAMES.add(schema_name)
+           return func
+
+       return register
+
+
+   @migration("visit_image", 1)
+   def _visit_image_1_to_2(data: dict[str, Any]) -> dict[str, Any]:
+       # v2 renamed photo_calib -> photometric_scaling; morph the v1 tree.
+       data["photometric_scaling"] = data.pop("photo_calib", None)
+       return data
+
+Registering only adjacent-major steps means the reader chains them to cross a larger gap, one step at a time; ``_MIGRATABLE_NAMES`` exists so a schema with no migration at all — every ``lsst.images`` schema today — can be recognized with a single set-membership test rather than a dictionary probe per major.
+
+Migration itself runs in a ``mode="before"`` validator declared on `~lsst.images.serialization.ArchiveTree`, ahead of the per-instance compatibility check, chaining registered steps until the tree reaches the in-code major:
+
+.. code-block:: python
+
+   @pydantic.model_validator(mode="before")
+   @classmethod
+   def _migrate_from_older_major(
+       cls, data: Any, info: pydantic.ValidationInfo
+   ) -> Any:
+       if not isinstance(data, dict):
+           return data
+       if not hasattr(cls, "SCHEMA_NAME"):
+           return data
+       name = cls.SCHEMA_NAME
+       if "schema_version" not in data:
+           if info.context is _ARCHIVE_READ_CONTEXT:
+               raise _MissingSchemaVersionError(...)
+           return data  # Fresh in-memory construction.
+       if not _MIGRATABLE_NAMES:
+           return data  # Fast path: nothing has a migration.
+       if name not in _MIGRATABLE_NAMES:
+           return data  # This schema itself has no registered migration.
+       on_disk_major = _parse_on_disk_major(data["schema_version"])
+       in_code_major = _parse_major(cls.SCHEMA_VERSION)
+       if on_disk_major < in_code_major:
+           data = deepcopy(data)  # Isolate failed union candidates.
+       while on_disk_major < in_code_major:
+           try:
+               step = _MIGRATIONS[(name, on_disk_major)]
+           except KeyError:
+               raise _MigrationGapError(
+                   f"{name}: no migration from major {on_disk_major} to {on_disk_major + 1}."
+               ) from None
+           data = step(data)
+           on_disk_major += 1
+           data["schema_version"] = f"{on_disk_major}.0.0"
+       return data
+
+The gate at ``name not in _MIGRATABLE_NAMES`` checks only whether *this* schema has registered a migration, independent of its major and independent of whether some other, unrelated schema has registered one — a schema with no migration of its own always falls through to ordinary Pydantic validation, whatever major it is at.
+``_MigrationGapError`` is a narrow exception deriving from both `~lsst.images.serialization.ArchiveReadError` and `ValueError`: Pydantic only treats a `ValueError` (or `TypeError` or `AssertionError`) raised by a validator as "this candidate failed, try the next one" in a discriminated union, so a plain `RuntimeError`-only ``ArchiveReadError`` would abort a union read (e.g. ``VisitImageSerializationModel.psf``) entirely instead of falling through to a variant that does match.
+Deriving from both fixes that, at a cost: Pydantic wraps *any* validator-raised `ValueError` into its own `pydantic.ValidationError` (itself a `ValueError`) at the boundary of whichever model is being validated, whether or not a union is involved, so a caller reading a schema with a genuine migration gap at the top level sees a `pydantic.ValidationError` rather than a bare ``ArchiveReadError`` — its message still names the missing step, and this is the same tradeoff already accepted for other schema-incompatibility failures (see :ref:`lsst.images-schema-fixtures`, where both exception types are treated as an equally valid "this shape is rejected").
+Every failure this validator can raise carries the same dual nature for the same reason: a missing stamp, an unparsable one (``_parse_on_disk_major``, distinct from ``_parse_major`` precisely so that a malformed in-code ``SCHEMA_VERSION`` stays a plain `RuntimeError` a union cannot swallow), and a migration gap.
+This matters most for an unparsable stamp, because the parse happens before any field validation and so runs for every migratable variant a union tries, including ones the payload does not belong to.
+
+That dual nature is specific to this ``mode="before"`` validator and must not be extended to the ``mode="after"`` compatibility check, which stays a `RuntimeError`-only ``ArchiveReadError`` and so aborts a union outright.
+The difference is which candidates each one can fire on.
+A before-validator runs ahead of field validation, so it judges variants the payload may have nothing to do with, and a failure there means "not this one" rather than "not readable".
+The compatibility check runs only once a candidate has validated structurally, so the tree really is that variant; letting a union fall through from a ``min_read_version`` the reader cannot satisfy would hand the tree to whichever *other* variant happened to accept it, producing an object built by the very model the file declared must not read it — the silent misread that bumping ``MIN_READ_VERSION`` exists to prevent.
+
+After it runs the tree is in the current shape, so the existing ``mode="after"`` validator's compatibility check and normalization proceed unchanged; the instance ends up stamped with the in-code version, and re-serializing writes a v2 file.
+
+The compatibility check deliberately runs in the ``mode="after"`` validator for performance: pydantic-core has already parsed the input by then, so the check itself is cheap.
+The before-validator above preserves that fast path rather than undoing it, returning immediately unless the schema actually has a registered migration, so a migration-free schema pays only the ``_MIGRATABLE_NAMES`` truthiness test and, once inside this validator, one more set-membership test — orders of magnitude below what reading the node itself costs.
+
+This is the exact complement of ``min_read_version``: ``min_read_version`` gates the *old reader vs new file* direction, while a migration handles the *new reader vs old file* direction.
+A coherent breaking change therefore ships three things together — ``SCHEMA_VERSION = "2.0.0"``, ``MIN_READ_VERSION = 2``, and a registered ``(schema_name, 1)`` migration — after which v1 code rejects v2 files and v2 code transparently reads both.
+
+Migrations compose down the tree: each ``ArchiveTree`` subclass migrates its own dict, and because the before-validator runs per sub-model, a nested v1 sub-tree is morphed by its own migration as the parent is validated.
+If a sub-model has no migration registered across a gap, the read raises `~lsst.images.serialization.ArchiveReadError`; pairing migration with :ref:`lsst.images-schema-versioning-deferred-fail` would let one un-migratable sub-model fail at point-of-use rather than rejecting the whole tree.
+
+How a migration gap surfaces
+----------------------------
+
+The gap error is raised from a validator, so Pydantic wraps it.
+A standalone read of a tree whose major is below the oldest registered step therefore surfaces a `pydantic.ValidationError` rather than a bare `~lsst.images.serialization.ArchiveReadError`, with the ``no migration from major X to Y`` message preserved inside it.
+Callers should treat the two alike, as :ref:`lsst.images-schema-versioning-embedded-external-models` already advises for an unanticipated upstream change.
+
+The wrapping is deliberate rather than incidental.
+The gap error derives from both `~lsst.images.serialization.ArchiveReadError` and `ValueError`, because Pydantic only treats a `ValueError` as a failed union member.
+Without that, raising inside a plain union — such as the ``psf`` field of ``visit_image``, which tries its variants left to right — would abort the whole union instead of moving to the next variant, so a file whose PSF matched a *later* variant would become unreadable as soon as an *earlier* variant's schema gained a major.
+A validator cannot tell whether it is the read's true target or merely a union candidate being tried, so the same exception has to serve both cases.
+
+Migration validation context
+----------------------------
+
+Migration validators receive the same archive-read context used to enforce the required stamp.
+Direct in-memory construction has no such context and therefore does not spuriously enter the migration chain.
+
+The chain is proven by purpose-built schemas defined under ``tests/`` that are never frozen, published, or part of shipped data, with fixtures alongside the package's own under the same layout described in :ref:`lsst.images-schema-fixtures`.
 
 .. _lsst.images-frozen-schemas:
 
@@ -244,7 +369,6 @@ External packages
 
 An external package providing its own schemas can reuse this machinery: keep a fixture tree in the same layout, guard it with `lsst.images.tests.check_schema_fixtures` in its own test, and manage it with ``lsst-images-admin fixtures check --schema-dir <their schemas> --package <their.package>`` and the corresponding ``fixtures refresh|freeze --package <their.package>`` commands.
 
-
 Schema discovery and entry points
 =================================
 
@@ -276,6 +400,8 @@ External packages that provide schemas should also:
 ``lsst.images`` also maintains a small built-in lazy-provider table for schemas it owns but does not import unconditionally, such as the ``lsst.images.cells`` models.
 This mirrors the package's own ``lsst.images.schemas`` entry points while keeping source-tree development via ``PYTHONPATH=python`` working before the package is installed.
 
+.. _lsst.images-schema-versioning-embedded-external-models:
+
 Embedded external models
 ========================
 
@@ -287,8 +413,8 @@ The on-read failure mode for an unanticipated upstream change is a Pydantic vali
 Future work
 ===========
 
-Several extensions to this scheme have been designed but not implemented, including deferred-fail sub-model substitution (failing an incompatible sub-model at its point of use rather than rejecting the whole tree), a migration framework, and a schema-snapshot regression test.
-See :ref:`lsst.images-schema-versioning-future`.
+Further extensions to this scheme have been designed but not implemented, most notably deferred-fail sub-model substitution: failing an incompatible sub-model at its point of use rather than rejecting the whole tree.
+See :ref:`lsst.images-schema-versioning-future` for this and other deferred items.
 
 .. toctree::
    :maxdepth: 1
