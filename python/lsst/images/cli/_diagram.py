@@ -125,7 +125,7 @@ def diagram(
     serialization_names: bool,
     output: str | None,
     list_models: bool,
-) -> None:  # numpydoc ignore=PR01
+) -> None:
     """Generate a composition diagram of an lsst.images model.
 
     Pass a schema name (e.g. ``visit-image`` or ``cell-coadd``) to diagram the

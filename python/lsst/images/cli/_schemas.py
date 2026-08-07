@@ -46,7 +46,7 @@ def schemas() -> None:
 @schemas.command(name="write")
 @_DIR_OPTION
 @_PACKAGE_OPTION
-def write(directory: Path, package: str) -> None:  # numpydoc ignore=PR01
+def write(directory: Path, package: str) -> None:
     """Write the JSON schema file for every current schema.
 
     Overwrites a stale file for the same schema version (schemas evolve in
@@ -63,7 +63,7 @@ def write(directory: Path, package: str) -> None:  # numpydoc ignore=PR01
 @schemas.command(name="check")
 @_DIR_OPTION
 @_PACKAGE_OPTION
-def check(directory: Path, package: str) -> None:  # numpydoc ignore=PR01
+def check(directory: Path, package: str) -> None:
     """Exit nonzero if any frozen schema file is missing or stale."""
     problems = check_frozen_schemas(directory, package)
     for problem in problems:
