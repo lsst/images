@@ -87,7 +87,7 @@ On read, ``min_read_version`` is the *sole* gate:
    reject when  on_disk.min_read_version > this_release.major
 
 The check deliberately ignores the on-disk ``schema_version`` major.
-A redundant ``on_disk_major > in_code_major`` test would re-impose the symmetric rule and defeat the asymmetric escape (e.g., a ``2.0.0`` file deliberately written with ``min_read_version = 1`` so major-1 code can still read it).
+A redundant ``on_disk_major > in_code_major`` test would re-impose a symmetric rule and reject the files this asymmetry exists to allow: a ``2.0.0`` file deliberately written with ``min_read_version = 1`` so major-1 code can still read it.
 
 The "new code reading an old file" direction is not gated here at all: if the current Pydantic model validates the older tree, the read succeeds; otherwise Pydantic raises its own validation error.
 Making new code handle an older incompatible shape means adding backfill logic in the model validator (or, in the future, a migration).
@@ -96,12 +96,17 @@ Container versions are integer-only and gated the same way: a newer on-disk cont
 
 After a successful read the instance's version fields are normalized to the in-code constants, so re-serializing immediately re-stamps the tree at the current version.
 
-Absence is the v1 default
-=========================
+Version stamps are required on disk
+===================================
 
-Files written before versioning landed carry none of the stamps.
-The reader treats their absence as the v1 defaults — ``schema_version = "1.0.0"``, ``min_read_version = 1``, container version ``1`` — so legacy files continue to read.
-Once re-written by versioned code, the stamps appear.
+Every archive tree must carry an explicit ``schema_version``.
+Archive backends mark their Pydantic validation with an internal read context, and `~lsst.images.serialization.ArchiveTree` rejects any tree in that context that omits the stamp rather than guessing which shape it contains.
+Fresh in-memory construction remains free to omit the instance fields: serializer code constructs the current model directly, and its defaults are populated from the class constants before writing.
+
+The container version is required for the same reason: a writer always stamps the layout it wrote, so a missing stamp is a damaged file rather than an old one, and guessing would guess at the layout.
+Where each backend applies that differs only in how a file is recognized as one this package wrote.
+Every FITS file the reader can open is ours already — the container cards it needs carry no defaults — so ``FMTVER`` is required outright, and a file without it is reported as such instead of failing later on a missing card.
+An NDF, by contrast, can be a Starlink product with no LSST extension at all: those have no layout of ours to version and are read by `~lsst.images.ndf.read_starlink`, so ``FORMAT_VERSION`` is required only of a file carrying an LSST JSON tree.
 
 Evolving a schema
 =================

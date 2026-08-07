@@ -76,20 +76,54 @@ def test_read_fails_when_format_version_too_high(tmp_path: Path) -> None:
 
 
 @skip_no_h5py
-def test_read_succeeds_when_format_version_absent(tmp_path: Path) -> None:
-    """Verify a legacy file lacking FORMAT_VERSION reads successfully.
+def test_read_fails_when_format_version_absent(tmp_path: Path) -> None:
+    """Verify an LSST-written file lacking FORMAT_VERSION is rejected.
 
-    The reader should default to format version 1 when FORMAT_VERSION is
-    absent.
+    Every file this package writes stamps the container layout, so its
+    absence alongside an LSST JSON tree is a damaged file rather than a
+    legacy one, and guessing version 1 would guess at the layout.
     """
     from lsst.images.ndf import NdfInputArchive
 
     path = tmp_path / "x.sdf"
     _write_simple_image_ndf(path)
     with h5py.File(path, "r+") as f:
-        if "FORMAT_VERSION" in f["/MORE/LSST"]:
-            del f["/MORE/LSST/FORMAT_VERSION"]
-        if "DATA_MODEL" in f["/MORE/LSST"]:
-            del f["/MORE/LSST/DATA_MODEL"]
-    with NdfInputArchive.open(path):
-        pass
+        del f["/MORE/LSST/FORMAT_VERSION"]
+    with pytest.raises(ArchiveReadError, match="FORMAT_VERSION"):
+        with NdfInputArchive.open(path):
+            pass
+
+
+@skip_no_h5py
+def test_get_basic_info_fails_when_format_version_absent(tmp_path: Path) -> None:
+    """Verify the info-only read requires the stamp as well.
+
+    ``get_basic_info`` already refuses a file with no ``DATA_MODEL``, so by
+    the time it reads the container version the LSST extension is known to be
+    present and the stamp must be there too.
+    """
+    from lsst.images.ndf import NdfInputArchive
+
+    path = tmp_path / "x.sdf"
+    _write_simple_image_ndf(path)
+    with h5py.File(path, "r+") as f:
+        del f["/MORE/LSST/FORMAT_VERSION"]
+    with pytest.raises(ArchiveReadError, match="FORMAT_VERSION"):
+        NdfInputArchive.get_basic_info(path)
+
+
+@skip_no_h5py
+def test_read_starlink_needs_no_format_version(tmp_path: Path) -> None:
+    """Verify a Starlink NDF still reads without any LSST extension.
+
+    A file with no LSST extension has no container layout of ours to
+    version, so the required stamp applies only to our own files; these go
+    through ``read_starlink`` rather than the generic archive read.
+    """
+    from lsst.images.ndf import read_starlink
+
+    path = tmp_path / "x.sdf"
+    _write_simple_image_ndf(path)
+    with h5py.File(path, "r+") as f:
+        del f["/MORE/LSST"]
+    assert read_starlink(Image, path).bbox.area == 16

@@ -48,7 +48,7 @@ from ..serialization import (
     tree_class_for_info,
 )
 from ..serialization._backends import _is_binary_stream
-from ..serialization._common import _check_format_version
+from ..serialization._common import _ARCHIVE_READ_CONTEXT, _check_format_version
 from . import _hds
 from ._common import NdfPointerModel
 from ._model import HdsPrimitive, NdfDocument
@@ -85,14 +85,22 @@ def _get_lsst_primitive(
     return None
 
 
-def _read_format_version(get_primitive: Callable[[str], HdsPrimitive | None]) -> int:
+def _read_format_version(get_primitive: Callable[[str], HdsPrimitive | None]) -> int | None:
     """Read the container-layout ``FORMAT_VERSION`` from the LSST extension.
 
-    Absence is treated as ``1`` (legacy default).
+    Returns
+    -------
+    `int` or `None`
+        The container layout version, or `None` if the file has no
+        ``FORMAT_VERSION``.  `NdfOutputArchive` always writes one, so absence
+        means either no LSST extension at all -- a Starlink NDF, which has no
+        layout of ours to version and is read by `read_starlink` -- or a
+        damaged extension.  Callers decide which of those they are looking at;
+        neither may be answered by guessing a version.
     """
     primitive = _get_lsst_primitive(get_primitive, "FORMAT_VERSION")
     if primitive is None:
-        return 1
+        return None
     # The writer emits the version as a 0-d int32 numpy array; .item()
     # unwraps to a Python int.
     return int(primitive.read_array().item())
@@ -117,7 +125,14 @@ def _read_archive_info(get_primitive: Callable[[str], HdsPrimitive | None], sour
         raise ArchiveReadError(
             f"Could not read the schema of {source} from /MORE/LSST/DATA_MODEL or /LSST/DATA_MODEL."
         )
-    return ArchiveInfo.from_schema_url(schema_url, format_version=_read_format_version(get_primitive))
+    # DATA_MODEL was found, so this is one of our files and carries the layout
+    # stamp its writer emits alongside it.
+    if (format_version := _read_format_version(get_primitive)) is None:
+        raise ArchiveReadError(
+            f"Could not read the container format version of {source} from "
+            "/MORE/LSST/FORMAT_VERSION or /LSST/FORMAT_VERSION."
+        )
+    return ArchiveInfo.from_schema_url(schema_url, format_version=format_version)
 
 
 class NdfInputArchive(InputArchive[NdfPointerModel]):
@@ -243,7 +258,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
                 "the file was written by an unrelated tool."
             )
         json_text = _read_json_record(self._get_primitive(json_path), json_path)
-        return model_type.model_validate_json(json_text)
+        return model_type.model_validate_json(json_text, context=_ARCHIVE_READ_CONTEXT)
 
     def deserialize_pointer[U: ArchiveTree, V](
         self,
@@ -259,7 +274,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
             raise ArchiveReadError(f"Pointer reference {pointer.path!r} not found in NDF file.")
         primitive = self._get_primitive(pointer.path)
         json_text = _read_json_record(primitive, pointer.path)
-        model = model_type.model_validate_json(json_text)
+        model = model_type.model_validate_json(json_text, context=_ARCHIVE_READ_CONTEXT)
         result = deserializer(model, self)
         self._deserialized_pointer_cache[pointer.path] = result
         if isinstance(result, FrameSet):
@@ -359,11 +374,25 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
     def _check_format_version(self) -> None:
         """Read FORMAT_VERSION from the NDF top-level structure and check it.
 
+        A file carrying an LSST JSON tree was written by this package and so
+        must carry the layout stamp too; a missing stamp there is a damaged
+        file, not a legacy one.  A Starlink NDF has no JSON tree and no layout
+        of ours to version, so there is nothing to check -- those are read by
+        `read_starlink`, which opens the archive through this same class.
+
         DATA_MODEL is informational only on read; the JSON tree's
         ``schema_version`` / ``min_read_version`` drive data-model
         compatibility.
         """
-        _check_format_version("ndf", _read_format_version(self._get_optional_primitive), _NDF_FORMAT_VERSION)
+        on_disk = _read_format_version(self._get_optional_primitive)
+        if on_disk is None:
+            if self._get_main_json_path() is not None:
+                raise ArchiveReadError(
+                    f"{self._file.filename!r} has an LSST JSON tree but no container format version "
+                    "at /MORE/LSST/FORMAT_VERSION or /LSST/FORMAT_VERSION."
+                )
+            return
+        _check_format_version("ndf", on_disk, _NDF_FORMAT_VERSION)
 
     def _has_model_path(self, path: str) -> bool:
         """Return `True` if a path exists in the NDF document model."""

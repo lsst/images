@@ -1,3 +1,10 @@
 Added fixture-management helpers to ``lsst.images.tests``: ``SchemaFixture``, ``SchemaFixtureError``, ``canonical_fixture_text``, ``check_schema_fixtures``, ``compare_fixture_versions``, ``current_fixture_path``, ``fixture_version``, ``freeze_schema_fixtures``, ``iter_schema_fixtures``, ``read_fixture_tree`` and ``refresh_schema_fixtures``.
 
 Added fixture-coverage helpers to ``lsst.images.tests``: ``CoverageReport``, ``SchemaCoverage``, ``SubSchemaPosition``, ``format_coverage_report`` and ``schema_coverage``.
+
+Version stamps are now required when reading an archive rather than defaulting to the v1 values.
+An archive tree with no ``schema_version`` is rejected, as is a FITS file with no ``FMTVER`` card and an NDF that carries an LSST JSON tree but no ``FORMAT_VERSION``; all three were previously read as version 1.
+Every file this package has written carries these stamps, so this affects only damaged files.
+A FITS file this package did not write now reports that rather than failing with a ``KeyError`` on a missing container card.
+A Starlink-produced NDF is unaffected: it has no layout of ours to version and is read through ``lsst.images.ndf.read_starlink``.
+Fresh in-memory construction is also unaffected, and still takes its defaults from the class constants.

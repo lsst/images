@@ -47,7 +47,7 @@ from ..serialization import (
     tree_class_for_info,
 )
 from ..serialization._backends import _is_binary_stream
-from ..serialization._common import _check_format_version
+from ..serialization._common import _ARCHIVE_READ_CONTEXT, _check_format_version
 from ._common import (
     JSON_COLUMN,
     JSON_EXTNAME,
@@ -135,11 +135,15 @@ class FitsInputArchive(InputArchive[PointerModel]):
         with ResourcePath(path).open("rb") as stream:
             primary = astropy.io.fits.PrimaryHDU.readfrom(stream)
             header = primary.header
-            format_version = int(header.get("FMTVER", 1))
+            format_version = header.get("FMTVER")
             schema_url = header.get("DATAMODL")
         if not schema_url:
             raise ArchiveReadError(f"{path!r} is not an lsst.images FITS archive (no DATAMODL card).")
-        return ArchiveInfo.from_schema_url(schema_url, format_version=format_version)
+        # DATAMODL was found, so this is one of our files and carries the
+        # layout stamp its writer emits first.
+        if format_version is None:
+            raise ArchiveReadError(f"{path!r} has a DATAMODL card but no FMTVER card.")
+        return ArchiveInfo.from_schema_url(schema_url, format_version=int(format_version))
 
     @classmethod
     @contextmanager
@@ -175,7 +179,15 @@ class FitsInputArchive(InputArchive[PointerModel]):
 
     def __init__(self, stream: IO[bytes]) -> None:
         self._primary_hdu = astropy.io.fits.PrimaryHDU.readfrom(stream)
-        on_disk_fmtver: int = self._primary_hdu.header.pop("FMTVER", 1)
+        # Every file this class can open was written by FitsOutputArchive,
+        # which stamps FMTVER before writing anything else -- the container
+        # cards popped below have no defaults, so a file without them was
+        # never readable.  A missing stamp is therefore a damaged file rather
+        # than an old one, and it is worth saying so before those pops turn it
+        # into a bare KeyError.
+        on_disk_fmtver: int | None = self._primary_hdu.header.pop("FMTVER", None)
+        if on_disk_fmtver is None:
+            raise ArchiveReadError("This is not an lsst.images FITS archive (no FMTVER card).")
         # DATAMODL is informational only on read; the JSON tree's
         # schema_version / min_read_version drive data-model checks.  We
         # capture it here as ArchiveInfo so callers (e.g. open_tree) can
@@ -296,7 +308,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
             The validated Pydantic model.
         """
         json_bytes = self._readers[ExtensionKey(JSON_EXTNAME)].data[0][JSON_COLUMN].tobytes()
-        return model_type.model_validate_json(json_bytes)
+        return model_type.model_validate_json(json_bytes, context=_ARCHIVE_READ_CONTEXT)
 
     def deserialize_pointer[U: ArchiveTree, V](
         self,
@@ -316,7 +328,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
             raise InvalidFitsArchiveError(
                 f"Failed to access the table cell referenced by {pointer.model_dump_json()}."
             ) from err
-        result = deserializer(model_type.model_validate_json(json_bytes), self)
+        result = deserializer(model_type.model_validate_json(json_bytes, context=_ARCHIVE_READ_CONTEXT), self)
         self._deserialized_pointer_cache[pointer.row] = result
         return result
 

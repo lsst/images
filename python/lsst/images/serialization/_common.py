@@ -67,6 +67,9 @@ External packages providing their own schemas override
 schema URLs are minted under a site they control.
 """
 
+_ARCHIVE_READ_CONTEXT = object()
+"""Pydantic context used when validating a tree read from an archive."""
+
 
 class ButlerInfo(pydantic.BaseModel):
     """Information about a butler dataset."""
@@ -155,6 +158,31 @@ class ArchiveTree(
         """
         cls = type(self)
         return f"{cls.SCHEMA_URL_BASE}/{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION}"
+
+    @pydantic.model_validator(mode="before")
+    @classmethod
+    def _require_schema_version(cls, data: Any, info: pydantic.ValidationInfo) -> Any:
+        """Reject an archive tree that carries no ``schema_version``.
+
+        A tree validated in the archive-read context, which the backends mark
+        via ``info.context``, must carry the stamp; accepting an unstamped tree
+        would guess at its shape.  In-memory construction is unmarked and keeps
+        the class-constant defaults.
+        """
+        if not isinstance(data, dict):
+            return data
+        if not hasattr(cls, "SCHEMA_NAME"):
+            # ArchiveTree itself is abstract, and a subclass that has not yet
+            # declared SCHEMA_NAME (during incremental rollout) has no
+            # SCHEMA_VERSION either; skip cleanly rather than raising
+            # AttributeError, mirroring the after-validator below.
+            return data
+        if "schema_version" not in data and info.context is _ARCHIVE_READ_CONTEXT:
+            raise _MissingSchemaVersionError(
+                f"{cls.SCHEMA_NAME}: archive tree has no schema_version; "
+                "unstamped archive data is not supported."
+            )
+        return data
 
     @pydantic.model_validator(mode="after")
     def _check_and_normalize_schema_version(self) -> Self:
@@ -367,6 +395,10 @@ class InvalidComponentError(ArchiveReadError):
     """
 
 
+class _MissingSchemaVersionError(ArchiveReadError, ValueError):
+    """An archive tree omitted its required ``schema_version`` stamp."""
+
+
 class ArchiveAccessRequiredError(RuntimeError):
     """Exception raised when a deserialization needs data from the file.
 
@@ -417,8 +449,11 @@ def no_header_updates(header: astropy.io.fits.Header) -> None:
     """
 
 
-def _parse_major(version: str) -> int:
+def _parse_major(version: object) -> int:
     """Return the integer major component of a major.minor.patch string.
+
+    Accepts any object, because callers pass values that may have come
+    straight from a file.
 
     Raises
     ------

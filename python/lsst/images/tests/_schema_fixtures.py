@@ -56,6 +56,7 @@ from ..serialization import (
     is_development_version,
     parameterize_tree,
 )
+from ..serialization._common import _ARCHIVE_READ_CONTEXT
 
 _AS_SHIPPED_VARIANT = "as_shipped"
 """Variant name reserved for a fixture whose bytes are preserved exactly as a
@@ -295,7 +296,7 @@ def read_fixture_tree(fixture: SchemaFixture) -> ArchiveTree:
         raise RuntimeError(f"No schema is registered under {fixture.name!r}.")
     parameterized = parameterize_tree(fixture.tree_cls, JsonRef)
     try:
-        return parameterized.model_validate_json(fixture.path.read_text())
+        return parameterized.model_validate_json(fixture.path.read_text(), context=_ARCHIVE_READ_CONTEXT)
     except pydantic.ValidationError as exc:
         if fixture.retired:
             raise ArchiveReadError(

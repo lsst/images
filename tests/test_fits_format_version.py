@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import astropy.io.fits
+import numpy as np
 import pytest
 
 from lsst.images import Image
@@ -56,18 +57,60 @@ def test_read_fails_when_fmtver_too_high(tmp_path: Path) -> None:
             pass
 
 
-def test_read_succeeds_when_fmtver_absent(tmp_path: Path) -> None:
-    """Verify a legacy file lacking FMTVER reads successfully.
+def test_read_fails_when_fmtver_absent(tmp_path: Path) -> None:
+    """Verify a file lacking FMTVER is rejected rather than assumed to be v1.
 
-    The reader should default to format version 1 when FMTVER is absent.
+    FitsOutputArchive writes FMTVER before anything else, so every file this
+    reader can open has one; absence means a damaged file, and guessing 1
+    would guess at the layout.
     """
     path = tmp_path / "x.fits"
     _write_simple_image_fits(path)
     with astropy.io.fits.open(path, mode="update") as hdul:
-        if "FMTVER" in hdul[0].header:
-            del hdul[0].header["FMTVER"]
-        if "DATAMODL" in hdul[0].header:
-            del hdul[0].header["DATAMODL"]
+        del hdul[0].header["FMTVER"]
         hdul.flush()
-    with FitsInputArchive.open(path):
-        pass
+    with pytest.raises(ArchiveReadError, match="FMTVER"):
+        with FitsInputArchive.open(path):
+            pass
+
+
+def test_get_basic_info_fails_when_fmtver_absent(tmp_path: Path) -> None:
+    """Verify the info-only read requires FMTVER as well."""
+    path = tmp_path / "x.fits"
+    _write_simple_image_fits(path)
+    with astropy.io.fits.open(path, mode="update") as hdul:
+        del hdul[0].header["FMTVER"]
+        hdul.flush()
+    with pytest.raises(ArchiveReadError, match="FMTVER"):
+        FitsInputArchive.get_basic_info(path)
+
+
+def test_read_succeeds_when_datamodl_absent(tmp_path: Path) -> None:
+    """Verify a file with the layout but no schema card still opens.
+
+    DATAMODL is informational on read, so only callers that ask for the
+    schema through ``info`` need it; requiring the layout stamp must not
+    start requiring this one too.
+    """
+    path = tmp_path / "x.fits"
+    _write_simple_image_fits(path)
+    with astropy.io.fits.open(path, mode="update") as hdul:
+        del hdul[0].header["DATAMODL"]
+        hdul.flush()
+    with FitsInputArchive.open(path) as archive:
+        with pytest.raises(ArchiveReadError, match="DATAMODL"):
+            archive.info
+
+
+def test_foreign_fits_is_rejected_cleanly(tmp_path: Path) -> None:
+    """Verify a FITS file this package did not write raises ArchiveReadError.
+
+    Such a file has never been readable -- it carries none of the container
+    cards -- but it used to surface as a bare KeyError from the first card
+    popped without a default.
+    """
+    path = tmp_path / "plain.fits"
+    astropy.io.fits.PrimaryHDU(np.zeros((4, 4), dtype="float32")).writeto(path)
+    with pytest.raises(ArchiveReadError):
+        with FitsInputArchive.open(path):
+            pass
