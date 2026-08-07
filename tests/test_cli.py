@@ -405,6 +405,7 @@ def test_verify_rewrite_help() -> None:
         ["fixtures", "check", "-h"],
         ["fixtures", "refresh", "-h"],
         ["fixtures", "freeze", "-h"],
+        ["fixtures", "coverage", "-h"],
     ],
     ids=[
         "root",
@@ -424,6 +425,7 @@ def test_verify_rewrite_help() -> None:
         "fixtures-check",
         "fixtures-refresh",
         "fixtures-freeze",
+        "fixtures-coverage",
     ],
 )
 def test_short_help_alias(args: list[str]) -> None:
@@ -508,6 +510,42 @@ def test_fixtures_check_reports_a_clean_tree() -> None:
         ],
     )
     assert result.exit_code == 0, result.output
+
+
+def test_fixtures_coverage_reports_positions_for_a_composite() -> None:
+    """Verify 'fixtures coverage --schema' reports a composite's positions.
+
+    Asserted on structure rather than on any particular gap, so adding a model
+    or widening a fixture cannot turn this into a failure.
+    """
+    result = click.testing.CliRunner().invoke(
+        main, ["fixtures", "coverage", "--dir", str(FIXTURE_DIR), "--schema", "cell_coadd"]
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith("cell_coadd ")
+    assert "holds  .psf [cell_psf]" in result.output
+
+
+def test_fixtures_coverage_emits_parseable_json() -> None:
+    """Verify 'fixtures coverage --format json' emits a JSON object."""
+    result = click.testing.CliRunner().invoke(
+        main,
+        ["fixtures", "coverage", "--dir", str(FIXTURE_DIR), "--schema", "cell_coadd", "--format", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    (entry,) = parsed.values()
+    assert {"sources", "expressed", "absent", "positions"} == set(entry)
+    assert any(position["path"] == ".psf" for position in entry["positions"])
+
+
+def test_fixtures_coverage_reports_an_unknown_schema_cleanly() -> None:
+    """Verify a schema name that matches nothing says so and exits zero."""
+    result = click.testing.CliRunner().invoke(
+        main, ["fixtures", "coverage", "--dir", str(FIXTURE_DIR), "--schema", "no_such_schema"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "no schema matches 'no_such_schema'" in result.output
 
 
 def test_fixtures_check_requires_a_schema_directory() -> None:

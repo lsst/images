@@ -12,6 +12,7 @@ from __future__ import annotations
 
 __all__ = ("fixtures",)
 
+import json
 from pathlib import Path
 
 import click
@@ -21,8 +22,10 @@ from ..serialization import ArchiveReadError
 from ..tests import (
     SchemaFixtureError,
     check_schema_fixtures,
+    format_coverage_report,
     freeze_schema_fixtures,
     refresh_schema_fixtures,
+    schema_coverage,
 )
 
 # read_fixture_tree (called internally by both refresh_schema_fixtures and
@@ -131,3 +134,61 @@ def freeze(directory: Path, package: str) -> None:
         click.echo("nothing to freeze")
     else:
         click.echo("now run 'lsst-images-admin schemas write' if you have not already")
+
+
+@fixtures.command(name="coverage")
+@_DIR_OPTION
+@_PACKAGE_OPTION
+@click.option("--schema", default=None, help="Report only this schema name.")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    show_default=True,
+    help="Output format.",
+)
+def coverage(
+    directory: Path,
+    package: str,
+    schema: str | None,
+    output_format: str,
+) -> None:
+    """Report what the committed fixtures do and do not exercise.
+
+    Coverage is credited to the schema that owns each stamped subtree, so a
+    sub-model embedded by several containers is credited by all of them.  A
+    'gap' line marks a sub-schema position some candidate never reaches; that
+    is information, not a failure, since a composite model need not hold every
+    candidate its schema admits.  This command always exits zero.
+    """
+    report = schema_coverage(directory, package=package)
+    if output_format == "json":
+        click.echo(
+            json.dumps(
+                {
+                    f"{name} {version}": {
+                        "sources": sorted(entry.sources),
+                        "expressed": sorted(entry.expressed),
+                        "absent": sorted(entry.absent_roots),
+                        "positions": [
+                            {
+                                "path": position.path,
+                                "candidates": sorted(position.candidates),
+                                "reached": sorted(position.reached),
+                                "missing": sorted(position.missing),
+                            }
+                            for position in entry.positions
+                        ],
+                    }
+                    for (name, version), entry in sorted(report.schemas.items())
+                    if schema is None or name == schema
+                },
+                indent=2,
+            )
+        )
+        return
+    if text := format_coverage_report(report, schema=schema):
+        click.echo(text)
+    else:
+        click.echo(f"no schema matches {schema!r}" if schema else "no schemas in scope")

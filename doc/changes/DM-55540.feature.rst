@@ -2,3 +2,6 @@ Reworked the schema test fixtures into a per-version tree at ``tests/data/schema
 
 Fixtures for development schemas were previously never validated at all; twelve of the twenty-five schemas were affected, and fourteen of the twenty-three committed fixtures had drifted from what their models produce.
 Freezing and retiring a schema are now checked steps, with ``lsst-images-admin fixtures check|refresh|freeze`` to manage the tree.
+
+Added ``lsst-images-admin fixtures coverage``, which reports what the fixture set exercises of each schema: the declared paths no fixture expresses, and the places a schema can hold another stamped schema with the candidates each admits against the ones fixtures reach.
+Coverage is credited to the schema owning each stamped subtree rather than to the file it was found in, so a sub-model embedded by several containers is credited by all of them.
