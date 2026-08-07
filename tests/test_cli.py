@@ -10,7 +10,9 @@
 # license that can be found in the LICENSE file.
 from __future__ import annotations
 
+import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +20,7 @@ from unittest import mock
 
 import astropy.io.fits
 import click
+import click.testing
 import numpy as np
 import pytest
 from click.testing import CliRunner
@@ -27,6 +30,16 @@ from lsst.images import fits as images_fits
 from lsst.images import json as images_json
 from lsst.images.cli import main
 from lsst.images.serialization import backend_for_path, read_archive
+from lsst.images.tests import current_fixture_path
+
+FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
+
+
+def _copy_fixture_tree(tmp_path: Path, *, source: Path = FIXTURE_DIR, name: str = "schemas") -> Path:
+    """Copy a fixture tree so a mutating CLI test cannot touch its source."""
+    destination = tmp_path / name
+    shutil.copytree(source, destination)
+    return destination
 
 
 @pytest.fixture(scope="session")
@@ -388,6 +401,11 @@ def test_verify_rewrite_help() -> None:
         ["schemas", "-h"],
         ["schemas", "write", "-h"],
         ["schemas", "check", "-h"],
+        ["fixtures", "-h"],
+        ["fixtures", "check", "-h"],
+        ["fixtures", "refresh", "-h"],
+        ["fixtures", "freeze", "-h"],
+        ["fixtures", "coverage", "-h"],
     ],
     ids=[
         "root",
@@ -403,6 +421,11 @@ def test_verify_rewrite_help() -> None:
         "schemas",
         "schemas-write",
         "schemas-check",
+        "fixtures",
+        "fixtures-check",
+        "fixtures-refresh",
+        "fixtures-freeze",
+        "fixtures-coverage",
     ],
 )
 def test_short_help_alias(args: list[str]) -> None:
@@ -451,8 +474,8 @@ def test_schemas_check_fails_when_stale(tmp_path: Path) -> None:
 
 def test_cli_describe_visit_image() -> None:
     """The describe command renders a deserialized VisitImage."""
-    path = os.path.join(os.path.dirname(__file__), "data", "schema_v1", "visit_image.json")
-    result = CliRunner().invoke(main, ["describe", path])
+    path = current_fixture_path(FIXTURE_DIR, "visit_image")
+    result = CliRunner().invoke(main, ["describe", str(path)])
     assert result.exit_code == 0, result.output
     assert "VisitImage" in result.output
 
@@ -463,8 +486,238 @@ def test_cli_describe_coadd_provenance() -> None:
     Provenance is describable in its own right, not only as part of a coadd,
     so the command must not fall back to the default object repr for it.
     """
-    path = os.path.join(os.path.dirname(__file__), "data", "schema_v1", "coadd_provenance.json")
-    result = CliRunner().invoke(main, ["describe", path])
+    path = current_fixture_path(FIXTURE_DIR, "coadd_provenance")
+    result = CliRunner().invoke(main, ["describe", str(path)])
     assert result.exit_code == 0, result.output
     assert "CoaddProvenance" in result.output
     assert "input images" in result.output
+
+
+def test_fixtures_check_reports_a_clean_tree() -> None:
+    """Verify 'fixtures check' exits zero on the committed tree."""
+    runner = click.testing.CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "fixtures",
+            "check",
+            "--dir",
+            str(Path(__file__).parent / "data" / "schemas"),
+            "--schema-dir",
+            str(Path(__file__).parent.parent / "schemas"),
+            "--exempt",
+            "psfex_psf",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_fixtures_coverage_reports_positions_for_a_composite() -> None:
+    """Verify 'fixtures coverage --schema' reports a composite's positions.
+
+    Asserted on structure rather than on any particular gap, so adding a model
+    or widening a fixture cannot turn this into a failure.
+    """
+    result = click.testing.CliRunner().invoke(
+        main, ["fixtures", "coverage", "--dir", str(FIXTURE_DIR), "--schema", "cell_coadd"]
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith("cell_coadd ")
+    assert "holds  .psf [cell_psf]" in result.output
+
+
+def test_fixtures_coverage_emits_parseable_json() -> None:
+    """Verify 'fixtures coverage --format json' emits a JSON object."""
+    result = click.testing.CliRunner().invoke(
+        main,
+        ["fixtures", "coverage", "--dir", str(FIXTURE_DIR), "--schema", "cell_coadd", "--format", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    parsed = json.loads(result.output)
+    (entry,) = parsed.values()
+    assert {"sources", "expressed", "absent", "positions"} == set(entry)
+    assert any(position["path"] == ".psf" for position in entry["positions"])
+
+
+def test_fixtures_coverage_reports_an_unknown_schema_cleanly() -> None:
+    """Verify a schema name that matches nothing says so and exits zero."""
+    result = click.testing.CliRunner().invoke(
+        main, ["fixtures", "coverage", "--dir", str(FIXTURE_DIR), "--schema", "no_such_schema"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "no schema matches 'no_such_schema'" in result.output
+
+
+def test_fixtures_check_requires_a_schema_directory() -> None:
+    """Verify pairing cannot be accidentally omitted from the CLI check."""
+    result = click.testing.CliRunner().invoke(main, ["fixtures", "check"])
+    assert result.exit_code != 0
+    assert "Missing option '--schema-dir'" in result.output
+
+
+def test_fixtures_check_reports_a_problem(tmp_path: Path) -> None:
+    """Verify 'fixtures check' reports why a malformed fixture fails.
+
+    The empty object fails model validation, which must be reported as a
+    validation failure on this exact file, not merely as some problem
+    somewhere; a fixture tree with no ``image`` file at all would already
+    report that file as missing, so the assertion has to name the failure
+    mode to tell the two apart.
+    """
+    name = current_fixture_path(FIXTURE_DIR, "image").name
+    directory = tmp_path / "image"
+    directory.mkdir(parents=True)
+    (directory / name).write_text("{}\n")
+    runner = click.testing.CliRunner()
+    result = runner.invoke(
+        main,
+        [
+            "fixtures",
+            "check",
+            "--dir",
+            str(tmp_path),
+            "--schema-dir",
+            str(Path(__file__).parent.parent / "schemas"),
+        ],
+    )
+    assert result.exit_code != 0
+    assert f"{name}: does not validate" in result.output
+
+
+def test_fixtures_refresh_reports_no_change(tmp_path: Path) -> None:
+    """Verify 'fixtures refresh' would be a no-op on the committed tree.
+
+    The command is intentionally mutating, so run it on a fresh copy. If a
+    committed development fixture is dirty, every test run must copy and
+    detect that same dirty input rather than repairing the repository on the
+    first run and passing on the second.
+    """
+    directory = _copy_fixture_tree(tmp_path)
+    runner = click.testing.CliRunner()
+    result = runner.invoke(main, ["fixtures", "refresh", "--dir", str(directory)])
+    assert result.exit_code == 0, result.output
+    assert "already up to date" in result.output
+
+
+def test_fixtures_freeze_reports_nothing_to_freeze(tmp_path: Path) -> None:
+    """Verify 'fixtures freeze' would be a no-op on the committed tree.
+
+    Run the destructive command on a copy so a newly finalized schema makes
+    this test fail on every run without moving or deleting the developer's
+    fixture.
+    """
+    directory = _copy_fixture_tree(tmp_path)
+    runner = click.testing.CliRunner()
+    result = runner.invoke(main, ["fixtures", "freeze", "--dir", str(directory)])
+    assert result.exit_code == 0, result.output
+    assert "nothing to freeze" in result.output
+
+
+def test_fixtures_refresh_detection_is_repeatable_without_mutating_source(tmp_path: Path) -> None:
+    """Verify a dirty fixture is detected repeatedly without being repaired."""
+    source = _copy_fixture_tree(tmp_path, name="dirty-source")
+    fixture = current_fixture_path(source, "camera_frame_set")
+    data = json.loads(fixture.read_text())
+    data["schema_version"] = "2.0.0"
+    data["schema_url"] = "https://images.lsst.io/schemas/camera_frame_set-2.0.0"
+    dirty_text = json.dumps(data, indent=2) + "\n"
+    fixture.write_text(dirty_text)
+
+    for run in range(2):
+        directory = _copy_fixture_tree(tmp_path, source=source, name=f"run-{run}")
+        result = click.testing.CliRunner().invoke(main, ["fixtures", "refresh", "--dir", str(directory)])
+        assert result.exit_code == 0, result.output
+        assert "already up to date" not in result.output
+        assert "wrote" in result.output
+        assert fixture.read_text() == dirty_text
+
+
+def test_fixtures_refresh_reports_finalized_conflict_cleanly(tmp_path: Path) -> None:
+    """Verify 'fixtures refresh' turns a finalized-fixture conflict into a
+    clean error instead of a raw traceback.
+    """
+    source = current_fixture_path(FIXTURE_DIR, "image")
+    name = source.name
+    data = json.loads(source.read_text())
+    directory = tmp_path / "image"
+    directory.mkdir(parents=True)
+    # Valid but not canonically formatted, so it differs from the text
+    # refresh would regenerate for this already-finalized version.
+    (directory / name).write_text(json.dumps(data))
+    runner = click.testing.CliRunner()
+    result = runner.invoke(main, ["fixtures", "refresh", "--dir", str(tmp_path)])
+    assert result.exit_code != 0
+    assert name in result.output
+    assert "bump SCHEMA_VERSION" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_fixtures_freeze_reports_existing_target_cleanly(tmp_path: Path) -> None:
+    """Verify 'fixtures freeze' turns a pre-existing target conflict into a
+    clean error instead of a raw traceback.
+    """
+    target = current_fixture_path(FIXTURE_DIR, "image")
+    target_name = target.name
+    dev_name = target_name.removesuffix(".json") + ".dev.json"
+    text = target.read_text()
+    directory = tmp_path / "image"
+    directory.mkdir(parents=True)
+    (directory / dev_name).write_text(text)
+    (directory / target_name).write_text(text)
+    runner = click.testing.CliRunner()
+    result = runner.invoke(main, ["fixtures", "freeze", "--dir", str(tmp_path)])
+    assert result.exit_code != 0
+    assert target_name in result.output
+    assert "already exists" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_fixtures_freeze_reports_a_validation_failure_cleanly(tmp_path: Path) -> None:
+    """Verify 'fixtures freeze' turns a fixture that no longer validates into
+    a clean error instead of a raw traceback.
+
+    freeze_schema_fixtures reads each fixture through its live model
+    (read_fixture_tree) as it freezes it; a fixture that fails that read
+    raises pydantic.ValidationError or ArchiveReadError, neither of which is
+    SchemaFixtureError, so the CLI must catch them too rather than let a
+    traceback escape.
+    """
+    directory = tmp_path / "image"
+    directory.mkdir(parents=True)
+    (directory / "image-1.0.0.dev.json").write_text("{}\n")
+    runner = click.testing.CliRunner()
+    result = runner.invoke(main, ["fixtures", "freeze", "--dir", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "Traceback" not in result.output
+    # A raw pydantic.ValidationError escaping uncaught propagates out of
+    # CliRunner.invoke() as result.exception with no "Error: ..." line ever
+    # written to result.output; only a caught-and-reraised
+    # click.ClickException produces that line and a clean SystemExit.
+    assert "Error:" in result.output
+    assert isinstance(result.exception, SystemExit)
+
+
+def test_fixtures_refresh_reports_a_validation_failure_cleanly(tmp_path: Path) -> None:
+    """Verify 'fixtures refresh' turns a fixture that no longer validates
+    into a clean error instead of a raw traceback.
+
+    refresh_schema_fixtures reads a development fixture through
+    read_fixture_tree to canonicalize it; a fixture that fails that read
+    raises pydantic.ValidationError or ArchiveReadError, neither of which is
+    SchemaFixtureError, so the CLI must catch them too rather than let a
+    traceback escape.  camera_frame_set is a real, still-developing
+    lsst.images schema, so this needs no test double.
+    """
+    directory = tmp_path / "camera_frame_set"
+    directory.mkdir(parents=True)
+    (directory / "camera_frame_set-1.0.0.dev.json").write_text("{}\n")
+    runner = click.testing.CliRunner()
+    result = runner.invoke(main, ["fixtures", "refresh", "--dir", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "Traceback" not in result.output
+    # A raw pydantic.ValidationError escaping uncaught propagates out of
+    # CliRunner.invoke() as result.exception with no "Error: ..." line ever
+    # written to result.output; only a caught-and-reraised
+    # click.ClickException produces that line and a clean SystemExit.
+    assert "Error:" in result.output
+    assert isinstance(result.exception, SystemExit)

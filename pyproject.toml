@@ -223,6 +223,13 @@ exclude = [
     "^test_.*",  # Do not test docstrings in test code.
     '^__init__$',
     '\._[a-zA-Z_]+$',  # Private methods.
+    # Click renders a command's docstring as its --help text, so the commands
+    # in the cli subpackage cannot carry a Parameters section; their options
+    # document themselves.  These patterns match a module basename because
+    # that is all numpydoc puts before the object name -- never the package
+    # path -- so a new command module has to be added here, and its basename
+    # must stay unique within the package.
+    '^_(convert|describe|diagram|fixtures|fuzz|inspect|main|minify|reformat|schemas)\.',
 ]
 
 [tool.mypy]

@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import gzip
 import io
-import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -25,6 +24,7 @@ from lsst.images import Box, Image, Mask
 from lsst.images.fits import FitsInputArchive
 from lsst.images.json import JsonInputArchive
 from lsst.images.serialization import open_archive, read_archive, write_archive
+from lsst.images.tests import current_fixture_path
 
 try:
     import h5py  # noqa: F401  -- detect availability for NDF stream skips
@@ -50,7 +50,7 @@ except ImportError:
 skip_no_h5py = pytest.mark.skipif(not H5PY_AVAILABLE, reason="h5py is not installed")
 skip_no_zstd = pytest.mark.skipif(not ZSTD_AVAILABLE, reason="no zstd decompressor available")
 
-LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
+FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
 
 
 def _zstd_compress(data: bytes) -> bytes:
@@ -198,7 +198,7 @@ def test_open_stream_components(tmp_path: Path) -> None:
     """Verify open_archive() accepts a stream and supports component
     reads.
     """
-    visit_image = read_archive(os.path.join(LOCAL_DATA_DIR, "visit_image.json"))
+    visit_image = read_archive(current_fixture_path(FIXTURE_DIR, "visit_image"))
     stream = io.BytesIO(_serialized_bytes(visit_image, ".fits", tmp_path))
     with open_archive(stream) as reader:
         assert reader.info.schema_name == "visit_image"

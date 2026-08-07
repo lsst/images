@@ -28,14 +28,15 @@ from lsst.images.serialization import (
     read_archive,
     write_archive,
 )
+from lsst.images.tests import current_fixture_path
 
-LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
+FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
 
 
 @pytest.fixture
 def component_probe_env(tmp_path: Path) -> Iterator[tuple[str, VisitImage, DetachedArchive]]:
     """Return (tmpdir, visit_image, archive) for component-probe tests."""
-    visit_image = read_archive(os.path.join(LOCAL_DATA_DIR, "visit_image.json"))
+    visit_image = read_archive(current_fixture_path(FIXTURE_DIR, "visit_image"))
     yield str(tmp_path), visit_image, DetachedArchive()
 
 

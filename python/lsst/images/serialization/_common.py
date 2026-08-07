@@ -32,6 +32,7 @@ import operator
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, Self
 
 import astropy.table
@@ -41,6 +42,7 @@ from packaging.version import Version
 
 from .._geom import Box
 from ..utils import is_none
+from ._migrations import _MIGRATABLE_NAMES, _MIGRATIONS
 
 try:
     from lsst.daf.butler import DatasetProvenance, SerializedDatasetRef
@@ -66,6 +68,9 @@ External packages providing their own schemas override
 `~lsst.images.serialization.ArchiveTree.SCHEMA_URL_BASE` instead, so their
 schema URLs are minted under a site they control.
 """
+
+_ARCHIVE_READ_CONTEXT = object()
+"""Pydantic context used when validating a tree read from an archive."""
 
 
 class ButlerInfo(pydantic.BaseModel):
@@ -155,6 +160,64 @@ class ArchiveTree(
         """
         cls = type(self)
         return f"{cls.SCHEMA_URL_BASE}/{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION}"
+
+    @pydantic.model_validator(mode="before")
+    @classmethod
+    def _migrate_from_older_major(cls, data: Any, info: pydantic.ValidationInfo) -> Any:
+        """Morph an older on-disk tree into the current shape.
+
+        Chains registered migrations until the tree reaches the in-code major,
+        so the ``mode="after"`` validator below sees a current-shape tree.
+
+        A tree validated in the archive-read context, which the backends mark
+        via ``info.context``, must carry a ``schema_version``; in-memory
+        construction is unmarked and keeps the class-constant defaults.  See
+        :ref:`lsst.images-schema-versioning-migration`.
+        """
+        if not isinstance(data, dict):
+            return data
+        if not hasattr(cls, "SCHEMA_NAME"):
+            # ArchiveTree itself is abstract, and a subclass that has not yet
+            # declared SCHEMA_NAME (during incremental rollout) has no
+            # SCHEMA_VERSION to parse either; skip cleanly rather than
+            # raising AttributeError, mirroring the after-validator below.
+            return data
+        name = cls.SCHEMA_NAME
+        if "schema_version" not in data:
+            if info.context is _ARCHIVE_READ_CONTEXT:
+                raise _MissingSchemaVersionError(
+                    f"{name}: archive tree has no schema_version; unstamped archive data is not supported."
+                )
+            return data
+        if not _MIGRATABLE_NAMES:
+            return data
+        if name not in _MIGRATABLE_NAMES:
+            # This schema has not opted into migrations at all, regardless of
+            # its major: whether some *other*, unrelated schema has a
+            # registered migration must not change what this one does with
+            # its own tree.  A schema in this state falls through to ordinary
+            # validation -- in-model backfill for an additive change, or a
+            # Pydantic validation error for a real incompatibility.
+            return data
+        on_disk_major = _parse_on_disk_major(data["schema_version"])
+        in_code_major = _parse_major(cls.SCHEMA_VERSION)
+        if on_disk_major < in_code_major:
+            # A failed union candidate must not mutate the input subsequently
+            # tried by another candidate.  Migrations may mutate freely, so
+            # isolate the complete JSON-like tree, not just its top-level
+            # dictionary.
+            data = deepcopy(data)
+        while on_disk_major < in_code_major:
+            try:
+                step = _MIGRATIONS[(name, on_disk_major)]
+            except KeyError:
+                raise _MigrationGapError(
+                    f"{name}: no migration from major {on_disk_major} to {on_disk_major + 1}."
+                ) from None
+            data = step(data)
+            on_disk_major += 1
+            data["schema_version"] = f"{on_disk_major}.0.0"
+        return data
 
     @pydantic.model_validator(mode="after")
     def _check_and_normalize_schema_version(self) -> Self:
@@ -367,6 +430,42 @@ class InvalidComponentError(ArchiveReadError):
     """
 
 
+class _MigrationGapError(ArchiveReadError, ValueError):
+    """A migration chain has no registered step for the tree's on-disk major.
+
+    Raised from the ``mode="before"`` validator in
+    `ArchiveTree._migrate_from_older_major`, which pydantic-core invokes as
+    part of validating a field.  Deriving only from `ArchiveReadError` (a
+    `RuntimeError`) would let this exception escape a discriminated union
+    entirely: pydantic only treats `ValueError`, `TypeError` and
+    `AssertionError` raised by a validator as "this candidate failed, try the
+    next one", so a `RuntimeError` would abort the whole union instead of
+    falling through.  Deriving from both means a ``left_to_right`` (or
+    ``smart``) union tries the next variant on a migration gap exactly as it
+    would on any other validation failure, while ``except ArchiveReadError``
+    callers outside a union still catch it unchanged.
+    """
+
+
+class _MissingSchemaVersionError(ArchiveReadError, ValueError):
+    """An archive tree omitted its required ``schema_version`` stamp."""
+
+
+class _MalformedSchemaVersionError(ArchiveReadError, ValueError):
+    """An archive tree's ``schema_version`` stamp could not be parsed.
+
+    Also a `ValueError`, for the reason `_MigrationGapError` gives: the stamp
+    is parsed in the ``mode="before"`` validator, which runs ahead of field
+    validation for every migratable union candidate, including ones the
+    payload does not belong to.  A stamp the reader cannot parse therefore has
+    to fail that one candidate rather than abort the whole union.
+
+    Only an *on-disk* stamp raises this.  A malformed in-code
+    ``SCHEMA_VERSION`` is a programming error and keeps raising the
+    `RuntimeError`-only `ArchiveReadError`, so a union cannot swallow it.
+    """
+
+
 class ArchiveAccessRequiredError(RuntimeError):
     """Exception raised when a deserialization needs data from the file.
 
@@ -417,8 +516,11 @@ def no_header_updates(header: astropy.io.fits.Header) -> None:
     """
 
 
-def _parse_major(version: str) -> int:
+def _parse_major(version: object) -> int:
     """Return the integer major component of a major.minor.patch string.
+
+    Accepts any object, because callers pass values that may have come
+    straight from a file; use `_parse_on_disk_major` for those.
 
     Raises
     ------
@@ -433,6 +535,23 @@ def _parse_major(version: str) -> int:
         return int(head)
     except ValueError as exc:
         raise ArchiveReadError(f"Schema version {version!r} has non-integer major.") from exc
+
+
+def _parse_on_disk_major(version: object) -> int:
+    """Return the integer major of a version stamp that came from a file.
+
+    Raises
+    ------
+    _MalformedSchemaVersionError
+        If ``version`` is not a non-empty string of the form
+        ``major.minor.patch`` with integer components.  Unlike `_parse_major`,
+        this is a `ValueError`, so a stamp the reader cannot parse fails one
+        union candidate instead of aborting the union.
+    """
+    try:
+        return _parse_major(version)
+    except ArchiveReadError as exc:
+        raise _MalformedSchemaVersionError(str(exc)) from None
 
 
 def _check_compat(

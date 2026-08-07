@@ -1,7 +1,9 @@
 astropy >= 7.0
+click >= 8
 fsspec
 h5py >= 3.10
 numpy >= 2.0
+packaging
 pydantic >= 2.12
 lsst-resources[https,s3] @ git+https://github.com/lsst/resources@main
 lsst-daf-butler @ git+https://github.com/lsst/daf_butler@main

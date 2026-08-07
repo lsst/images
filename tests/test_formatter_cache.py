@@ -10,14 +10,14 @@
 # license that can be found in the LICENSE file.
 from __future__ import annotations
 
-import os
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from lsst.images import Box, VisitImage
 from lsst.images.serialization import open_archive, read_archive
-from lsst.images.tests import TemporaryButler
+from lsst.images.tests import TemporaryButler, current_fixture_path
 
 try:
     # The formatter module requires lsst.daf.butler.
@@ -29,7 +29,7 @@ except ImportError:
 
 skip_no_butler = pytest.mark.skipif(not HAVE_BUTLER, reason="lsst.daf.butler could not be imported.")
 
-LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "schema_v1")
+FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
 
 
 def _count_ser_opens():
@@ -47,7 +47,7 @@ def _reset_cache() -> None:
 @pytest.fixture(scope="session")
 def visit_image() -> VisitImage:
     """Return a test VisitImage."""
-    return read_archive(os.path.join(LOCAL_DATA_DIR, "visit_image.json"))
+    return read_archive(current_fixture_path(FIXTURE_DIR, "visit_image"))
 
 
 @skip_no_butler

@@ -45,6 +45,7 @@ from ._dtypes import *
 from ._frozen_schemas import *
 from ._input_archive import *
 from ._io import *
+from ._migrations import *
 from ._output_archive import *
 from ._reader import *
 from ._tables import *

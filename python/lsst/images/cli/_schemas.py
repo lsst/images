@@ -16,7 +16,7 @@ from pathlib import Path
 
 import click
 
-from ..serialization import check_frozen_schemas, write_frozen_schemas
+from ..serialization import FrozenSchemaError, check_frozen_schemas, write_frozen_schemas
 
 _DIR_OPTION = click.option(
     "--dir",
@@ -46,24 +46,32 @@ def schemas() -> None:
 @schemas.command(name="write")
 @_DIR_OPTION
 @_PACKAGE_OPTION
-def write(directory: Path, package: str) -> None:  # numpydoc ignore=PR01
+def write(directory: Path, package: str) -> None:
     """Write the JSON schema file for every current schema.
 
     Overwrites a stale file for the same schema version (schemas evolve in
     place until the first data release) and never touches files for
     superseded versions.
     """
-    changed = write_frozen_schemas(directory, package)
+    try:
+        changed = write_frozen_schemas(directory, package)
+    except FrozenSchemaError as exc:
+        raise click.ClickException(str(exc)) from exc
     for path in changed:
         click.echo(f"wrote {path}")
     if not changed:
         click.echo("all frozen schema files are already up to date")
+    else:
+        click.echo(
+            "if any of the above is a newly finalized schema, now run "
+            "'lsst-images-admin fixtures freeze' to pair its fixture"
+        )
 
 
 @schemas.command(name="check")
 @_DIR_OPTION
 @_PACKAGE_OPTION
-def check(directory: Path, package: str) -> None:  # numpydoc ignore=PR01
+def check(directory: Path, package: str) -> None:
     """Exit nonzero if any frozen schema file is missing or stale."""
     problems = check_frozen_schemas(directory, package)
     for problem in problems:

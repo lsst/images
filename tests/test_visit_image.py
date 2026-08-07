@@ -15,6 +15,7 @@ import dataclasses
 import math
 import os
 import warnings
+from pathlib import Path
 from typing import Any, Literal
 
 import astropy.io.fits
@@ -62,6 +63,7 @@ from lsst.images.tests import (
     compare_detector_to_legacy,
     compare_photo_calib_to_legacy,
     compare_visit_image_to_legacy,
+    current_fixture_path,
     make_random_sky_projection,
 )
 
@@ -81,6 +83,7 @@ except ImportError:
 
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
 
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
 
@@ -1127,7 +1130,7 @@ def test_visit_image_repr_str_with_unreadable_psf() -> None:
     cheap fields and summary, so they must not build the child tree (which
     would raise when it accesses the PSF).
     """
-    path = os.path.join(LOCAL_DATA_DIR, "schema_v1", "visit_image.json")
+    path = current_fixture_path(FIXTURE_DIR, "visit_image")
     visit_image = read_archive(path)
     visit_image._psf = ArchiveReadError("psf unreadable")
     assert repr(visit_image).startswith("VisitImage(")

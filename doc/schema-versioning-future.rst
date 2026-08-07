@@ -99,74 +99,23 @@ Testing retroactively
 
 Deferred-fail can be tested without producing real incompatible files: hand-craft fixtures whose ``min_read_version`` or ``schema_version`` is set to an incompatible value, read them with ``defer_schema_failures=True``, and assert the resulting tree carries ``_ReadFailed`` instances in the right places.
 
-.. _lsst.images-schema-versioning-migration:
-
-Schema migration (morphing v1 into v2)
-======================================
-
-The asymmetric design already lets new code read an *old* file whenever the current Pydantic model can validate the older shape directly; that covers additive changes, where defaulting the new fields on input is enough.
-A migration is what is needed when it is *not* enough: a backward-incompatible v2 (a renamed or retyped field, a split or merged field, a restructured sub-tree) that the v2 model cannot validate against a raw v1 tree.
-The goal is to keep ``MIN_READ_VERSION = 2`` (so v1 code refuses v2 files it would otherwise mis-read) while still letting v2 code read v1 files by *morphing* the v1 tree into the v2 shape before validation.
-
-A migration is a per-schema function that rewrites an on-disk tree from one major to the next.
-Registering them one major at a time (1→2, 2→3, …) means only adjacent-major transforms are ever written, and the reader chains them to cross a larger gap.
-
-.. code-block:: python
-
-   # One entry per (schema_name, from_major); each bumps a single major.
-   _MIGRATIONS: dict[tuple[str, int], Callable[[dict], dict]] = {}
-
-   def migration(schema_name: str, from_major: int):
-       def register(func):
-           _MIGRATIONS[(schema_name, from_major)] = func
-           return func
-       return register
-
-   @migration("visit_image", 1)
-   def _visit_image_1_to_2(data: dict) -> dict:
-       # v2 renamed photo_calib -> photometric_scaling; morph the v1 tree.
-       data["photometric_scaling"] = data.pop("photo_calib", None)
-       return data
-
-Migration runs in a ``mode="before"`` validator, ahead of the per-instance compatibility check, chaining registered steps until the tree reaches the in-code major:
-
-.. code-block:: python
-
-   @pydantic.model_validator(mode="before")
-   @classmethod
-   def _migrate(cls, data):
-       if not isinstance(data, dict):
-           return data
-       on_disk_major = _parse_major(data.get("schema_version", "1.0.0"))
-       in_code_major = _parse_major(cls.SCHEMA_VERSION)
-       while on_disk_major < in_code_major:
-           try:
-               step = _MIGRATIONS[(cls.SCHEMA_NAME, on_disk_major)]
-           except KeyError:
-               raise ArchiveReadError(
-                   f"{cls.SCHEMA_NAME}: no migration from major "
-                   f"{on_disk_major} to {on_disk_major + 1}."
-               )
-           data = step(data)
-           on_disk_major += 1
-           data["schema_version"] = f"{on_disk_major}.0.0"
-       return data
-
-After it runs the tree is in the current shape, so the existing ``mode="after"`` validator's compatibility check and normalization proceed unchanged; the instance ends up stamped with the in-code version, and re-serializing writes a v2 file.
-
-This is the exact complement of ``min_read_version``: ``min_read_version`` gates the *old reader vs new file* direction, while a migration handles the *new reader vs old file* direction.
-A coherent breaking change therefore ships three things together — ``SCHEMA_VERSION = "2.0.0"``, ``MIN_READ_VERSION = 2``, and a registered ``(schema_name, 1)`` migration — after which v1 code rejects v2 files and v2 code transparently reads both.
-
-Migrations compose down the tree: each ``ArchiveTree`` subclass migrates its own dict, and because the before-validator runs per sub-model, a nested v1 sub-tree is morphed by its own migration as the parent is validated.
-If a sub-model has no migration registered across a gap, the read raises `~lsst.images.serialization.ArchiveReadError`; pairing migration with :ref:`lsst.images-schema-versioning-deferred-fail` would let one un-migratable sub-model fail at point-of-use rather than rejecting the whole tree.
-The committed ``tests/data/schema_v1/`` fixtures make this testable without time travel: a migration test reads each retained old-version fixture under current code and asserts it morphs to the current shape and round-trips.
-
 Other deferred items
 ====================
 
 - **Per-instance ``min_read_version`` for union variants.**
   For a new discriminated-union variant we would want only the files that actually contain the new variant to carry a higher ``min_read_version``, so old readers reject just those files.
   The field is already a normal Pydantic field, so the mechanism exists; what is missing is a convention for setting it per-instance at write time.
+
+- **Backend-owned inline array threshold.**
+  ``SplineField.serialize`` inlines a small data array rather than writing it through ``add_array``, because reading a handful of numbers out of the JSON tree is much cheaper than opening a separate binary extension for them.
+  It is the only model that makes this decision.
+  The general fix is to push the policy down into each backend's ``add_array`` so every model benefits; every array-holding field already accepts the ``ArrayReferenceModel | InlineArrayModel`` union, so no frozen document would change, and only ``ArrayReferenceQuantityModel.value`` would need widening.
+
+- **A size cap when inlining arrays in JSON.**
+  ``JsonOutputArchive.add_array`` inlines unconditionally, which is why a 100 MB FITS ``CellCoadd`` converts to roughly a 600 MB JSON file.
+
+- **FITS-backed fixtures.**
+  Every fixture is JSON today, so no fixture exercises the ``ArrayReferenceModel`` branch of those unions.
 
 - **Schema-snapshot test.**
   Diff each tree's ``model_json_schema()`` against a committed snapshot and fail on change, to catch a shape change that was not accompanied by a ``SCHEMA_VERSION`` bump.

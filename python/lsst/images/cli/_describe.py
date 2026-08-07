@@ -21,7 +21,7 @@ from ..serialization import ArchiveReadError, read_archive
 
 @click.command(name="describe")
 @click.argument("file", type=click.Path(exists=True, dir_okay=False))
-def describe(file: str) -> None:  # numpydoc ignore=PR01
+def describe(file: str) -> None:
     """Deserialize an lsst.images file and print its data-model report.
 
     Unlike ``inspect`` (which reports only the file layout), this reads the

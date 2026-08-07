@@ -39,6 +39,7 @@ from ..serialization import (
     tree_class_for_info,
 )
 from ..serialization._backends import _is_binary_stream
+from ..serialization._common import _ARCHIVE_READ_CONTEXT
 
 if TYPE_CHECKING:
     import astropy.io.fits
@@ -108,7 +109,7 @@ class JsonInputArchive(InputArchive[JsonRef]):
         info = ArchiveInfo.from_schema_url(parsed["schema_url"], format_version=None)
         tree_cls = tree_class_for_info(info, path)
         parameterized = parameterize_tree(tree_cls, JsonRef)
-        tree = parameterized.model_validate_json(raw)
+        tree = parameterized.model_validate_json(raw, context=_ARCHIVE_READ_CONTEXT)
         archive = cls(tree.indirect)
         try:
             yield archive, tree, info
@@ -128,7 +129,7 @@ class JsonInputArchive(InputArchive[JsonRef]):
         index = int(pointer.ref.removeprefix("#/indirect/"))
         if (existing := self._deserialized_pointer_cache.get(index)) is not None:
             return existing
-        model = model_type.model_validate(self._indirect[index])
+        model = model_type.model_validate(self._indirect[index], context=_ARCHIVE_READ_CONTEXT)
         result = deserializer(model, self)
         self._deserialized_pointer_cache[index] = result
         return result

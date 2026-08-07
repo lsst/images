@@ -29,10 +29,18 @@ from lsst.images.serialization import (
     is_development_version,
     warn_for_development_schemas,
 )
-from lsst.images.serialization._common import _check_compat, _check_format_version
-from lsst.images.tests import check_archive_tree_class_invariants, iter_concrete_archive_tree_subclasses
+from lsst.images.serialization._common import (
+    _ARCHIVE_READ_CONTEXT,
+    _check_compat,
+    _check_format_version,
+)
+from lsst.images.tests import (
+    check_archive_tree_class_invariants,
+    current_fixture_path,
+    iter_concrete_archive_tree_subclasses,
+)
 
-SCHEMA_DIR = Path(__file__).parent / "data" / "schema_v1"
+FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
 
 
 class _DummyArchiveTree(ArchiveTree):
@@ -176,11 +184,38 @@ def test_normalises_to_in_code_values() -> None:
     assert instance.min_read_version == 1
 
 
-def test_absent_fields_default_to_legacy() -> None:
-    """Verify absent version fields default to the legacy v1 values."""
+def test_absent_fields_default_for_fresh_construction() -> None:
+    """Verify fresh in-memory construction may omit version fields."""
     instance = _DummyArchiveTree.model_validate({})
     assert instance.schema_version == "1.0.0"
     assert instance.min_read_version == 1
+
+
+def test_archive_tree_requires_an_explicit_schema_version() -> None:
+    """Verify archive input cannot silently assume a version."""
+    with pytest.raises(pydantic.ValidationError, match="has no schema_version"):
+        _DummyArchiveTree.model_validate({}, context=_ARCHIVE_READ_CONTEXT)
+
+
+def test_archive_context_requires_versions_on_nested_trees() -> None:
+    """Verify the archive-read marker propagates into embedded schemas."""
+
+    class _ParentTree(ArchiveTree):
+        SCHEMA_NAME: ClassVar[str] = "version_context_parent_test"
+        SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+        MIN_READ_VERSION: ClassVar[int] = 1
+        PUBLIC_TYPE: ClassVar[type] = object
+
+        child: _DummyArchiveTree
+
+        def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> Any:
+            raise NotImplementedError()
+
+    with pytest.raises(pydantic.ValidationError, match="dummy: archive tree has no schema_version"):
+        _ParentTree.model_validate(
+            {"schema_version": "1.0.0", "min_read_version": 1, "child": {}},
+            context=_ARCHIVE_READ_CONTEXT,
+        )
 
 
 def test_min_read_version_too_high_rejected() -> None:
@@ -230,8 +265,8 @@ def test_schema_names_unique() -> None:
 
 @pytest.fixture
 def fixture_path() -> Path:
-    """Return the path to the committed image.json schema fixture."""
-    path = SCHEMA_DIR / "image.json"
+    """Return the path to the committed image schema fixture."""
+    path = current_fixture_path(FIXTURE_DIR, "image")
     assert path.exists()
     return path
 
@@ -255,17 +290,6 @@ def test_higher_major_with_low_min_read_succeeds(fixture_path: Path) -> None:
     # major-1 readers reads silently.
     instance = ImageSerializationModel.model_validate(tree)
     # And gets normalised back to in-code values.
-    assert instance.schema_version == "1.0.0"
-    assert instance.min_read_version == 1
-
-
-def test_absent_fields_default_to_legacy_fixture(fixture_path: Path) -> None:
-    """Verify stripping the version fields entirely reads with v1 defaults."""
-    tree = json_module.loads(fixture_path.read_text())
-    del tree["schema_version"]
-    del tree["min_read_version"]
-    del tree["schema_url"]
-    instance = ImageSerializationModel.model_validate(tree)
     assert instance.schema_version == "1.0.0"
     assert instance.min_read_version == 1
 

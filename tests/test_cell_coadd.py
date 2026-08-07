@@ -11,20 +11,31 @@
 
 from __future__ import annotations
 
+import copy
 import dataclasses
+import json
 import os
 import pickle
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
 from lsst.images import YX, Box, Interval, MaskPlane, get_legacy_deep_coadd_mask_planes
-from lsst.images.cells import CellCoadd, CellGrid, CellGridBounds, CellIJ, CoaddProvenance, PatchDefinition
+from lsst.images.cells import (
+    CellCoadd,
+    CellGrid,
+    CellGridBounds,
+    CellIJ,
+    CellPointSpreadFunctionSerializationModel,
+    CoaddProvenance,
+    PatchDefinition,
+)
 from lsst.images.describe import DescribeOptions, Report
 from lsst.images.fields import ChebyshevField
 from lsst.images.fits import FitsCompressionOptions
-from lsst.images.serialization import read_archive
+from lsst.images.serialization import JsonRef, class_for_schema, parameterize_tree, read_archive
 from lsst.images.tests import (
     DP2_COADD_DATA_ID,
     DP2_COADD_MISSING_CELL,
@@ -40,6 +51,7 @@ from lsst.images.tests import (
     compare_masked_image_to_legacy,
     compare_psf_to_legacy,
     compare_sky_projection_to_legacy_wcs,
+    current_fixture_path,
 )
 
 try:
@@ -59,7 +71,7 @@ except ImportError:
     type LegacyMultipleCellCoadd = Any  # type: ignore[no-redef]
 
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
-LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
 
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
 skip_no_legacy = pytest.mark.skipif(not HAVE_LEGACY, reason="lsst.afw (etc) could not be imported.")
@@ -132,7 +144,7 @@ def legacy_test_data() -> _LegacyTestData:
 @pytest.fixture
 def minified_cell_coadd() -> CellCoadd:
     """Return a tiny CellCoadd from JSON data stored in this package."""
-    path = os.path.join(LOCAL_DATA_DIR, "schema_v1", "legacy", "cell_coadd.json")
+    path = current_fixture_path(FIXTURE_DIR, "cell_coadd", variant="as_shipped")
     return read_archive(path, CellCoadd)
 
 
@@ -372,6 +384,28 @@ def test_cell_grid_patch_str_uses_clean_geometry() -> None:
         "missing={(i=0, j=2), (i=1, j=1)}"
     )
     assert "Interval(" in repr(bounds_missing)
+
+
+def test_cell_shape_accepts_both_spellings() -> None:
+    """Verify both on-disk spellings of an XY pair still validate.
+
+    Shipped cell_coadd 1.0.0 files carry the array spelling, so this stays
+    readable until a major bump retires the as_shipped fixture.  A focused
+    check here gives a two-line failure instead of a 52 KB fixture failing
+    to read.
+    """
+    tree_cls = class_for_schema("cell_psf")
+    assert tree_cls is not None
+    model = parameterize_tree(tree_cls, JsonRef)
+    fixture = json.loads(current_fixture_path(FIXTURE_DIR, "cell_psf").read_text())
+    assert fixture["bounds"]["grid"]["cell_shape"] == {"y": 4, "x": 4}
+
+    legacy = copy.deepcopy(fixture)
+    legacy["bounds"]["grid"]["cell_shape"] = [4, 4]
+    tree = model.model_validate(legacy)
+    assert isinstance(tree, CellPointSpreadFunctionSerializationModel)
+    assert tree.bounds.grid.cell_shape.y == 4
+    assert tree.bounds.grid.cell_shape.x == 4
 
 
 def test_from_legacy(legacy_test_data: _LegacyTestData) -> None:
