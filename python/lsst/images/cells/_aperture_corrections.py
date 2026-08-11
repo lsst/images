@@ -37,10 +37,10 @@ from ..serialization import (
 if TYPE_CHECKING:
     try:
         from lsst.afw.image import ApCorrMap as LegacyApCorrMap
-        from lsst.cell_coadds import StitchedApertureCorrection as LegacyStichedApertureCorrection
+        from lsst.cell_coadds import StitchedApertureCorrection as LegacyStitchedApertureCorrection
     except ImportError:
         type LegacyApCorrMap = Any  # type: ignore[no-redef]
-        type LegacyStichedApertureCorrection = Any  # type: ignore[no-redef]
+        type LegacyStitchedApertureCorrection = Any  # type: ignore[no-redef]
 
 
 @final
@@ -161,7 +161,7 @@ class CellField(BaseField):
 
     @staticmethod
     def from_legacy_aperture_correction(
-        legacy: LegacyStichedApertureCorrection, bounds: CellGridBounds
+        legacy: LegacyStitchedApertureCorrection, bounds: CellGridBounds
     ) -> CellField:
         """Convert from a legacy `lsst.cell_coadds.StitchedApertureCorrection`.
 
@@ -188,7 +188,7 @@ class CellField(BaseField):
             )
         return CellField(bounds, array)
 
-    def to_legacy_aperture_correction(self) -> LegacyStichedApertureCorrection:
+    def to_legacy_aperture_correction(self) -> LegacyStitchedApertureCorrection:
         """Convert to a legacy
         `lsst.cell_coadds.StitchedApertureCorrection`.
         """
