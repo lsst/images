@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -78,6 +79,23 @@ def make_image() -> Image:
     )
 
 
+def _strip_root_lsst_key(target: str, key: str) -> None:
+    """Delete one key from a written store's root ``lsst`` attributes.
+
+    Parameters
+    ----------
+    target
+        Path of the zarr store to edit in place.
+    key
+        Key to remove from the root group's ``lsst`` namespace.
+    """
+    store = zarr.storage.LocalStore(target, read_only=False)
+    root = zarr.open_group(store=store, zarr_format=3)
+    attrs = dict(root.attrs)
+    attrs[LSST_NS] = {k: v for k, v in attrs[LSST_NS].items() if k != key}  # type: ignore[union-attr]
+    root.update_attributes(attrs)
+
+
 @skip_no_zarr
 def test_open_reads_tree(tmp_path: Path) -> None:
     """Verify opening a written archive yields a serialization tree."""
@@ -122,6 +140,69 @@ def test_future_version_refused(tmp_path: Path) -> None:
     with pytest.raises(ArchiveReadError, match="container format version"):
         with ZarrInputArchive.open(target):
             pass
+
+
+@skip_no_zarr
+def test_write_emits_version_and_data_model(tmp_path: Path) -> None:
+    """Verify a freshly-written store carries lsst.version and data_model."""
+    target = str(tmp_path / "out.zarr")
+    write(make_image(), target)
+    store = zarr.storage.LocalStore(target, read_only=False)
+    attrs = zarr.open_group(store=store, zarr_format=3).attrs[LSST_NS]
+    assert attrs["version"] == LSST_VERSION
+    assert attrs["data_model"] == "https://images.lsst.io/schemas/image-1.0.0"
+
+
+@skip_no_zarr
+def test_missing_version_refused(tmp_path: Path) -> None:
+    """Verify a store lacking lsst.version is rejected, not assumed to be v1.
+
+    `ZarrOutputArchive` stamps the version alongside the rest of the ``lsst``
+    namespace, so a store with the namespace and no version is damaged, and
+    guessing 1 would guess at the layout.
+    """
+    target = str(tmp_path / "out.zarr")
+    write(make_image(), target)
+    _strip_root_lsst_key(target, "version")
+    with pytest.raises(ArchiveReadError, match="lsst.version"):
+        with ZarrInputArchive.open(target):
+            pass
+
+
+@skip_no_zarr
+def test_get_basic_info_fails_when_version_absent(tmp_path: Path) -> None:
+    """Verify the info-only read requires lsst.version as well."""
+    target = str(tmp_path / "out.zarr")
+    write(make_image(), target)
+    _strip_root_lsst_key(target, "version")
+    with pytest.raises(ArchiveReadError, match="lsst.version"):
+        ZarrInputArchive.get_basic_info(target)
+
+
+@skip_no_zarr
+def test_unstamped_tree_refused(tmp_path: Path) -> None:
+    """Verify a stored tree with no ``schema_version`` is rejected.
+
+    The backend validates in the archive-read context, so the tree must carry
+    its own stamp rather than falling back to the class constants.
+    """
+    target = str(tmp_path / "out.zarr")
+    write(make_image(), target)
+    store = zarr.storage.LocalStore(target, read_only=False)
+    root = zarr.open_group(store=store, zarr_format=3)
+    tree = json.loads(bytes(root["lsst_json"][:]).decode("utf-8"))
+    del tree["schema_version"]
+    data = np.frombuffer(json.dumps(tree).encode("utf-8"), dtype=np.uint8)
+    array = root.create_array(
+        name="lsst_json", shape=data.shape, chunks=data.shape, dtype="uint8", overwrite=True
+    )
+    array[:] = data
+    # The writer consolidates root metadata, which still describes the array
+    # this test replaced; refresh it so the reader sees the new one.
+    zarr.consolidate_metadata(store)
+    with ZarrInputArchive.open(target) as archive:
+        with pytest.raises(pydantic.ValidationError, match="has no schema_version"):
+            archive.get_tree(ImageSerializationModel)
 
 
 @skip_no_zarr

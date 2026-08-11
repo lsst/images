@@ -47,8 +47,9 @@ LSST_VERSION = 1
 Bumps when the zarr group and attribute layout changes, independent of any
 data-model ``SCHEMA_VERSION``. Readers refuse a newer on-disk container
 version than they understand (see
-:func:`lsst.images.serialization._common._check_format_version`), and treat
-its absence as ``1``. See :ref:`lsst.images-schema-versioning`.
+:func:`lsst.images.serialization._common._check_format_version`), and refuse
+a store that carries the ``lsst`` namespace without one at all. See
+:ref:`lsst.images-schema-versioning`.
 """
 
 DEFAULT_CHUNK_AXIS_LIMIT = 256
