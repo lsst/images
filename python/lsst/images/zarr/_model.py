@@ -48,6 +48,14 @@ from zarr.codecs import BloscCodec, BytesCodec
 
 from ._common import LSST_NS, LSST_VERSION, OME_NS, OME_VERSION, ZarrCompressionOptions
 
+_ON_DISK_VERSION_KEY = "__version_remembered_at_load__"
+"""Key `ZarrAttributes.load` stashes the on-disk ``lsst.version`` under.
+
+The private prefix keeps `ZarrAttributes.dump` from writing it back out, so
+a tree read and rewritten is stamped with the version this release writes
+rather than the one it was read from.
+"""
+
 
 @dataclass
 class ZarrAttributes:
@@ -92,7 +100,7 @@ class ZarrAttributes:
         if version is not None:
             # Stash the on-disk version under a private sentinel so the input
             # archive can validate without going back to the raw store.
-            lsst["__version_remembered_at_load__"] = version
+            lsst[_ON_DISK_VERSION_KEY] = version
         ome = dict(raw.get(OME_NS, {}))
         ome.pop("version", None)
         extra = {k: v for k, v in raw.items() if k not in (LSST_NS, OME_NS)}

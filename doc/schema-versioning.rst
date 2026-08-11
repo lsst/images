@@ -109,6 +109,7 @@ The container version is required for the same reason: a writer always stamps th
 Where each backend applies that differs only in how a file is recognized as one this package wrote.
 Every FITS file the reader can open is ours already — the container cards it needs carry no defaults — so ``FMTVER`` is required outright, and a file without it is reported as such instead of failing later on a missing card.
 An NDF, by contrast, can be a Starlink product with no LSST extension at all: those have no layout of ours to version and are read by `~lsst.images.ndf.read_starlink`, so ``FORMAT_VERSION`` is required only of a file carrying an LSST JSON tree.
+A zarr store is recognized by its root group's ``lsst`` attribute namespace, which the writer always stamps with ``lsst.version``, so that attribute is required of any store carrying the namespace while a store without it is reported as not being one of ours.
 
 Evolving a schema
 =================

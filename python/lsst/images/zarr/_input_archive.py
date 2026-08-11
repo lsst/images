@@ -39,11 +39,38 @@ from ..serialization import (
     tree_class_for_info,
 )
 from ..serialization._backends import _is_binary_stream
-from ..serialization._common import _check_format_version
+from ..serialization._common import _ARCHIVE_READ_CONTEXT, _check_format_version
 from ._common import LSST_VERSION, ZarrPointerModel
 from ._layout import deserialize_fits_opaque_metadata
-from ._model import ZarrArray, ZarrDocument
+from ._model import _ON_DISK_VERSION_KEY, ZarrArray, ZarrDocument
 from ._store import open_store_for_read
+
+
+def _read_format_version(attrs: dict[str, Any], source: str) -> int:
+    """Return the container layout version stamped in the root attributes.
+
+    `ZarrOutputArchive` writes ``lsst.version`` alongside the rest of the
+    ``lsst`` namespace, so a store carrying that namespace without a version
+    is a damaged archive rather than an old one, and a guessed version would
+    guess at the layout.
+
+    Parameters
+    ----------
+    attrs
+        The root group's ``lsst`` attribute namespace.
+    source
+        Description of the archive the attributes came from, used in the
+        error message.
+
+    Returns
+    -------
+    `int`
+        The on-disk container layout version.
+    """
+    version = attrs.get(_ON_DISK_VERSION_KEY)
+    if version is None:
+        raise ArchiveReadError(f"{source} has lsst zarr attributes but no lsst.version attribute.")
+    return int(version)
 
 
 class ZarrInputArchive(InputArchive[ZarrPointerModel]):
@@ -101,8 +128,11 @@ class ZarrInputArchive(InputArchive[ZarrPointerModel]):
             raise ArchiveReadError(
                 f"{path!r} is not an lsst.images zarr archive (no lsst.data_model attribute)."
             )
-        format_version = int(attrs.get("__version_remembered_at_load__", 1))
-        return ArchiveInfo.from_schema_url(schema_url, format_version=format_version)
+        # data_model was found, so this is one of our archives and carries the
+        # layout stamp its writer emits alongside it.
+        return ArchiveInfo.from_schema_url(
+            schema_url, format_version=_read_format_version(attrs, f"{path!r}")
+        )
 
     @classmethod
     @contextmanager
@@ -150,8 +180,9 @@ class ZarrInputArchive(InputArchive[ZarrPointerModel]):
         schema_url = attrs.get("data_model")
         if not schema_url:
             raise ArchiveReadError("This is not an lsst.images zarr archive (no lsst.data_model attribute).")
-        format_version = int(attrs.get("__version_remembered_at_load__", 1))
-        return ArchiveInfo.from_schema_url(schema_url, format_version=format_version)
+        return ArchiveInfo.from_schema_url(
+            schema_url, format_version=_read_format_version(attrs, "This archive")
+        )
 
     @property
     def document(self) -> ZarrDocument:
@@ -175,17 +206,17 @@ class ZarrInputArchive(InputArchive[ZarrPointerModel]):
         if not isinstance(node, ZarrArray):
             raise ArchiveReadError("/lsst_json must be a zarr array, not a group.")
         json_bytes = bytes(node.read())
-        return model_type.model_validate_json(json_bytes.decode("utf-8"))
+        return model_type.model_validate_json(json_bytes.decode("utf-8"), context=_ARCHIVE_READ_CONTEXT)
 
     def _validate_root_attributes(self) -> None:
         attrs = self._document.root.attributes.lsst
         if "archive_class" not in attrs:
             raise ArchiveReadError("File is not an LSST zarr archive (missing lsst.archive_class).")
-        # lsst.version is the container (file-format) layout version; absence
-        # is treated as 1. lsst.data_model is informational only — the JSON
-        # tree's schema_version / min_read_version drive data-model checks.
-        on_disk = int(attrs.get("__version_remembered_at_load__", 1))
-        _check_format_version("zarr", on_disk, LSST_VERSION)
+        # lsst.version is the container (file-format) layout version, required
+        # of every store carrying the lsst namespace. lsst.data_model is
+        # informational only — the JSON tree's schema_version /
+        # min_read_version drive data-model checks.
+        _check_format_version("zarr", _read_format_version(attrs, "This archive"), LSST_VERSION)
 
     def deserialize_pointer[U: ArchiveTree, V](
         self,
@@ -202,7 +233,7 @@ class ZarrInputArchive(InputArchive[ZarrPointerModel]):
         if not isinstance(node, ZarrArray):
             raise ArchiveReadError(f"Pointer target {pointer.path!r} is not an array.")
         json_text = bytes(node.read()).decode("utf-8")
-        model = model_type.model_validate_json(json_text)
+        model = model_type.model_validate_json(json_text, context=_ARCHIVE_READ_CONTEXT)
         result = deserializer(model, self)
         self._deserialized_pointer_cache[pointer.path] = result
         if isinstance(result, FrameSet):
