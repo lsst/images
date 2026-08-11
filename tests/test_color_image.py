@@ -19,6 +19,7 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
     RoundtripNdf,
+    RoundtripZarr,
     assert_images_equal,
     assert_sky_projections_equal,
     make_random_sky_projection,
@@ -33,7 +34,15 @@ try:
 except ImportError:
     HAVE_H5PY = False
 
+try:
+    import zarr  # noqa: F401
+
+    HAVE_ZARR = True
+except ImportError:
+    HAVE_ZARR = False
+
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
+skip_no_zarr = pytest.mark.skipif(not HAVE_ZARR, reason="zarr is not installed")
 
 
 def _make_pixel_frame() -> TractFrame:
@@ -130,6 +139,21 @@ def test_json_roundtrip() -> None:
     with RoundtripJson(color_image) as roundtrip:
         pass
     assert_color_images_equal(roundtrip.result, color_image, expect_view=False)
+
+
+@skip_no_zarr
+def test_fits_zarr_consistency() -> None:
+    """Verify FITS and zarr backends produce equal ColorImages on
+    round-trip.
+    """
+    color_image, _ = _make_color_image()
+    with (
+        RoundtripFits(color_image) as fits_rt,
+        RoundtripZarr(color_image) as zarr_rt,
+    ):
+        assert_color_images_equal(fits_rt.result, color_image, expect_view=False)
+        assert_color_images_equal(zarr_rt.result, color_image, expect_view=False)
+        assert_color_images_equal(fits_rt.result, zarr_rt.result, expect_view=False)
 
 
 @skip_no_h5py
