@@ -43,7 +43,8 @@ nitpick_ignore_regex = [
 ]
 extensions = [
     "sphinxcontrib.autodoc_pydantic",
-    "sphinx_click"
+    "sphinx_click",
+    "documenteer.ext.autotypes"
 ]
 
 [sphinx.intersphinx.projects]
