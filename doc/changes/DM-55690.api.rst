@@ -1,0 +1,1 @@
+Exported `~lsst.images.ColorImageSerializationModel` from ``lsst.images``, `~lsst.images.tests.RoundtripBase` from ``lsst.images.tests``, and the NDF data model classes (`~lsst.images.ndf.Ndf`, `~lsst.images.ndf.NdfContainer`, and related classes) from ``lsst.images.ndf``, since all of these appear in public signatures or are base classes of public classes.

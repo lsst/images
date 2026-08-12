@@ -1,0 +1,3 @@
+Enabled the ``documenteer.ext.autotypes`` Sphinx extension (new in Documenteer 2.5.0) so that type aliases, PEP 695 type parameters, and Pydantic model references resolve in the API documentation.
+This allowed the serialization type aliases (``FloatType``, ``InlineArray``, ``InlineArrayQuantity``, ``Quantity``, ``Time``, ``Unit``) to be documented instead of skipped, module-level objects to be included on the core API page, and the blanket nitpick-ignore configuration to be replaced with a minimal set of targeted entries.
+Also fixed several docstring cross-reference typos and added API reference pages for `lsst.images.formatters`, `lsst.images.diagram`, and `lsst.images.schema_docs`.
