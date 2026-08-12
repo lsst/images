@@ -9,7 +9,6 @@
 # Use of this source code is governed by a 3-clause BSD-style
 # license that can be found in the LICENSE file.
 
-from ._camera_frame_set import *
 from ._frame_set import *
 from ._frames import *
 from ._sky_projection import *

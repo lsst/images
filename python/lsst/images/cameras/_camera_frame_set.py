@@ -19,12 +19,15 @@ import astropy.units as u
 import pydantic
 
 from .._geom import Bounds, Box
+from .._transforms import (
+    FrameLookupError,
+    FrameSet,
+    Transform,
+    _frames,  # use this import style to facilitate pattern matching
+)
+from .._transforms import _ast as astshim
 from ..describe import DescribeOptions, FieldRole, Report, ReportField
 from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
-from . import _ast as astshim
-from . import _frames  # use this import style to facilitate pattern matching
-from ._frame_set import FrameLookupError, FrameSet
-from ._transform import Transform
 
 
 class CameraFrameSet(FrameSet):

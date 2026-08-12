@@ -13,3 +13,4 @@
 
 from ._amplifier import *
 from ._detector import *
+from ._camera_frame_set import *

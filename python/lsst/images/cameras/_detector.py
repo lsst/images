@@ -29,8 +29,6 @@ import pydantic
 
 from .._geom import Box
 from .._transforms import (
-    CameraFrameSet,
-    CameraFrameSetSerializationModel,
     DetectorFrame,
     FieldAngleFrame,
     FocalPlaneFrame,
@@ -46,6 +44,7 @@ from ..serialization import (
     Quantity,
 )
 from ._amplifier import Amplifier
+from ._camera_frame_set import CameraFrameSet, CameraFrameSetSerializationModel
 
 if TYPE_CHECKING:
     try:

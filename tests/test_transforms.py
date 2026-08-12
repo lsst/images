@@ -28,8 +28,6 @@ from lsst.images import (
     XY,
     YX,
     Box,
-    CameraFrameSet,
-    CameraFrameSetSerializationModel,
     DetectorFrame,
     FocalPlaneFrame,
     GeneralFrame,
@@ -38,6 +36,7 @@ from lsst.images import (
     TransformSerializationModel,
 )
 from lsst.images._transforms import _ast as astshim
+from lsst.images.cameras import CameraFrameSet, CameraFrameSetSerializationModel
 from lsst.images.describe import FieldRole, Report
 from lsst.images.fits import PointerModel
 from lsst.images.serialization import ArchiveTree, InputArchive, JsonRef, OutputArchive
