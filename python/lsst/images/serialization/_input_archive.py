@@ -179,7 +179,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         self, pointer: P, model_type: type[U], deserializer: Callable[[U, InputArchive[P]], V]
     ) -> V:
         """Deserialize an object that was saved by
-        `~lsst.serialization.OutputArchive.serialize_pointer`.
+        `~lsst.images.serialization.OutputArchive.serialize_pointer`.
 
         Parameters
         ----------
@@ -203,9 +203,9 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         times.
 
         There is no ``deserialize_direct`` (to pair with
-        `~lsst.serialization.OutputArchive.serialize_direct`) because the
-        caller can just call a deserializer function directly on a sub-model
-        of its Pydantic tree.
+        `~lsst.images.serialization.OutputArchive.serialize_direct`) because
+        the caller can just call a deserializer function directly on a
+        sub-model of its Pydantic tree.
         """
         raise NotImplementedError()
 
@@ -263,7 +263,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         strip_header
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
-            `~lsst.serialization.OutputArchive.add_table`.
+            `~lsst.images.serialization.OutputArchive.add_table`.
 
         Returns
         -------
@@ -287,7 +287,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         strip_header
             A callable that strips out any FITS header cards added by the
             ``update_header`` argument in the corresponding call to
-            `~lsst.serialization.OutputArchive.add_structured_array`.
+            `~lsst.images.serialization.OutputArchive.add_structured_array`.
 
         Returns
         -------
