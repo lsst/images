@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0.dev0",
+  "schema_version": "1.0.0",
   "min_read_version": 1,
   "psfSigma": 2.5,
   "psfArea": NaN,
@@ -77,5 +77,5 @@
   "psfTE4e1": NaN,
   "psfTE4e2": NaN,
   "psfTE4ex": NaN,
-  "schema_url": "https://images.lsst.io/schemas/observation_summary_stats-1.0.0.dev0"
+  "schema_url": "https://images.lsst.io/schemas/observation_summary_stats-1.0.0"
 }

@@ -9,7 +9,8 @@
 # Use of this source code is governed by a 3-clause BSD-style
 # license that can be found in the LICENSE file.
 
-from ._frame_set import *
-from ._frames import *
-from ._sky_projection import *
-from ._transform import *
+"""Data structures for representing a camera's detectors and amplifiers."""
+
+from ._amplifier import *
+from ._detector import *
+from ._camera_frame_set import *

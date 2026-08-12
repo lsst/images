@@ -58,7 +58,7 @@ class ObservationSummaryStats(ArchiveTree, DescribableMixin):
     """Various statistics obtained from a single observation."""
 
     SCHEMA_NAME: ClassVar[str] = "observation_summary_stats"
-    SCHEMA_VERSION: ClassVar[str] = "1.0.0.dev0"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type]  # Assigned after class construction.
 

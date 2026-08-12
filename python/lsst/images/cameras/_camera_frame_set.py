@@ -19,16 +19,19 @@ import astropy.units as u
 import pydantic
 
 from .._geom import Bounds, Box
+from .._transforms import (
+    FrameLookupError,
+    FrameSet,
+    Transform,
+    _frames,  # use this import style to facilitate pattern matching
+)
+from .._transforms import _ast as astshim
 from ..describe import DescribeOptions, FieldRole, Report, ReportField
 from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
-from . import _ast as astshim
-from . import _frames  # use this import style to facilitate pattern matching
-from ._frame_set import FrameLookupError, FrameSet
-from ._transform import Transform
 
 
 class CameraFrameSet(FrameSet):
-    """A `FrameSet` that manages the coordinate systems of a camera.
+    """A `.FrameSet` that manages the coordinate systems of a camera.
 
     The `CameraFrameSet` class constructor is considered a private
     implementation detail.  At present, instances can only be obtained by
@@ -140,7 +143,7 @@ class CameraFrameSet(FrameSet):
         visit
             ID for the visit this frame will correspond to.  This only needs
             to be provided in contexts where camera frames will be related to
-            the sky via a `SkyProjection`.
+            the sky via a `.SkyProjection`.
         """
         if visit is None:
             return self._focal_plane_frame
@@ -155,7 +158,7 @@ class CameraFrameSet(FrameSet):
         visit
             ID for the visit this frame will correspond to.  This only needs
             to be provided in contexts where camera frames will be related to
-            the sky via a `SkyProjection`.
+            the sky via a `.SkyProjection`.
         """
         if visit is None:
             return self._field_angle_frame
@@ -172,7 +175,7 @@ class CameraFrameSet(FrameSet):
         visit
             ID for the visit this frame will correspond to.  This only needs
             to be provided in contexts where camera frames will be related to
-            the sky via a `SkyProjection`.
+            the sky via a `.SkyProjection`.
         """
         try:
             frame_id = self._detector_frame_ids[detector]
@@ -267,7 +270,7 @@ class CameraFrameSetSerializationModel(ArchiveTree):
     """Serialization model for `CameraFrameSet`."""
 
     SCHEMA_NAME: ClassVar[str] = "camera_frame_set"
-    SCHEMA_VERSION: ClassVar[str] = "1.0.0.dev0"
+    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = CameraFrameSet
 
@@ -285,7 +288,7 @@ class CameraFrameSetSerializationModel(ArchiveTree):
             Archive to read from.
         **kwargs
             Unsupported keyword arguments are accepted only to provide better
-            error messages (raising `serialization.InvalidParameterError`).
+            error messages (raising `.serialization.InvalidParameterError`).
         """
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for CameraFrameSet: {set(kwargs.keys())}.")

@@ -47,7 +47,7 @@ FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
 EXPECTED_TYPES: dict[tuple[str, str | None], str] = {
     ("aperture_correction_map", None): "dict",
     ("background_map", None): "lsst.images.BackgroundMap",
-    ("camera_frame_set", None): "lsst.images.CameraFrameSet",
+    ("camera_frame_set", None): "lsst.images.cameras.CameraFrameSet",
     ("cell_aperture_correction_map", None): "dict",
     ("cell_coadd", "as_shipped"): "lsst.images.cells.CellCoadd",
     ("cell_coadd", "canonical"): "lsst.images.cells.CellCoadd",
