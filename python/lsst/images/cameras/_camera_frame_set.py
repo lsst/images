@@ -31,7 +31,7 @@ from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, Ou
 
 
 class CameraFrameSet(FrameSet):
-    """A `FrameSet` that manages the coordinate systems of a camera.
+    """A `.FrameSet` that manages the coordinate systems of a camera.
 
     The `CameraFrameSet` class constructor is considered a private
     implementation detail.  At present, instances can only be obtained by
@@ -143,7 +143,7 @@ class CameraFrameSet(FrameSet):
         visit
             ID for the visit this frame will correspond to.  This only needs
             to be provided in contexts where camera frames will be related to
-            the sky via a `SkyProjection`.
+            the sky via a `.SkyProjection`.
         """
         if visit is None:
             return self._focal_plane_frame
@@ -158,7 +158,7 @@ class CameraFrameSet(FrameSet):
         visit
             ID for the visit this frame will correspond to.  This only needs
             to be provided in contexts where camera frames will be related to
-            the sky via a `SkyProjection`.
+            the sky via a `.SkyProjection`.
         """
         if visit is None:
             return self._field_angle_frame
@@ -175,7 +175,7 @@ class CameraFrameSet(FrameSet):
         visit
             ID for the visit this frame will correspond to.  This only needs
             to be provided in contexts where camera frames will be related to
-            the sky via a `SkyProjection`.
+            the sky via a `.SkyProjection`.
         """
         try:
             frame_id = self._detector_frame_ids[detector]
@@ -288,7 +288,7 @@ class CameraFrameSetSerializationModel(ArchiveTree):
             Archive to read from.
         **kwargs
             Unsupported keyword arguments are accepted only to provide better
-            error messages (raising `serialization.InvalidParameterError`).
+            error messages (raising `.serialization.InvalidParameterError`).
         """
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for CameraFrameSet: {set(kwargs.keys())}.")

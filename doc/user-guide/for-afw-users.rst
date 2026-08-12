@@ -87,7 +87,7 @@ Both types can be (but are not necessarily!) representable as FITS WCS, and are 
 `SkyProjection` and `Transform` differ from their `lsst.afw.geom` counterparts in that they can identify the frames they transform between (e.g. the pixels of a particular ``{visit, detector}`` and the ICRS sky), via an object that satisfies the `Frame` `~typing.Protocol`.
 This additional information needs to be provided when creating an `lsst.images` type from an `lsst.afw.geom` one (e.g. via `SkyProjection.from_legacy`).
 
-`lsst.afw.cameraGeom.TransformMap` corresponds directly to `CameraFrameSet`.
+`lsst.afw.cameraGeom.TransformMap` corresponds directly to `.CameraFrameSet`.
 
 **Conversions**
 
@@ -100,7 +100,7 @@ From ``lsst.afw`` to `lsst.images`:
 
 - `Transform.from_legacy`
 - `SkyProjection.from_legacy`
-- `CameraFrameSet.from_legacy` (`lsst.afw.cameraGeom.Camera`)
+- `.CameraFrameSet.from_legacy` (`lsst.afw.cameraGeom.Camera`)
 
 
 General-Purpose Images
