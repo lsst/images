@@ -18,3 +18,4 @@ Python API
    tests.rst
    formatters.rst
    diagram.rst
+   schema_docs.rst
