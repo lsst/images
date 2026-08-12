@@ -16,3 +16,4 @@ Python API
    json.rst
    ndf.rst
    tests.rst
+   formatters.rst

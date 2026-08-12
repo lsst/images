@@ -64,7 +64,7 @@ class GenericFormatter(FormatterV2):
 
     Notes
     -----
-    Subclasses (`ImageFormatter` and below) add component-level read
+    Subclasses (``ImageFormatter`` and below) add component-level read
     support. This base class forwards any read parameters straight to
     the underlying ``read`` function.
     """
@@ -115,6 +115,15 @@ class GenericFormatter(FormatterV2):
     # --- Write path ---------------------------------------------------------
 
     def write_local_file(self, in_memory_dataset: Any, uri: ResourcePath) -> None:
+        """Serialize the in-memory dataset to a local file.
+
+        Parameters
+        ----------
+        in_memory_dataset
+            The Python object to serialize.
+        uri
+            The URI to use when writing the file.
+        """
         self._validate_write_parameters()
         ext = self.get_write_extension()
         butler_info = ButlerInfo(
