@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0.dev0",
+  "schema_version": "1.0.0",
   "min_read_version": 1,
   "piff": {
     "structs": {
@@ -245,5 +245,5 @@
       "stop": 4
     }
   },
-  "schema_url": "https://images.lsst.io/schemas/piff_psf-1.0.0.dev0"
+  "schema_url": "https://images.lsst.io/schemas/piff_psf-1.0.0"
 }
