@@ -256,17 +256,7 @@ def test_write_preserves_superseded_versions(tmp_path: Path) -> None:
 
 
 _DEVELOPMENT_SCHEMAS = {
-    "aperture_correction_map",
-    "camera_frame_set",
     "color_image",
-    "detector",
-    "difference_image",
-    "gaussian_psf",
-    "image_basis_convolution_kernel",
-    "observation_summary_stats",
-    "piff_psf",
-    "psfex_psf",
-    "visit_image",
 }
 
 
