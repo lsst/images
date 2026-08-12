@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("RoundtripFits", "RoundtripJson", "RoundtripNdf", "TemporaryButler")
+__all__ = ("RoundtripBase", "RoundtripFits", "RoundtripJson", "RoundtripNdf", "TemporaryButler")
 
 import tempfile
 import uuid
@@ -155,7 +155,7 @@ class RoundtripBase[T](ABC):
         Write recipe used to control butler puts; only used when roundtripping
         through a butler.
     **kwargs
-        Keyword arguments to pass to `write`, usually equivalent to what
+        Keyword arguments to pass to ``write``, usually equivalent to what
         ``recipe`` resolves to; ignored when roundtripping through a butler.
 
     Notes
