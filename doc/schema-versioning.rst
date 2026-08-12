@@ -274,6 +274,23 @@ Which *older* sub-schema versions a reader accepts is not recorded in the schema
 Consequently a version bump in an embedded schema (e.g. ``sky_projection``) changes the frozen document of every schema that embeds it (e.g. ``visit_image``), and after the first data release those containing schemas must take a minor bump of their own even though their fields did not change.
 ``schemas write`` identifies exactly which containing schemas are affected.
 
+Freeze order
+------------
+
+A schema may be finalized only once every schema it depends on is finalized.
+This is the same inlining seen from the other side: freezing pins the content of a schema's dependencies into an immutable document, so finalizing a schema that depends on a development schema publishes a document whose content is still free to change underneath it.
+`~lsst.images.serialization.write_frozen_schemas` refuses to write such a file, and `~lsst.images.serialization.schema_dependencies` reports what a schema depends on.
+
+A base class is a dependency too.
+An embedded model records its version in the document as an ``x-lsst-schema-url``, but pydantic flattens an inherited model's fields into the subclass and records nothing, so a document does not report the versions it inherited.
+``schema_dependencies`` follows base classes as well as fields, transitively, because the document alone cannot answer the question.
+
+The check runs when a frozen file is first written rather than on every run, so an already-committed file is never re-validated.
+``test_shipped_schemas_have_no_development_dependencies`` asserts the invariant across the whole schema set instead.
+
+Editing a schema that a finalized schema inherits from changes the subclass's frozen document, and ``test_committed_frozen_schemas_are_current`` reports the subclass.
+An edit to ``masked_image`` therefore surfaces as a ``cell_coadd`` failure with the ``cell_coadd`` model unchanged; ``schema_dependencies`` finds which dependency moved.
+
 .. _lsst.images-schema-fixtures:
 
 Test fixtures

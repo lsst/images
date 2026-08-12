@@ -263,7 +263,6 @@ _DEVELOPMENT_SCHEMAS = {
     "difference_image",
     "gaussian_psf",
     "image_basis_convolution_kernel",
-    "masked_image",
     "observation_summary_stats",
     "piff_psf",
     "psfex_psf",

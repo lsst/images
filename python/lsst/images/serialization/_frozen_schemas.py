@@ -27,6 +27,7 @@ __all__ = (
     "dump_schema",
     "frozen_schema_filename",
     "frozen_schema_path",
+    "schema_dependencies",
     "write_frozen_schemas",
 )
 
@@ -34,7 +35,7 @@ import importlib.metadata
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar, get_args, get_origin
 
 from ._asdf_utils import ArrayReferenceModel
 from ._common import ArchiveTree, is_development_version
@@ -189,6 +190,106 @@ def _canonical_text(schema: dict[str, Any]) -> str:
     return json.dumps(schema, indent=2, sort_keys=True) + "\n"
 
 
+def _declaring_classes(tree_cls: type[ArchiveTree]) -> list[type[ArchiveTree]]:
+    """Return the classes in ``tree_cls``'s MRO that declare a schema, nearest
+    first.
+
+    A class declares a schema when it sets both ``SCHEMA_NAME`` and
+    ``SCHEMA_VERSION`` itself, the same convention
+    ``ArchiveTree.__pydantic_init_subclass__`` uses to decide what to register.
+    The first entry is the schema ``tree_cls`` *is*; any that follow are
+    schemas it inherits from.  A pydantic-parameterized generic (``Image[P]``)
+    has no declarations of its own, so it resolves to the generic it was made
+    from.
+    """
+    return [
+        base
+        for base in tree_cls.__mro__
+        if isinstance(base, type)
+        and issubclass(base, ArchiveTree)
+        and "SCHEMA_NAME" in base.__dict__
+        and "SCHEMA_VERSION" in base.__dict__
+    ]
+
+
+def _archive_trees_in(annotation: Any) -> set[type[ArchiveTree]]:
+    """Return every `ArchiveTree` subclass reachable from a type annotation.
+
+    Containers, unions and type variable bounds are all descended into, so a
+    model reached only as ``dict[str, Model | None]`` is still found.  Nested
+    models are not themselves expanded; that is the caller's job.
+    """
+    found: set[type[ArchiveTree]] = set()
+    stack: list[Any] = [annotation]
+    seen: set[int] = set()
+    while stack:
+        node = stack.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        # Check the origin before isinstance(node, type): a parameterized
+        # builtin such as dict[str, X] answers to both on some Python
+        # versions, and only the origin branch descends into its arguments.
+        origin = get_origin(node)
+        if origin is not None:
+            stack.append(origin)
+            stack.extend(get_args(node))
+        elif isinstance(node, type):
+            if issubclass(node, ArchiveTree):
+                found.add(node)
+        elif isinstance(node, TypeVar) and node.__bound__ is not None:
+            stack.append(node.__bound__)
+    return found
+
+
+def schema_dependencies(tree_cls: type[ArchiveTree]) -> dict[str, type[ArchiveTree]]:
+    """Return every other schema whose content is inlined into ``tree_cls``'s
+    frozen document.
+
+    Parameters
+    ----------
+    tree_cls
+        Serialization model class to inspect.
+
+    Returns
+    -------
+    `dict` [ `str`, `type` ]
+        Mapping from ``SCHEMA_NAME`` to the class declaring it, for every
+        schema ``tree_cls`` depends on, directly or transitively.
+        ``tree_cls``'s own schema is never included, so a self-referential
+        model reports nothing.
+
+    Notes
+    -----
+    Fields and base classes are both followed.  An embedded model records its
+    version in the document as a ``x-lsst-schema-url``, but pydantic flattens
+    an inherited model's fields into the subclass and records nothing, so a
+    base's version cannot be recovered from the document it contributed to.
+    """
+    own = _declaring_classes(tree_cls)
+    own_name = own[0].SCHEMA_NAME if own else None
+    result: dict[str, type[ArchiveTree]] = {}
+    stack: list[type[ArchiveTree]] = [tree_cls]
+    visited: set[type[ArchiveTree]] = set()
+    while stack:
+        current = stack.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        # Skip the first declaration, which is the schema `current` itself is.
+        candidates = list(_declaring_classes(current)[1:])
+        for field in current.model_fields.values():
+            for referenced in _archive_trees_in(field.annotation):
+                candidates.extend(_declaring_classes(referenced)[:1])
+        for candidate in candidates:
+            name = candidate.SCHEMA_NAME
+            if name == own_name or name in result:
+                continue
+            result[name] = candidate
+            stack.append(candidate)
+    return result
+
+
 def write_frozen_schemas(directory: Path, package: str = "lsst.images") -> list[Path]:
     """Write the frozen schema file for every current schema.
 
@@ -214,11 +315,17 @@ def write_frozen_schemas(directory: Path, package: str = "lsst.images") -> list[
     rather than overwriting.  Frozen files for superseded versions are never
     touched, so old schema URLs keep resolving.
 
+    A schema is frozen only if every schema it depends on is already finalized;
+    see `schema_dependencies`.  The check runs when a frozen file is first
+    written, so an already-committed file is never re-validated.
+
     Raises
     ------
     FrozenSchemaError
         If a finalized schema's frozen file exists and the live model would
         change its content; bump ``SCHEMA_VERSION`` instead of overwriting.
+        Also raised if a schema being frozen depends on a schema still in
+        development.
     """
     changed: list[Path] = []
     for cls in available_schema_classes(package):
@@ -233,6 +340,17 @@ def write_frozen_schemas(directory: Path, package: str = "lsst.images") -> list[
                     "bump SCHEMA_VERSION to change it rather than overwriting the frozen file."
                 )
             continue
+        if developing := sorted(
+            f"{name}-{dependency.SCHEMA_VERSION}"
+            for name, dependency in schema_dependencies(cls).items()
+            if is_development_version(dependency.SCHEMA_VERSION)
+        ):
+            raise FrozenSchemaError(
+                f"{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION} cannot be frozen: it depends on "
+                f"development schema(s) {', '.join(developing)}, whose content it inlines and "
+                "which are still free to change.  Finalize them first, or return this schema "
+                "to a development version."
+            )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
         changed.append(path)
