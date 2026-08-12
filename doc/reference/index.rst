@@ -17,3 +17,4 @@ Python API
    ndf.rst
    tests.rst
    formatters.rst
+   diagram.rst
