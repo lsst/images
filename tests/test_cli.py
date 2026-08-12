@@ -23,6 +23,7 @@ import click
 import click.testing
 import numpy as np
 import pytest
+from cli_schema_doubles import CliFixtureDouble
 from click.testing import CliRunner
 
 from lsst.images import Box, Image
@@ -614,18 +615,25 @@ def test_fixtures_freeze_reports_nothing_to_freeze(tmp_path: Path) -> None:
 
 
 def test_fixtures_refresh_detection_is_repeatable_without_mutating_source(tmp_path: Path) -> None:
-    """Verify a dirty fixture is detected repeatedly without being repaired."""
-    source = _copy_fixture_tree(tmp_path, name="dirty-source")
-    fixture = current_fixture_path(source, "camera_frame_set")
-    data = json.loads(fixture.read_text())
-    data["schema_version"] = "2.0.0"
-    data["schema_url"] = "https://images.lsst.io/schemas/camera_frame_set-2.0.0"
-    dirty_text = json.dumps(data, indent=2) + "\n"
+    """Verify a dirty fixture is detected repeatedly without being repaired.
+
+    Dirty here means valid but not canonically formatted, which is what
+    refresh regenerates.  The fixture belongs to `CliFixtureDouble` because
+    refresh acts only on a schema still in development.
+    """
+    name = CliFixtureDouble.SCHEMA_NAME
+    source = tmp_path / "dirty-source"
+    (source / name).mkdir(parents=True)
+    fixture = source / name / f"{name}-1.0.0.dev.json"
+    dirty_text = json.dumps({"schema_version": "1.0.0.dev0", "min_read_version": 1, "value": "x"})
     fixture.write_text(dirty_text)
 
     for run in range(2):
         directory = _copy_fixture_tree(tmp_path, source=source, name=f"run-{run}")
-        result = click.testing.CliRunner().invoke(main, ["fixtures", "refresh", "--dir", str(directory)])
+        result = click.testing.CliRunner().invoke(
+            main,
+            ["fixtures", "refresh", "--dir", str(directory), "--package", CliFixtureDouble.__module__],
+        )
         assert result.exit_code == 0, result.output
         assert "already up to date" not in result.output
         assert "wrote" in result.output
@@ -705,14 +713,18 @@ def test_fixtures_refresh_reports_a_validation_failure_cleanly(tmp_path: Path) -
     read_fixture_tree to canonicalize it; a fixture that fails that read
     raises pydantic.ValidationError or ArchiveReadError, neither of which is
     SchemaFixtureError, so the CLI must catch them too rather than let a
-    traceback escape.  camera_frame_set is a real, still-developing
-    lsst.images schema, so this needs no test double.
+    traceback escape.  Refresh acts only on a schema still in development, so
+    this uses `CliFixtureDouble` rather than a real schema that would be
+    finalized eventually, and is finalized during every release.
     """
-    directory = tmp_path / "camera_frame_set"
+    name = CliFixtureDouble.SCHEMA_NAME
+    directory = tmp_path / name
     directory.mkdir(parents=True)
-    (directory / "camera_frame_set-1.0.0.dev.json").write_text("{}\n")
+    (directory / f"{name}-1.0.0.dev.json").write_text("{}\n")
     runner = click.testing.CliRunner()
-    result = runner.invoke(main, ["fixtures", "refresh", "--dir", str(tmp_path)])
+    result = runner.invoke(
+        main, ["fixtures", "refresh", "--dir", str(tmp_path), "--package", CliFixtureDouble.__module__]
+    )
     assert result.exit_code != 0
     assert "Traceback" not in result.output
     # A raw pydantic.ValidationError escaping uncaught propagates out of
