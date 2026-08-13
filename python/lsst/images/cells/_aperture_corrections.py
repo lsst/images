@@ -37,10 +37,10 @@ from ..serialization import (
 if TYPE_CHECKING:
     try:
         from lsst.afw.image import ApCorrMap as LegacyApCorrMap
-        from lsst.cell_coadds import StitchedApertureCorrection as LegacyStichedApertureCorrection
+        from lsst.cell_coadds import StitchedApertureCorrection as LegacyStitchedApertureCorrection
     except ImportError:
         type LegacyApCorrMap = Any  # type: ignore[no-redef]
-        type LegacyStichedApertureCorrection = Any  # type: ignore[no-redef]
+        type LegacyStitchedApertureCorrection = Any  # type: ignore[no-redef]
 
 
 @final
@@ -161,7 +161,7 @@ class CellField(BaseField):
 
     @staticmethod
     def from_legacy_aperture_correction(
-        legacy: LegacyStichedApertureCorrection, bounds: CellGridBounds
+        legacy: LegacyStitchedApertureCorrection, bounds: CellGridBounds
     ) -> CellField:
         """Convert from a legacy `lsst.cell_coadds.StitchedApertureCorrection`.
 
@@ -173,12 +173,22 @@ class CellField(BaseField):
             The grid and bounds of the returned field.
         """
         array = np.full(bounds.subgrid_size.as_tuple(), np.nan, dtype=np.float64)
+        new_missing: set[CellIJ] = set()
         for cell_index in bounds.cell_indices():
             array_index = cell_index - bounds.subgrid_start
-            array[array_index.i, array_index.j] = legacy.gc[cell_index.to_legacy()]
+            try:
+                value = legacy.gc[cell_index.to_legacy()]
+            except KeyError:
+                value = np.nan
+                new_missing.add(cell_index)
+            array[array_index.i, array_index.j] = value
+        if new_missing:
+            bounds = CellGridBounds(
+                grid=bounds.grid, missing=frozenset(bounds.missing | new_missing), bbox=bounds.bbox
+            )
         return CellField(bounds, array)
 
-    def to_legacy_aperture_correction(self) -> LegacyStichedApertureCorrection:
+    def to_legacy_aperture_correction(self) -> LegacyStitchedApertureCorrection:
         """Convert to a legacy
         `lsst.cell_coadds.StitchedApertureCorrection`.
         """
@@ -219,7 +229,19 @@ class CellApertureCorrectionMapSerializationModel(ArchiveTree):
             return None
         bounds = next(iter(aperture_correction_map.values())).bounds
         if not all(field.bounds == bounds for field in aperture_correction_map.values()):
-            raise ValueError("Cell aperture corrections do not have consistent bounds.")
+            # In rare cases some field can have more missing cells from the
+            # others. This isn't worth a full denormalization into full
+            # per-field bounds (especially since that's a schema change).
+            # Instead, the shared, serialized 'bounds' only marks a cell as
+            # missing if it's absent from all fields (as is the case when
+            # there's no data), and we restore the per-field missing cells in
+            # deserialized.
+            always_missing: set[CellIJ] = set(bounds.missing)
+            for field in aperture_correction_map.values():
+                if field.bounds.grid != bounds.grid:
+                    raise ValueError("Cell aperture corrections do not have a consistent grid.")
+                always_missing &= field.bounds.missing
+            bounds = CellGridBounds(grid=bounds.grid, missing=frozenset(always_missing), bbox=bounds.bbox)
         if any(field.unit is not None for field in aperture_correction_map.values()):
             raise ValueError("Aperture corrections should be dimensionless.")
         table = astropy.table.Table(
@@ -255,7 +277,18 @@ class CellApertureCorrectionMapSerializationModel(ArchiveTree):
         for name, column in table.columns.items():
             if name in ("cell_i", "cell_j"):
                 continue
+            extra_missing_mask = np.isnan(column)
+            # If there are any NaN entries in this column, make a custom
+            # CellGridBounds with additional missing cells for this field.
+            bounds = self.bounds
+            if extra_missing_mask.any():
+                extra_missing = frozenset(
+                    {CellIJ(i=i, j=j) for i, j in table["cell_i", "cell_j"][extra_missing_mask].iterrows()}
+                )
+                bounds = CellGridBounds(
+                    grid=self.bounds.grid, missing=self.bounds.missing | extra_missing, bbox=self.bounds.bbox
+                )
             array = np.full(self.bounds.subgrid_size.as_tuple(), np.nan, dtype=np.float64)
             array[good_cell_mask] = column
-            result[name] = CellField(self.bounds, array)
+            result[name] = CellField(bounds, array)
         return result
