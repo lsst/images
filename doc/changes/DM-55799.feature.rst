@@ -1,5 +1,0 @@
-Added ``lsst.images.serialization.schema_dependencies``, which reports every schema whose content is inlined into another schema's frozen document, following base classes as well as fields, transitively.
-
-``write_frozen_schemas`` now refuses to freeze a schema that depends on a schema still in development, and a test asserts that no finalized schema does.
-Freezing pins the content of a schema's dependencies into an immutable document, so a finalized schema with a development dependency publishes a document that is still free to change underneath it.
-Base classes have to be followed as well as fields because pydantic flattens an inherited model's fields into the subclass without recording its version, so a document does not report the versions it inherited.

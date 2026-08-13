@@ -1,2 +1,0 @@
-* ``CoaddProvenance`` now supports ``describe()`` and rich pretty-printing, summarizing its input images, observing nights and per-cell contributions.
-* The report for a ``CellCoadd`` now describes its provenance, mask fractions, noise realizations and aperture corrections.

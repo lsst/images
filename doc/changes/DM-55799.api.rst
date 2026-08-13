@@ -1,3 +1,0 @@
-Finalized the ``masked_image`` schema at 1.0.0.
-
-``cell_coadd`` 1.0.0 inherits from ``masked_image`` and was already published and shipped in data, so leaving ``masked_image`` in development meant a frozen document could change underneath a released schema.
