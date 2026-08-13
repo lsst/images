@@ -1,3 +1,0 @@
-* Added rich pretty-printing of the image data models and components to allow detailed descriptions to be provided in Jupyter notebooks.
-* Added a new ``describe()`` method that can be used to get a report summarizing the object.
-* Added a new ``lsst-images-admin describe`` command-line subcommand to give a detailed report of any file.

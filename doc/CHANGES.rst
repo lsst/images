@@ -1,3 +1,40 @@
+lsst-images v30.0.11 (2026-08-13)
+=================================
+
+New Features
+------------
+
+- Finalized v1.0.0 of both the ``visit_image`` and ``difference_image`` schemas and all the schemas they depend on. (`DM-55798 <https://rubinobs.atlassian.net/browse/DM-55798>`_)
+- Finalized the ``masked_image`` schema at 1.0.0.
+  Previously it was implicitly frozen when ``cell_coadd`` schema was frozen. (`DM-55799 <https://rubinobs.atlassian.net/browse/DM-55799>`_)
+- Reworked the schema test fixtures into a per-version tree at ``tests/data/schemas`` that mirrors the frozen schema documents, and made every fixture read through its live model on every test run.
+
+  Added admin command line tooling to manage schemas. (`DM-55540 <https://rubinobs.atlassian.net/browse/DM-55540>`_)
+- * Added rich pretty-printing of the image data models and components to allow detailed descriptions to be provided in Jupyter notebooks.
+  * Added a new ``describe()`` method that can be used to get a report summarizing the object.
+  * Added a new ``lsst-images-admin describe`` command-line subcommand to give a detailed report of any file. (`DM-55612 <https://rubinobs.atlassian.net/browse/DM-55612>`_ and `DM-55659 <https://rubinobs.atlassian.net/browse/DM-55659>`_)
+
+
+API Changes
+-----------
+
+- Added fixture-management helpers to ``lsst.images.tests`` and added ``lsst.images.serialization.migration``, the decorator that registers a per-schema migration from one data-model major to the next. (`DM-55540 <https://rubinobs.atlassian.net/browse/DM-55540>`_)
+
+Bug Fixes
+---------
+
+- Fixed bug in ``CellCoadd.apply_background`` when a subset of the image had been extracted but the background was using the full box. (`DM-55652 <https://rubinobs.atlassian.net/browse/DM-55652>`_)
+
+
+Miscellaneous Changes of Minor Interest
+---------------------------------------
+
+- Cell-coadd aperture corrections can how have different missing cells (and hence different bounds) for different fields.
+
+  This does not change serialization schemas at all, but it will change how serialized cell aperture correction fields with NaNs are interpreted (previously some NaNs would not have been reflected in the bounds). (`DM-55521 <https://rubinobs.atlassian.net/browse/DM-55521>`_)
+- Added ``lsst.images.serialization.schema_dependencies``, which reports every schema whose content is inlined into another schema's frozen document, following base classes as well as fields, transitively.
+  ``write_frozen_schemas`` now refuses to freeze a schema that depends on a schema still in development(`DM-55799 <https://rubinobs.atlassian.net/browse/DM-55799>`_)
+
 lsst-images v30.0.10 (2026-07-22)
 =================================
 

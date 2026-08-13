@@ -1,1 +1,0 @@
-Fixed bug in ``CellCoadd.apply_background`` when a subset of the image had been extracted.
