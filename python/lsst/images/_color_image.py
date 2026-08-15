@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("ColorImage",)
+__all__ = ("ColorImage", "ColorImageSerializationModel")
 
 import functools
 from collections.abc import Sequence

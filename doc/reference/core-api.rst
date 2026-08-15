@@ -7,3 +7,4 @@ Core API Reference
    :no-main-docstr:
    :no-inheritance-diagram:
    :inherited-members:
+   :include-all-objects:

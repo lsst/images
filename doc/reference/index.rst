@@ -16,3 +16,6 @@ Python API
    json.rst
    ndf.rst
    tests.rst
+   formatters.rst
+   diagram.rst
+   schema_docs.rst

@@ -77,4 +77,5 @@ except ImportError as e:
 
 from ._common import *
 from ._input_archive import *
+from ._model import *
 from ._output_archive import *

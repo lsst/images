@@ -65,7 +65,7 @@ class GeneralizedImage(DescribableMixin, ABC):
     @property
     def yx0(self) -> YX[int]:
         """The coordinates of the first pixel in the array
-        (`~lsst.geom.YX` [`int`]).
+        (`~lsst.images.YX` [`int`]).
         """
         return self.bbox.start
 
