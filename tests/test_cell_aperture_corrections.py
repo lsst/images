@@ -113,6 +113,13 @@ def test_from_legacy_all_cells_present() -> None:
     assert field.bounds.missing == frozenset()
 
 
+def test_value_in_cell_rejects_index_below_bounds() -> None:
+    """An index below the bounds must not wrap around the NumPy array."""
+    field = _make_field(frozenset())
+    with pytest.raises(BoundsError, match="out of bounds"):
+        field.value_in_cell(CellIJ(i=-1, j=0))
+
+
 def test_serialize_deserialize_differing_missing_cells() -> None:
     """Test that a map whose fields differ in missing cells round-trips,
     restoring each field's per-cell missing set.

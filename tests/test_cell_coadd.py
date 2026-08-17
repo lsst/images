@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from lsst.images import YX, Box, Interval, MaskPlane, get_legacy_deep_coadd_mask_planes
+from lsst.images import YX, BoundsError, Box, Interval, MaskPlane, get_legacy_deep_coadd_mask_planes
 from lsst.images.cells import (
     CellCoadd,
     CellGrid,
@@ -406,6 +406,13 @@ def test_cell_shape_accepts_both_spellings() -> None:
     assert isinstance(tree, CellPointSpreadFunctionSerializationModel)
     assert tree.bounds.grid.cell_shape.y == 4
     assert tree.bounds.grid.cell_shape.x == 4
+
+
+def test_cell_psf_rejects_index_below_bounds(minified_cell_coadd: CellCoadd) -> None:
+    """An index below the PSF bounds must not wrap around its array."""
+    start = minified_cell_coadd.psf.bounds.subgrid_start
+    with pytest.raises(BoundsError, match="out of bounds"):
+        minified_cell_coadd.psf[CellIJ(i=start.i - 1, j=start.j)]
 
 
 def test_from_legacy(legacy_test_data: _LegacyTestData) -> None:

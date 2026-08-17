@@ -109,6 +109,8 @@ class CellField(BaseField):
         """
         if key in self._bounds.missing:
             raise BoundsError(f"Cell {key} is missing for this field.")
+        if not self._bounds.contains_cell(key):
+            raise BoundsError(f"Cell {key} is out of bounds for this field.")
         index = key - self._bounds.subgrid_start
         try:
             return self._array[index.i, index.j]

@@ -109,6 +109,8 @@ class CellPointSpreadFunction(PointSpreadFunction):
             case CellIJ():
                 if key in self._bounds.missing:
                     raise BoundsError(f"Cell {key} is missing for this PSF.")
+                if not self._bounds.contains_cell(key):
+                    raise BoundsError(f"Cell {key} is out of bounds for this PSF.")
                 index = key - self._bounds.subgrid_start
                 try:
                     return Image(self._array[index.i, index.j], bbox=self.kernel_bbox)
