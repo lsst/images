@@ -1137,6 +1137,20 @@ def test_visit_image_repr_str_with_unreadable_psf() -> None:
     assert str(visit_image).startswith("VisitImage(")
 
 
+def test_visit_image_slice_preserves_unreadable_psf() -> None:
+    """Slicing propagates a deferred PSF read failure without raising it."""
+    path = current_fixture_path(FIXTURE_DIR, "visit_image")
+    visit_image = read_archive(path)
+    error = ArchiveReadError("psf unreadable")
+    visit_image._psf = error
+
+    sliced = visit_image[...]
+
+    assert sliced._psf is error
+    with pytest.raises(ArchiveReadError, match="psf unreadable"):
+        sliced.psf
+
+
 def test_observation_summary_stats_describe() -> None:
     """ObservationSummaryStats._describe reports the statistics that are set.
 

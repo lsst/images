@@ -300,7 +300,7 @@ class VisitImage(MaskedImage):
                 mask=self.mask[bbox],
                 variance=self.variance[bbox],
                 sky_projection=self.sky_projection,
-                psf=self.psf,
+                psf=self._psf,
                 obs_info=self.obs_info,
                 bounds=self._bounds,  # don't need to intersect here, because __init__ will do that.
                 summary_stats=self.summary_stats,
