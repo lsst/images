@@ -143,6 +143,16 @@ def test_serialize_raises_on_inconsistent_grid() -> None:
         )
 
 
+def test_serialize_raises_on_inconsistent_bbox() -> None:
+    """Test that fields covering different parts of one grid are rejected."""
+    other_bounds = CellGridBounds(grid=GRID, bbox=Box.factory[0:20, 10:30])
+    other_field = CellField(other_bounds, np.full((2, 2), 0.25))
+    with pytest.raises(ValueError, match="do not have a consistent bounding box"):
+        CellApertureCorrectionMapSerializationModel.serialize(
+            {"A": _make_field(frozenset()), "B": other_field}, JsonOutputArchive()
+        )
+
+
 def test_deserialize_nan_column_becomes_missing() -> None:
     """Test that a NaN in one field column makes that cell missing for that
     field.

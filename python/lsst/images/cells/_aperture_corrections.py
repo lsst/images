@@ -228,6 +228,11 @@ class CellApertureCorrectionMapSerializationModel(ArchiveTree):
         if not aperture_correction_map:
             return None
         bounds = next(iter(aperture_correction_map.values())).bounds
+        for field in aperture_correction_map.values():
+            if field.bounds.grid != bounds.grid:
+                raise ValueError("Cell aperture corrections do not have a consistent grid.")
+            if field.bounds.bbox != bounds.bbox:
+                raise ValueError("Cell aperture corrections do not have a consistent bounding box.")
         if not all(field.bounds == bounds for field in aperture_correction_map.values()):
             # In rare cases some field can have more missing cells from the
             # others. This isn't worth a full denormalization into full
@@ -238,8 +243,6 @@ class CellApertureCorrectionMapSerializationModel(ArchiveTree):
             # deserialized.
             always_missing: set[CellIJ] = set(bounds.missing)
             for field in aperture_correction_map.values():
-                if field.bounds.grid != bounds.grid:
-                    raise ValueError("Cell aperture corrections do not have a consistent grid.")
                 always_missing &= field.bounds.missing
             bounds = CellGridBounds(grid=bounds.grid, missing=frozenset(always_missing), bbox=bounds.bbox)
         if any(field.unit is not None for field in aperture_correction_map.values()):
