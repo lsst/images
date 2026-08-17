@@ -549,7 +549,7 @@ def test_mermaid_real_model_is_bracket_safe() -> None:
 def test_unknown_format_raises() -> None:
     """Test that render raises ValueError for an unrecognised format string."""
     graph = build_graph(Parent)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Unknown diagram format"):
         render(graph, "svg")
 
 

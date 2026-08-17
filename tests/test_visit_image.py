@@ -339,7 +339,7 @@ def test_basics(visit_image_components: dict[str, Any]) -> None:
         )
 
     # Variance unit mismatch.
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="should be the square of the image unit"):
         VisitImage(
             c["image"],
             variance=c["image"],
@@ -428,7 +428,7 @@ def test_summary_stats_to_legacy() -> None:
         if name not in legacy_fields and info.annotation is float
     ]
     if extra_float_fields:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="not supported by this version"):
             ObservationSummaryStats(**{extra_float_fields[0]: 1.0}).to_legacy()
 
 
@@ -445,7 +445,7 @@ def test_summary_stats_from_legacy_unknown_field() -> None:
     assert stats.psfSigma == 2.5
 
     # An unknown field that holds a real value cannot be represented.
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not known to ObservationSummaryStats"):
         ObservationSummaryStats.from_legacy(FakeLegacy(notARealField=1.0))
 
 
@@ -585,16 +585,16 @@ def test_read_write_components(visit_image_components: dict[str, Any]) -> None:
         }
 
         # Butler morphs RuntimeError to ValueError.
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="component nonexistent"):
             roundtrip.get("components", components=["image", "nonexistent"])
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="should not be specified"):
             roundtrip.get("components", components=["image", "components"])
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="empty request"):
             roundtrip.get("components", components=[])
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="not known to any of the requested components"):
             # PSF does not know how to use bbox so this fails.
             roundtrip.get("components", components="psf", bbox=subbox)
 
@@ -736,11 +736,11 @@ def test_legacy_errors(legacy_test_data: _LegacyTestData) -> None:
     """Verify that from_legacy and read_legacy raise ValueError on
     conflicting arguments.
     """
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="does not match"):
         VisitImage.from_legacy(legacy_test_data.legacy_exposure, instrument="HSC")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="does not match"):
         VisitImage.from_legacy(legacy_test_data.legacy_exposure, visit=123456)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="BUNIT value .* disagrees with given unit"):
         VisitImage.from_legacy(legacy_test_data.legacy_exposure, unit=u.mJy)
     visit = VisitImage.from_legacy(
         legacy_test_data.legacy_exposure,
@@ -750,9 +750,9 @@ def test_legacy_errors(legacy_test_data: _LegacyTestData) -> None:
     )
     assert visit.unit == legacy_test_data.unit
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="does not match"):
         legacy_test_data.read_cls.read_legacy(legacy_test_data.filename, instrument="HSC")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="does not match"):
         legacy_test_data.read_cls.read_legacy(legacy_test_data.filename, visit=123456)
 
 

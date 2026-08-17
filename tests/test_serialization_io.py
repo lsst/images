@@ -101,7 +101,7 @@ def test_read_unsupported_extension(tmp_path: Path) -> None:
     path = tmp_path / "bogus.txt"
     with open(path, "w") as f:
         f.write("nope")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Unrecognized file extension"):
         read_archive(path)
 
 

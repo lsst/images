@@ -107,11 +107,11 @@ def test_basics() -> None:
     assert image.__eq__(data) == NotImplemented
     assert image != list(data)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Explicit bbox shape"):
         # bbox does not match array shape.
         Image(np.array([[1, 2, 3], [4, 5, 6]]), bbox=Box.factory[0:2, 0:4])
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Explicit shape"):
         # shape does not match array shape.
         Image(np.array([[2, 3, 4], [6, 7, 8]]), shape=[5, 2])
 
@@ -119,7 +119,7 @@ def test_basics() -> None:
         # shape and bbox both None.
         Image()
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="does not match bbox shape"):
         # Shape mismatch.
         Image(shape=[3, 6], bbox=Box.factory[-5:10, 0:10])
 

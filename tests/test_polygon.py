@@ -91,9 +91,9 @@ def test_vertices() -> None:
     assert polygon.n_vertices == 4
     np.testing.assert_array_equal(polygon.x_vertices, np.asarray(x_vertices))
     np.testing.assert_array_equal(polygon.y_vertices, np.asarray(y_vertices))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="read-only"):
         polygon.x_vertices[0] = 0.0
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="read-only"):
         polygon.y_vertices[0] = 0.0
 
 

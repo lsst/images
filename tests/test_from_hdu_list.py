@@ -222,7 +222,7 @@ def test_read_yx0_missing_raises() -> None:
     """Verify read_yx0 raises ValueError when no offset information is
     present.
     """
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="records no LTV1/LTV2 cards"):
         images_fits.read_yx0(astropy.io.fits.Header())
 
 
@@ -295,7 +295,7 @@ def test_missing_mask_schema_raises(tmp_path: Path) -> None:
     _, cutdown = make_hdu_list(tmp_path)
     for key in [k for k in cutdown["MASK"].header if k.startswith(("MSKN", "MSKM", "MSKD"))]:
         del cutdown["MASK"].header[key]
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="cannot reconstruct the mask schema"):
         MaskedImage.from_hdu_list(cutdown)
 
 
@@ -309,7 +309,7 @@ def test_multiple_mask_hdus_raises(tmp_path: Path) -> None:
     )
     extra_mask.header["EXTVER"] = 2
     cutdown.append(extra_mask)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="supports only a single MASK extension"):
         MaskedImage.from_hdu_list(cutdown)
 
 

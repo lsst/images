@@ -161,10 +161,10 @@ def test_sky_projection_equality() -> None:
     pixel_frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=Box.factory[:5, :4])
 
     # Check the two failure modes.
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="not a mapping from pixel coordinates"):
         SkyProjection(Transform(ICRS, ICRS, astshim.UnitMap(2)))
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="not a mapping to ICRS"):
         SkyProjection(Transform(pixel_frame, pixel_frame, astshim.UnitMap(2)))
 
     def make_pixel_to_sky(ast_mapping: astshim.Mapping | None = None) -> Transform[Any, Any]:

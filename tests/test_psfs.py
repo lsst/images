@@ -162,15 +162,15 @@ def test_gaussian() -> None:
     with RoundtripFits(psf) as roundtrip:
         assert roundtrip.result == psf, f"{roundtrip.result} != {psf}"
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="stamp_size must be odd"):
         # Even stamp size.
         GaussianPointSpreadFunction(2.5, bounds=bounds, stamp_size=32)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="stamp_size must be positive"):
         # Negative stamp size.
         GaussianPointSpreadFunction(2.5, bounds=bounds, stamp_size=-33)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="sigma must be positive"):
         # Negative sigma.
         GaussianPointSpreadFunction(-2.5, bounds=bounds, stamp_size=33)
 
