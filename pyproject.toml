@@ -184,6 +184,7 @@ select = [
     "I",  # isort
     "C4",  # comprehensions
     "UP",  # pyupgrade
+    "PT",  # Pytest linting
     "RUF022",  # sort __all__
 ]
 extend-select = [
