@@ -53,6 +53,12 @@ class CoaddProvenance(DescribableMixin):
         A table of {visit, detector, cell} combinations that describe how an
         observation contributed to a cell.
 
+    Raises
+    ------
+    ValueError
+        Raised if ``inputs`` has no rows; provenance that records no input
+        image is not meaningful.
+
     Notes
     -----
     This object can represent the provenance of a whole patch, a single cell,
@@ -62,6 +68,8 @@ class CoaddProvenance(DescribableMixin):
     """
 
     def __init__(self, inputs: astropy.table.Table, contributions: astropy.table.Table) -> None:
+        if not len(inputs):
+            raise ValueError("Coadd provenance must contain at least one input image.")
         self._inputs = inputs
         self._contributions = contributions
 
@@ -150,16 +158,22 @@ class CoaddProvenance(DescribableMixin):
         """
         return self._contributions
 
-    def __getitem__(self, cell: CellIJ) -> CoaddProvenance:
+    def __getitem__(self, cell: CellIJ) -> CoaddProvenance | None:
         return self.subset([cell])
 
-    def subset(self, cells: Iterable[CellIJ]) -> CoaddProvenance:
+    def subset(self, cells: Iterable[CellIJ]) -> CoaddProvenance | None:
         """Return a new provenance object with just the given cells.
 
         Parameters
         ----------
         cells
             Cells to keep in the returned provenance.
+
+        Returns
+        -------
+        subset : `CoaddProvenance` or `None`
+            Provenance for ``cells`` only, or `None` if none of them have
+            contributions.
         """
         cells_to_keep = astropy.table.Table(
             rows=[(index.i, index.j) for index in cells],
@@ -168,6 +182,10 @@ class CoaddProvenance(DescribableMixin):
         )
         contributions = astropy.table.join(self._contributions, cells_to_keep)
         assert contributions.columns.keys() == {name for name, _, _, _ in self._CONTRIBUTION_TABLE_COLUMNS}
+        if not len(contributions):
+            # No inputs to derive either, and astropy.table.join rejects an
+            # empty operand outright.
+            return None
         inputs = astropy.table.join(contributions["instrument", "visit", "detector"], self._inputs)
         assert inputs.columns.keys() == {name for name, _, _ in self._INPUT_TABLE_COLUMNS}
         return CoaddProvenance(inputs=inputs, contributions=contributions)
@@ -200,38 +218,30 @@ class CoaddProvenance(DescribableMixin):
         and a patch has tens of thousands of contribution rows.
         """
         n_inputs = len(self._inputs)
-        summary = (
-            f"CoaddProvenance({n_inputs} input image{'s' if n_inputs != 1 else ''})"
-            if n_inputs
-            else "CoaddProvenance(no input images)"
-        )
+        summary = f"CoaddProvenance({n_inputs} input image{'s' if n_inputs != 1 else ''})"
         if options.brief:
             return Report(type_name="CoaddProvenance", summary=summary)
         fields: list[ReportField] = []
-        if n_inputs:
-            for column in ("instrument", "physical_filter"):
-                fields.append(
-                    ReportField(
-                        label=column,
-                        value=", ".join(sorted({str(value) for value in self._inputs[column]})),
-                        role=FieldRole.DERIVED,
-                    )
-                )
-            n_visits = len(np.unique(self._inputs["visit"]))
-            input_images = f"{n_inputs} from {n_visits} visit{'s' if n_visits != 1 else ''}"
-        else:
-            input_images = "none"
-        fields.append(ReportField(label="input images", value=input_images, role=FieldRole.DERIVED))
-        if n_inputs:
-            first_night = int(self._inputs["day_obs"].min())
-            last_night = int(self._inputs["day_obs"].max())
+        for column in ("instrument", "physical_filter"):
             fields.append(
                 ReportField(
-                    label="day_obs",
-                    value=str(first_night) if first_night == last_night else f"{first_night} - {last_night}",
+                    label=column,
+                    value=", ".join(sorted({str(value) for value in self._inputs[column]})),
                     role=FieldRole.DERIVED,
                 )
             )
+        n_visits = len(np.unique(self._inputs["visit"]))
+        input_images = f"{n_inputs} from {n_visits} visit{'s' if n_visits != 1 else ''}"
+        fields.append(ReportField(label="input images", value=input_images, role=FieldRole.DERIVED))
+        first_night = int(self._inputs["day_obs"].min())
+        last_night = int(self._inputs["day_obs"].max())
+        fields.append(
+            ReportField(
+                label="day_obs",
+                value=str(first_night) if first_night == last_night else f"{first_night} - {last_night}",
+                role=FieldRole.DERIVED,
+            )
+        )
         _, counts = np.unique(
             np.column_stack([self._contributions["cell_i"], self._contributions["cell_j"]]),
             axis=0,
@@ -262,6 +272,11 @@ class CoaddProvenance(DescribableMixin):
         archive
             Archive to write to.
         """
+        # The tables are exposed and mutable, so a caller can empty one after
+        # construction.  Catch that here rather than deep in the column
+        # rewriting below, where it surfaces as "max() iterable argument is
+        # empty".
+        assert len(self._inputs), "Coadd provenance must contain at least one input image."
         inputs = self._inputs.copy(copy_data=False)
         contributions = self._contributions.copy(copy_data=False)
         instrument = CoaddProvenanceSerializationModel._fix_str_for_serialization(

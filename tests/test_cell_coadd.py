@@ -35,7 +35,12 @@ from lsst.images.cells import (
 from lsst.images.describe import DescribeOptions, Report
 from lsst.images.fields import ChebyshevField
 from lsst.images.fits import FitsCompressionOptions
-from lsst.images.serialization import JsonRef, class_for_schema, parameterize_tree, read_archive
+from lsst.images.serialization import (
+    JsonRef,
+    class_for_schema,
+    parameterize_tree,
+    read_archive,
+)
 from lsst.images.tests import (
     DP2_COADD_DATA_ID,
     DP2_COADD_MISSING_CELL,
@@ -264,16 +269,39 @@ def test_coadd_provenance_report_ranges_over_nights_and_cells() -> None:
     assert fields["per cell"] == "1 - 3 input images (median 2)"
 
 
-def test_coadd_provenance_report_handles_empty_tables() -> None:
-    """A provenance with no rows describes without raising."""
-    provenance = CoaddProvenance(
-        inputs=CoaddProvenance.make_empty_input_table(0),
-        contributions=CoaddProvenance.make_empty_contribution_table(0),
-    )
-    assert str(provenance) == "CoaddProvenance(no input images)"
-    report = provenance.describe()
-    assert report_fields(report) == {"input images": "none", "cells": "none"}
-    report.__rich__()
+def test_empty_coadd_provenance_cannot_be_constructed() -> None:
+    """Provenance is only meaningful when it records an input image."""
+    with pytest.raises(ValueError, match="at least one input"):
+        CoaddProvenance(
+            inputs=CoaddProvenance.make_empty_input_table(0),
+            contributions=CoaddProvenance.make_empty_contribution_table(0),
+        )
+
+
+def test_coadd_provenance_subset_without_contributions_is_none() -> None:
+    """Subsetting to cells that no image contributed to yields no provenance
+    rather than an empty one.
+    """
+    inputs = CoaddProvenance.make_empty_input_table(1)
+    inputs["instrument"] = "LSSTCam"
+    inputs["physical_filter"] = "r_57"
+    inputs["visit"] = [101]
+    inputs["detector"] = [1]
+    inputs["day_obs"] = [20250520]
+    contributions = CoaddProvenance.make_empty_contribution_table(1)
+    contributions["cell_i"] = [0]
+    contributions["cell_j"] = [0]
+    contributions["instrument"] = "LSSTCam"
+    contributions["visit"] = [101]
+    contributions["detector"] = [1]
+    provenance = CoaddProvenance(inputs=inputs, contributions=contributions)
+
+    populated = provenance[CellIJ(0, 0)]
+    assert populated is not None
+    assert len(populated.inputs) == 1
+    assert len(populated.contributions) == 1
+
+    assert provenance[CellIJ(1, 1)] is None
 
 
 def test_coadd_provenance_report_counts_one_input_image_in_the_singular() -> None:

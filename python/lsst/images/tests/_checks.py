@@ -646,6 +646,7 @@ def compare_cell_coadd_provenance_to_legacy(
     for legacy_cell in legacy_cell_coadd.cells.values():
         cell_index = CellIJ.from_legacy(legacy_cell.identifiers.cell)
         prov = provenance[cell_index]
+        assert prov is not None, f"Legacy cell {cell_index} has inputs, so its provenance is not empty."
         legacy_table = astropy.table.Table(
             rows=[
                 [
