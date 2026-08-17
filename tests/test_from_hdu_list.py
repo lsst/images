@@ -258,7 +258,8 @@ def test_masked_image_round_trip_with_projection(tmp_path: Path) -> None:
     center = (masked_image.bbox.x.size / 2, masked_image.bbox.y.size / 2)
     expected_wcs = masked_image.fits_wcs
     actual_wcs = result.fits_wcs
-    assert expected_wcs is not None and actual_wcs is not None
+    assert expected_wcs is not None
+    assert actual_wcs is not None
     expected = expected_wcs.pixel_to_world(*center)
     actual = actual_wcs.pixel_to_world(*center)
     assert expected.separation(actual).arcsec < 1e-3

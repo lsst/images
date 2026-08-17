@@ -1108,7 +1108,8 @@ def assert_sky_projections_equal(
     """
     if a is None and b is None:
         return
-    assert a is not None and b is not None
+    assert a is not None
+    assert b is not None
     match expect_identity:
         case True:
             assert a is b

@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
 
@@ -34,10 +33,10 @@ FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
 
 
 @pytest.fixture
-def component_probe_env(tmp_path: Path) -> Iterator[tuple[str, VisitImage, DetachedArchive]]:
+def component_probe_env(tmp_path: Path) -> tuple[str, VisitImage, DetachedArchive]:
     """Return (tmpdir, visit_image, archive) for component-probe tests."""
     visit_image = read_archive(current_fixture_path(FIXTURE_DIR, "visit_image"))
-    yield str(tmp_path), visit_image, DetachedArchive()
+    return str(tmp_path), visit_image, DetachedArchive()
 
 
 def test_exception_hierarchy() -> None:

@@ -621,7 +621,7 @@ def test_sum_background_round_trip_ndf(visit_image_components: dict[str, Any]) -
 
 
 @pytest.mark.parametrize(
-    "scaling_unit,operation",
+    ("scaling_unit", "operation"),
     [(u.electron / u.nJy, "multiply"), (u.nJy / u.electron, "divide")],
     ids=["multiply", "divide"],
 )
@@ -1229,7 +1229,8 @@ def test_observation_summary_stats_str_is_the_report_summary() -> None:
     # The two set here, plus the integer counters, which default to a genuine
     # zero rather than to NaN.
     assert str(stats) == "ObservationSummaryStats(4 of 66 statistics set)"
-    assert stats.nPsfStar == 0 and stats.nShapeletsStar == 0
+    assert stats.nPsfStar == 0
+    assert stats.nShapeletsStar == 0
     # The unset statistics reach repr but not str.
     assert "nan" not in str(stats)
     assert "nan" in repr(stats)
