@@ -669,6 +669,40 @@ def test_restore_background_subimage(minified_cell_coadd: CellCoadd) -> None:
     np.testing.assert_allclose(subimage.image.array, original, atol=BACKGROUND_ATOL)
 
 
+def test_failed_background_switch_preserves_pixels_and_state(
+    minified_cell_coadd: CellCoadd,
+) -> None:
+    """An invalid replacement must not restore the current background."""
+    _add_gradient_background(minified_cell_coadd)
+    minified_cell_coadd.apply_background("pretty")
+    before = minified_cell_coadd.image.array.copy()
+
+    with pytest.raises(KeyError):
+        minified_cell_coadd.apply_background("missing")
+
+    np.testing.assert_array_equal(minified_cell_coadd.image.array, before)
+    assert minified_cell_coadd.backgrounds.subtracted is not None
+    assert minified_cell_coadd.backgrounds.subtracted.name == "pretty"
+
+
+def test_switch_background_applies_replacement(minified_cell_coadd: CellCoadd) -> None:
+    """Switching models restores the old background and subtracts the new."""
+    field = _add_gradient_background(minified_cell_coadd)
+    minified_cell_coadd.backgrounds.add("other", field * 2.0)
+    original = minified_cell_coadd.image.array.copy()
+    minified_cell_coadd.apply_background("pretty")
+
+    minified_cell_coadd.apply_background("other")
+
+    expected = (
+        original
+        - (field * 2.0).render(minified_cell_coadd.bbox, dtype=minified_cell_coadd.image.array.dtype).array
+    )
+    np.testing.assert_allclose(minified_cell_coadd.image.array, expected, atol=BACKGROUND_ATOL)
+    assert minified_cell_coadd.backgrounds.subtracted is not None
+    assert minified_cell_coadd.backgrounds.subtracted.name == "other"
+
+
 def test_apply_background_after_bounded_read(minified_cell_coadd: CellCoadd) -> None:
     """Test that a background can be applied to a coadd read with a bbox
     parameter.
