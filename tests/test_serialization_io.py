@@ -204,6 +204,20 @@ def test_generic_write_round_trip_json(tmp_path: Path) -> None:
     np.testing.assert_array_equal(result.array, image.array)
 
 
+def test_write_metadata_override_does_not_mutate_source(tmp_path: Path) -> None:
+    """Write-only metadata is detached from the source object's mapping."""
+    image = _make_image()
+    image.metadata["shared"] = "source"
+    path = tmp_path / "metadata.json"
+    tree = write_archive(image, path, metadata={"shared": "file", "extra": 5})
+
+    assert image.metadata == {"shared": "source"}
+    assert tree.metadata == {"shared": "file", "extra": 5}
+    assert tree.metadata is not image.metadata
+    result = read_archive(path, Image)
+    assert result.metadata == tree.metadata
+
+
 @skip_no_h5py
 def test_generic_write_round_trip_ndf(tmp_path: Path) -> None:
     """Verify write_archive() + read_archive() round-trips an Image
