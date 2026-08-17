@@ -355,6 +355,22 @@ def test_cell_coadd_report_states_absent_provenance(minified_cell_coadd: CellCoa
     assert "aperture_corrections" not in fields
 
 
+def test_cell_coadd_copy_preserves_absent_optional_state(minified_cell_coadd: CellCoadd) -> None:
+    """Copying must support coadds without patch or provenance records."""
+    minified_cell_coadd._patch = None
+    minified_cell_coadd._provenance = None
+
+    copied = minified_cell_coadd.copy()
+
+    assert copied._patch is None
+    assert copied._provenance is None
+    assert_masked_images_equal(copied, minified_cell_coadd)
+    with pytest.raises(AttributeError, match="no patch"):
+        copied.patch
+    with pytest.raises(AttributeError, match="no provenance"):
+        copied.provenance
+
+
 def test_cell_grid_patch_str_uses_clean_geometry() -> None:
     """CellGrid, PatchDefinition and CellGridBounds str drop the
     Interval/YX/Box/CellIJ wrappers.
