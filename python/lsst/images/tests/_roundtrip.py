@@ -218,7 +218,8 @@ class RoundtripBase[T](ABC):
     def filename(self) -> str:
         """The name of the file the object was written to."""
         if self._filename is None:
-            assert self.butler is not None and self.ref is not None
+            assert self.butler is not None
+            assert self.ref is not None
             self._filename = self.butler.getURI(self.ref).ospath
         return self._filename
 

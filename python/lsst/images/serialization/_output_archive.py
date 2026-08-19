@@ -99,6 +99,10 @@ class OutputArchive[P](ABC):
         """
         name = getattr(obj, "_archive_default_name", None)
         tree = self.serialize_direct(name, obj.serialize) if name is not None else obj.serialize(self)
+        # Serializers generally transfer an object's metadata mapping by
+        # reference.  Detach it before applying write-only overrides so a
+        # write never mutates the in-memory object.
+        tree.metadata = tree.metadata.copy()
         if metadata is not None:
             tree.metadata.update(metadata)
         if butler_info is not None:

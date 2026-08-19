@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from lsst.images import YX, Box, Interval, MaskPlane, get_legacy_deep_coadd_mask_planes
+from lsst.images import YX, BoundsError, Box, Interval, MaskPlane, get_legacy_deep_coadd_mask_planes
 from lsst.images.cells import (
     CellCoadd,
     CellGrid,
@@ -35,7 +35,12 @@ from lsst.images.cells import (
 from lsst.images.describe import DescribeOptions, Report
 from lsst.images.fields import ChebyshevField
 from lsst.images.fits import FitsCompressionOptions
-from lsst.images.serialization import JsonRef, class_for_schema, parameterize_tree, read_archive
+from lsst.images.serialization import (
+    JsonRef,
+    class_for_schema,
+    parameterize_tree,
+    read_archive,
+)
 from lsst.images.tests import (
     DP2_COADD_DATA_ID,
     DP2_COADD_MISSING_CELL,
@@ -264,16 +269,39 @@ def test_coadd_provenance_report_ranges_over_nights_and_cells() -> None:
     assert fields["per cell"] == "1 - 3 input images (median 2)"
 
 
-def test_coadd_provenance_report_handles_empty_tables() -> None:
-    """A provenance with no rows describes without raising."""
-    provenance = CoaddProvenance(
-        inputs=CoaddProvenance.make_empty_input_table(0),
-        contributions=CoaddProvenance.make_empty_contribution_table(0),
-    )
-    assert str(provenance) == "CoaddProvenance(no input images)"
-    report = provenance.describe()
-    assert report_fields(report) == {"input images": "none", "cells": "none"}
-    report.__rich__()
+def test_empty_coadd_provenance_cannot_be_constructed() -> None:
+    """Provenance is only meaningful when it records an input image."""
+    with pytest.raises(ValueError, match="at least one input"):
+        CoaddProvenance(
+            inputs=CoaddProvenance.make_empty_input_table(0),
+            contributions=CoaddProvenance.make_empty_contribution_table(0),
+        )
+
+
+def test_coadd_provenance_subset_without_contributions_is_none() -> None:
+    """Subsetting to cells that no image contributed to yields no provenance
+    rather than an empty one.
+    """
+    inputs = CoaddProvenance.make_empty_input_table(1)
+    inputs["instrument"] = "LSSTCam"
+    inputs["physical_filter"] = "r_57"
+    inputs["visit"] = [101]
+    inputs["detector"] = [1]
+    inputs["day_obs"] = [20250520]
+    contributions = CoaddProvenance.make_empty_contribution_table(1)
+    contributions["cell_i"] = [0]
+    contributions["cell_j"] = [0]
+    contributions["instrument"] = "LSSTCam"
+    contributions["visit"] = [101]
+    contributions["detector"] = [1]
+    provenance = CoaddProvenance(inputs=inputs, contributions=contributions)
+
+    populated = provenance[CellIJ(0, 0)]
+    assert populated is not None
+    assert len(populated.inputs) == 1
+    assert len(populated.contributions) == 1
+
+    assert provenance[CellIJ(1, 1)] is None
 
 
 def test_coadd_provenance_report_counts_one_input_image_in_the_singular() -> None:
@@ -355,6 +383,22 @@ def test_cell_coadd_report_states_absent_provenance(minified_cell_coadd: CellCoa
     assert "aperture_corrections" not in fields
 
 
+def test_cell_coadd_copy_preserves_absent_optional_state(minified_cell_coadd: CellCoadd) -> None:
+    """Copying must support coadds without patch or provenance records."""
+    minified_cell_coadd._patch = None
+    minified_cell_coadd._provenance = None
+
+    copied = minified_cell_coadd.copy()
+
+    assert copied._patch is None
+    assert copied._provenance is None
+    assert_masked_images_equal(copied, minified_cell_coadd)
+    with pytest.raises(AttributeError, match="no patch"):
+        copied.patch
+    with pytest.raises(AttributeError, match="no provenance"):
+        copied.provenance
+
+
 def test_cell_grid_patch_str_uses_clean_geometry() -> None:
     """CellGrid, PatchDefinition and CellGridBounds str drop the
     Interval/YX/Box/CellIJ wrappers.
@@ -406,6 +450,13 @@ def test_cell_shape_accepts_both_spellings() -> None:
     assert isinstance(tree, CellPointSpreadFunctionSerializationModel)
     assert tree.bounds.grid.cell_shape.y == 4
     assert tree.bounds.grid.cell_shape.x == 4
+
+
+def test_cell_psf_rejects_index_below_bounds(minified_cell_coadd: CellCoadd) -> None:
+    """An index below the PSF bounds must not wrap around its array."""
+    start = minified_cell_coadd.psf.bounds.subgrid_start
+    with pytest.raises(BoundsError, match="out of bounds"):
+        minified_cell_coadd.psf[CellIJ(i=start.i - 1, j=start.j)]
 
 
 def test_from_legacy(legacy_test_data: _LegacyTestData) -> None:
@@ -660,6 +711,40 @@ def test_restore_background_subimage(minified_cell_coadd: CellCoadd) -> None:
 
     assert subimage.backgrounds.subtracted is None
     np.testing.assert_allclose(subimage.image.array, original, atol=BACKGROUND_ATOL)
+
+
+def test_failed_background_switch_preserves_pixels_and_state(
+    minified_cell_coadd: CellCoadd,
+) -> None:
+    """An invalid replacement must not restore the current background."""
+    _add_gradient_background(minified_cell_coadd)
+    minified_cell_coadd.apply_background("pretty")
+    before = minified_cell_coadd.image.array.copy()
+
+    with pytest.raises(KeyError):
+        minified_cell_coadd.apply_background("missing")
+
+    np.testing.assert_array_equal(minified_cell_coadd.image.array, before)
+    assert minified_cell_coadd.backgrounds.subtracted is not None
+    assert minified_cell_coadd.backgrounds.subtracted.name == "pretty"
+
+
+def test_switch_background_applies_replacement(minified_cell_coadd: CellCoadd) -> None:
+    """Switching models restores the old background and subtracts the new."""
+    field = _add_gradient_background(minified_cell_coadd)
+    minified_cell_coadd.backgrounds.add("other", field * 2.0)
+    original = minified_cell_coadd.image.array.copy()
+    minified_cell_coadd.apply_background("pretty")
+
+    minified_cell_coadd.apply_background("other")
+
+    expected = (
+        original
+        - (field * 2.0).render(minified_cell_coadd.bbox, dtype=minified_cell_coadd.image.array.dtype).array
+    )
+    np.testing.assert_allclose(minified_cell_coadd.image.array, expected, atol=BACKGROUND_ATOL)
+    assert minified_cell_coadd.backgrounds.subtracted is not None
+    assert minified_cell_coadd.backgrounds.subtracted.name == "other"
 
 
 def test_apply_background_after_bounded_read(minified_cell_coadd: CellCoadd) -> None:

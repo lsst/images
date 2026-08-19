@@ -93,7 +93,7 @@ def test_backend_for_path_unknown_raises() -> None:
     """Verify that an unrecognised suffix raises ValueError naming known
     formats.
     """
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError, match="Unrecognized file extension") as exc_info:
         backend_for_path("c.txt")
     assert ".fits" in str(exc_info.value)
 
@@ -123,7 +123,7 @@ def test_backend_for_name() -> None:
 
 def test_backend_for_name_unknown_raises() -> None:
     """Verify an unknown format name raises ValueError naming it."""
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError, match="Unrecognized format name") as exc_info:
         backend_for_name("hdf")
     assert "hdf" in str(exc_info.value)
 
@@ -156,7 +156,7 @@ def test_backend_for_stream_json_leading_whitespace() -> None:
 
 def test_backend_for_stream_unknown_raises() -> None:
     """Verify unrecognized content raises ValueError naming known formats."""
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError, match="Could not identify a supported format") as exc_info:
         backend_for_stream(io.BytesIO(b"not any known format"))
     msg = str(exc_info.value)
     assert "FITS" in msg
@@ -165,14 +165,14 @@ def test_backend_for_stream_unknown_raises() -> None:
 
 def test_backend_for_stream_gzip_compressed_raises() -> None:
     """Verify a gzip-compressed stream raises ValueError naming gzip."""
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError, match="gzip-compressed") as exc_info:
         backend_for_stream(io.BytesIO(gzip.compress(b"SIMPLE  = whatever")))
     assert "gzip" in str(exc_info.value)
 
 
 def test_backend_for_stream_zstd_compressed_raises() -> None:
     """Verify a zstd-compressed stream raises ValueError naming zstd."""
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError, match="zstd-compressed") as exc_info:
         backend_for_stream(io.BytesIO(b"\x28\xb5\x2f\xfd" + b"frame"))
     assert "zstd" in str(exc_info.value)
 
@@ -197,7 +197,7 @@ def test_backend_for_path_bare_compression_suffix_raises() -> None:
     """Verify a bare compression suffix with no format extension raises
     ValueError.
     """
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Unrecognized file extension"):
         backend_for_path("c.gz")
 
 
@@ -261,6 +261,6 @@ def test_decompress_zstd_no_decompressor(tmp_path: Path) -> None:
     # None entries make both import routes raise ImportError.
     blocked = {"compression": None, "compression.zstd": None, "zstandard": None}
     with mock.patch.dict(sys.modules, blocked):
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="no zstd decompressor") as exc_info:
             _decompress_path_to_temp_file(str(path))
     assert "zstd" in str(exc_info.value)

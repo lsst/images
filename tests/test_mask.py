@@ -171,7 +171,7 @@ def test_schema_from_fits_header_requires_cards() -> None:
     """Verify MaskSchema.from_fits_header raises ValueError on a header with
     no MSKN cards.
     """
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="no MSKN cards"):
         MaskSchema.from_fits_header(astropy.io.fits.Header())
 
 
@@ -234,15 +234,15 @@ def test_basics() -> None:
         # No bbox, size or array.
         Mask(0, schema=schema)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Explicit bbox shape"):
         # Box mismatch.
         Mask(mask.array, schema=schema, bbox=Box.factory[0:20, -5:45])
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Explicit shape"):
         # Shape mismatch.
         Mask(mask.array, schema=schema, shape=(5, 10, 5))
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Mask array must be 3-d"):
         # Cannot be 2-D.
         Mask(mask.array.reshape((2430, 5)), schema=schema, bbox=Box.factory[0:20, -5:45])
 
@@ -454,7 +454,7 @@ def test_add_planes_with_placeholder() -> None:
 def test_add_planes_drop_unknown_raises() -> None:
     """Verify dropping a non-existent plane raises ValueError."""
     mask = Mask(0, schema=MaskSchema([MaskPlane("A", "a")], dtype=np.uint8), bbox=Box.factory[0:2, 0:2])
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Cannot drop mask planes"):
         mask.add_planes([], drop=["NOPE"])
 
 
@@ -464,7 +464,7 @@ def test_add_plane_duplicate_raises() -> None:
     planes = make_mask_planes(rng, 3, n_placeholders=0)
     schema = MaskSchema(planes, dtype=np.uint8)
     mask = Mask(0, schema=schema, bbox=Box.factory[0:4, 0:4])
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="already exists"):
         mask.add_plane("M0", "Duplicate of an existing plane.")
 
 

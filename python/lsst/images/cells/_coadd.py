@@ -347,8 +347,8 @@ class CellCoadd(MaskedImage):
                 noise_realizations=[v.copy() for v in self._noise_realizations],
                 band=self.band,
                 psf=self.psf,
-                patch=self.patch,
-                provenance=self.provenance,
+                patch=self._patch,
+                provenance=self._provenance,
                 backgrounds=self._backgrounds.copy(),
                 aperture_corrections=self._aperture_corrections.copy(),
             ),
@@ -368,15 +368,23 @@ class CellCoadd(MaskedImage):
             original background.
         """
         current_bg = self.backgrounds.subtracted
-        if current_bg is not None:
-            if name == current_bg.name:
-                return
-            self.image.quantity += current_bg.field.render(self.bbox, dtype=self.image.array.dtype).quantity
-        if name is None:
-            self._backgrounds._subtracted = None
+        if current_bg is not None and name == current_bg.name:
             return
-        new_bg = self.backgrounds[name]
-        self.image.quantity -= new_bg.field.render(self.bbox, dtype=self.image.array.dtype).quantity
+
+        adjustment: astropy.units.Quantity | None = None
+        if current_bg is not None:
+            adjustment = current_bg.field.render(self.bbox, dtype=self.image.array.dtype).quantity
+        if name is not None:
+            new_bg = self.backgrounds[name]
+            new_values = new_bg.field.render(self.bbox, dtype=self.image.array.dtype).quantity
+            adjustment = -new_values if adjustment is None else adjustment - new_values
+
+        # Resolve and render every model before changing either pixels or
+        # state.  Computing one combined adjustment also ensures a failed unit
+        # conversion cannot leave a previously subtracted background restored
+        # while the map still says it is subtracted.
+        if adjustment is not None:
+            self.image.quantity += adjustment
         self._backgrounds._subtracted = name
 
     def serialize(self, archive: OutputArchive[Any]) -> CellCoaddSerializationModel:

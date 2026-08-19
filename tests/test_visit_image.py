@@ -339,7 +339,7 @@ def test_basics(visit_image_components: dict[str, Any]) -> None:
         )
 
     # Variance unit mismatch.
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="should be the square of the image unit"):
         VisitImage(
             c["image"],
             variance=c["image"],
@@ -428,7 +428,7 @@ def test_summary_stats_to_legacy() -> None:
         if name not in legacy_fields and info.annotation is float
     ]
     if extra_float_fields:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="not supported by this version"):
             ObservationSummaryStats(**{extra_float_fields[0]: 1.0}).to_legacy()
 
 
@@ -445,7 +445,7 @@ def test_summary_stats_from_legacy_unknown_field() -> None:
     assert stats.psfSigma == 2.5
 
     # An unknown field that holds a real value cannot be represented.
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not known to ObservationSummaryStats"):
         ObservationSummaryStats.from_legacy(FakeLegacy(notARealField=1.0))
 
 
@@ -585,16 +585,16 @@ def test_read_write_components(visit_image_components: dict[str, Any]) -> None:
         }
 
         # Butler morphs RuntimeError to ValueError.
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="component nonexistent"):
             roundtrip.get("components", components=["image", "nonexistent"])
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="should not be specified"):
             roundtrip.get("components", components=["image", "components"])
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="empty request"):
             roundtrip.get("components", components=[])
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="not known to any of the requested components"):
             # PSF does not know how to use bbox so this fails.
             roundtrip.get("components", components="psf", bbox=subbox)
 
@@ -621,7 +621,7 @@ def test_sum_background_round_trip_ndf(visit_image_components: dict[str, Any]) -
 
 
 @pytest.mark.parametrize(
-    "scaling_unit,operation",
+    ("scaling_unit", "operation"),
     [(u.electron / u.nJy, "multiply"), (u.nJy / u.electron, "divide")],
     ids=["multiply", "divide"],
 )
@@ -736,11 +736,11 @@ def test_legacy_errors(legacy_test_data: _LegacyTestData) -> None:
     """Verify that from_legacy and read_legacy raise ValueError on
     conflicting arguments.
     """
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="does not match"):
         VisitImage.from_legacy(legacy_test_data.legacy_exposure, instrument="HSC")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="does not match"):
         VisitImage.from_legacy(legacy_test_data.legacy_exposure, visit=123456)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="BUNIT value .* disagrees with given unit"):
         VisitImage.from_legacy(legacy_test_data.legacy_exposure, unit=u.mJy)
     visit = VisitImage.from_legacy(
         legacy_test_data.legacy_exposure,
@@ -750,9 +750,9 @@ def test_legacy_errors(legacy_test_data: _LegacyTestData) -> None:
     )
     assert visit.unit == legacy_test_data.unit
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="does not match"):
         legacy_test_data.read_cls.read_legacy(legacy_test_data.filename, instrument="HSC")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="does not match"):
         legacy_test_data.read_cls.read_legacy(legacy_test_data.filename, visit=123456)
 
 
@@ -1137,6 +1137,20 @@ def test_visit_image_repr_str_with_unreadable_psf() -> None:
     assert str(visit_image).startswith("VisitImage(")
 
 
+def test_visit_image_slice_preserves_unreadable_psf() -> None:
+    """Slicing propagates a deferred PSF read failure without raising it."""
+    path = current_fixture_path(FIXTURE_DIR, "visit_image")
+    visit_image = read_archive(path)
+    error = ArchiveReadError("psf unreadable")
+    visit_image._psf = error
+
+    sliced = visit_image[...]
+
+    assert sliced._psf is error
+    with pytest.raises(ArchiveReadError, match="psf unreadable"):
+        sliced.psf
+
+
 def test_observation_summary_stats_describe() -> None:
     """ObservationSummaryStats._describe reports the statistics that are set.
 
@@ -1215,7 +1229,8 @@ def test_observation_summary_stats_str_is_the_report_summary() -> None:
     # The two set here, plus the integer counters, which default to a genuine
     # zero rather than to NaN.
     assert str(stats) == "ObservationSummaryStats(4 of 66 statistics set)"
-    assert stats.nPsfStar == 0 and stats.nShapeletsStar == 0
+    assert stats.nPsfStar == 0
+    assert stats.nShapeletsStar == 0
     # The unset statistics reach repr but not str.
     assert "nan" not in str(stats)
     assert "nan" in repr(stats)

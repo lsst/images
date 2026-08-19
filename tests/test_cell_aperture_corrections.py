@@ -113,6 +113,13 @@ def test_from_legacy_all_cells_present() -> None:
     assert field.bounds.missing == frozenset()
 
 
+def test_value_in_cell_rejects_index_below_bounds() -> None:
+    """An index below the bounds must not wrap around the NumPy array."""
+    field = _make_field(frozenset())
+    with pytest.raises(BoundsError, match="out of bounds"):
+        field.value_in_cell(CellIJ(i=-1, j=0))
+
+
 def test_serialize_deserialize_differing_missing_cells() -> None:
     """Test that a map whose fields differ in missing cells round-trips,
     restoring each field's per-cell missing set.
@@ -138,6 +145,16 @@ def test_serialize_raises_on_inconsistent_grid() -> None:
     other_bounds = CellGridBounds(grid=other_grid, bbox=Box.factory[0:30, 0:30])
     other_field = CellField(other_bounds, np.full((3, 3), 0.25))
     with pytest.raises(ValueError, match="do not have a consistent grid"):
+        CellApertureCorrectionMapSerializationModel.serialize(
+            {"A": _make_field(frozenset()), "B": other_field}, JsonOutputArchive()
+        )
+
+
+def test_serialize_raises_on_inconsistent_bbox() -> None:
+    """Test that fields covering different parts of one grid are rejected."""
+    other_bounds = CellGridBounds(grid=GRID, bbox=Box.factory[0:20, 10:30])
+    other_field = CellField(other_bounds, np.full((2, 2), 0.25))
+    with pytest.raises(ValueError, match="do not have a consistent bounding box"):
         CellApertureCorrectionMapSerializationModel.serialize(
             {"A": _make_field(frozenset()), "B": other_field}, JsonOutputArchive()
         )

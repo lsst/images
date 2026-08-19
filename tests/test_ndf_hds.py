@@ -134,7 +134,7 @@ def test_read_array_rejects_char_dataset(tmp_path: Path) -> None:
     with h5py.File(path, "w") as f:
         _hds.write_char_array(f, "WCS", ["hello", "world"], width=16)
     with h5py.File(path, "r") as f:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="use read_char_array instead"):
             _hds.read_array(f["WCS"])
 
 
@@ -177,7 +177,7 @@ def test_char_array_rejects_long_lines(tmp_path: Path) -> None:
     """
     path = tmp_path / "test.sdf"
     with h5py.File(path, "w") as f:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="longer than width"):
             _hds.write_char_array(f, "X", ["too long"], width=3)
 
 
@@ -186,7 +186,7 @@ def test_char_array_rejects_non_ascii(tmp_path: Path) -> None:
     """Verify write_char_array raises ValueError for non-ASCII content."""
     path = tmp_path / "test.sdf"
     with h5py.File(path, "w") as f:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="is not ASCII"):
             _hds.write_char_array(f, "X", ["not ascii: \N{LATIN SMALL LETTER E WITH ACUTE}"], width=80)
 
 
@@ -218,7 +218,7 @@ def test_read_char_array_rejects_numeric_dataset(tmp_path: Path) -> None:
     with h5py.File(path, "w") as f:
         _hds.write_array(f, "DATA", np.zeros((2,), dtype=np.float32))
     with h5py.File(path, "r") as f:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="is not _CHAR"):
             _hds.read_char_array(f["DATA"])
 
 
@@ -266,7 +266,7 @@ def test_open_structure_missing_class_raises(tmp_path: Path) -> None:
     with h5py.File(path, "w") as f:
         f.create_group("BAD")
     with h5py.File(path, "r") as f:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="has no .* attribute"):
             _hds.open_structure(f, "BAD")
 
 

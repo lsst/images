@@ -247,13 +247,13 @@ def test_interval_slice() -> None:
     with pytest.raises(IndexError):
         i.local[-1:10]
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="non-unit step"):
         i.absolute[::2]
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="non-unit step"):
         i.local[::2]
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="non-unit step"):
         Interval.factory[1:2:2]
 
 
@@ -390,9 +390,9 @@ def test_box_constructor() -> None:
 
     with pytest.raises(TypeError):
         Box.from_shape(42)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Invalid sequence for shape"):
         Box.from_shape([42])
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Invalid sequence for start"):
         Box.from_shape([42, 33], start=[1, 2, 3])
 
     box = Box.factory[1:2, -1:1]
@@ -560,7 +560,7 @@ def test_box_mesh() -> None:
     with pytest.raises(TypeError):
         box.meshgrid(2, step=3)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Unexpected values for n"):
         box.meshgrid("n")
 
 

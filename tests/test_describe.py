@@ -116,16 +116,21 @@ def test_rich_renders_fields_tables_and_children() -> None:
     console.print(report)
     text = console.export_text()
     assert "ICRS coordinates" in text
-    assert "Domain" in text and "SKY" in text
-    assert "Axis" in text and "Label" in text and "RA" in text
-    assert "pixel" in text and "GeneralFrame" in text
+    assert "Domain" in text
+    assert "SKY" in text
+    assert "Axis" in text
+    assert "Label" in text
+    assert "RA" in text
+    assert "pixel" in text
+    assert "GeneralFrame" in text
 
 
 def test_repr_html_produces_html() -> None:
     """_repr_html_ returns an HTML fragment mentioning the content."""
     report = Report(type_name="Interval", fields=[ReportField(label="start", value=3)])
     html = report._repr_html_()
-    assert "<" in html and ">" in html
+    assert "<" in html
+    assert ">" in html
     assert "Interval" in html
 
 
@@ -304,9 +309,12 @@ def test_composite_detail_propagates_to_mask_counts() -> None:
 
 def test_field_role_display_predicates() -> None:
     """Each FieldRole reports where its fields appear."""
-    assert FieldRole.ARG.in_repr and FieldRole.ARG.in_display
-    assert FieldRole.REPR_ONLY.in_repr and not FieldRole.REPR_ONLY.in_display
-    assert not FieldRole.DERIVED.in_repr and FieldRole.DERIVED.in_display
+    assert FieldRole.ARG.in_repr
+    assert FieldRole.ARG.in_display
+    assert FieldRole.REPR_ONLY.in_repr
+    assert not FieldRole.REPR_ONLY.in_display
+    assert not FieldRole.DERIVED.in_repr
+    assert FieldRole.DERIVED.in_display
 
 
 def test_repr_only_fields_are_hidden_from_the_expanded_report() -> None:

@@ -71,7 +71,7 @@ def test_archive_info_from_schema_url_invalid() -> None:
     """Verify ArchiveInfo.from_schema_url raises ValueError for URLs without
     a version.
     """
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Cannot parse schema name/version"):
         ArchiveInfo.from_schema_url("https://images.lsst.io/schemas/noversion", format_version=None)
 
 
@@ -92,13 +92,13 @@ def test_archive_info_from_schema_url_not_schema_shaped() -> None:
     the schema URL shape, such as a DATAMODL header written by an unrelated
     tool.
     """
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="does not have the required"):
         # No "schemas" parent path segment.
         ArchiveInfo.from_schema_url("https://example.org/image-1.0.0", format_version=None)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="does not have the required"):
         # Not an http(s) URL at all.
         ArchiveInfo.from_schema_url("IMAGE", format_version=None)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="does not have the required"):
         # No host.
         ArchiveInfo.from_schema_url("https:///schemas/image-1.0.0", format_version=None)
 

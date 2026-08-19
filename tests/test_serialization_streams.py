@@ -163,7 +163,7 @@ def test_read_stream_wrong_format_override(tmp_path: Path) -> None:
     """Verify FITS bytes forced through the JSON backend fail in that
     backend.
     """
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="expected value at line 1 column 1"):
         read_archive(io.BytesIO(_serialized_bytes(_make_image(), ".fits", tmp_path)), format="json")
 
 
@@ -171,14 +171,14 @@ def test_read_stream_unrecognized_bytes() -> None:
     """Verify unrecognized stream content raises ValueError naming known
     formats.
     """
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError, match="Could not identify a supported format") as exc_info:
         read_archive(io.BytesIO(b"certainly not a supported format"))
     assert "FITS" in str(exc_info.value)
 
 
 def test_read_stream_bad_format_name(tmp_path: Path) -> None:
     """Verify an unknown format= name raises ValueError."""
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Unrecognized format name"):
         read_archive(io.BytesIO(_serialized_bytes(_make_image(), ".json", tmp_path)), format="asdf")
 
 
@@ -189,7 +189,7 @@ def test_read_compressed_stream_raises(tmp_path: Path) -> None:
     # Compressed streams are the caller's responsibility to decompress;
     # the sniff error says what to do.
     data = gzip.compress(_serialized_bytes(_make_image(), ".fits", tmp_path))
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError, match="gzip-compressed") as exc_info:
         read_archive(io.BytesIO(data))
     assert "gzip" in str(exc_info.value)
 

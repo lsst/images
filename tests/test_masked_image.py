@@ -178,7 +178,7 @@ def test_construction() -> None:
     assert copy.image.array[0, 0] == 38.0
 
     # Test error conditions.
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="bboxes do not agree"):
         # Disagreement over mask bbox.
         MaskedImage(Image(42.0, shape=(5, 6)), mask=mi.mask)
     with pytest.raises(TypeError):
@@ -191,21 +191,21 @@ def test_construction() -> None:
             mask=mi.mask,
             mask_schema=mi.mask.schema,
         )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="bboxes do not agree"):
         # image and variance bbox disagreement.
         MaskedImage(
             Image(42.0, shape=(5, 5)),
             mask_schema=mi.mask.schema,
             variance=mi.variance,
         )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Image has no units but variance does"):
         # no image unit but there is variance unit.
         MaskedImage(
             Image(42.0, shape=(5, 5)),
             mask_schema=mi.mask.schema,
             variance=Image(1.0, shape=(5, 5), unit=u.nJy),
         )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="should be the square of the image unit"):
         # image and variance units disagree.
         MaskedImage(
             Image(42.0, shape=(5, 5), unit=u.nJy),
@@ -235,7 +235,7 @@ def test_mask_setter() -> None:
     np.testing.assert_array_equal(mi.mask.get("BAD"), bad)
     assert not mi.mask.get("OUTSIDE_STENCIL").any()
     # A mask whose bounding box disagrees with the image is rejected.
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="bboxes do not agree"):
         mi.mask = mi.mask[Box.factory[10:20, 12:22]]
 
 

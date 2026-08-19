@@ -1,0 +1,1 @@
+Fixed some minor bugs relating to subsetting, partial background subtraction and missing validations.
