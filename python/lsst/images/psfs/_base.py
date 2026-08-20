@@ -16,6 +16,9 @@ __all__ = ("PointSpreadFunction",)
 from abc import ABC, abstractmethod
 from typing import Any
 
+import numpy as np
+
+from .._ellipses import Ellipse
 from .._geom import Bounds, Box
 from .._image import Image
 from ..describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
@@ -74,6 +77,60 @@ class PointSpreadFunction(DescribableMixin, ABC):
             the postage stamp of a star would be.
         """
         raise NotImplementedError()
+
+    def compute_moments(
+        self, *, x: float, y: float, adaptive: bool = True, use_stellar_image: bool = False
+    ) -> Ellipse:
+        """Compute the moments of the PSF image.
+
+        Parameters
+        ----------
+        x
+            Column position coordinate to measure the PSF at.
+        y
+            Row position coordinate to measure the PSF at.
+        adaptive
+            If `True`, use GalSim's HSC adaptive moments algorithm (via
+            `.Ellipse.remeasure_adaptive`).  If `False`, use unweighted
+            moments, which should be stable for nearly-noiseless PSF models
+            but not for the (noisy) stars PSF models are generally compared
+            to.
+        use_stellar_image
+            If `True`, measure the moments of a call to `compute_stellar_image`
+            instead of `compute_kernel_image`.  This also causes the center
+            of the returned ellipse to be near the given ``(x, y)`` instead of
+            near ``(0, 0)``, reflecting the different coordinate conventions
+            of stellar vs. kernel images.
+        """
+        if use_stellar_image:
+            psf_image = self.compute_stellar_image(x=x, y=y)
+        else:
+            psf_image = self.compute_kernel_image(x=x, y=y)
+            x = 0.0
+            y = 0.0
+        result = Ellipse.from_image_unweighted(psf_image, x=x, y=y)
+        if adaptive:
+            result = result.remeasure_adaptive(psf_image)
+        return result
+
+    def compute_effective_area(self, *, x: float, y: float, use_stellar_image: bool = False) -> float:
+        """Compute the effective area of the PSF model.
+
+        Parameters
+        ----------
+        x
+            Column position coordinate to measure the PSF at.
+        y
+            Row position coordinate to measure the PSF at.
+        use_stellar_image
+            If `True`, measure the moments of a call to `compute_stellar_image`
+            instead of `compute_kernel_image`.
+        """
+        if use_stellar_image:
+            psf_image = self.compute_stellar_image(x=x, y=y)
+        else:
+            psf_image = self.compute_kernel_image(x=x, y=y)
+        return float(np.sum(psf_image.array) ** 2.0 / np.sum(psf_image.array**2.0))
 
     @abstractmethod
     def compute_stellar_bbox(self, *, x: float, y: float) -> Box:
