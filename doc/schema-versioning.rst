@@ -20,7 +20,7 @@ Versioning happens on two independent axes.
    The version bumps when the Pydantic shape of *that* subclass changes.
 
 **Container (file-format) version.**
-   The FITS and NDF backends each carry a single integer that bumps when the backend *layout* changes (HDU placement, ``NdfDocument`` shape), not when any data model changes.
+   The FITS, NDF, and zarr backends each carry a single integer that bumps when the backend *layout* changes (HDU placement, ``NdfDocument`` shape, zarr group and attribute layout), not when any data model changes.
    JSON has no container distinct from the root tree, so its data-model version covers everything.
 
 The axes evolve separately: changing the FITS HDU layout bumps the FITS container version without touching any data model, and bumping a model from ``1.0.0`` to ``1.1.0`` touches no container version.
@@ -62,7 +62,7 @@ URL scheme
 
 where ``SCHEMA_URL_BASE`` is a class-level constant that defaults to ``https://images.lsst.io/schemas`` for the schemas this package owns.
 External packages providing their own schemas override it so their URLs are minted under a documentation site they control; readers accept any ``http(s)`` URL whose final directory is ``schemas``, without restricting the host.
-The same URL appears in the FITS ``DATAMODL`` keyword and the NDF ``.MORE.LSST.DATA_MODEL`` component so the data model is visible to tooling without parsing the JSON tree.
+The same URL appears in the FITS ``DATAMODL`` keyword, the NDF ``.MORE.LSST.DATA_MODEL`` component, and the zarr root group's ``lsst.data_model`` attribute so the data model is visible to tooling without parsing the JSON tree.
 The URL resolves to a generated documentation page for that schema version, with the raw JSON Schema document published alongside it at ``{schema_url}.json``; see :ref:`lsst.images-frozen-schemas`.
 Readers never fetch it: version compatibility is decided entirely by the ``schema_version`` / ``min_read_version`` stamps.
 
@@ -109,6 +109,7 @@ The container version is required for the same reason: a writer always stamps th
 Where each backend applies that differs only in how a file is recognized as one this package wrote.
 Every FITS file the reader can open is ours already — the container cards it needs carry no defaults — so ``FMTVER`` is required outright, and a file without it is reported as such instead of failing later on a missing card.
 An NDF, by contrast, can be a Starlink product with no LSST extension at all: those have no layout of ours to version and are read by `~lsst.images.ndf.read_starlink`, so ``FORMAT_VERSION`` is required only of a file carrying an LSST JSON tree.
+A zarr store is recognized by its root group's ``lsst`` attribute namespace, which the writer always stamps with ``lsst.version``, so that attribute is required of any store carrying the namespace while a store without it is reported as not being one of ours.
 
 Evolving a schema
 =================

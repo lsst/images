@@ -22,7 +22,13 @@ from lsst.images import Box, Image
 from lsst.images.describe import DescribableMixin, Report
 from lsst.images.psfs import GaussianPointSpreadFunction, PiffWrapper, PointSpreadFunction, PSFExWrapper
 from lsst.images.psfs._piff import _ArchivePiffWriter
-from lsst.images.tests import RoundtripFits, RoundtripJson, RoundtripNdf, compare_psf_to_legacy
+from lsst.images.tests import (
+    RoundtripFits,
+    RoundtripJson,
+    RoundtripNdf,
+    RoundtripZarr,
+    compare_psf_to_legacy,
+)
 
 try:
     import h5py  # noqa: F401
@@ -32,6 +38,13 @@ except ImportError:
     HAVE_H5PY = False
 
 try:
+    import zarr  # noqa: F401
+
+    HAVE_ZARR = True
+except ImportError:
+    HAVE_ZARR = False
+
+try:
     from lsst.afw.detection import Psf as LegacyPsf
 except ImportError:
     type LegacyPsf = Any  # type: ignore[no-redef]
@@ -39,6 +52,7 @@ except ImportError:
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
+skip_no_zarr = pytest.mark.skipif(not HAVE_ZARR, reason="zarr is not installed")
 
 
 @pytest.fixture(scope="session")
@@ -224,6 +238,16 @@ def test_piff_ndf_roundtrip(legacy_piff_psf_and_bbox: tuple[LegacyPsf, Box]) -> 
     legacy_psf, bounds = legacy_piff_psf_and_bbox
     psf = PointSpreadFunction.from_legacy(legacy_psf, bounds)
     with RoundtripNdf(psf) as roundtrip:
+        pass
+    compare_psf_to_legacy(roundtrip.result, legacy_psf)
+
+
+@skip_no_zarr
+def test_piff_zarr_roundtrip(legacy_piff_psf_and_bbox: tuple[LegacyPsf, Box]) -> None:
+    """Test round-tripping a legacy Piff PSF through a zarr archive."""
+    legacy_psf, bounds = legacy_piff_psf_and_bbox
+    psf = PointSpreadFunction.from_legacy(legacy_psf, bounds)
+    with RoundtripZarr(psf) as roundtrip:
         pass
     compare_psf_to_legacy(roundtrip.result, legacy_psf)
 
