@@ -25,7 +25,7 @@ import pydantic
 from astro_metadata_translator import ObservationInfo
 
 from ._backgrounds import BackgroundMap
-from ._geom import Bounds, Box
+from ._geom import Bounds, Box, NoOverlapError
 from ._image import Image
 from ._mask import Mask, MaskPlane, MaskSchema, get_legacy_difference_image_mask_planes
 from ._observation_summary_stats import ObservationSummaryStats
@@ -567,22 +567,34 @@ class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constant
                 coadd_frame,
             )
             coadd_to_detector = detector_to_coadd.inverted()
-            # We transform the detector bbox to each coadd frame, do the
-            # intersection there, and then transform the intersection back to
-            # the detector frame, because we do not trust detector WCSs beyond
-            # the detector bounding box; they can be polynomials that
-            # extrapolate badly. Coadd WCSs in contrast are simple projections.
-            tmp_bounds = (
-                Polygon.from_box(detector_frame.bbox).transform(detector_to_coadd).intersection(patch_bbox)
-            ).transform(coadd_to_detector)
-            # Unfortunately doing the intersection in the coadd coordinate
-            # system means the transformed intersection might not quite be
-            # contained by the detector bounding box, due to floating-point
-            # round-off error.  Intersect one more time to tidy it up.
-            bounds = tmp_bounds.intersection(detector_frame.bbox)
-            assert isinstance(bounds, Polygon), (
-                "The operations above should not change the region's fundamental topology."
-            )
+            try:
+                # We transform the detector bbox to each coadd frame, do the
+                # intersection there, and then transform the intersection back
+                # to the detector frame, because we do not trust detector WCSs
+                # beyond the detector bounding box; they can be polynomials
+                # that extrapolate badly. Coadd WCSs in contrast are simple
+                # projections.
+                tmp_bounds = (
+                    Polygon.from_box(detector_frame.bbox)
+                    .transform(detector_to_coadd)
+                    .intersection(patch_bbox)
+                ).transform(coadd_to_detector)
+                # Unfortunately doing the intersection in the coadd coordinate
+                # system means the transformed intersection might not quite be
+                # contained by the detector bounding box, due to floating-point
+                # round-off error.  Intersect one more time to tidy it up.
+                bounds = tmp_bounds.intersection(detector_frame.bbox)
+                assert isinstance(bounds, Polygon), (
+                    "The operations above should not change the region's fundamental topology."
+                )
+            except NoOverlapError:
+                if log is not None:
+                    log.exception(
+                        "No overlap with tract=%s, patch=%s; skipping provenance for that template.",
+                        tract,
+                        patch,
+                    )
+                continue
             try:
                 psf_shape = legacy_template_psf.computeShape(bounds.centroid.to_legacy_float_point())
             except Exception:
