@@ -32,8 +32,8 @@ from lsst.images.fields import (
 )
 from lsst.images.tests import (
     RoundtripFits,
-    assert_close,
     assert_images_equal,
+    assert_values_equal,
     compare_field_to_legacy,
 )
 
@@ -409,8 +409,8 @@ def test_chebyshev1_function2() -> None:
     xy_array = TEST_BOX.meshgrid(4)
     z_array = field(x=xy_array.x, y=xy_array.y)
     for z, x, y in zip(z_array.flat, xy_array.x.flat, xy_array.y.flat):
-        assert_close(legacy_func2a(x, y), z)
-        assert_close(legacy_func2b(x, y), z)
+        assert_values_equal(legacy_func2a(x, y), z, rtol=1e-5)
+        assert_values_equal(legacy_func2b(x, y), z, rtol=1e-5)
 
 
 def test_visit_background(legacy_visit_background: LegacyBackgroundList) -> None:

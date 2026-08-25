@@ -30,7 +30,7 @@ from lsst.images import (
     RegionSerializationModel,
     Transform,
 )
-from lsst.images.tests import assert_close, check_bounds_contains_broadcasting
+from lsst.images.tests import assert_values_equal, check_bounds_contains_broadcasting
 
 try:
     import lsst.afw.geom  # noqa: F401
@@ -126,12 +126,12 @@ def test_transform() -> None:
     t = Transform.affine(GeneralFrame(unit=u.pix), GeneralFrame(unit=u.pix), matrix)
     tp = polygon.transform(t)
     assert isinstance(tp, Polygon)
-    assert_close(tp.area, polygon.area * np.linalg.det(matrix))
+    assert_values_equal(tp.area, polygon.area * np.linalg.det(matrix), rtol=1e-5)
     xyt = t.apply_forward(x=polygon.x_vertices, y=polygon.y_vertices)
     # Slicing below is because shapely sometimes adds a duplicate closing
     # vertex.
-    assert_close(tp.x_vertices[: len(xyt.x)], xyt.x)
-    assert_close(tp.y_vertices[: len(xyt.y)], xyt.y)
+    assert_values_equal(tp.x_vertices[: len(xyt.x)], xyt.x, rtol=1e-14)
+    assert_values_equal(tp.y_vertices[: len(xyt.y)], xyt.y, rtol=1e-14)
 
 
 def test_contains_points() -> None:

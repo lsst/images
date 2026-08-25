@@ -55,9 +55,9 @@ from lsst.images.tests import (
     RoundtripJson,
     RoundtripNdf,
     TemporaryButler,
-    assert_close,
     assert_masked_images_equal,
     assert_sky_projections_equal,
+    assert_values_equal,
     assert_visit_images_equal,
     compare_aperture_corrections_to_legacy,
     compare_detector_to_legacy,
@@ -660,8 +660,8 @@ def test_convert_unit_subimage(
     scaling_array = scaling.render(subbox, dtype=subimage.image.array.dtype).array
     if operation == "divide":
         scaling_array = 1.0 / scaling_array
-    assert_close(converted.image.array, subimage.image.array * scaling_array)
-    assert_close(converted.variance.array, subimage.variance.array * scaling_array**2)
+    assert_values_equal(converted.image.array, subimage.image.array * scaling_array, rtol=1e-5)
+    assert_values_equal(converted.variance.array, subimage.variance.array * scaling_array**2, rtol=1e-5)
 
 
 @dataclasses.dataclass
@@ -1012,16 +1012,16 @@ def test_convert_unit(legacy_test_data_calibrated: _LegacyTestData) -> None:
         original.convert_unit(u.mJy, copy=False)
     visit_image_mJy = original.convert_unit(u.mJy, copy="as-needed")
     assert visit_image_mJy.unit == u.mJy
-    assert_close(visit_image_mJy.image.array, original.image.array * 1e-6)
+    assert_values_equal(visit_image_mJy.image.array, original.image.array * 1e-6, rtol=1e-5)
     assert np.may_share_memory(visit_image_nJy.mask.array, original.mask.array)
-    assert_close(visit_image_mJy.variance.array, original.variance.array * 1e-12)
+    assert_values_equal(visit_image_mJy.variance.array, original.variance.array * 1e-12, rtol=1e-5)
     legacy_exposure_mJy = visit_image_mJy.to_legacy()
-    assert_close(legacy_exposure_mJy.getPhotoCalib().getCalibrationMean(), 1e6)
+    assert_values_equal(legacy_exposure_mJy.getPhotoCalib().getCalibrationMean(), 1e6, rtol=1e-14)
     legacy_masked_image_nJy = legacy_exposure_mJy.getPhotoCalib().calibrateImage(
         legacy_exposure_mJy.maskedImage
     )
-    assert_close(visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
-    assert_close(visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)
+    assert_values_equal(visit_image_nJy.image.array, legacy_masked_image_nJy.image.array, rtol=1e-5)
+    assert_values_equal(visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array, rtol=1e-5)
     assert np.may_share_memory(visit_image_mJy.mask.array, original.mask.array)
     assert visit_image_mJy.sky_projection is original.sky_projection
     assert visit_image_mJy.obs_info is original.obs_info
@@ -1050,28 +1050,29 @@ def test_convert_unit(legacy_test_data_calibrated: _LegacyTestData) -> None:
         visit_image_nJy.convert_unit(u.electron, copy=False)
     legacy_masked_image_e = legacy_photo_calib.uncalibrateImage(legacy_test_data.legacy_exposure.maskedImage)
     visit_image_e = visit_image_nJy.convert_unit(u.electron)
-    assert_close(visit_image_e.image.array, legacy_masked_image_e.image.array)
-    assert_close(visit_image_e.variance.array, legacy_masked_image_e.variance.array)
+    assert_values_equal(visit_image_e.image.array, legacy_masked_image_e.image.array, rtol=1e-5)
+    assert_values_equal(visit_image_e.variance.array, legacy_masked_image_e.variance.array, rtol=1e-5)
     assert not np.may_share_memory(visit_image_e.mask.array, visit_image_nJy.mask.array)
     visit_image_mJy.photometric_scaling = visit_image_nJy.photometric_scaling
     visit_image_e = visit_image_mJy.convert_unit(u.electron)
-    assert_close(visit_image_e.image.array, legacy_masked_image_e.image.array)
-    assert_close(visit_image_e.variance.array, legacy_masked_image_e.variance.array)
+    assert_values_equal(visit_image_e.image.array, legacy_masked_image_e.image.array, rtol=1e-5)
+    assert_values_equal(visit_image_e.variance.array, legacy_masked_image_e.variance.array, rtol=1e-5)
     visit_image_nJy_2 = visit_image_e.convert_unit(u.nJy)
-    assert_close(visit_image_nJy_2.image.array, visit_image_nJy.image.array)
-    assert_close(visit_image_nJy_2.variance.array, original.variance.array)
+    assert_values_equal(visit_image_nJy_2.image.array, visit_image_nJy.image.array, rtol=1e-5)
+    assert_values_equal(visit_image_nJy_2.variance.array, original.variance.array, rtol=1e-5)
     visit_image_e.photometric_scaling = visit_image_nJy.photometric_scaling * (1e-6 * u.mJy / u.nJy)
     visit_image_nJy_3 = visit_image_e.convert_unit(u.nJy)
-    assert_close(visit_image_nJy_3.image.array, visit_image_nJy.image.array)
-    assert_close(visit_image_nJy_3.variance.array, original.variance.array)
+    assert_values_equal(visit_image_nJy_3.image.array, visit_image_nJy.image.array, rtol=1e-5)
+    assert_values_equal(visit_image_nJy_3.variance.array, original.variance.array, rtol=1e-5)
     legacy_exposure_e = visit_image_e.to_legacy()
-    assert_close(
+    assert_values_equal(
         legacy_exposure_e.getPhotoCalib().getCalibrationMean(),
         legacy_photo_calib.getCalibrationMean(),
+        rtol=1e-5,
     )
     legacy_masked_image_nJy = legacy_exposure_e.getPhotoCalib().calibrateImage(legacy_exposure_e.maskedImage)
-    assert_close(visit_image_nJy.image.array, legacy_masked_image_nJy.image.array)
-    assert_close(visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array)
+    assert_values_equal(visit_image_nJy.image.array, legacy_masked_image_nJy.image.array, rtol=1e-5)
+    assert_values_equal(visit_image_nJy.variance.array, legacy_masked_image_nJy.variance.array, rtol=1e-5)
 
 
 def test_background_map_describe() -> None:

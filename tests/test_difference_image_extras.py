@@ -39,7 +39,7 @@ from lsst.images.tests import (
     DP2_TEMPLATE_COADD_DATASETS,
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
-    assert_close,
+    assert_values_equal,
     make_random_sky_projection,
 )
 
@@ -117,7 +117,7 @@ def compare_kernel_to_legacy(kernel: ConvolutionKernel, legacy_kernel: LegacyKer
         im = kernel.compute_kernel_image(x=x, y=y)
         legacy_im.array[...] = 0.0
         legacy_kernel.computeImage(legacy_im, doNormalize=False, x=x, y=y)
-        assert_close(im.array, legacy_im.array, rtol=1e-15, atol=1e-15)
+        assert_values_equal(im.array, legacy_im.array, rtol=1e-15, atol=1e-15)
 
 
 def _sanity_check_template_info(

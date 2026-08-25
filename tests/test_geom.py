@@ -33,7 +33,7 @@ from lsst.images import (
     SerializableYX,
     SkyProjection,
 )
-from lsst.images.tests import assert_close, check_bounds_contains_broadcasting
+from lsst.images.tests import assert_values_equal, check_bounds_contains_broadcasting
 
 
 class IntervalModel(pydantic.BaseModel):
@@ -271,17 +271,17 @@ def test_interval_usage() -> None:
         i.slice_within(Interval(start=3, stop=5))
 
     val = i.linspace()
-    assert_close(val, np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]))
+    assert_values_equal(val, np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]))
     val = i.linspace(step=2.0)
-    assert_close(val, np.array([1.0, 3.0, 5.0, 7.0, 9.0]))
+    assert_values_equal(val, np.array([1.0, 3.0, 5.0, 7.0, 9.0]))
     val = i.linspace(n=3)
-    assert_close(val, np.array([1.0, 5.0, 9.0]))
+    assert_values_equal(val, np.array([1.0, 5.0, 9.0]))
     with pytest.raises(TypeError):
         i.linspace(n=2, step=3.0)
 
     assert list(i.range) == [1, 2, 3, 4, 5, 6, 7, 8, 9]
     val = i.arange
-    assert_close(val, np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]))
+    assert_values_equal(val, np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]))
 
 
 def test_interval_pydantic() -> None:
@@ -534,28 +534,28 @@ def test_box_mesh() -> None:
     box = Box.factory[0:2, 0:3]
 
     grid = box.meshgrid()
-    assert_close(grid.x, np.array([[0.0, 1.0, 2.0], [0.0, 1.0, 2.0]]))
-    assert_close(grid.y, np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]))
+    assert_values_equal(grid.x, np.array([[0.0, 1.0, 2.0], [0.0, 1.0, 2.0]]))
+    assert_values_equal(grid.y, np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]))
 
     grid = box.meshgrid(2)
-    assert_close(grid.x, np.array([[0.0, 2.0], [0.0, 2.0]]))
-    assert_close(grid.y, np.array([[0.0, 0.0], [1.0, 1.0]]))
+    assert_values_equal(grid.x, np.array([[0.0, 2.0], [0.0, 2.0]]))
+    assert_values_equal(grid.y, np.array([[0.0, 0.0], [1.0, 1.0]]))
 
     grid = box.meshgrid([2, 1])
-    assert_close(grid.x, np.array([[0.0, 2.0]]))
-    assert_close(grid.y, np.array([[0.0, 0.0]]))
+    assert_values_equal(grid.x, np.array([[0.0, 2.0]]))
+    assert_values_equal(grid.y, np.array([[0.0, 0.0]]))
 
     grid = box.meshgrid(XY(2, 1))
-    assert_close(grid.x, np.array([[0.0, 2.0]]))
-    assert_close(grid.y, np.array([[0.0, 0.0]]))
+    assert_values_equal(grid.x, np.array([[0.0, 2.0]]))
+    assert_values_equal(grid.y, np.array([[0.0, 0.0]]))
 
     grid = box.meshgrid(YX(1, 2))
-    assert_close(grid.x, np.array([[0.0, 2.0]]))
-    assert_close(grid.y, np.array([[0.0, 0.0]]))
+    assert_values_equal(grid.x, np.array([[0.0, 2.0]]))
+    assert_values_equal(grid.y, np.array([[0.0, 0.0]]))
 
     grid = box.meshgrid(step=3)
-    assert_close(grid.x, np.array([[0.0]]))
-    assert_close(grid.y, np.array([[0.0]]))
+    assert_values_equal(grid.x, np.array([[0.0]]))
+    assert_values_equal(grid.y, np.array([[0.0]]))
 
     with pytest.raises(TypeError):
         box.meshgrid(2, step=3)
