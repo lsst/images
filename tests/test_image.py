@@ -26,9 +26,9 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
     RoundtripNdf,
-    assert_close,
     assert_images_equal,
     assert_sky_projections_equal,
+    assert_values_equal,
     compare_image_to_legacy,
     make_random_sky_projection,
 )
@@ -80,7 +80,7 @@ def legacy_test_data() -> _LegacyTestData:
 def test_basics() -> None:
     """Test basic Image constructor patterns and slicing."""
     image = Image(42, shape=(5, 5), metadata={"three": 3})
-    assert_close(image.array, np.zeros([5, 5], dtype=np.int64) + 42)
+    assert_values_equal(image.array, np.zeros([5, 5], dtype=np.int64) + 42)
     assert image.metadata["three"] == 3
 
     data = np.array([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]])
@@ -98,9 +98,9 @@ def test_basics() -> None:
         # moved origin.
         image.absolute[:3, 1:3]
     # That slice does still work in local coordinates.
-    assert_close(image.local[:3, 1:3].array, subset2.array)
+    assert_values_equal(image.local[:3, 1:3].array, subset2.array)
     # And we can write an equivalent slice in absolute coordinates.
-    assert_close(image.absolute[:0, 11:13].array, np.array([[2, 3], [6, 7]]))
+    assert_values_equal(image.absolute[:0, 11:13].array, np.array([[2, 3], [6, 7]]))
 
     # Test __eq__ behavior.
     assert image[...] == image
@@ -204,9 +204,10 @@ def test_quantity() -> None:
 
     image2 = Image(data2, unit=u.Jy)
     image[Box.factory[-1:0, 5:7]] = image2.local[1:2, 2:4]
-    assert_close(
+    assert_values_equal(
         image.array,
         np.array([[0.01, 0.02, 0.03, 0.04], [0.05, 0.06, 14000.0, 16000.0], [0.09, 0.1, 0.11, 0.12]]),
+        rtol=1e-5,
     )
 
 

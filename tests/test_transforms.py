@@ -410,6 +410,21 @@ def test_detector_wcs(legacy_detector_wcs: dict[str, Any]) -> None:
     )
 
 
+def test_detector_wcs_full_bbox(legacy_detector_wcs: dict[str, Any]) -> None:
+    """Test that a from_legacy sky projection matchesthe legacy WCS over the
+    whole detector bbox, not just a subregion away from the origin.
+
+    We use a smaller box in most other tests for performance reasons, but this
+    one is more senstive to the precision floor close to the origin in
+    particular.
+    """
+    legacy_wcs = legacy_detector_wcs["legacy_wcs"]
+    wcs_bbox = legacy_detector_wcs["wcs_bbox"]
+    detector_frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=wcs_bbox)
+    sky_projection = SkyProjection.from_legacy(legacy_wcs, detector_frame)
+    compare_sky_projection_to_legacy_wcs(sky_projection, legacy_wcs, detector_frame, wcs_bbox)
+
+
 @dataclasses.dataclass
 class FrameSetTestHolder:
     """A top-level object that holds a CameraFrameSet and a transform
