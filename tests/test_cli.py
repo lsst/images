@@ -376,13 +376,8 @@ def test_extract_test_data_help() -> None:
 
 
 def test_verify_rewrite_help() -> None:
-    """Verify verify-rewrite and its stage4 subcommand load with core deps
-    only.
-    """
+    """Verify verify-rewrite loads with core deps only."""
     result = CliRunner().invoke(main, ["verify-rewrite", "--help"])
-    assert result.exit_code == 0, result.output
-    assert "stage4" in result.output
-    result = CliRunner().invoke(main, ["verify-rewrite", "stage4", "--help"])
     assert result.exit_code == 0, result.output
 
 
@@ -397,7 +392,6 @@ def test_verify_rewrite_help() -> None:
         ["extract-test-data", "-h"],
         ["extract-test-data", "dp2", "-h"],
         ["verify-rewrite", "-h"],
-        ["verify-rewrite", "stage4", "-h"],
         ["fuzz-masked-image", "-h"],
         ["schemas", "-h"],
         ["schemas", "write", "-h"],
@@ -417,7 +411,6 @@ def test_verify_rewrite_help() -> None:
         "extract-test-data",
         "extract-test-data-dp2",
         "verify-rewrite",
-        "verify-rewrite-stage4",
         "fuzz-masked-image",
         "schemas",
         "schemas-write",

@@ -85,6 +85,7 @@ except ImportError:
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
+MINIMAL_VISIT_DATA_ID = {key: DP2_VISIT_DETECTOR_DATA_ID[key] for key in ("instrument", "visit", "detector")}
 
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
 
@@ -896,7 +897,7 @@ def test_rewrite(legacy_test_data: _LegacyTestData) -> None:
             legacy_exposure,
             expect_view=False,
             plane_map=legacy_test_data.plane_map,
-            **DP2_VISIT_DETECTOR_DATA_ID,
+            **MINIMAL_VISIT_DATA_ID,
         )
         if legacy_test_data.visit_image.unit == u.nJy:
             assert legacy_exposure.getPhotoCalib()._isConstant
@@ -925,7 +926,7 @@ def test_rewrite(legacy_test_data: _LegacyTestData) -> None:
         legacy_test_data.legacy_exposure,
         expect_view=False,
         plane_map=legacy_test_data.plane_map,
-        **DP2_VISIT_DETECTOR_DATA_ID,
+        **MINIMAL_VISIT_DATA_ID,
         alternates=alternates,
     )
     compare_visit_image_to_legacy(
@@ -935,7 +936,7 @@ def test_rewrite(legacy_test_data: _LegacyTestData) -> None:
         legacy_test_data.legacy_exposure,
         expect_view=True,
         plane_map=legacy_test_data.plane_map,
-        **DP2_VISIT_DETECTOR_DATA_ID,
+        **MINIMAL_VISIT_DATA_ID,
     )
 
 
@@ -971,7 +972,7 @@ def test_butler_converters(legacy_test_data: _LegacyTestData) -> None:
             expect_view=False,
             plane_map=legacy_test_data.plane_map,
             alternates=alternates,
-            **DP2_VISIT_DETECTOR_DATA_ID,
+            **MINIMAL_VISIT_DATA_ID,
         )
         helper.butler.pruneDatasets([helper.legacy], purge=True, unstore=True, disassociate=True)
         visit_image.metadata["MixedCaseKey"] = 52
@@ -985,7 +986,7 @@ def test_butler_converters(legacy_test_data: _LegacyTestData) -> None:
             expect_view=False,
             plane_map=legacy_test_data.plane_map,
             alternates=alternates,
-            **DP2_VISIT_DETECTOR_DATA_ID,
+            **MINIMAL_VISIT_DATA_ID,
         )
         visit_image_2 = helper.butler.get(visit_image_ref)
         compare_visit_image_to_legacy(
@@ -994,7 +995,7 @@ def test_butler_converters(legacy_test_data: _LegacyTestData) -> None:
             expect_view=False,
             plane_map=legacy_test_data.plane_map,
             alternates=alternates,
-            **DP2_VISIT_DETECTOR_DATA_ID,
+            **MINIMAL_VISIT_DATA_ID,
         )
         assert visit_image_2.metadata["MixedCaseKey"] == 52
 
