@@ -746,6 +746,49 @@ class Mask(GeneralizedImage):
         bit = self.schema.bit(plane)
         return (self._array[..., bit.index] & bit.mask).astype(bool)
 
+    def compare(self, other: Mask) -> dict[str, tuple[int, int]]:
+        """Return a plane-by-plane comparison with another mask..
+
+        Parameters
+        ----------
+        other
+            The mask to compare against.
+
+        Returns
+        -------
+        `dict` [`str`, `tuple` [`int`, `int`]]
+            A dictionary mask planes as as keys, where the values are:
+
+            - the number of pixels with that plane set in ``self`` but not
+              ``other``;
+            - the number of pixels with that plane set in ``other`` but not
+              ``self``.
+
+            Mask planes where the images have the same pixels set are not
+            included, so the result is empty for identical masks.  Mask planes
+            present in only one operand are treated as though they were unset
+            for all pixels in the other operand.
+
+        Notes
+        -----
+        Two masks with different schemas can have an empty `compare` result
+        while still not satisfying an equality check, as long as the planes
+        they have in common have the same pixels set and any planes present in
+        only one operand have no pixels set.
+        """
+        if self.bbox != other.bbox:
+            raise ValueError("masks must have the same bounding box to compute a difference")
+        empty = np.zeros(self._array.shape[:-1], dtype=bool)
+        result: dict[str, tuple[int, int]] = {}
+        for name in self.schema.names | other.schema.names:
+            a = self.get(name) if name in self.schema.names else empty
+            b = other.get(name) if name in other.schema.names else empty
+            added = int(np.count_nonzero(a & ~b))
+            removed = int(np.count_nonzero(b & ~a))
+            if added or removed:
+                result[name] = (added, removed)
+        return result
+
     def set(self, plane: str, boolean_mask: np.ndarray | EllipsisType = ...) -> None:
         """Set a mask plane.
 

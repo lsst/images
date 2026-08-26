@@ -166,7 +166,9 @@ def assert_values_equal(
         if np.isnan(diff).all():
             raise AssertionError(f"{prefix}{n_mismatch}/{a_vals.size} values differ{nan_str}{unit_str}")
         maxdiff = float(np.nanmax(diff))
-        loc = np.unravel_index(np.nanargmax(diff), diff.shape)
+        # Convert to plain ints so the index prints as e.g. (2198,) rather than
+        # (np.int64(2198),).
+        loc = tuple(int(i) for i in np.unravel_index(np.nanargmax(diff), diff.shape))
         raise AssertionError(
             f"{prefix}{n_mismatch}/{a_vals.size} values differ; "
             f"max abs diff {maxdiff} at index {loc}{nan_str}{unit_str}"
@@ -246,6 +248,14 @@ def assert_images_equal(
         assert a.metadata == b.metadata
 
 
+def _note_mask_difference(err: AssertionError, a: Mask, b: Mask, *, label: str) -> None:
+    diff = a.compare(b)
+    if not diff:
+        return
+    summary = "\n".join(f"{label}[{name}]: +{added} -{removed}" for name, (added, removed) in diff.items())
+    err.add_note(summary)
+
+
 def assert_masks_equal(a: Mask, b: Mask) -> None:
     """Assert that two masks are equal or nearly equal.
 
@@ -260,7 +270,11 @@ def assert_masks_equal(a: Mask, b: Mask) -> None:
     assert a.schema == b.schema
     assert a.metadata == b.metadata
     assert_sky_projections_equal(a.sky_projection, b.sky_projection)
-    assert_values_equal(a.array, b.array, label="mask")
+    try:
+        assert_values_equal(a.array, b.array, label="mask")
+    except AssertionError as err:
+        _note_mask_difference(err, a, b, label="mask")
+        raise
 
 
 def assert_masked_images_equal(
@@ -464,12 +478,16 @@ def compare_mask_to_legacy(
     assert mask.bbox == Box.from_legacy(legacy_mask.getBBox())
     if plane_map is None:
         plane_map = {plane.name: plane for plane in mask.schema if plane is not None}
-    for old_name, new_plane in plane_map.items():
-        assert_values_equal(
-            (legacy_mask.array & legacy_mask.getPlaneBitMask(old_name)).astype(bool),
-            mask.get(new_plane.name),
-            label=f"{label}[{old_name}]",
-        )
+    try:
+        for old_name, new_plane in plane_map.items():
+            assert_values_equal(
+                (legacy_mask.array & legacy_mask.getPlaneBitMask(old_name)).astype(bool),
+                mask.get(new_plane.name),
+                label=f"{label}[{old_name}]",
+            )
+    except AssertionError as err:
+        _note_mask_difference(err, mask, Mask.from_legacy(legacy_mask, plane_map), label=label)
+        raise
 
 
 def compare_masked_image_to_legacy(

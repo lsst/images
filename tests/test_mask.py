@@ -563,3 +563,58 @@ def test_mask_describe_detail_reports_set_pixel_counts() -> None:
     counts = {row[3]: row[-1] for row in table.rows}  # row[3] is the Name column
     assert counts["BAD"] == 3
     assert counts["DET"] == 0
+
+
+def test_compare() -> None:
+    """Test Mask.compare added/removed counts for a shared plane."""
+    schema = MaskSchema([MaskPlane("A", "dA"), MaskPlane("B", "dB")], dtype=np.uint8)
+    m1 = Mask(0, schema=schema, bbox=Box.factory[0:2, 0:2])
+    m1.set("A", np.array([[True, False], [False, True]]))
+    m2 = Mask(0, schema=schema, bbox=Box.factory[0:2, 0:2])
+    m2.set("A", np.array([[True, True], [False, False]]))
+    # A: m1 set at (0,0),(1,1); m2 set at (0,0),(0,1)
+    assert m1.compare(m2) == {"A": (1, 1)}
+
+
+def test_compare_identical_is_empty() -> None:
+    """Test that identical masks yield an empty difference."""
+    schema = MaskSchema([MaskPlane("A", "dA")], dtype=np.uint8)
+    m1 = Mask(0, schema=schema, bbox=Box.factory[0:2, 0:1])
+    m1.set("A", np.array([[True], [False]]))
+    m2 = Mask(0, schema=schema, bbox=Box.factory[0:2, 0:1])
+    m2.set("A", np.array([[True], [False]]))
+    assert m1.compare(m2) == {}
+
+
+def test_compare_one_sided_planes() -> None:
+    """Test that planes present in only one mask are counted fully."""
+    schema_a = MaskSchema([MaskPlane("A", "dA")], dtype=np.uint8)
+    schema_b = MaskSchema([MaskPlane("B", "dB")], dtype=np.uint8)
+    m1 = Mask(0, schema=schema_a, bbox=Box.factory[0:2, 0:1])
+    m1.set("A", np.array([[True], [False]]))
+    m2 = Mask(0, schema=schema_b, bbox=Box.factory[0:2, 0:1])
+    m2.set("B", np.array([[True], [True]]))
+    assert m1.compare(m2) == {"A": (1, 0), "B": (0, 2)}
+
+
+def test_compare_bbox_mismatch_raises() -> None:
+    """Test that differing bounding boxes raise ValueError."""
+    schema = MaskSchema([MaskPlane("A", "dA")], dtype=np.uint8)
+    m1 = Mask(0, schema=schema, bbox=Box.factory[0:2, 0:1])
+    m2 = Mask(0, schema=schema, bbox=Box.factory[0:3, 0:1])
+    with pytest.raises(ValueError, match="same bounding box"):
+        m1.compare(m2)
+
+
+def test_compare_mask_to_legacy_notes_plane_diff(reset_afw_mask_planes: None) -> None:  # noqa: F811
+    """Assert that a legacy-mask mismatch adds a per-plane +/- note."""
+    schema = MaskSchema([MaskPlane("A", "dA")], dtype=np.uint8)
+    mask = Mask(0, schema=schema, bbox=Box.factory[0:2, 0:1])
+    mask.set("A", np.array([[True], [False]]))
+    legacy = mask.to_legacy()
+    mask2 = Mask(0, schema=schema, bbox=Box.factory[0:2, 0:1])
+    mask2.set("A", np.array([[True], [True]]))
+    with pytest.raises(AssertionError) as excinfo:
+        compare_mask_to_legacy(mask2, legacy)
+    notes = excinfo.value.__notes__ or []
+    assert any("mask[A]: +1 -0" in n for n in notes)

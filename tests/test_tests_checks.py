@@ -15,7 +15,8 @@ import astropy.units as u
 import numpy as np
 import pytest
 
-from lsst.images.tests import annotate_errors, assert_values_equal
+from lsst.images import Box, Mask, MaskPlane, MaskSchema
+from lsst.images.tests import annotate_errors, assert_masks_equal, assert_values_equal
 
 
 def test_assert_values_equal_passes():
@@ -107,3 +108,16 @@ def test_label_assertions_passthrough_on_success():
     """Assert a passing block is not re-raised."""
     with annotate_errors("psf"):
         pass  # must not raise
+
+
+def test_assert_masks_equal_notes_plane_diff() -> None:
+    """Assert that a mask mismatch adds a per-plane +/- note."""
+    schema = MaskSchema([MaskPlane("A", "dA")], dtype=np.uint8)
+    m1 = Mask(0, schema=schema, bbox=Box.factory[0:2, 0:1])
+    m1.set("A", np.array([[True], [False]]))
+    m2 = Mask(0, schema=schema, bbox=Box.factory[0:2, 0:1])
+    m2.set("A", np.array([[True], [True]]))
+    with pytest.raises(AssertionError) as excinfo:
+        assert_masks_equal(m1, m2)
+    notes = excinfo.value.__notes__ or []
+    assert any("mask[A]: +0 -1" in n for n in notes)
