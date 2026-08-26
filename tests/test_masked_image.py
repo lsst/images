@@ -40,6 +40,7 @@ from lsst.images.tests import (
     RoundtripNdf,
     assert_masked_images_equal,
     compare_masked_image_to_legacy,
+    reset_afw_mask_planes,  # noqa: F401
 )
 
 try:
@@ -67,19 +68,18 @@ class _LegacyTestData:
     plane_map: dict[str, MaskPlane]
 
 
-@pytest.fixture(scope="session")
-def legacy_test_data() -> _LegacyTestData:
+@pytest.fixture
+def legacy_test_data(reset_afw_mask_planes: None) -> _LegacyTestData:  # noqa: F811
     """Return a Mask read directly from the legacy test dataset and a legacy
     reader for that image.
 
     Skips if TESTDATA_IMAGES_DIR is unset or lsst.afw.image is unavailable.
     """
+    # reset_afw_mask_planes will have already skipped if afw is not available.
+    from lsst.afw.image import MaskedImageFitsReader
+
     if EXTERNAL_DATA_DIR is None:
         pytest.skip("TESTDATA_IMAGES_DIR is not in the environment.")
-    try:
-        from lsst.afw.image import MaskedImageFitsReader
-    except ImportError:
-        pytest.skip("'lsst.afw.image' could not be imported.")
     filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
     plane_map = get_legacy_visit_image_mask_planes()
     masked_image = MaskedImage.read_legacy(filename, plane_map=plane_map)
@@ -258,7 +258,7 @@ def test_fits_roundtrip() -> None:
     assert_masked_images_equal(subimage, roundtrip.result[subbox], expect_view=False)
 
 
-def test_fits_roundtrip_legacy_read() -> None:
+def test_fits_roundtrip_legacy_read(reset_afw_mask_planes: None) -> None:  # noqa: F811
     """Verify a round-tripped MaskedImageV2 can be read back as a legacy afw
     MaskedImage.
     """

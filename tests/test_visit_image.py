@@ -65,6 +65,7 @@ from lsst.images.tests import (
     compare_visit_image_to_legacy,
     current_fixture_path,
     make_random_sky_projection,
+    reset_afw_mask_planes,  # noqa: F401
 )
 
 try:
@@ -703,8 +704,8 @@ class _LegacyTestData:
         return result
 
 
-@pytest.fixture(scope="session", params=["visit_image", "preliminary_visit_image", "difference_image"])
-def legacy_test_data(request: pytest.FixtureRequest) -> _LegacyTestData:
+@pytest.fixture(params=["visit_image", "preliminary_visit_image", "difference_image"])
+def legacy_test_data(request: pytest.FixtureRequest, reset_afw_mask_planes: None) -> _LegacyTestData:  # noqa: F811
     """Return legacy test data.
 
     Tests that depend on this parameterized fixture run on all of the legacy
@@ -713,8 +714,11 @@ def legacy_test_data(request: pytest.FixtureRequest) -> _LegacyTestData:
     return _LegacyTestData.get(request.param)
 
 
-@pytest.fixture(scope="session", params=["visit_image", "difference_image"])
-def legacy_test_data_calibrated(request: pytest.FixtureRequest) -> _LegacyTestData:
+@pytest.fixture(params=["visit_image", "difference_image"])
+def legacy_test_data_calibrated(
+    request: pytest.FixtureRequest,
+    reset_afw_mask_planes: None,  # noqa: F811
+) -> _LegacyTestData:
     """Return legacy test data for calibrated images only.
 
     Tests that depend on this parameterized fixture do not run on

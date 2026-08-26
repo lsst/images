@@ -30,7 +30,12 @@ from lsst.images import (
 )
 from lsst.images._mask import _guess_legacy_plane_map
 from lsst.images.describe import Report
-from lsst.images.tests import RoundtripFits, assert_masks_equal, compare_mask_to_legacy
+from lsst.images.tests import (  # noqa: F401
+    RoundtripFits,
+    assert_masks_equal,
+    compare_mask_to_legacy,
+    reset_afw_mask_planes,
+)
 
 try:
     from lsst.afw.image import MaskedImageReader as LegacyMaskedImageReader
@@ -48,19 +53,18 @@ class _LegacyTestData:
     plane_map: dict[str, MaskPlane]
 
 
-@pytest.fixture(scope="session")
-def legacy_test_data() -> _LegacyTestData:
+@pytest.fixture
+def legacy_test_data(reset_afw_mask_planes: None) -> _LegacyTestData:  # noqa: F811
     """Return a Mask read directly from the legacy test dataset and a legacy
     reader for that image.
 
     Skips if TESTDATA_IMAGES_DIR is unset or lsst.afw.image is unavailable.
     """
+    # reset_afw_mask_planes will have already skipped if afw is not available.
+    from lsst.afw.image import MaskedImageFitsReader
+
     if EXTERNAL_DATA_DIR is None:
         pytest.skip("TESTDATA_IMAGES_DIR is not in the environment.")
-    try:
-        from lsst.afw.image import MaskedImageFitsReader
-    except ImportError:
-        pytest.skip("'lsst.afw.image' could not be imported.")
     filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
     plane_map = get_legacy_visit_image_mask_planes()
     mask = Mask.read_legacy(filename, ext=2, plane_map=plane_map)

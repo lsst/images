@@ -22,7 +22,13 @@ from lsst.images import Box, Image
 from lsst.images.describe import DescribableMixin, Report
 from lsst.images.psfs import GaussianPointSpreadFunction, PiffWrapper, PointSpreadFunction, PSFExWrapper
 from lsst.images.psfs._piff import _ArchivePiffWriter
-from lsst.images.tests import RoundtripFits, RoundtripJson, RoundtripNdf, compare_psf_to_legacy
+from lsst.images.tests import (
+    RoundtripFits,
+    RoundtripJson,
+    RoundtripNdf,
+    compare_psf_to_legacy,
+    reset_afw_mask_planes,  # noqa: F401
+)
 
 try:
     import h5py  # noqa: F401
@@ -41,21 +47,22 @@ EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
 
 
-@pytest.fixture(scope="session")
-def legacy_piff_psf_and_bbox() -> tuple[LegacyPsf, Box]:
+@pytest.fixture
+def legacy_piff_psf_and_bbox(reset_afw_mask_planes: None) -> tuple[LegacyPsf, Box]:  # noqa: F811
     """Return a legacy-wrapped Piff PSF and its bounding box.
 
     Skips if TESTDATA_IMAGES_DIR is unset, piff is unavailable, or afw is
     unavailable.
     """
+    # reset_afw_mask_planes will have already skipped if afw is not available.
+    from lsst.afw.image import ExposureFitsReader
+
     if EXTERNAL_DATA_DIR is None:
         pytest.skip("TESTDATA_IMAGES_DIR is not in the environment.")
     try:
         import piff  # noqa: F401
-
-        from lsst.afw.image import ExposureFitsReader
     except ImportError:
-        pytest.skip("'piff' or 'lsst.afw.image' could not be imported.")
+        pytest.skip("'piff' could not be imported.")
     filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
     reader = ExposureFitsReader(filename)
     legacy_psf = reader.readPsf()
@@ -63,8 +70,8 @@ def legacy_piff_psf_and_bbox() -> tuple[LegacyPsf, Box]:
     return legacy_psf, bounds
 
 
-@pytest.fixture(scope="session")
-def legacy_psfex_psf_and_bbox() -> tuple[LegacyPsf, Box]:
+@pytest.fixture
+def legacy_psfex_psf_and_bbox(reset_afw_mask_planes: None) -> tuple[LegacyPsf, Box]:  # noqa: F811
     """Return a legacy PSFEx PSF and its bounding box
 
     Skips if TESTDATA_IMAGES_DIR is unset, afw is unavailable, or psfex is

@@ -41,6 +41,7 @@ from lsst.images.tests import (
     RoundtripFits,
     assert_values_equal,
     make_random_sky_projection,
+    reset_afw_mask_planes,  # noqa: F401
 )
 
 try:
@@ -73,21 +74,20 @@ class _LegacyTestData:
     detector_frame: DetectorFrame
 
 
-@pytest.fixture(scope="session")
-def legacy_test_data() -> _LegacyTestData:
+@pytest.fixture
+def legacy_test_data(reset_afw_mask_planes: None) -> _LegacyTestData:  # noqa: F811
     """Return a struct of legacy test objects loaded from EXTERNAL_DATA_DIR.
 
     Skips if TESTDATA_IMAGES_DIR is unset or afw is unavailable.
     """
+    # reset_afw_mask_planes will have already skipped if afw is not available.
+    from lsst.afw.image import ExposureFitsReader
+
     if EXTERNAL_DATA_DIR is None:
         pytest.skip("TESTDATA_IMAGES_DIR is not in the environment.")
     kernel_filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "difference_kernel.fits")
     template_filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "template_detector.fits")
     exposure_filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "difference_image.fits")
-    try:
-        from lsst.afw.image import ExposureFitsReader
-    except ImportError:
-        pytest.skip("afw not available; cannot read legacy difference image or components")
     kernel = LegacyKernel.readFits(kernel_filename)
     template_reader = ExposureFitsReader(template_filename)
     template_metadata = template_reader.readMetadata()

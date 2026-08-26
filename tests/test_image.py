@@ -31,6 +31,7 @@ from lsst.images.tests import (
     assert_values_equal,
     compare_image_to_legacy,
     make_random_sky_projection,
+    reset_afw_mask_planes,  # noqa: F401
 )
 
 try:
@@ -57,19 +58,18 @@ class _LegacyTestData:
     reader: LegacyMaskedImageReader
 
 
-@pytest.fixture(scope="session")
-def legacy_test_data() -> _LegacyTestData:
+@pytest.fixture
+def legacy_test_data(reset_afw_mask_planes: None) -> _LegacyTestData:  # noqa: F811
     """Return an Image read directly from the legacy test dataset and a legacy
     reader for that image.
 
     Skips if TESTDATA_IMAGES_DIR is unset or lsst.afw.image is unavailable.
     """
+    # reset_afw_mask_planes will have already skipped if afw is not available.
+    from lsst.afw.image import MaskedImageFitsReader
+
     if EXTERNAL_DATA_DIR is None:
         pytest.skip("TESTDATA_IMAGES_DIR is not in the environment.")
-    try:
-        from lsst.afw.image import MaskedImageFitsReader
-    except ImportError:
-        pytest.skip("'lsst.afw.image' could not be imported.")
     filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
     det_frame = DetectorFrame(instrument="Inst", visit=1234, detector=1, bbox=Box.factory[1:4096, 1:4096])
     image = Image.read_legacy(filename, preserve_quantization=True, fits_wcs_frame=det_frame)
