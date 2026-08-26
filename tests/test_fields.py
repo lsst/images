@@ -35,6 +35,7 @@ from lsst.images.tests import (
     assert_images_equal,
     assert_values_equal,
     compare_field_to_legacy,
+    reset_afw_mask_planes,  # noqa: F401
 )
 
 try:
@@ -60,16 +61,14 @@ EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 TEST_BOX = Box.factory[6:32, -7:26]
 
 
-@pytest.fixture(scope="session")
-def legacy_visit_background() -> LegacyBackgroundList:
+@pytest.fixture
+def legacy_visit_background(reset_afw_mask_planes: None) -> LegacyBackgroundList:  # noqa: F811
     """Load and return an `lsst.afw.math.BackgroundList`.
 
     Skips if TESTDATA_IMAGES_DIR is unset or lsst.afw.math is unavailable.
     """
     if EXTERNAL_DATA_DIR is None:
         pytest.skip("TESTDATA_IMAGES_DIR is not in the environment.")
-    if not HAVE_LEGACY:
-        pytest.skip("This test requires lsst.afw.math to be importable.")
     filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image_background.fits")
     return LegacyBackgroundList.readFits(filename)
 

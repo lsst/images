@@ -48,6 +48,7 @@ from lsst.images.tests import (
     compare_sky_projection_to_legacy_wcs,
     legacy_points_to_xy_array,
     make_random_sky_projection,
+    reset_afw_mask_planes,  # noqa: F401
 )
 
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
@@ -70,18 +71,17 @@ def legacy_camera() -> Any:
     return Camera.readFits(filename)
 
 
-@pytest.fixture(scope="session")
-def legacy_detector_wcs() -> dict[str, Any]:
+@pytest.fixture
+def legacy_detector_wcs(reset_afw_mask_planes: None) -> dict[str, Any]:  # noqa: F811
     """Return WCS-related objects read from visit_image.fits.
 
     Skips if TESTDATA_IMAGES_DIR is unset or lsst.afw.image is unavailable.
     """
+    # reset_afw_mask_planes will have already skipped if afw is not available.
+    from lsst.afw.image import ExposureFitsReader
+
     if EXTERNAL_DATA_DIR is None:
         pytest.skip("TESTDATA_IMAGES_DIR is not in the environment.")
-    try:
-        from lsst.afw.image import ExposureFitsReader
-    except ImportError:
-        pytest.skip("'lsst.afw.image' could not be imported.")
     filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
     reader = ExposureFitsReader(filename)
     return {

@@ -20,25 +20,29 @@ from lsst.images import YX
 from lsst.images.cameras import AmplifierRawGeometry, Detector, ReadoutCorner
 from lsst.images.describe import DescribableMixin, Report
 from lsst.images.serialization import read_archive
-from lsst.images.tests import DP2_VISIT_DETECTOR_DATA_ID, RoundtripFits, compare_detector_to_legacy
+from lsst.images.tests import (
+    DP2_VISIT_DETECTOR_DATA_ID,
+    RoundtripFits,
+    compare_detector_to_legacy,
+    reset_afw_mask_planes,  # noqa: F401
+)
 
 LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 
 
-@pytest.fixture(scope="session")
-def legacy_camera_data() -> dict[str, Any]:
+@pytest.fixture
+def legacy_camera_data(reset_afw_mask_planes: None) -> dict[str, Any]:  # noqa: F811
     """Return a dict with legacy_camera and legacy_detector loaded from the
     test data directory.
     """
     if EXTERNAL_DATA_DIR is None:
         pytest.skip("TESTDATA_IMAGES_DIR is not in the environment.")
-    try:
-        from lsst.afw.cameraGeom import Camera as LegacyCamera
-        from lsst.afw.image import ExposureFitsReader
-    except ImportError:
-        pytest.skip("lsst.afw could not be imported.")
+    # reset_afw_mask_planes will have already skipped if afw is not available.
+    from lsst.afw.cameraGeom import Camera as LegacyCamera
+    from lsst.afw.image import ExposureFitsReader
+
     legacy_camera = LegacyCamera.readFits(os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "camera.fits"))
     legacy_detector = ExposureFitsReader(
         os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
