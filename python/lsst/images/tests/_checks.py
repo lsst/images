@@ -549,6 +549,7 @@ def compare_visit_image_to_legacy(
     detector: int,
     applied_legacy_photo_calib: LegacyPhotoCalib | None = None,
     alternates: Mapping[str, Any] | None = None,
+    check_photometric_scaling: bool = True,
 ) -> None:
     """Compare a `.VisitImage` object to a legacy `lsst.afw.image.Exposure`
     object.
@@ -576,6 +577,8 @@ def compare_visit_image_to_legacy(
     alternates
         A mapping of other versions of one or more (new) components to also
         check against the legacy versions of those components.
+    check_photometric_scaling
+        If `False`, skip the photometric-scaling comparison.
     """
     compare_masked_image_to_legacy(
         visit_image,
@@ -609,13 +612,14 @@ def compare_visit_image_to_legacy(
         compare_aperture_corrections_to_legacy(
             visit_image.aperture_corrections, legacy_exposure.info.getApCorrMap(), tiny_bbox
         )
-    with annotate_errors("photometric_scaling"):
-        compare_photo_calib_to_legacy(
-            visit_image.photometric_scaling,
-            legacy_exposure.info.getPhotoCalib(),
-            applied_legacy_photo_calib=applied_legacy_photo_calib,
-            subimage_bbox=tiny_bbox,
-        )
+    if check_photometric_scaling:
+        with annotate_errors("photometric_scaling"):
+            compare_photo_calib_to_legacy(
+                visit_image.photometric_scaling,
+                legacy_exposure.info.getPhotoCalib(),
+                applied_legacy_photo_calib=applied_legacy_photo_calib,
+                subimage_bbox=tiny_bbox,
+            )
     if alternates:
         if (bbox := alternates.get("bbox")) is not None:
             assert bbox == visit_image.bbox
@@ -646,14 +650,15 @@ def compare_visit_image_to_legacy(
                 compare_aperture_corrections_to_legacy(
                     aperture_corrections, legacy_exposure.info.getApCorrMap(), tiny_bbox
                 )
-        if (photometric_scaling := alternates.get("photometic_scaling", ...)) is not ...:
-            with annotate_errors("photometric_scaling"):
-                compare_photo_calib_to_legacy(
-                    photometric_scaling,
-                    legacy_exposure.info.getPhotoCalib(),
-                    applied_legacy_photo_calib=applied_legacy_photo_calib,
-                    subimage_bbox=tiny_bbox,
-                )
+        if check_photometric_scaling:
+            if (photometric_scaling := alternates.get("photometic_scaling", ...)) is not ...:
+                with annotate_errors("photometric_scaling"):
+                    compare_photo_calib_to_legacy(
+                        photometric_scaling,
+                        legacy_exposure.info.getPhotoCalib(),
+                        applied_legacy_photo_calib=applied_legacy_photo_calib,
+                        subimage_bbox=tiny_bbox,
+                    )
 
 
 def compare_photo_calib_to_legacy(
