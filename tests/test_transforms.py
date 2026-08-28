@@ -360,6 +360,32 @@ def test_fits_wcs_projection_to_legacy() -> None:
     )
 
 
+def test_as_fits_wcs_unrepresentable_returns_none_not_keyerror() -> None:
+    """Test that a transform that is not exactly FITS representable returns
+    None from ``as_fits_wcs`` rather than crashing on the partial header AST
+    writes.
+
+    A pixel->sky mapping that AST can only partially encode (here a polynomial
+    that produces no valid primary celestial WCS) writes a nonzero number of
+    FITS cards whose header lacks a primary ``CTYPE``; constructing
+    ``astropy.wcs.WCS`` from it previously raised ``KeyError``.
+    """
+    pixel_frame = GeneralFrame(unit=u.pix)
+    coeff_f = np.array(
+        [
+            [1.0, 1, 0, 0],  # out1 += 1.0
+            [1.0, 2, 0, 0],  # out2 += 1.0
+            [1.0, 1, 1, 0],  # out1 += x
+            [1.0, 2, 0, 1],  # out2 += y
+            [1e-6, 1, 2, 0],  # out1 += 1e-6 x^2
+            [1e-6, 2, 0, 2],  # out2 += 1e-6 y^2
+        ]
+    )
+    sky_projection = SkyProjection(Transform(pixel_frame, ICRS, astshim.PolyMap(coeff_f, 2, "")))
+    bbox = Box.factory[0:32, 0:32]
+    assert sky_projection.as_fits_wcs(bbox, allow_approximation=False) is None
+
+
 def test_detector_wcs(legacy_detector_wcs: dict[str, Any]) -> None:
     """Test the Transform/SkyProjection representation of a detector WCS."""
     legacy_wcs = legacy_detector_wcs["legacy_wcs"]
