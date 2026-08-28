@@ -594,7 +594,14 @@ class Transform[I: Frame, O: Frame](DescribableMixin):
         if not n_writes:
             return None
         header = astropy.io.fits.Header(astropy.io.fits.Card.fromstring(c) for c in ast_fits_chan)
-        return astropy.wcs.WCS(header)
+        try:
+            return astropy.wcs.WCS(header)
+        except (KeyError, astropy.wcs.InconsistentAxisTypesError):
+            # AST wrote cards (so ``n_writes`` was nonzero) but they do not
+            # form a valid, complete FITS WCS (e.g. a partial header with no
+            # primary CTYPE).  That means the transform is not exactly
+            # representable as a FITS WCS, so return None instead of crashing.
+            return None
 
     def serialize[P: pydantic.BaseModel](
         self, archive: OutputArchive[P], *, use_frame_sets: bool = False
