@@ -14,6 +14,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import os
+from pathlib import Path
 from typing import Any, ClassVar
 
 import astropy.units as u
@@ -31,6 +32,7 @@ from lsst.images import (
     DetectorFrame,
     FocalPlaneFrame,
     GeneralFrame,
+    SkyFrame,
     SkyProjection,
     Transform,
     TransformSerializationModel,
@@ -358,6 +360,57 @@ def test_fits_wcs_projection_to_legacy() -> None:
     compare_sky_projection_to_legacy_wcs(
         sky_projection, sky_projection.to_legacy(), pixel_frame, bbox, is_fits=True
     )
+
+
+def test_as_fits_wcs_unrepresentable_returns_none_1() -> None:
+    """Test that a PolyMap that is not exactly FITS representable returns
+    None from ``as_fits_wcs``.
+    """
+    pixel_frame = GeneralFrame(unit=u.pix)
+    coeff_f = np.array(
+        [
+            [1.0, 1, 0, 0],  # out1 += 1.0
+            [1.0, 2, 0, 0],  # out2 += 1.0
+            [1.0, 1, 1, 0],  # out1 += x
+            [1.0, 2, 0, 1],  # out2 += y
+            [1e-6, 1, 2, 0],  # out1 += 1e-6 x^2
+            [1e-6, 2, 0, 2],  # out2 += 1e-6 y^2
+        ]
+    )
+    sky_projection = SkyProjection(Transform(pixel_frame, ICRS, astshim.PolyMap(coeff_f, 2, "")))
+    bbox = Box.factory[0:32, 0:32]
+    assert sky_projection.as_fits_wcs(bbox, allow_approximation=False) is None
+
+
+def test_as_fits_wcs_frameset_with_splinemap_returns_none_small() -> None:
+    """Test that a real visit-image projection that is not exactly FITS
+    representable returns None from ``as_fits_wcs``.
+
+    This test uses a small Box for the as_fits_wcs call.
+    """
+    mapping = astshim.Mapping.fromString(
+        (Path(__file__).parent / "data" / "spline_sky_projection_frameset.ast").read_text()
+    )
+    bbox = Box.factory[0:100, 0:100]
+    in_frame = DetectorFrame(instrument="LSSTCam", visit=2025042400322, detector=150, bbox=bbox)
+    transform = Transform(in_frame, SkyFrame.ICRS, mapping)
+    assert transform.as_fits_wcs(bbox) is None
+
+
+def test_as_fits_wcs_frameset_with_splinemap_returns_none_big() -> None:
+    """Test that a real visit-image projection that is not exactly FITS
+    representable returns None from ``as_fits_wcs``.
+
+    This test uses a large Box for the as_fits_wcs call (but still smaller
+    than the full detector).
+    """
+    mapping = astshim.Mapping.fromString(
+        (Path(__file__).parent / "data" / "spline_sky_projection_frameset.ast").read_text()
+    )
+    bbox = Box.factory[0:1000, 0:1000]
+    in_frame = DetectorFrame(instrument="LSSTCam", visit=2025042400322, detector=150, bbox=bbox)
+    transform = Transform(in_frame, SkyFrame.ICRS, mapping)
+    assert transform.as_fits_wcs(bbox) is None
 
 
 def test_detector_wcs(legacy_detector_wcs: dict[str, Any]) -> None:
