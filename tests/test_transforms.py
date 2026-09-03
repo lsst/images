@@ -48,6 +48,7 @@ from lsst.images.tests import (
     compare_sky_projection_to_legacy_wcs,
     legacy_points_to_xy_array,
     make_random_sky_projection,
+    reset_afw_mask_planes,  # noqa: F401
 )
 
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
@@ -70,18 +71,17 @@ def legacy_camera() -> Any:
     return Camera.readFits(filename)
 
 
-@pytest.fixture(scope="session")
-def legacy_detector_wcs() -> dict[str, Any]:
+@pytest.fixture
+def legacy_detector_wcs(reset_afw_mask_planes: None) -> dict[str, Any]:  # noqa: F811
     """Return WCS-related objects read from visit_image.fits.
 
     Skips if TESTDATA_IMAGES_DIR is unset or lsst.afw.image is unavailable.
     """
+    # reset_afw_mask_planes will have already skipped if afw is not available.
+    from lsst.afw.image import ExposureFitsReader
+
     if EXTERNAL_DATA_DIR is None:
         pytest.skip("TESTDATA_IMAGES_DIR is not in the environment.")
-    try:
-        from lsst.afw.image import ExposureFitsReader
-    except ImportError:
-        pytest.skip("'lsst.afw.image' could not be imported.")
     filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image.fits")
     reader = ExposureFitsReader(filename)
     return {
@@ -360,6 +360,32 @@ def test_fits_wcs_projection_to_legacy() -> None:
     )
 
 
+def test_as_fits_wcs_unrepresentable_returns_none_not_keyerror() -> None:
+    """Test that a transform that is not exactly FITS representable returns
+    None from ``as_fits_wcs`` rather than crashing on the partial header AST
+    writes.
+
+    A pixel->sky mapping that AST can only partially encode (here a polynomial
+    that produces no valid primary celestial WCS) writes a nonzero number of
+    FITS cards whose header lacks a primary ``CTYPE``; constructing
+    ``astropy.wcs.WCS`` from it previously raised ``KeyError``.
+    """
+    pixel_frame = GeneralFrame(unit=u.pix)
+    coeff_f = np.array(
+        [
+            [1.0, 1, 0, 0],  # out1 += 1.0
+            [1.0, 2, 0, 0],  # out2 += 1.0
+            [1.0, 1, 1, 0],  # out1 += x
+            [1.0, 2, 0, 1],  # out2 += y
+            [1e-6, 1, 2, 0],  # out1 += 1e-6 x^2
+            [1e-6, 2, 0, 2],  # out2 += 1e-6 y^2
+        ]
+    )
+    sky_projection = SkyProjection(Transform(pixel_frame, ICRS, astshim.PolyMap(coeff_f, 2, "")))
+    bbox = Box.factory[0:32, 0:32]
+    assert sky_projection.as_fits_wcs(bbox, allow_approximation=False) is None
+
+
 def test_detector_wcs(legacy_detector_wcs: dict[str, Any]) -> None:
     """Test the Transform/SkyProjection representation of a detector WCS."""
     legacy_wcs = legacy_detector_wcs["legacy_wcs"]
@@ -408,6 +434,21 @@ def test_detector_wcs(legacy_detector_wcs: dict[str, Any]) -> None:
         subimage_bbox,
         is_fits=True,
     )
+
+
+def test_detector_wcs_full_bbox(legacy_detector_wcs: dict[str, Any]) -> None:
+    """Test that a from_legacy sky projection matchesthe legacy WCS over the
+    whole detector bbox, not just a subregion away from the origin.
+
+    We use a smaller box in most other tests for performance reasons, but this
+    one is more senstive to the precision floor close to the origin in
+    particular.
+    """
+    legacy_wcs = legacy_detector_wcs["legacy_wcs"]
+    wcs_bbox = legacy_detector_wcs["wcs_bbox"]
+    detector_frame = DetectorFrame(**DP2_VISIT_DETECTOR_DATA_ID, bbox=wcs_bbox)
+    sky_projection = SkyProjection.from_legacy(legacy_wcs, detector_frame)
+    compare_sky_projection_to_legacy_wcs(sky_projection, legacy_wcs, detector_frame, wcs_bbox)
 
 
 @dataclasses.dataclass

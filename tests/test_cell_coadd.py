@@ -57,6 +57,7 @@ from lsst.images.tests import (
     compare_psf_to_legacy,
     compare_sky_projection_to_legacy_wcs,
     current_fixture_path,
+    reset_afw_mask_planes,  # noqa: F401
 )
 
 try:
@@ -115,8 +116,8 @@ class _LegacyTestData:
         )
 
 
-@pytest.fixture(scope="session")
-def legacy_test_data() -> _LegacyTestData:
+@pytest.fixture
+def legacy_test_data(reset_afw_mask_planes: None) -> _LegacyTestData:  # noqa: F811
     """Return a struct of CellCoadd loaded from legacy test data.
 
     Skips if ``TESTDATA_IMAGES_DIR`` is not set or if ``lsst.cell_coadds``

@@ -12,6 +12,7 @@
 from ._checks import *
 from ._creation import *
 from ._data_ids import *
+from ._reset_afw_mask_planes import *
 from ._roundtrip import *
 from ._schema_coverage import *
 from ._schema_fixtures import *

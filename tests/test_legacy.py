@@ -16,6 +16,7 @@ import pytest
 
 from lsst.images import Box, Image, Interval
 from lsst.images.fits import FitsCompressionOptions
+from lsst.images.tests import reset_afw_mask_planes  # noqa: F401
 
 try:
     import lsst.afw.image
@@ -61,7 +62,7 @@ def test_box(rng: np.random.Generator) -> None:
 
 
 @skip_no_legacy
-def test_image(rng: np.random.Generator) -> None:
+def test_image(rng: np.random.Generator, reset_afw_mask_planes: None) -> None:  # noqa: F811
     """Test Image to/from legacy lsst.afw.image.ImageD conversion."""
     i = Image(rng.normal(100.0, 8.0, size=(200, 251)), dtype=np.float64, yx0=(5, 8))
     j = i.to_legacy()

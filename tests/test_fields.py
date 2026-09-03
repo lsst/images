@@ -32,9 +32,10 @@ from lsst.images.fields import (
 )
 from lsst.images.tests import (
     RoundtripFits,
-    assert_close,
     assert_images_equal,
+    assert_values_equal,
     compare_field_to_legacy,
+    reset_afw_mask_planes,  # noqa: F401
 )
 
 try:
@@ -60,16 +61,14 @@ EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 TEST_BOX = Box.factory[6:32, -7:26]
 
 
-@pytest.fixture(scope="session")
-def legacy_visit_background() -> LegacyBackgroundList:
+@pytest.fixture
+def legacy_visit_background(reset_afw_mask_planes: None) -> LegacyBackgroundList:  # noqa: F811
     """Load and return an `lsst.afw.math.BackgroundList`.
 
     Skips if TESTDATA_IMAGES_DIR is unset or lsst.afw.math is unavailable.
     """
     if EXTERNAL_DATA_DIR is None:
         pytest.skip("TESTDATA_IMAGES_DIR is not in the environment.")
-    if not HAVE_LEGACY:
-        pytest.skip("This test requires lsst.afw.math to be importable.")
     filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "visit_image_background.fits")
     return LegacyBackgroundList.readFits(filename)
 
@@ -409,8 +408,8 @@ def test_chebyshev1_function2() -> None:
     xy_array = TEST_BOX.meshgrid(4)
     z_array = field(x=xy_array.x, y=xy_array.y)
     for z, x, y in zip(z_array.flat, xy_array.x.flat, xy_array.y.flat):
-        assert_close(legacy_func2a(x, y), z)
-        assert_close(legacy_func2b(x, y), z)
+        assert_values_equal(legacy_func2a(x, y), z, rtol=1e-5)
+        assert_values_equal(legacy_func2b(x, y), z, rtol=1e-5)
 
 
 def test_visit_background(legacy_visit_background: LegacyBackgroundList) -> None:
