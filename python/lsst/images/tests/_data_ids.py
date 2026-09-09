@@ -21,7 +21,14 @@ __all__ = (
 import uuid
 from typing import Any
 
-DP2_VISIT_DETECTOR_DATA_ID: dict[str, Any] = {"instrument": "LSSTCam", "visit": 2025052000177, "detector": 85}
+DP2_VISIT_DETECTOR_DATA_ID: dict[str, Any] = {
+    "instrument": "LSSTCam",
+    "visit": 2025052000177,
+    "detector": 85,
+    "day_obs": 20250520,
+    "physical_filter": "r_57",
+    "band": "r",
+}
 DP2_COADD_DATA_ID: dict[str, Any] = {"skymap": "lsst_cells_v2", "tract": 9813, "patch": 43, "band": "r"}
 DP2_COADD_MISSING_CELL: dict[str, int] = {"i": 8, "j": 6}
 

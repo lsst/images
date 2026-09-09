@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 import math
 import os
 from typing import Any
@@ -38,21 +39,27 @@ from lsst.images.tests import (
     DP2_TEMPLATE_COADD_DATASETS,
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
-    assert_close,
+    assert_values_equal,
     make_random_sky_projection,
+    reset_afw_mask_planes,  # noqa: F401
 )
 
 try:
     from lsst.afw.image import Exposure as LegacyExposure
     from lsst.afw.image import ImageD as LegacyImageD
     from lsst.afw.math import Kernel as LegacyKernel
+    from lsst.afw.table import ExposureCatalog as LegacyExposureCatalog
     from lsst.daf.base import PropertyList as LegacyPropertyList
+    from lsst.geom import Extent2I as LegacyExtent2I
     from lsst.meas.algorithms import CoaddPsf as LegacyCoaddPsf
 except ImportError:
     type LegacyExposure = Any  # type: ignore[no-redef]
+    type LegacyImageD = Any  # type: ignore[no-redef]
     type LegacyKernel = Any  # type: ignore[no-redef]
     type LegacyPropertyList = Any  # type: ignore[no-redef]
     type LegacyCoaddPsf = Any  # type: ignore[no-redef]
+    type LegacyExposureCatalog = Any  # type: ignore[no-redef]
+    type LegacyExtent2I = Any  # type: ignore[no-redef]
 
 
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
@@ -67,21 +74,20 @@ class _LegacyTestData:
     detector_frame: DetectorFrame
 
 
-@pytest.fixture(scope="session")
-def legacy_test_data() -> _LegacyTestData:
+@pytest.fixture
+def legacy_test_data(reset_afw_mask_planes: None) -> _LegacyTestData:  # noqa: F811
     """Return a struct of legacy test objects loaded from EXTERNAL_DATA_DIR.
 
     Skips if TESTDATA_IMAGES_DIR is unset or afw is unavailable.
     """
+    # reset_afw_mask_planes will have already skipped if afw is not available.
+    from lsst.afw.image import ExposureFitsReader
+
     if EXTERNAL_DATA_DIR is None:
         pytest.skip("TESTDATA_IMAGES_DIR is not in the environment.")
     kernel_filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "difference_kernel.fits")
     template_filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "template_detector.fits")
     exposure_filename = os.path.join(EXTERNAL_DATA_DIR, "dp2", "legacy", "difference_image.fits")
-    try:
-        from lsst.afw.image import ExposureFitsReader
-    except ImportError:
-        pytest.skip("afw not available; cannot read legacy difference image or components")
     kernel = LegacyKernel.readFits(kernel_filename)
     template_reader = ExposureFitsReader(template_filename)
     template_metadata = template_reader.readMetadata()
@@ -111,7 +117,7 @@ def compare_kernel_to_legacy(kernel: ConvolutionKernel, legacy_kernel: LegacyKer
         im = kernel.compute_kernel_image(x=x, y=y)
         legacy_im.array[...] = 0.0
         legacy_kernel.computeImage(legacy_im, doNormalize=False, x=x, y=y)
-        assert_close(im.array, legacy_im.array, rtol=1e-15, atol=1e-15)
+        assert_values_equal(im.array, legacy_im.array, rtol=1e-15, atol=1e-15)
 
 
 def _sanity_check_template_info(
@@ -190,6 +196,62 @@ def test_template_info(legacy_test_data: _LegacyTestData) -> None:
         DP2_TEMPLATE_COADD_DATASETS,
     )
     _sanity_check_template_info(template_info, legacy_test_data.detector_frame)
+
+
+def test_template_info_no_overlap_is_skipped(
+    legacy_test_data: _LegacyTestData, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test that template coadd whose patch does not overlap the detector is
+    skipped in DifferenceImageTemplateInfo.from_legacy, instead of raising
+    NoOverlapError.
+    """
+    psf = legacy_test_data.template_psf
+    n_components = psf.getComponentCount()
+    assert n_components > 1
+
+    # Rebuild the CoaddPsf from its per-component getters, shifting component
+    # 0's patch bbox far from the detector so the bbox intersection in
+    # from_legacy is empty (NoOverlapError). Keep the tract/patch columns so
+    # from_legacy can still resolve its butler info.
+    schema = LegacyExposureCatalog.Table.makeMinimalSchema()
+    schema.addField("weight", type="D")
+    schema.addField("tract", type="I")
+    schema.addField("patch", type="I")
+    catalog = LegacyExposureCatalog(schema)
+    shift = LegacyExtent2I(50000, 50000)
+    for n in range(n_components):
+        record = catalog.addNew()
+        record.setId(psf.getId(n))
+        record.setWcs(psf.getWcs(n))
+        record.setPsf(psf.getPsf(n))
+        record.setValidPolygon(psf.getValidPolygon(n))
+        bbox = psf.getBBox(n)
+        if n == 0:
+            bbox = bbox.shiftedBy(shift)
+        record.setBBox(bbox)
+        record.set("weight", psf.getWeight(n))
+        record.set("tract", psf.getTract(n))
+        record.set("patch", psf.getPatch(n))
+    shifted_psf = LegacyCoaddPsf(catalog, psf.getCoaddWcs(), psf.getAveragePosition())
+
+    skipped_tract = psf.getTract(0)
+    skipped_patch = psf.getPatch(0)
+    with caplog.at_level(logging.ERROR):
+        template_info = DifferenceImageTemplateInfo.from_legacy(
+            legacy_test_data.detector_frame,
+            shifted_psf,
+            legacy_test_data.template_metadata,
+            DP2_TEMPLATE_COADD_DATASETS,
+            log=logging.getLogger("test_template_info_no_overlap"),
+        )
+    assert len(template_info) == n_components - 1
+    assert all((info.tract, info.patch) != (skipped_tract, skipped_patch) for info in template_info)
+    assert not any(info.psf_shape_flag for info in template_info)
+    assert all(legacy_test_data.detector_frame.bbox.contains(info.bounds.bbox) for info in template_info)
+    assert any(
+        f"No overlap with tract={skipped_tract}, patch={skipped_patch}" in record.message
+        for record in caplog.records
+    )
 
 
 LOCAL_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
