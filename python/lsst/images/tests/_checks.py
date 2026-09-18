@@ -1527,19 +1527,30 @@ def compare_amplifier_to_legacy(
         raw_geom = amplifier.assembled_raw_geometry
     else:
         raw_geom = amplifier.unassembled_raw_geometry
-    assert raw_geom is not None
-    assert ReadoutCorner.from_legacy(legacy_amplifier.getReadoutCorner()) == raw_geom.readout_corner
-    assert Box.from_legacy(legacy_amplifier.getRawBBox()) == raw_geom.bbox
-    assert Box.from_legacy(legacy_amplifier.getRawDataBBox()) == raw_geom.data_bbox
-    assert legacy_amplifier.getRawFlipX() == raw_geom.flip_x
-    assert legacy_amplifier.getRawFlipY() == raw_geom.flip_y
-    assert legacy_amplifier.getRawXYOffset().getX() == raw_geom.x_offset
-    assert legacy_amplifier.getRawXYOffset().getY() == raw_geom.y_offset
-    assert (
-        Box.from_legacy(legacy_amplifier.getRawHorizontalOverscanBBox()) == raw_geom.horizontal_overscan_bbox
-    )
-    assert Box.from_legacy(legacy_amplifier.getRawVerticalOverscanBBox()) == raw_geom.vertical_overscan_bbox
-    assert Box.from_legacy(legacy_amplifier.getRawPrescanBBox()) == raw_geom.horizontal_prescan_bbox
+    if raw_geom is None:
+        # `Amplifier.from_legacy` drops the raw geometry when the legacy
+        # amplifier has an empty region box, which `Box` cannot represent.
+        assert (
+            legacy_amplifier.getRawHorizontalOverscanBBox().isEmpty()
+            or legacy_amplifier.getRawVerticalOverscanBBox().isEmpty()
+            or legacy_amplifier.getRawPrescanBBox().isEmpty()
+        )
+    else:
+        assert ReadoutCorner.from_legacy(legacy_amplifier.getReadoutCorner()) == raw_geom.readout_corner
+        assert Box.from_legacy(legacy_amplifier.getRawBBox()) == raw_geom.bbox
+        assert Box.from_legacy(legacy_amplifier.getRawDataBBox()) == raw_geom.data_bbox
+        assert legacy_amplifier.getRawFlipX() == raw_geom.flip_x
+        assert legacy_amplifier.getRawFlipY() == raw_geom.flip_y
+        assert legacy_amplifier.getRawXYOffset().getX() == raw_geom.x_offset
+        assert legacy_amplifier.getRawXYOffset().getY() == raw_geom.y_offset
+        assert (
+            Box.from_legacy(legacy_amplifier.getRawHorizontalOverscanBBox())
+            == raw_geom.horizontal_overscan_bbox
+        )
+        assert (
+            Box.from_legacy(legacy_amplifier.getRawVerticalOverscanBBox()) == raw_geom.vertical_overscan_bbox
+        )
+        assert Box.from_legacy(legacy_amplifier.getRawPrescanBBox()) == raw_geom.horizontal_prescan_bbox
     if expect_nominal_calibrations:
         assert amplifier.nominal_calibrations is not None
         assert_equal_allow_nan(legacy_amplifier.getGain(), amplifier.nominal_calibrations.gain)
