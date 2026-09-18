@@ -563,7 +563,21 @@ class MaskedImage(GeneralizedImage):
                 # than lying.
                 legacy_metadata["BUNIT"] = self.unit.to_string()
         if isinstance(self._opaque_metadata, fits.FitsOpaqueMetadata):
-            legacy_metadata.update(self._opaque_metadata.headers[fits.ExtensionKey()])
+            # A key may appear on more than one card, and each value is
+            # meaningful (`SubtractBackgroundTask` writes one BGMEAN per
+            # background fit). Plain assignment keeps only the last, so
+            # append every card after the first for a key.
+            seen: set[str] = set()
+            for card in self._opaque_metadata.headers[fits.ExtensionKey()].cards:
+                if not card.keyword:
+                    continue
+                if card.keyword in seen:
+                    # Only a PropertySet has ``add``, but that is what
+                    # every caller passes.
+                    legacy_metadata.add(card.keyword, card.value)  # type: ignore[attr-defined]
+                else:
+                    legacy_metadata[card.keyword] = card.value
+                    seen.add(card.keyword)
         for n, (k, v) in enumerate(self.metadata.items()):
             legacy_metadata[f"LSST IMAGES KEY {n + 1}"] = k
             legacy_metadata[f"LSST IMAGES VALUE {n + 1}"] = v

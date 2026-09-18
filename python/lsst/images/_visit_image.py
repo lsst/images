@@ -616,7 +616,11 @@ class VisitImage(MaskedImage):
         with warnings.catch_warnings():
             # Silence warnings about long keys becoming HIERARCH.
             warnings.simplefilter("ignore", category=astropy.io.fits.verify.VerifyWarning)
-            primary_header.update(md.toOrderedDict())
+            for name in md.getOrderedNames():
+                # Some keys may be set more than once.
+                # Write one card per value in those cases.
+                for value in md.getArray(name):
+                    primary_header.append((name, value), end=True)
         metadata = opaque_fits_metadata.extract_legacy_primary_header(primary_header)
         instrumental_unit = opaque_fits_metadata.get_instrumental_unit() or astropy.units.electron
         hdr_unit: astropy.units.UnitBase | None = None
