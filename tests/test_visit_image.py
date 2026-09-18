@@ -451,6 +451,57 @@ def test_summary_stats_from_legacy_unknown_field() -> None:
         ObservationSummaryStats.from_legacy(FakeLegacy(notARealField=1.0))
 
 
+def test_repeated_metadata_keys_legacy_round_trip(
+    visit_image_components: dict[str, Any],
+    reset_afw_mask_planes: None,  # noqa: F811
+) -> None:
+    """Verify that a header key set more than once keeps all of its values
+    when a VisitImage is converted to a legacy Exposure and back.
+    """
+    from lsst.afw.detection import GaussianPsf
+
+    opaque_metadata = FitsOpaqueMetadata()
+    header = astropy.io.fits.Header()
+    header.append(("PLATFORM", "lsstcam"), end=True)
+    # SubtractBackgroundTask writes one BGMEAN card per background fit.
+    header.append(("BGMEAN", 1.5), end=True)
+    header.append(("BGMEAN", 2.5), end=True)
+    opaque_metadata.extract_legacy_primary_header(header)
+    visit_image = VisitImage(
+        visit_image_components["image"],
+        variance=visit_image_components["variance"],
+        # A legacy-backed PSF, so that to_legacy can attach it to the
+        # Exposure and from_legacy can read it back.
+        psf=PointSpreadFunction.from_legacy(GaussianPsf(33, 33, 2.5), bounds=Box.factory[0:1024, 0:1024]),
+        mask_schema=visit_image_components["mask_schema"],
+        sky_projection=visit_image_components["sky_projection"],
+        detector=visit_image_components["detector"],
+        obs_info=visit_image_components["obs_info"],
+        band="r",
+    )
+    visit_image._opaque_metadata = opaque_metadata
+
+    legacy_exposure = visit_image.to_legacy()
+    legacy_metadata = legacy_exposure.getMetadata()
+    assert legacy_metadata.getArray("BGMEAN") == [1.5, 2.5]
+    assert legacy_metadata["PLATFORM"] == "lsstcam"
+    # Add a random key directly
+    legacy_metadata.add("DUMMYVAR", 0.5)
+    legacy_metadata.add("DUMMYVAR", 1.5)
+
+    round_tripped = VisitImage.from_legacy(
+        legacy_exposure,
+        instrument=visit_image_components["obs_info"].instrument,
+        visit=visit_image_components["sky_projection"].pixel_frame.visit,
+    )
+    round_tripped_header = round_tripped._opaque_metadata.headers[ExtensionKey()]
+    assert "DUMMYVAR" in round_tripped_header
+    assert "BGMEAN" in round_tripped_header
+    assert round_tripped_header["PLATFORM"] == "lsstcam"
+    assert [card.value for card in round_tripped_header.cards if card.keyword == "BGMEAN"] == [1.5, 2.5]
+    assert [card.value for card in round_tripped_header.cards if card.keyword == "DUMMYVAR"] == [0.5, 1.5]
+
+
 @skip_no_h5py
 def test_round_trip_ndf(visit_image_components: dict[str, Any]) -> None:
     """Verify NDF round-trip produces a VisitImage equal to the original."""

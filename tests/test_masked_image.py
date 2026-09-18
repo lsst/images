@@ -33,7 +33,7 @@ from lsst.images import (
     SkyProjection,
     get_legacy_visit_image_mask_planes,
 )
-from lsst.images.fits import FitsCompressionOptions
+from lsst.images.fits import FitsCompressionOptions, FitsOpaqueMetadata
 from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
@@ -403,6 +403,27 @@ def test_legacy(legacy_test_data: _LegacyTestData) -> None:
         expect_view=True,
         plane_map=legacy_test_data.plane_map,
     )
+
+
+def test_repeated_legacy_metadata_keys(reset_afw_mask_planes: None) -> None:  # noqa: F811
+    """Test that a key present on more than one FITS card keeps all of its
+    values in the legacy metadata.
+    """
+    from lsst.daf.base import PropertySet
+
+    opaque_metadata = FitsOpaqueMetadata()
+    header = astropy.io.fits.Header()
+    # SubtractBackgroundTask writes one BGMEAN card per background fit.
+    header.append(("BGMEAN", 1.5), end=True)
+    header.append(("BGMEAN", 2.5), end=True)
+    header.append(("PLATFORM", "lsstcam"), end=True)
+    opaque_metadata.extract_legacy_primary_header(header)
+    masked_image = make_masked_image()
+    masked_image._opaque_metadata = opaque_metadata
+    legacy_metadata = PropertySet()
+    masked_image._fill_legacy_metadata(legacy_metadata)
+    assert legacy_metadata.getArray("BGMEAN") == [1.5, 2.5]
+    assert legacy_metadata["PLATFORM"] == "lsstcam"
 
 
 def test_sky_circle_bbox() -> None:
