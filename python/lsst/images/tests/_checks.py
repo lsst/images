@@ -1539,7 +1539,12 @@ def compare_amplifier_to_legacy(
         Box.from_legacy(legacy_amplifier.getRawHorizontalOverscanBBox()) == raw_geom.horizontal_overscan_bbox
     )
     assert Box.from_legacy(legacy_amplifier.getRawVerticalOverscanBBox()) == raw_geom.vertical_overscan_bbox
-    assert Box.from_legacy(legacy_amplifier.getRawPrescanBBox()) == raw_geom.horizontal_prescan_bbox
+    if raw_geom.horizontal_prescan_bbox is None:
+        # `Box` requires a positive size, so an amplifier with no prescan
+        # region carries `None` here.
+        assert legacy_amplifier.getRawPrescanBBox().isEmpty()
+    else:
+        assert Box.from_legacy(legacy_amplifier.getRawPrescanBBox()) == raw_geom.horizontal_prescan_bbox
     if expect_nominal_calibrations:
         assert amplifier.nominal_calibrations is not None
         assert_equal_allow_nan(legacy_amplifier.getGain(), amplifier.nominal_calibrations.gain)

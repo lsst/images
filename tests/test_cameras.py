@@ -17,12 +17,13 @@ from typing import Any
 import pytest
 
 from lsst.images import YX
-from lsst.images.cameras import AmplifierRawGeometry, Detector, ReadoutCorner
+from lsst.images.cameras import Amplifier, AmplifierRawGeometry, Detector, ReadoutCorner
 from lsst.images.describe import DescribableMixin, Report
 from lsst.images.serialization import read_archive
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
+    compare_amplifier_to_legacy,
     compare_detector_to_legacy,
     reset_afw_mask_planes,  # noqa: F401
 )
@@ -163,3 +164,96 @@ def test_detector_describe() -> None:
     assert "bbox" in labels
     name_field = next(f for f in report.fields if f.label == "name")
     assert name_field.value == detector.name
+
+
+def _make_legacy_amplifier(*, has_prescan: bool) -> Any:
+    """Return a legacy amplifier with a simple raw geometry.
+
+    The raw regions tile the raw bounding box: 4 columns of prescan, 100
+    columns of data and 10 columns of serial overscan make up its 114
+    columns, and 50 rows of data plus 6 rows of parallel overscan make up
+    its 56 rows.
+
+    Parameters
+    ----------
+    has_prescan
+        Whether to give the amplifier a prescan region.  DECam amplifiers
+        have none, and afw reports a missing region as an empty box.
+    """
+    from lsst.afw.cameraGeom import Amplifier as LegacyAmplifier
+    from lsst.afw.cameraGeom import ReadoutCorner as LegacyReadoutCorner
+    from lsst.geom import Box2I, Extent2I, Point2I
+
+    builder = LegacyAmplifier.Builder()
+    builder.setName("C00")
+    builder.setBBox(Box2I(Point2I(0, 0), Extent2I(100, 50)))
+    builder.setRawBBox(Box2I(Point2I(0, 0), Extent2I(114, 56)))
+    builder.setRawDataBBox(Box2I(Point2I(4, 0), Extent2I(100, 50)))
+    builder.setRawSerialOverscanBBox(Box2I(Point2I(104, 0), Extent2I(10, 50)))
+    builder.setRawParallelOverscanBBox(Box2I(Point2I(4, 50), Extent2I(100, 6)))
+    if has_prescan:
+        builder.setRawPrescanBBox(Box2I(Point2I(0, 0), Extent2I(4, 50)))
+    # LL plus a flip in x puts the readout corner of the trimmed image at
+    # LR, so the tests can tell whether the corner was converted.
+    builder.setReadoutCorner(LegacyReadoutCorner.LL)
+    builder.setRawFlipX(True)
+    builder.setRawXYOffset(Extent2I(0, 0))
+    return builder.finish()
+
+
+def test_amplifier_with_full_raw_geometry(reset_afw_mask_planes: None) -> None:  # noqa: F811
+    """Test converting a legacy amplifier whose raw geometry can be fully
+    represented.
+    """
+    legacy_amplifier = _make_legacy_amplifier(has_prescan=True)
+    amplifier = Amplifier.from_legacy(legacy_amplifier, is_raw_assembled=True)
+    raw_geometry = amplifier.assembled_raw_geometry
+    assert raw_geometry is not None
+    assert amplifier.unassembled_raw_geometry is None
+    # The legacy readout corner belongs to the raw image, which is flipped in
+    # x relative to the assembled, trimmed image.
+    assert raw_geometry.readout_corner == ReadoutCorner.LL
+    assert amplifier.readout_corner == ReadoutCorner.LR
+    compare_amplifier_to_legacy(amplifier, legacy_amplifier, is_raw_assembled=True)
+    round_tripped = amplifier.to_legacy_builder(True).finish()
+    compare_amplifier_to_legacy(amplifier, round_tripped, is_raw_assembled=True)
+
+
+def test_amplifier_without_prescan(reset_afw_mask_planes: None) -> None:  # noqa: F811
+    """Test converting a legacy amplifier whose prescan region is empty.
+
+    `Box` requires a positive size, so the prescan box is `None` while the
+    rest of the raw geometry is kept.
+    """
+    legacy_amplifier = _make_legacy_amplifier(has_prescan=False)
+    raw_geometry = AmplifierRawGeometry.from_legacy_amplifier(legacy_amplifier)
+    assert raw_geometry.prescan_bbox is None
+    assert raw_geometry.serial_prescan_bbox is None
+    assert raw_geometry.horizontal_prescan_bbox is None
+    amplifier = Amplifier.from_legacy(legacy_amplifier, is_raw_assembled=True)
+    assert amplifier.assembled_raw_geometry is not None
+    assert amplifier.assembled_raw_geometry.prescan_bbox is None
+    assert amplifier.unassembled_raw_geometry is None
+    assert amplifier.assembled_raw_geometry.readout_corner == ReadoutCorner.LL
+    assert amplifier.readout_corner == ReadoutCorner.LR
+    compare_amplifier_to_legacy(amplifier, legacy_amplifier, is_raw_assembled=True)
+    # Everything but the prescan survives the round trip, and the prescan
+    # comes back as the empty box afw uses for an amplifier that has none.
+    round_tripped = amplifier.to_legacy_builder(True).finish()
+    assert round_tripped.getRawPrescanBBox().isEmpty()
+    assert round_tripped.getRawBBox() == legacy_amplifier.getRawBBox()
+    assert round_tripped.getRawDataBBox() == legacy_amplifier.getRawDataBBox()
+    assert round_tripped.getRawSerialOverscanBBox() == legacy_amplifier.getRawSerialOverscanBBox()
+    assert round_tripped.getRawParallelOverscanBBox() == legacy_amplifier.getRawParallelOverscanBBox()
+    assert round_tripped.getRawFlipX() == legacy_amplifier.getRawFlipX()
+    assert round_tripped.getReadoutCorner() == legacy_amplifier.getReadoutCorner()
+    compare_amplifier_to_legacy(amplifier, round_tripped, is_raw_assembled=True)
+
+
+def test_amplifier_wrong_raw_geometry_kind(reset_afw_mask_planes: None) -> None:  # noqa: F811
+    """Test that asking for the raw geometry the amplifier does not have is
+    still an error.
+    """
+    amplifier = Amplifier.from_legacy(_make_legacy_amplifier(has_prescan=True), is_raw_assembled=True)
+    with pytest.raises(ValueError, match="unassembled_raw_geometry is None"):
+        amplifier.to_legacy_builder(False)

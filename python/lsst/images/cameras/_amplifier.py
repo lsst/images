@@ -134,8 +134,12 @@ class AmplifierRawGeometry(pydantic.BaseModel):
     parallel_overscan_bbox: Box = pydantic.Field(
         description="Bounding box of the parallel (vertical) overscan region in the raw image."
     )
-    prescan_bbox: Box = pydantic.Field(
-        description="Bounding box of the serial (horizontal) pre-scan region in the raw image."
+    prescan_bbox: Box | None = pydantic.Field(
+        None,
+        description=(
+            "Bounding box of the serial (horizontal) pre-scan region in the raw image, "
+            "or `None` for an amplifier that has no pre-scan region."
+        ),
     )
     readout_corner: ReadoutCorner = pydantic.Field(
         description=(
@@ -167,25 +171,25 @@ class AmplifierRawGeometry(pydantic.BaseModel):
         self.parallel_overscan_bbox = value
 
     @property
-    def horizontal_prescan_bbox(self) -> Box:
+    def horizontal_prescan_bbox(self) -> Box | None:
         """Bounding box of the serial (horizon) prescan region in the raw
         image (`.Box`).
         """
         return self.prescan_bbox
 
     @horizontal_prescan_bbox.setter
-    def horizontal_prescan_bbox(self, value: Box) -> None:
+    def horizontal_prescan_bbox(self, value: Box | None) -> None:
         self.prescan_bbox = value
 
     @property
-    def serial_prescan_bbox(self) -> Box:
+    def serial_prescan_bbox(self) -> Box | None:
         """Bounding box of the serial (horizon) prescan region in the raw
         image (`.Box`).
         """
         return self.prescan_bbox
 
     @serial_prescan_bbox.setter
-    def serial_prescan_bbox(self, value: Box) -> None:
+    def serial_prescan_bbox(self, value: Box | None) -> None:
         self.prescan_bbox = value
 
     @staticmethod
@@ -196,7 +200,14 @@ class AmplifierRawGeometry(pydantic.BaseModel):
         ----------
         legacy_amplifier
             Legacy amplifier to convert.
+
+        Notes
+        -----
+        `AmplifierRawGeometry.prescan_bbox` is `None` when the legacy
+        amplifier reports an empty prescan region, since `.Box` requires a
+        positive size.
         """
+        legacy_prescan_bbox = legacy_amplifier.getRawPrescanBBox()
         x_offset, y_offset = legacy_amplifier.getRawXYOffset()
         return AmplifierRawGeometry(
             bbox=Box.from_legacy(legacy_amplifier.getRawBBox()),
@@ -207,7 +218,7 @@ class AmplifierRawGeometry(pydantic.BaseModel):
             y_offset=y_offset,
             serial_overscan_bbox=Box.from_legacy(legacy_amplifier.getRawSerialOverscanBBox()),
             parallel_overscan_bbox=Box.from_legacy(legacy_amplifier.getRawParallelOverscanBBox()),
-            prescan_bbox=Box.from_legacy(legacy_amplifier.getRawPrescanBBox()),
+            prescan_bbox=(None if legacy_prescan_bbox.isEmpty() else Box.from_legacy(legacy_prescan_bbox)),
             readout_corner=ReadoutCorner.from_legacy(legacy_amplifier.getReadoutCorner()),
         )
 
@@ -333,7 +344,10 @@ class Amplifier(pydantic.BaseModel, ser_json_inf_nan="constants"):
         builder.setRawXYOffset(Extent2I(raw_geom.x_offset, raw_geom.y_offset))
         builder.setRawSerialOverscanBBox(raw_geom.serial_overscan_bbox.to_legacy())
         builder.setRawParallelOverscanBBox(raw_geom.parallel_overscan_bbox.to_legacy())
-        builder.setRawPrescanBBox(raw_geom.prescan_bbox.to_legacy())
+        # An amplifier with no prescan region keeps the builder's own default,
+        # the empty box afw uses to spell that.
+        if raw_geom.prescan_bbox is not None:
+            builder.setRawPrescanBBox(raw_geom.prescan_bbox.to_legacy())
         if self.nominal_calibrations is not None:
             builder.setGain(self.nominal_calibrations.gain)
             builder.setReadNoise(self.nominal_calibrations.read_noise)
