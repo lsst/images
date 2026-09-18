@@ -189,14 +189,29 @@ class AmplifierRawGeometry(pydantic.BaseModel):
         self.prescan_bbox = value
 
     @staticmethod
-    def from_legacy_amplifier(legacy_amplifier: LegacyAmplifier) -> AmplifierRawGeometry:
+    def from_legacy_amplifier(legacy_amplifier: LegacyAmplifier) -> AmplifierRawGeometry | None:
         """Convert from a `lsst.afw.cameraGeom.Amplifier`.
 
         Parameters
         ----------
         legacy_amplifier
             Legacy amplifier to convert.
+
+        Returns
+        -------
+        raw_geometry : `AmplifierRawGeometry` | `None`
+            The converted geometry, or `None` if the legacy amplifier has an
+            empty overscan or prescan region.  `.Box` requires a positive
+            size, so an empty region has no representation here, and the
+            whole struct is dropped rather than filled in with a made-up
+            box.  DECam amplifiers have no prescan.
         """
+        if (
+            legacy_amplifier.getRawSerialOverscanBBox().isEmpty()
+            or legacy_amplifier.getRawParallelOverscanBBox().isEmpty()
+            or legacy_amplifier.getRawPrescanBBox().isEmpty()
+        ):
+            return None
         x_offset, y_offset = legacy_amplifier.getRawXYOffset()
         return AmplifierRawGeometry(
             bbox=Box.from_legacy(legacy_amplifier.getRawBBox()),
@@ -313,27 +328,39 @@ class Amplifier(pydantic.BaseModel, ser_json_inf_nan="constants"):
         builder.setName(self.name)
         builder.setBBox(self.bbox.to_legacy())
         if is_raw_assembled:
-            if (raw_geom := self.assembled_raw_geometry) is None:
-                raise ValueError(
-                    f"is_raw_assembled=True but assembled_raw_geometry is None for amp {self.name}."
-                )
+            raw_geom = self.assembled_raw_geometry
+            other_geom = self.unassembled_raw_geometry
+            attr_name = "assembled_raw_geometry"
         else:
-            if (raw_geom := self.unassembled_raw_geometry) is None:
-                raise ValueError(
-                    f"is_raw_assembled=False but unassembled_raw_geometry is None for amp {self.name}."
-                )
-        # The afw readout corner definition corresponds to the image it is
-        # attached to (which might be a raw), not the final trimmed image
-        # (despite the docs, until a change on this ticket).
-        builder.setReadoutCorner(raw_geom.readout_corner.to_legacy())
-        builder.setRawBBox(raw_geom.bbox.to_legacy())
-        builder.setRawDataBBox(raw_geom.data_bbox.to_legacy())
-        builder.setRawFlipX(raw_geom.flip_x)
-        builder.setRawFlipY(raw_geom.flip_y)
-        builder.setRawXYOffset(Extent2I(raw_geom.x_offset, raw_geom.y_offset))
-        builder.setRawSerialOverscanBBox(raw_geom.serial_overscan_bbox.to_legacy())
-        builder.setRawParallelOverscanBBox(raw_geom.parallel_overscan_bbox.to_legacy())
-        builder.setRawPrescanBBox(raw_geom.prescan_bbox.to_legacy())
+            raw_geom = self.unassembled_raw_geometry
+            other_geom = self.assembled_raw_geometry
+            attr_name = "unassembled_raw_geometry"
+        if raw_geom is None and other_geom is not None:
+            # Only one of the two is ever populated, so the other one being
+            # set means the caller asked for the wrong kind of geometry.
+            raise ValueError(
+                f"is_raw_assembled={is_raw_assembled} but {attr_name} is None for amp {self.name}."
+            )
+        if raw_geom is None:
+            # Both are None, which is how `Amplifier.from_legacy` reports an
+            # amplifier whose raw geometry it could not represent.  Leave the
+            # builder's raw fields at their defaults rather than making up
+            # values for them; the readout corner here is the one for the
+            # trimmed image, since there are no flips to undo it with.
+            builder.setReadoutCorner(self.readout_corner.to_legacy())
+        else:
+            # The afw readout corner definition corresponds to the image it is
+            # attached to (which might be a raw), not the final trimmed image
+            # (despite the docs, until a change on this ticket).
+            builder.setReadoutCorner(raw_geom.readout_corner.to_legacy())
+            builder.setRawBBox(raw_geom.bbox.to_legacy())
+            builder.setRawDataBBox(raw_geom.data_bbox.to_legacy())
+            builder.setRawFlipX(raw_geom.flip_x)
+            builder.setRawFlipY(raw_geom.flip_y)
+            builder.setRawXYOffset(Extent2I(raw_geom.x_offset, raw_geom.y_offset))
+            builder.setRawSerialOverscanBBox(raw_geom.serial_overscan_bbox.to_legacy())
+            builder.setRawParallelOverscanBBox(raw_geom.parallel_overscan_bbox.to_legacy())
+            builder.setRawPrescanBBox(raw_geom.prescan_bbox.to_legacy())
         if self.nominal_calibrations is not None:
             builder.setGain(self.nominal_calibrations.gain)
             builder.setReadNoise(self.nominal_calibrations.read_noise)
@@ -357,7 +384,12 @@ class Amplifier(pydantic.BaseModel, ser_json_inf_nan="constants"):
         """
         raw_geometry = AmplifierRawGeometry.from_legacy_amplifier(legacy_amplifier)
         nominal_calibrations = AmplifierCalibrations.from_legacy_amplifier(legacy_amplifier)
-        readout_corner = raw_geometry.readout_corner.apply_flips(y=raw_geometry.flip_y, x=raw_geometry.flip_x)
+        # Read the flips from the legacy amplifier rather than from
+        # ``raw_geometry``, which is None when that geometry could not be
+        # represented.
+        readout_corner = ReadoutCorner.from_legacy(legacy_amplifier.getReadoutCorner()).apply_flips(
+            y=legacy_amplifier.getRawFlipY(), x=legacy_amplifier.getRawFlipX()
+        )
         return Amplifier(
             name=legacy_amplifier.getName(),
             bbox=Box.from_legacy(legacy_amplifier.getBBox()),
