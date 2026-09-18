@@ -563,7 +563,18 @@ class MaskedImage(GeneralizedImage):
                 # than lying.
                 legacy_metadata["BUNIT"] = self.unit.to_string()
         if isinstance(self._opaque_metadata, fits.FitsOpaqueMetadata):
-            legacy_metadata.update(self._opaque_metadata.headers[fits.ExtensionKey()])
+            # Group all cards with the same keyword into a list, and write them
+            # all at once.
+            grouped: dict[str, list[Any]] = {}
+            for card in self._opaque_metadata.headers[fits.ExtensionKey()].cards:
+                if not card.keyword:
+                    # Skip blanks
+                    continue
+                if card.keyword not in grouped:
+                    grouped[card.keyword] = []
+                grouped[card.keyword].append(card.value)
+            for keyword, values in grouped.items():
+                legacy_metadata[keyword] = values
         for n, (k, v) in enumerate(self.metadata.items()):
             legacy_metadata[f"LSST IMAGES KEY {n + 1}"] = k
             legacy_metadata[f"LSST IMAGES VALUE {n + 1}"] = v
