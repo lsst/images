@@ -1070,26 +1070,58 @@ def _obs_info_from_md(
 ) -> ObservationInfo:
     # Try to get an ObservationInfo from the primary header as if
     # it's a raw header. Else fallback.
+    obs_info: ObservationInfo | None
     try:
         obs_info = ObservationInfo.from_header(md, quiet=True)
     except ValueError:
-        # Not known translator. Must fall back to visit info. If we have
-        # an actual VisitInfo, serialize it since we know that it will be
-        # complete.
-        if visit_info is not None:
-            from lsst.afw.image import setVisitInfoMetadata
-            from lsst.daf.base import PropertyList
+        # Not a known translator.
+        obs_info = None
+    if obs_info is not None and obs_info.datetime_begin is not None and obs_info.datetime_end is not None:
+        return obs_info
 
-            pl = PropertyList()
-            setVisitInfoMetadata(pl, visit_info)
-            # Merge so that we still have access to butler provenance.
-            md.update(pl)
+    # Either there was no translator for this header, or there was one but it
+    # could not find the observation times. Writing an Exposure to FITS moves
+    # the date and exposure time keywords out of the header and into the
+    # VisitInfo, so a header that has been through a butler round trip still
+    # names its instrument, and its translator still runs, but the keywords
+    # that translator reads the times from are gone. Fall back to the
+    # VisitInfo, which we know is complete, if we have one.
+    if visit_info is not None:
+        from lsst.afw.image import setVisitInfoMetadata
+        from lsst.daf.base import PropertyList
 
-        # Try the given header looking for VisitInfo hints.
-        # We get lots of warnings if nothing can be found. Currently
-        # no way to disable those without capturing them.
-        obs_info = ObservationInfo.from_header(md, translator_class=VisitInfoTranslator, quiet=True)
-    return obs_info
+        pl = PropertyList()
+        setVisitInfoMetadata(pl, visit_info)
+        # Merge into a copy, so that we still have access to butler
+        # provenance while leaving the header we were given alone: these
+        # keywords are ones an instrument translator reads, so writing them
+        # back would change what a second call to this function returns.
+        merged = PropertyList()
+        merged.update(md)
+        merged.update(pl)
+        md = merged
+
+    # Try the given header looking for VisitInfo hints.
+    # We get lots of warnings if nothing can be found. Currently
+    # no way to disable those without capturing them.
+    from_visit_info = ObservationInfo.from_header(md, translator_class=VisitInfoTranslator, quiet=True)
+    if obs_info is None:
+        return from_visit_info
+
+    # Keep everything the instrument translator did find, and take only what
+    # it was missing from the VisitInfo.
+    updates: dict[str, Any] = {}
+    if (
+        from_visit_info.datetime_begin is not None
+        and from_visit_info.datetime_end is not None
+        and (obs_info.datetime_begin is None or obs_info.datetime_end is None)
+    ):
+        updates["datetime_begin"] = from_visit_info.datetime_begin
+        updates["datetime_end"] = from_visit_info.datetime_end
+    for name in ("exposure_time", "dark_time"):
+        if getattr(obs_info, name) is None and getattr(from_visit_info, name) is not None:
+            updates[name] = getattr(from_visit_info, name)
+    return obs_info.model_copy(update=updates) if updates else obs_info
 
 
 def _update_obs_info_from_legacy(
