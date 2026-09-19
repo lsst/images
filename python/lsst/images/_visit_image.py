@@ -890,7 +890,7 @@ class VisitImage(MaskedImage):
         filter_label = reader.readFilter()
         with astropy.io.fits.open(filename) as hdu_list:
             primary_header = hdu_list[0].header
-            obs_info = _obs_info_from_md(primary_header)
+            obs_info = _obs_info_from_md(primary_header, visit_info=legacy_exposure_info.getVisitInfo())
             obs_info = _update_obs_info_from_legacy(obs_info, legacy_detector, filter_label)
             if component == "obs_info":
                 return obs_info
