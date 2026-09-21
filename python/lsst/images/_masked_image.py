@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("MaskedImage", "MaskedImageSerializationModel")
 
 import functools
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Mapping
 from contextlib import ExitStack
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
@@ -48,6 +48,10 @@ if TYPE_CHECKING:
         from lsst.afw.image import MaskedImage as LegacyMaskedImage
     except ImportError:
         type LegacyMaskedImage = Any  # type: ignore[no-redef]
+    try:
+        from lsst.daf.base import PropertyList
+    except ImportError:
+        type PropertyList = Any  # type: ignore[no-redef]
 
 
 class MaskedImage(GeneralizedImage):
@@ -544,10 +548,9 @@ class MaskedImage(GeneralizedImage):
         result._opaque_metadata = opaque_metadata
         return result
 
-    def _fill_legacy_metadata(self, legacy_metadata: MutableMapping[str, Any]) -> None:
-        """Fill a legacy mutable mapping (e.g `lsst.daf.base.PropertySet`)
-        with metadata suitable for an `lsst.afw.image.Exposure` representation
-        of this object.
+    def _fill_legacy_metadata(self, legacy_metadata: PropertyList) -> None:
+        """Fill a legacy PropertyList with metadata suitable for an
+        `lsst.afw.image.Exposure` representation of this object.
         """
         # We just dump all of the FITS headers and non-FITS metadata into the
         # legacy metadata component, to make sure we have everything. We dump

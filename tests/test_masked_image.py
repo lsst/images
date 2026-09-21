@@ -409,7 +409,7 @@ def test_repeated_legacy_metadata_keys(reset_afw_mask_planes: None) -> None:  # 
     """Test that a key present on more than one FITS card keeps all of its
     values in the legacy metadata.
     """
-    from lsst.daf.base import PropertySet
+    from lsst.daf.base import PropertyList
 
     opaque_metadata = FitsOpaqueMetadata()
     header = astropy.io.fits.Header()
@@ -420,7 +420,7 @@ def test_repeated_legacy_metadata_keys(reset_afw_mask_planes: None) -> None:  # 
     opaque_metadata.extract_legacy_primary_header(header)
     masked_image = make_masked_image()
     masked_image._opaque_metadata = opaque_metadata
-    legacy_metadata = PropertySet()
+    legacy_metadata = PropertyList()
     masked_image._fill_legacy_metadata(legacy_metadata)
     assert legacy_metadata.getArray("BGMEAN") == [1.5, 2.5]
     assert legacy_metadata["PLATFORM"] == "lsstcam"
