@@ -49,7 +49,7 @@ from .aperture_corrections import (
 from .cameras import Detector, DetectorSerializationModel
 from .describe import DescribeOptions, FieldRole, Report, ReportField
 from .fields import BaseField, Field, FieldSerializationModel, field_from_legacy_photo_calib
-from .fits import FitsOpaqueMetadata
+from .fits import FitsOpaqueMetadata, parse_legacy_bunit
 from .psfs import (
     GaussianPointSpreadFunction,
     GaussianPSFSerializationModel,
@@ -681,11 +681,7 @@ class VisitImage(MaskedImage):
         instrumental_unit = opaque_fits_metadata.get_instrumental_unit() or astropy.units.electron
         hdr_unit: astropy.units.UnitBase | None = None
         if hdr_unit_str := md.get("BUNIT"):
-            hdr_unit = astropy.units.Unit(hdr_unit_str, format="FITS")
-            if hdr_unit == astropy.units.adu and instrumental_unit == astropy.units.electron:
-                # Fix incorrect BUNIT='adu' in LSST
-                # preliminary_visit_image.
-                hdr_unit = astropy.units.electron
+            hdr_unit = parse_legacy_bunit(hdr_unit_str, instrumental_unit=instrumental_unit)
         if unit is None:
             unit = hdr_unit
         elif hdr_unit is not None and hdr_unit != unit:
