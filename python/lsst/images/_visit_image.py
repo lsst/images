@@ -15,7 +15,7 @@ __all__ = ("VisitImage", "VisitImageSerializationModel")
 
 import functools
 import logging
-from collections.abc import Callable, Mapping, MutableMapping
+from collections.abc import Callable, Mapping
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
@@ -23,7 +23,7 @@ import astropy.io.fits
 import astropy.units
 import numpy as np
 import pydantic
-from astro_metadata_translator import ObservationInfo, VisitInfoTranslator
+from astro_metadata_translator import ObservationInfo
 
 from ._backgrounds import BackgroundMap, BackgroundMapSerializationModel
 from ._concrete_bounds import BoundsSerializationModel
@@ -31,6 +31,7 @@ from ._geom import Bounds, Box
 from ._image import Image, ImageSerializationModel
 from ._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_legacy_visit_image_mask_planes
 from ._masked_image import MaskedImage, MaskedImageSerializationModel
+from ._obs_info_from_legacy import obs_info_from_legacy
 from ._observation_summary_stats import ObservationSummaryStats
 from ._polygon import Polygon
 from ._transforms import (
@@ -649,12 +650,6 @@ class VisitImage(MaskedImage):
         """
         if plane_map is None:
             plane_map = get_legacy_visit_image_mask_planes()
-        md = legacy.getMetadata()
-        obs_info = _obs_info_from_md(md, visit_info=legacy.info.getVisitInfo())
-        instrument = _extract_or_check_header(
-            "LSST BUTLER DATAID INSTRUMENT", instrument, md, obs_info.instrument, str
-        )
-        visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, obs_info.exposure_id, int)
         legacy_wcs = legacy.getWcs()
         if legacy_wcs is None:
             raise ValueError("Exposure does not have a SkyWcs.")
@@ -662,10 +657,17 @@ class VisitImage(MaskedImage):
         if legacy_detector is None:
             raise ValueError("Exposure does not have a Detector.")
         detector_bbox = Box.from_legacy(legacy_detector.getBBox())
-
-        # Update the ObservationInfo from other components.
-        obs_info = _update_obs_info_from_legacy(obs_info, legacy_detector, legacy.info.getFilter())
-
+        md = legacy.getMetadata()
+        obs_info = obs_info_from_legacy(
+            md,
+            visit_info=legacy.info.getVisitInfo(),
+            detector=legacy_detector,
+            filter_label=legacy.info.getFilter(),
+        )
+        instrument = _extract_or_check_header(
+            "LSST BUTLER DATAID INSTRUMENT", instrument, md, obs_info.instrument, str
+        )
+        visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, obs_info.exposure_id, int)
         opaque_fits_metadata = FitsOpaqueMetadata()
         primary_header = header_from_legacy(md)
         metadata = opaque_fits_metadata.extract_legacy_primary_header(primary_header)
@@ -877,8 +879,12 @@ class VisitImage(MaskedImage):
         filter_label = reader.readFilter()
         with astropy.io.fits.open(filename) as hdu_list:
             primary_header = hdu_list[0].header
-            obs_info = _obs_info_from_md(primary_header, visit_info=legacy_exposure_info.getVisitInfo())
-            obs_info = _update_obs_info_from_legacy(obs_info, legacy_detector, filter_label)
+            obs_info = obs_info_from_legacy(
+                primary_header,
+                visit_info=legacy_exposure_info.getVisitInfo(),
+                detector=legacy_detector,
+                filter_label=filter_label,
+            )
             if component == "obs_info":
                 return obs_info
             instrument = _extract_or_check_header(
@@ -1050,71 +1056,6 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
         if component == "masked_image":
             return super().deserialize(archive, **kwargs)
         return super().deserialize_component(component, archive, **kwargs)
-
-
-def _obs_info_from_md(
-    md: MutableMapping[str, Any], visit_info: LegacyVisitInfo | None = None
-) -> ObservationInfo:
-    # Try to get an ObservationInfo from the primary header as if
-    # it's a raw header. Else fallback.
-    try:
-        obs_info = ObservationInfo.from_header(md, quiet=True)
-    except ValueError:
-        # Not known translator. Must fall back to visit info. If we have
-        # an actual VisitInfo, serialize it since we know that it will be
-        # complete.
-        if visit_info is not None:
-            from lsst.afw.image import setVisitInfoMetadata
-            from lsst.daf.base import PropertyList
-
-            pl = PropertyList()
-            setVisitInfoMetadata(pl, visit_info)
-            # Merge so that we still have access to butler provenance.
-            md.update(pl)
-
-        # Try the given header looking for VisitInfo hints.
-        # We get lots of warnings if nothing can be found. Currently
-        # no way to disable those without capturing them.
-        obs_info = ObservationInfo.from_header(md, translator_class=VisitInfoTranslator, quiet=True)
-    return obs_info
-
-
-def _update_obs_info_from_legacy(
-    obs_info: ObservationInfo,
-    detector: LegacyDetector | None = None,
-    filter_label: LegacyFilterLabel | None = None,
-) -> ObservationInfo:
-    extra_md: dict[str, str | int] = {}
-
-    if filter_label is not None and filter_label.hasBandLabel():
-        extra_md["physical_filter"] = filter_label.physicalLabel
-
-    # Fill in detector metadata, check for consistency.
-    # ObsInfo detector name and group can not be derived from
-    # the getName() information without knowing how the components
-    # are separated.
-    if detector is not None:
-        detector_md = {
-            "detector_num": detector.getId(),
-            "detector_unique_name": detector.getName(),
-        }
-        extra_md.update(detector_md)
-
-    obs_info_updates: dict[str, str | int] = {}
-    for k, v in extra_md.items():
-        current = getattr(obs_info, k)
-        if current is None:
-            obs_info_updates[k] = v
-            continue
-        if current != v:
-            raise RuntimeError(
-                f"ObservationInfo contains value for '{k}' that is inconsistent "
-                f"with given legacy object: {v} != {current}"
-            )
-
-    if obs_info_updates:
-        obs_info = obs_info.model_copy(update=obs_info_updates)
-    return obs_info
 
 
 def _reconcile_detector_serial(obs_info: ObservationInfo, detector: Detector) -> None:
