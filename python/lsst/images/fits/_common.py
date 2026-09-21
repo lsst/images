@@ -27,6 +27,7 @@ __all__ = (
     "PointerModel",
     "PrecompressedImage",
     "add_offset_wcs",
+    "parse_legacy_bunit",
     "read_offset_wcs",
     "read_yx0",
     "strip_butler_cards",
@@ -646,3 +647,40 @@ def strip_butler_cards(header: astropy.io.fits.Header) -> None:
     for key in list(header):
         if key.startswith("LSST BUTLER"):
             del header[key]
+
+
+def parse_legacy_bunit(
+    bunit: str, instrumental_unit: astropy.units.UnitBase | None = None
+) -> astropy.units.UnitBase:
+    """Handle a BUNIT value written by lsst.afw or LSST-supported instruments.
+
+    Parameters
+    ----------
+    bunit
+        BUNIT FITS header card value.
+    instrumental_unit
+        The correct instrumental unit for this instrument's post-ISR images.
+        Should only be passed if this *is* a post-ISR image.
+
+    Notes
+    -----
+    This works around two problems with the FITS BUNIT headers:
+
+    - At least according to Astropy, BUNIT='ADU' is not valid but 'adu' is.
+    - Some files are written with BUNIT='adu' when the LSSTCam ISR's output
+      units are 'electron'.
+    """
+    bunit = bunit.replace("ADU", "adu")
+    try:
+        unit = astropy.units.Unit(bunit, format="fits")
+    except ValueError:
+        # Accept non-FITS units by assuming Astropy can still figure
+        # them out if we don't specify the format.
+        unit = astropy.units.Unit(bunit)
+    # Fix incorrect BUNIT='adu' in LSST preliminary_visit_image, accounting
+    # for variance planes with squared units as well.
+    if unit == astropy.units.adu and instrumental_unit == astropy.units.electron:
+        unit = astropy.units.electron
+    if unit == astropy.units.adu**2 and instrumental_unit == astropy.units.electron:
+        unit = astropy.units.electron**2
+    return unit

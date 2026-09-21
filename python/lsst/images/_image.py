@@ -532,18 +532,7 @@ class Image(GeneralizedImage):
     ) -> Image:
         unit: astropy.units.UnitBase | None = None
         if (fits_unit := hdu.header.pop("BUNIT", None)) is not None:
-            try:
-                unit = astropy.units.Unit(fits_unit, format="fits")
-            except ValueError:
-                # Accept non-FITS units by assuming Astropy can still figure
-                # them out if we don't specify the format.
-                unit = astropy.units.Unit(fits_unit)
-            if opaque_metadata.get_instrumental_unit() == astropy.units.electron:
-                # Fix incorrect BUNIT='adu' in LSST preliminary_visit_image.
-                if unit == astropy.units.adu:
-                    unit = astropy.units.electron
-                if unit == astropy.units.adu**2:
-                    unit = astropy.units.electron**2
+            unit = fits.parse_legacy_bunit(fits_unit, opaque_metadata.get_instrumental_unit())
         yx0 = fits.read_yx0(hdu.header)
         hdu.header.remove("LTV1", ignore_missing=True)
         hdu.header.remove("LTV2", ignore_missing=True)
