@@ -648,6 +648,9 @@ class VisitImage(MaskedImage):
         visit
             ID of the visit.  Extracted from the metadata if not provided.
         """
+        from lsst.afw.image import setVisitInfoMetadata
+        from lsst.daf.base import PropertyList
+
         if plane_map is None:
             plane_map = get_legacy_visit_image_mask_planes()
         legacy_wcs = legacy.getWcs()
@@ -657,10 +660,21 @@ class VisitImage(MaskedImage):
         if legacy_detector is None:
             raise ValueError("Exposure does not have a Detector.")
         detector_bbox = Box.from_legacy(legacy_detector.getBBox())
+        visit_info = legacy.info.getVisitInfo()
+        if visit_info is None:
+            raise ValueError("Exposure does not have a VisitInfo.")
         md = legacy.getMetadata()
+        opaque_fits_metadata = FitsOpaqueMetadata()
+        primary_header = header_from_legacy(md)
+        # afw's ExposureReader strips the VisitInfo's header cards from its
+        # metadata, but we want to include them in the FITS header we
+        # attach.
+        pl = PropertyList()
+        setVisitInfoMetadata(pl, visit_info)
+        primary_header.update(header_from_legacy(pl))
         obs_info = obs_info_from_legacy(
-            md,
-            visit_info=legacy.info.getVisitInfo(),
+            primary_header,
+            visit_info=visit_info,
             detector=legacy_detector,
             filter_label=legacy.info.getFilter(),
         )
@@ -668,8 +682,6 @@ class VisitImage(MaskedImage):
             "LSST BUTLER DATAID INSTRUMENT", instrument, md, obs_info.instrument, str
         )
         visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, obs_info.exposure_id, int)
-        opaque_fits_metadata = FitsOpaqueMetadata()
-        primary_header = header_from_legacy(md)
         metadata = opaque_fits_metadata.extract_legacy_primary_header(primary_header)
         instrumental_unit = opaque_fits_metadata.get_instrumental_unit() or astropy.units.electron
         hdr_unit: astropy.units.UnitBase | None = None
@@ -876,12 +888,15 @@ class VisitImage(MaskedImage):
             "detector",
             "photometric_scaling",
         ), component  # for MyPy
+        visit_info = legacy_exposure_info.getVisitInfo()
+        if visit_info is None:
+            raise ValueError(f"Exposure file {filename!r} does not have a VisitInfo.")
         filter_label = reader.readFilter()
         with astropy.io.fits.open(filename) as hdu_list:
             primary_header = hdu_list[0].header
             obs_info = obs_info_from_legacy(
                 primary_header,
-                visit_info=legacy_exposure_info.getVisitInfo(),
+                visit_info=visit_info,
                 detector=legacy_detector,
                 filter_label=filter_label,
             )
