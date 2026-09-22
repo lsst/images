@@ -31,7 +31,7 @@ from lsst.images import fits as images_fits
 from lsst.images import json as images_json
 from lsst.images.cli import main
 from lsst.images.serialization import backend_for_path, read_archive
-from lsst.images.tests import current_fixture_path
+from lsst.images.tests import current_fixture_path, get_dp2_exposure_record
 
 FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
 
@@ -230,9 +230,43 @@ def test_convert_visit_image_to_json(tmp_path: Path, external_data_dir: str) -> 
     FITS fixture.
     """
     pytest.importorskip("lsst.afw.image")
+    from lsst.daf.butler.tests import makeTestRepo
+
+    repo_dir = tmp_path / "repo"
+    with makeTestRepo(repo_dir) as butler:
+        universe = butler.dimensions
+        exposure_record = get_dp2_exposure_record(universe)
+        instrument = exposure_record.instrument
+        # Records for dimensions that exposure requires or implies must exist
+        # first.
+        butler.registry.insertDimensionData(universe["instrument"], {"name": instrument})
+        butler.registry.insertDimensionData(
+            universe["day_obs"], {"instrument": instrument, "day_obs": exposure_record.day_obs}
+        )
+        butler.registry.insertDimensionData(
+            universe["group"], {"instrument": instrument, "name": exposure_record.group}
+        )
+        butler.registry.insertDimensionData(
+            universe["physical_filter"],
+            {"instrument": instrument, "name": exposure_record.physical_filter, "band": "r"},
+        )
+        butler.registry.insertDimensionData(universe["exposure"], exposure_record.toDict())
     src = os.path.join(external_data_dir, "dp2", "legacy", "visit_image.fits")
     out = str(tmp_path / "converted.json")
-    result = CliRunner().invoke(main, ["convert", src, out])
+    result = CliRunner().invoke(
+        main,
+        [
+            "convert",
+            src,
+            out,
+            "--butler",
+            str(repo_dir),
+            "--instrument",
+            instrument,
+            "--exposure",
+            str(exposure_record.id),
+        ],
+    )
     assert result.exit_code == 0, result.output
     info = backend_for_path(out).input_archive.get_basic_info(out)
     assert info.schema_name == "visit_image"
@@ -311,14 +345,31 @@ def test_preserve_quantization_default_does_not_reject_cell_coadd(tmp_path: Path
 
 
 def test_preserve_quantization_forwarded_to_read_legacy() -> None:
-    """Test that _read_legacy forwards preserve_quantization=True to
-    VisitImage.read_legacy.
+    """Test that _read_legacy forwards preserve_quantization=True and the
+    resolved exposure record to VisitImage.read_legacy.
     """
     from lsst.images.cli._convert import _read_legacy
 
-    with mock.patch("lsst.images.VisitImage.read_legacy") as read_legacy:
-        _read_legacy("in.fits", "visit_image", None, None, None, True)
-    read_legacy.assert_called_once_with("in.fits", preserve_quantization=True)
+    with (
+        mock.patch("lsst.images.cli._convert._fetch_exposure_record") as resolve,
+        mock.patch("lsst.images.VisitImage.read_legacy") as read_legacy,
+    ):
+        resolve.return_value = mock.sentinel.record
+        _read_legacy("in.fits", "visit_image", None, "repo", None, True, instrument="LSSTCam", exposure=42)
+    read_legacy.assert_called_once_with(
+        "in.fits", preserve_quantization=True, exposure_record=mock.sentinel.record
+    )
+
+
+def test_convert_visit_image_requires_supply_options(tmp_path: Path) -> None:
+    """Test that converting a legacy visit image without the dimension-record
+    supply options fails with a helpful message.
+    """
+    src = _make_cli_input(tmp_path)
+    out = str(tmp_path / "out.json")
+    result = CliRunner().invoke(main, ["convert", src, out, "--type", "visit_image"])
+    assert result.exit_code != 0
+    assert "--exposure" in result.output
 
 
 def test_rejects_identical_paths(tmp_path: Path) -> None:

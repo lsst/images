@@ -15,7 +15,7 @@ __all__ = ("VisitImage", "VisitImageSerializationModel")
 
 import functools
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
@@ -69,11 +69,13 @@ if TYPE_CHECKING:
         from lsst.afw.image import Exposure as LegacyExposure
         from lsst.afw.image import FilterLabel as LegacyFilterLabel
         from lsst.afw.image import VisitInfo as LegacyVisitInfo
+        from lsst.daf.butler import DimensionRecord
     except ImportError:
         type LegacyDetector = Any  # type: ignore[no-redef]
         type LegacyExposure = Any  # type: ignore[no-redef]
         type LegacyFilterLabel = Any  # type: ignore[no-redef]
         type LegacyVisitInfo = Any  # type: ignore[no-redef]
+        type DimensionRecord = Any  # type: ignore[no-redef]
 
 _LOG = logging.getLogger("lsst.images")
 
@@ -623,10 +625,9 @@ class VisitImage(MaskedImage):
     def from_legacy(  # type: ignore[override]
         legacy: LegacyExposure,
         *,
+        exposure_record: DimensionRecord,
         unit: astropy.units.UnitBase | None = None,
         plane_map: Mapping[str, MaskPlane] | None = None,
-        instrument: str | None = None,
-        visit: int | None = None,
     ) -> VisitImage:
         """Convert from an `lsst.afw.image.Exposure` instance.
 
@@ -635,6 +636,9 @@ class VisitImage(MaskedImage):
         legacy
             An `lsst.afw.image.Exposure` instance that will share image and
             variance (but not mask) pixel data with the returned object.
+        exposure_record
+            The ``exposure`` dimension record for this observation, as a
+            source of additional required metadata.
         unit
             Units of the image.  If not provided, the ``BUNIT`` metadata
             key will be used, if available.
@@ -642,11 +646,6 @@ class VisitImage(MaskedImage):
             A mapping from legacy mask plane name to the new plane name and
             description.  If `None` (default)
             `get_legacy_visit_image_mask_planes` is used.
-        instrument
-            Name of the instrument.  Extracted from the metadata if not
-            provided.
-        visit
-            ID of the visit.  Extracted from the metadata if not provided.
         """
         from lsst.afw.image import setVisitInfoMetadata
         from lsst.daf.base import PropertyList
@@ -673,15 +672,13 @@ class VisitImage(MaskedImage):
         setVisitInfoMetadata(pl, visit_info)
         primary_header.update(header_from_legacy(pl))
         obs_info = obs_info_from_legacy(
-            primary_header,
-            visit_info=visit_info,
-            detector=legacy_detector,
-            filter_label=legacy.info.getFilter(),
+            visit_info,
+            exposure_record,
+            legacy_detector,
+            detector_exposure_id=legacy.info.getId(),
         )
-        instrument = _extract_or_check_header(
-            "LSST BUTLER DATAID INSTRUMENT", instrument, md, obs_info.instrument, str
-        )
-        visit = _extract_or_check_header("LSST BUTLER DATAID VISIT", visit, md, obs_info.exposure_id, int)
+        instrument = exposure_record.instrument
+        visit = exposure_record.id  # assume visit ID == exposure ID, as is always the case now in practice
         metadata = opaque_fits_metadata.extract_legacy_primary_header(primary_header)
         instrumental_unit = opaque_fits_metadata.get_instrumental_unit() or astropy.units.electron
         hdr_unit: astropy.units.UnitBase | None = None
@@ -712,7 +709,8 @@ class VisitImage(MaskedImage):
         detector = Detector.from_legacy(
             legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
         )
-        _reconcile_detector_serial(obs_info, detector)
+        if instrument == "LSSTCam":
+            obs_info = _fix_lsstcam_detector_serial(obs_info, detector)
         result = VisitImage(
             image=masked_image.image.view(unit=unit),
             mask=masked_image.mask,
@@ -797,10 +795,9 @@ class VisitImage(MaskedImage):
     def read_legacy(  # type: ignore[override]
         filename: str,
         *,
+        exposure_record: DimensionRecord,
         preserve_quantization: bool = False,
         plane_map: Mapping[str, MaskPlane] | None = None,
-        instrument: str | None = None,
-        visit: int | None = None,
         component: Literal[
             "bbox",
             "image",
@@ -822,6 +819,9 @@ class VisitImage(MaskedImage):
         ----------
         filename
             Full name of the file.
+        exposure_record
+            The ``exposure`` dimension record for this observation, as a
+            source of additional required metadata.
         preserve_quantization
             If `True`, ensure that writing the masked image back out again will
             exactly preserve quantization-compressed pixel values.  This causes
@@ -833,12 +833,6 @@ class VisitImage(MaskedImage):
             A mapping from legacy mask plane name to the new plane name and
             description.  If `None` (default)
             `get_legacy_visit_image_mask_planes` is used.
-        instrument
-            Name of the instrument.  Read from the primary header if not
-            provided.
-        visit
-            ID of the visit.  Read from the primary header if not
-            provided.
         component
             A component to read instead of the full image.
         """
@@ -895,19 +889,17 @@ class VisitImage(MaskedImage):
         with astropy.io.fits.open(filename) as hdu_list:
             primary_header = hdu_list[0].header
             obs_info = obs_info_from_legacy(
-                primary_header,
-                visit_info=visit_info,
-                detector=legacy_detector,
-                filter_label=filter_label,
+                visit_info,
+                exposure_record,
+                legacy_detector,
+                detector_exposure_id=legacy_exposure_info.getId(),
             )
+            instrument = exposure_record.instrument
+            visit = exposure_record.id
             if component == "obs_info":
+                if instrument == "LSSTCam":
+                    obs_info = _fix_lsstcam_detector_serial(obs_info)
                 return obs_info
-            instrument = _extract_or_check_header(
-                "LSST BUTLER DATAID INSTRUMENT", instrument, primary_header, obs_info.instrument, str
-            )
-            visit = _extract_or_check_header(
-                "LSST BUTLER DATAID VISIT", visit, primary_header, obs_info.exposure_id, int
-            )
             opaque_metadata = FitsOpaqueMetadata()
             # This extraction is destructive, so we need to be sure to pass
             # this opaque_metadata down to MaskedImage._read_legacy_hdus
@@ -928,7 +920,8 @@ class VisitImage(MaskedImage):
                 detector = Detector.from_legacy(
                     legacy_detector, instrument=instrument, visit=visit, is_raw_assembled=True
                 )
-                _reconcile_detector_serial(obs_info, detector)
+                if instrument == "LSSTCam":
+                    obs_info = _fix_lsstcam_detector_serial(obs_info, detector)
                 if component == "detector":
                     return detector
             assert component != "detector", "MyPy can't work this out from the above."
@@ -1073,56 +1066,52 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
         return super().deserialize_component(component, archive, **kwargs)
 
 
-def _reconcile_detector_serial(obs_info: ObservationInfo, detector: Detector) -> None:
-    # Some LSSTCam detector serial numbers are/were incorrect in the camera
-    # geometry (DM-55080), so if they conflict it's the ObservationInfo (from
-    # the headers) that's correct.
-    if obs_info.detector_serial is not None and detector.serial != obs_info.detector_serial:
+# Serial numbers that were wrong in LSSTCam camera definitions before the
+# DM-55080 fix: the R24 and R34 serial blocks were swapped, and one ITL sensor
+# had a stale serial. Keys are detector IDs, values are correct serial.
+_DM55080_DETECTOR_SERIALS: dict[int, str] = {
+    108: "E2V-CCD250-140",
+    109: "E2V-CCD250-314",
+    110: "E2V-CCD250-302",
+    111: "E2V-CCD250-298",
+    112: "E2V-CCD250-305",
+    113: "E2V-CCD250-318",
+    114: "E2V-CCD250-304",
+    115: "E2V-CCD250-301",
+    116: "E2V-CCD250-385",
+    153: "E2V-CCD250-160",
+    154: "E2V-CCD250-411",
+    155: "E2V-CCD250-256",
+    156: "E2V-CCD250-253",
+    157: "E2V-CCD250-194",
+    158: "E2V-CCD250-231",
+    159: "E2V-CCD250-224",
+    160: "E2V-CCD250-189",
+    161: "E2V-CCD250-134",
+    173: "ITL-3800C-327",
+}
+
+
+def _fix_lsstcam_detector_serial(
+    obs_info: ObservationInfo, detector: Detector | None = None
+) -> ObservationInfo:
+    assert obs_info.detector_num is not None
+    expected = _DM55080_DETECTOR_SERIALS.get(obs_info.detector_num)
+    if expected is None:
+        return obs_info
+    if detector is not None and detector.serial != expected:
         _LOG.warning(
-            "Detector serial from ObservationInfo (%s) for detector %d does not agree "
-            "with camera geometry %s; assuming the former is correct.",
-            obs_info.detector_serial,
+            "Detector %d has camera-geometry serial %s, which predates the"
+            " DM-55080 camera-definition fix; using %s.",
             detector.id,
             detector.serial,
+            expected,
         )
-        detector._attributes.serial = obs_info.detector_serial
-
-
-def _extract_or_check_value[T](
-    key: str,
-    given_value: T | None,
-    *sources: tuple[str, T | None],
-) -> T:
-    # Compare given value against multiple sources. If given value is not
-    # supplied return the first non-None value in the reference sources.
-    if given_value is not None:
-        for source_name, source_value in sources:
-            if source_value is not None and source_value != given_value:
-                raise ValueError(
-                    f"Given value {given_value!r} does not match {source_value!r} from {source_name}."
-                )
-            if source_value is not None:
-                # Only check the first non-None source rather than checking
-                # all supplied values.
-                break
-        return given_value
-
-    for _, source_value in sources:
-        if source_value is not None:
-            return source_value
-
-    raise ValueError(f"No value found for {key}.")
-
-
-def _extract_or_check_header[T](
-    key: str, given_value: T | None, header: Any, obs_info_value: T | None, coerce: Callable[[Any], T]
-) -> T:
-    hdr_value: T | None = None
-    if (hdr_raw_value := header.get(key)) is not None:
-        hdr_value = coerce(hdr_raw_value)
-    return _extract_or_check_value(
-        key, given_value, ("ObservationInfo", obs_info_value), (f"header key {key}", hdr_value)
-    )
+        detector._attributes.serial = expected
+    if obs_info.detector_serial != expected:
+        with obs_info.edit_copy() as obs_info:
+            obs_info.detector_serial = expected
+    return obs_info
 
 
 def _get_unit_conversion_factor(

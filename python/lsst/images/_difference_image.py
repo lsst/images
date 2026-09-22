@@ -52,7 +52,7 @@ from .serialization import (
 )
 
 if TYPE_CHECKING:
-    from lsst.daf.butler import DataId
+    from lsst.daf.butler import DataId, DimensionRecord
 
     try:
         from lsst.afw.geom import SkyWcs as LegacySkyWcs
@@ -349,10 +349,9 @@ class DifferenceImage(VisitImage):
     def from_legacy(  # type: ignore[override]
         legacy: LegacyExposure,
         *,
+        exposure_record: DimensionRecord,
         unit: astropy.units.UnitBase | None = None,
         plane_map: Mapping[str, MaskPlane] | None = None,
-        instrument: str | None = None,
-        visit: int | None = None,
     ) -> DifferenceImage:
         """Convert from an `lsst.afw.image.Exposure` instance.
 
@@ -361,25 +360,21 @@ class DifferenceImage(VisitImage):
         legacy
             An `lsst.afw.image.Exposure` instance that will share image and
             variance (but not mask) pixel data with the returned object.
+        exposure_record
+            The ``exposure`` dimension record for this observation, as a
+            source of additional required metadata.
         unit
             Units of the image.  If not provided, the ``BUNIT`` metadata
             key will be used, if available.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
             description.  If `None` (default)
-            `get_legacy_visit_image_mask_planes` is used.
-        instrument
-            Name of the instrument.  Extracted from the metadata if not
-            provided.
-        visit
-            ID of the visit.  Extracted from the metadata if not provided.
+            `get_legacy_difference_image_mask_planes` is used.
         """
         if plane_map is None:
             plane_map = get_legacy_difference_image_mask_planes()
         return DifferenceImage._from_visit_image(
-            VisitImage.from_legacy(
-                legacy, unit=unit, plane_map=plane_map, instrument=instrument, visit=visit
-            ),
+            VisitImage.from_legacy(legacy, unit=unit, plane_map=plane_map, exposure_record=exposure_record),
             kernel=None,
             templates=None,
         )
@@ -409,10 +404,9 @@ class DifferenceImage(VisitImage):
     def read_legacy(  # type: ignore[override]
         filename: str,
         *,
+        exposure_record: DimensionRecord,
         preserve_quantization: bool = False,
         plane_map: Mapping[str, MaskPlane] | None = None,
-        instrument: str | None = None,
-        visit: int | None = None,
         component: Literal[
             "bbox",
             "image",
@@ -434,6 +428,9 @@ class DifferenceImage(VisitImage):
         ----------
         filename
             Full name of the file.
+        exposure_record
+            The ``exposure`` dimension record for this observation, as a
+            source of additional required metadata.
         preserve_quantization
             If `True`, ensure that writing the masked image back out again will
             exactly preserve quantization-compressed pixel values.  This causes
@@ -444,13 +441,7 @@ class DifferenceImage(VisitImage):
         plane_map
             A mapping from legacy mask plane name to the new plane name and
             description.  If `None` (default)
-            `get_legacy_visit_image_mask_planes` is used.
-        instrument
-            Name of the instrument.  Read from the primary header if not
-            provided.
-        visit
-            ID of the visit.  Read from the primary header if not
-            provided.
+            `get_legacy_difference_image_mask_planes` is used.
         component
             A component to read instead of the full image.
         """
@@ -458,10 +449,9 @@ class DifferenceImage(VisitImage):
             plane_map = get_legacy_difference_image_mask_planes()
         result = VisitImage.read_legacy(
             filename,
+            exposure_record=exposure_record,
             preserve_quantization=preserve_quantization,
             plane_map=plane_map,
-            instrument=instrument,
-            visit=visit,
             component=component,
         )
         if component is None:
