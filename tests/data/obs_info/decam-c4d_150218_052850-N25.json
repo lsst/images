@@ -1,0 +1,58 @@
+{
+  "_translator": "DECam",
+  "telescope": "CTIO 4.0-m telescope",
+  "instrument": "DECam",
+  "location": [
+    1814299.4321709608,
+    -5214321.092378282,
+    -3187415.562488629
+  ],
+  "exposure_id": 411371,
+  "visit_id": 411371,
+  "physical_filter": "g DECam SDSS c0001 4720.0 1520.0",
+  "datetime_begin": [
+    2457072.0,
+    -0.27277276579861115
+  ],
+  "datetime_end": [
+    2457072.0,
+    -0.27123842592592595
+  ],
+  "exposure_time": 86.0,
+  "exposure_time_requested": 86.0,
+  "dark_time": 87.1173,
+  "boresight_airmass": 1.11,
+  "boresight_rotation_angle": 90.0,
+  "boresight_rotation_coord": "sky",
+  "detector_num": 56,
+  "detector_name": "25",
+  "detector_unique_name": "N25",
+  "detector_serial": "S3-208_124750-3-2",
+  "detector_group": "N",
+  "detector_exposure_id": 41137156,
+  "focus_z": 0.0024312199999999996,
+  "object": "Blind15A_42",
+  "temperature": 287.34999999999997,
+  "pressure": 778.0,
+  "relative_humidity": 45.0,
+  "tracking_radec": [
+    155.47028496089578,
+    -4.9500504054240375
+  ],
+  "altaz_begin": [
+    353.1027,
+    64.71000000000001
+  ],
+  "science_program": "2015A-0608",
+  "observation_type": "science",
+  "observation_id": "ct4m20150218t052637",
+  "observation_reason": "science",
+  "exposure_group": "411371",
+  "observing_day": 20150217,
+  "observing_day_offset": 43200,
+  "observation_counter": 411371,
+  "has_simulated_content": false,
+  "group_counter_start": 411371,
+  "group_counter_end": 411371,
+  "can_see_sky": true
+}

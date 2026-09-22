@@ -80,6 +80,30 @@ def _load_skymap(skymap: str | None, butler: str | None, collection: str | None,
     raise click.ClickException("Converting a cell coadd requires --skymap (a pickled skymap) or --butler.")
 
 
+def _fetch_exposure_record(butler: str, instrument: str, exposure: int) -> Any:
+    """Fetch the ``exposure`` dimension record from a butler repository.
+
+    Raises
+    ------
+    click.ClickException
+        If the record is missing or ambiguous.
+    """
+    from lsst.daf.butler import Butler
+
+    with Butler.from_config(butler) as repo:
+        records = list(
+            repo.registry.queryDimensionRecords(
+                "exposure", dataId={"instrument": instrument, "exposure": exposure}
+            )
+        )
+    if not records:
+        raise click.ClickException(
+            f"No exposure dimension record for instrument {instrument!r}, exposure {exposure} in {butler!r}."
+        )
+    assert len(records) == 1
+    return records[0]
+
+
 def _read_legacy(
     input: str,
     legacy_type: str,
@@ -87,16 +111,41 @@ def _read_legacy(
     butler: str | None,
     collection: str | None,
     preserve_quantization: bool = False,
+    instrument: str | None = None,
+    exposure: int | None = None,
 ) -> VisitImage | CellCoadd:
     """Read a legacy FITS file into the corresponding lsst.images object."""
+    exposure_record: Any = None
+    if legacy_type in ("visit_image", "difference_image"):
+        if (butler is None) != (exposure is None):
+            raise click.ClickException("--butler and --exposure must be given together.")
+        if butler is not None and exposure is not None:
+            if instrument is None:
+                raise click.ClickException(
+                    "--butler and --exposure require --instrument, which together"
+                    " with --exposure identifies the exposure dimension record."
+                )
+            exposure_record = _fetch_exposure_record(butler, instrument, exposure)
+        elif instrument is not None:
+            raise click.ClickException(
+                "--instrument identifies the exposure dimension record together"
+                " with --butler and --exposure; without them it has no effect."
+            )
+        # With no --butler/--exposure there is no exposure dimension record;
+        # the conversion proceeds with a degraded ObservationInfo (and a
+        # warning from lsst.images).
     if legacy_type == "visit_image":
         from .. import VisitImage
 
-        return VisitImage.read_legacy(input, preserve_quantization=preserve_quantization)
+        return VisitImage.read_legacy(
+            input, preserve_quantization=preserve_quantization, exposure_record=exposure_record
+        )
     if legacy_type == "difference_image":
         from .. import DifferenceImage
 
-        return DifferenceImage.read_legacy(input, preserve_quantization=preserve_quantization)
+        return DifferenceImage.read_legacy(
+            input, preserve_quantization=preserve_quantization, exposure_record=exposure_record
+        )
     if legacy_type == "cell_coadd":
         from lsst.cell_coadds import MultipleCellCoadd
 
@@ -133,12 +182,34 @@ def _read_legacy(
 @click.option(
     "--butler",
     default=None,
-    help="Butler repository to resolve the skymap (cell coadds only).",
+    help=(
+        "Butler repository: for the skymap (cell coadds) or for the exposure"
+        " dimension record (visit and difference images)."
+    ),
 )
 @click.option(
     "--collection",
     default=None,
     help="Butler collection holding the skymap (required with --butler).",
+)
+@click.option(
+    "--instrument",
+    default=None,
+    help=(
+        "Instrument name; with --butler and --exposure, identifies the"
+        " exposure dimension record.  It is an error without them."
+    ),
+)
+@click.option(
+    "--exposure",
+    type=int,
+    default=None,
+    help=(
+        "Exposure ID; with --butler and --instrument, identifies the exposure"
+        " dimension record.  Without them, visit and difference images are"
+        " converted with a degraded ObservationInfo (fields the record would"
+        " supply are None)."
+    ),
 )
 @click.option("--overwrite", is_flag=True, default=False, help="Overwrite OUTPUT if it exists.")
 @click.option(
@@ -156,6 +227,8 @@ def convert(
     skymap: str | None,
     butler: str | None,
     collection: str | None,
+    instrument: str | None,
+    exposure: int | None,
     overwrite: bool,
     preserve_quantization: bool,
 ) -> None:
@@ -190,7 +263,16 @@ def convert(
         raise click.ClickException(f"{output!r} already exists; pass --overwrite to replace it.")
 
     try:
-        obj = _read_legacy(input, legacy_type, skymap, butler, collection, preserve_quantization)
+        obj = _read_legacy(
+            input,
+            legacy_type,
+            skymap,
+            butler,
+            collection,
+            preserve_quantization,
+            instrument=instrument,
+            exposure=exposure,
+        )
     except click.ClickException:
         raise
     except ImportError as err:
