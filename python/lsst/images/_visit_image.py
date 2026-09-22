@@ -340,6 +340,36 @@ class VisitImage(MaskedImage):
             return options.for_child("corners")
         return options.for_child()
 
+    def _describe_psf(self, options: DescribeOptions) -> Report:
+        """Return the report for this image's PSF, or for the error that
+        stopped it being read.
+
+        Parameters
+        ----------
+        options : `DescribeOptions`
+            Options the child report is built with.
+
+        Returns
+        -------
+        report : `Report`
+            Report describing the PSF, or naming it unreadable.
+
+        Notes
+        -----
+        A PSF that could not be read is a supported state of a visit image,
+        not a failure of it, and it is often the only unreadable part: a PSF
+        model can depend on a package the reader does not have installed.
+        Describing it therefore has to say what is missing and why, rather
+        than raise and take the report of everything else with it.
+        """
+        if isinstance(self._psf, ArchiveReadError):
+            return Report(
+                type_name="PointSpreadFunction",
+                summary=f"unreadable ({self._psf})",
+                inline=True,
+            )
+        return self._psf._describe(options)
+
     def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this visit image.
 
@@ -347,8 +377,7 @@ class VisitImage(MaskedImage):
         ----------
         options : `DescribeOptions`, optional
             Rendering options; forwarded to all children.  Child construction
-            can be expensive or raise for an unreadable component, so
-            `DescribeOptions.brief` skips it.
+            can be expensive, so `DescribeOptions.brief` skips it.
         """
         # The image and mask schema are rendered as children below, and the
         # image renders as ``Image(bbox, dtype)``, which would restate the
@@ -381,7 +410,7 @@ class VisitImage(MaskedImage):
             "mask": self.mask._describe(plane),
             "variance": self.variance._describe(plane),
             "sky_projection": self.sky_projection._describe(child, bbox=self.bbox),
-            "psf": self.psf._describe(child),
+            "psf": self._describe_psf(child),
             "detector": self.detector._describe(child),
             "summary_stats": self.summary_stats._describe(self._summary_stats_describe_options(options)),
             "backgrounds": self.backgrounds._describe(child),

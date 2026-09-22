@@ -1216,14 +1216,34 @@ def test_visit_image_repr_str_with_unreadable_psf() -> None:
     """Repr and str succeed even when the PSF stored an ArchiveReadError.
 
     An unreadable component is a supported state; repr and str read only the
-    cheap fields and summary, so they must not build the child tree (which
-    would raise when it accesses the PSF).
+    cheap fields and summary, so they do not build the child tree at all.
     """
     path = current_fixture_path(FIXTURE_DIR, "visit_image")
     visit_image = read_archive(path)
     visit_image._psf = ArchiveReadError("psf unreadable")
     assert repr(visit_image).startswith("VisitImage(")
     assert str(visit_image).startswith("VisitImage(")
+
+
+def test_visit_image_describe_names_an_unreadable_psf() -> None:
+    """A full report says the PSF could not be read, and describes the rest.
+
+    A PSF model can need a package the reader does not have installed, so an
+    unreadable PSF must not cost the report of everything else.
+    """
+    path = current_fixture_path(FIXTURE_DIR, "visit_image")
+    visit_image = read_archive(path)
+    visit_image._psf = ArchiveReadError("Failed to import piff.")
+    report = visit_image.describe(detail=True)
+    psf = report.children["psf"]
+    assert psf.inline
+    assert psf.to_str() == "unreadable (Failed to import piff.)"
+    # Every other component is described as usual.
+    assert "sky_projection" in report.children
+    assert "detector" in report.children
+    # Both renderers run over the report that contains it.
+    assert "unreadable" in report._repr_html_()
+    report.__rich__()
 
 
 def test_visit_image_slice_preserves_unreadable_psf() -> None:
