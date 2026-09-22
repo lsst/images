@@ -487,3 +487,49 @@ def test_rich_inline_children_stay_on_one_line() -> None:
     text = console.export_text()
     assert "image: (dtype float32)" in text
     assert "(Image)" not in text
+
+
+def test_emphasis_markup_styles_only_the_marked_spans() -> None:
+    """A marked span is styled and the rest of the headline is left alone, in
+    the inline form as well as in a heading.
+    """
+    report = Report(
+        type_name="VisitImage",
+        children={
+            "backgrounds": Report(
+                type_name="BackgroundMap",
+                summary="**sky [SUBTRACTED]**; also: *fringe*",
+                inline=True,
+                emphasis_markup=True,
+            )
+        },
+    )
+    console = Console(record=True, width=80, file=io.StringIO(), force_jupyter=False)
+    console.print(report)
+    # The delimiters go; the text they marked is untouched.
+    assert "backgrounds: sky [SUBTRACTED]; also: fringe" in console.export_text()
+    html = report._repr_html_()
+    assert '<span style="font-weight: bold">sky [SUBTRACTED]</span>; also: ' in html
+    assert '<span style="font-style: italic">fringe</span>' in html
+    # Plain-text forms read the headline, so never show a delimiter.
+    background = report.children["backgrounds"]
+    assert background.to_str() == "sky [SUBTRACTED]; also: fringe"
+    assert background.to_repr() == "<BackgroundMap: sky [SUBTRACTED]; also: fringe>"
+
+
+def test_emphasis_markup_leaves_bare_asterisks_alone() -> None:
+    """A bare asterisk is content, not a delimiter: always without the flag,
+    and with it unless the asterisks pair up around a span.
+    """
+    report = Report(type_name="Image", summary="Image(**kwargs)", inline=True)
+    assert report.emphasis_markup is False
+    assert report.to_str() == "Image(**kwargs)"
+    parent = Report(type_name="MaskedImage", children={"image": report})
+    console = Console(record=True, width=80, file=io.StringIO(), force_jupyter=False)
+    console.print(parent)
+    assert "image: Image(**kwargs)" in console.export_text()
+    assert "font-weight: bold" not in parent._repr_html_()
+    # With the flag, an unpaired delimiter, as a squared unit carries, is
+    # still content.
+    report = Report(type_name="Field", summary="unit electron**2", emphasis_markup=True)
+    assert report.to_str() == "unit electron**2"
