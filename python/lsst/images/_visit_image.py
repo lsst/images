@@ -15,7 +15,6 @@ __all__ = ("VisitImage", "VisitImageSerializationModel")
 
 import functools
 import logging
-import warnings
 from collections.abc import Callable, Mapping, MutableMapping
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
@@ -49,7 +48,7 @@ from .aperture_corrections import (
 from .cameras import Detector, DetectorSerializationModel
 from .describe import DescribeOptions, FieldRole, Report, ReportField
 from .fields import BaseField, Field, FieldSerializationModel, field_from_legacy_photo_calib
-from .fits import FitsOpaqueMetadata, parse_legacy_bunit
+from .fits import FitsOpaqueMetadata, header_from_legacy, parse_legacy_bunit
 from .psfs import (
     GaussianPointSpreadFunction,
     GaussianPSFSerializationModel,
@@ -668,15 +667,7 @@ class VisitImage(MaskedImage):
         obs_info = _update_obs_info_from_legacy(obs_info, legacy_detector, legacy.info.getFilter())
 
         opaque_fits_metadata = FitsOpaqueMetadata()
-        primary_header = astropy.io.fits.Header()
-        with warnings.catch_warnings():
-            # Silence warnings about long keys becoming HIERARCH.
-            warnings.simplefilter("ignore", category=astropy.io.fits.verify.VerifyWarning)
-            for name in md.getOrderedNames():
-                # Some keys may be set more than once.
-                # Write one card per value in those cases.
-                for value in md.getArray(name):
-                    primary_header.append((name, value), end=True)
+        primary_header = header_from_legacy(md)
         metadata = opaque_fits_metadata.extract_legacy_primary_header(primary_header)
         instrumental_unit = opaque_fits_metadata.get_instrumental_unit() or astropy.units.electron
         hdr_unit: astropy.units.UnitBase | None = None
