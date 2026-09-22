@@ -22,6 +22,7 @@ from lsst.images._geom import Box
 from lsst.images._image import Image
 from lsst.images._mask import Mask, MaskPlane, MaskSchema
 from lsst.images._masked_image import MaskedImage
+from lsst.images._observation_summary_stats import ObservationSummaryStats
 from lsst.images.describe import (
     DescribableMixin,
     DescribeOptions,
@@ -533,3 +534,21 @@ def test_emphasis_markup_leaves_bare_asterisks_alone() -> None:
     # still content.
     report = Report(type_name="Field", summary="unit electron**2", emphasis_markup=True)
     assert report.to_str() == "unit electron**2"
+
+
+def test_summary_stats_corners_excluded_on_request() -> None:
+    """Excluding "corners" drops the sky corners but not the count."""
+    stats = ObservationSummaryStats(
+        psfSigma=2.5,
+        raCorners=(1.0, 2.0, 3.0, 4.0),
+        decCorners=(-1.0, -2.0, -3.0, -4.0),
+    )
+    full = stats.describe()
+    labels = {field.label for field in full.fields}
+    assert {"raCorners", "decCorners"} <= labels
+    trimmed = stats.describe(exclude=["corners"])
+    assert not {"raCorners", "decCorners"} & {field.label for field in trimmed.fields}
+    # The count covers what is set, not what was rendered, so it must not move.
+    assert trimmed.summary == full.summary
+    # Nothing else is dropped.
+    assert trimmed.value_groups == full.value_groups

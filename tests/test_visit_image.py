@@ -1339,3 +1339,54 @@ def test_archive_tree_repr_omits_schema_bookkeeping() -> None:
     dumped = stats.model_dump()
     for name in ("schema_version", "min_read_version", "indirect"):
         assert name in dumped, name
+
+
+def _match_detector_to_image(visit_image: VisitImage) -> VisitImage:
+    """Return the visit image with its detector shrunk to the image bbox.
+
+    Parameters
+    ----------
+    visit_image
+        Image to adjust.
+
+    Returns
+    -------
+    visit_image : `VisitImage`
+        Image whose `~VisitImage.bbox` equals its detector's, as a full-frame
+        image read from a butler has.
+    """
+    detector = visit_image.detector
+    visit_image._detector = Detector(
+        detector._attributes.model_copy(update={"bbox": visit_image.bbox}),
+        detector.amplifiers,
+        detector._frames,
+        detector.visit,
+    )
+    return visit_image
+
+
+def test_visit_image_describe_hides_summary_stat_corners_for_a_full_frame(
+    visit_image_components: dict[str, Any],
+) -> None:
+    """The sky corners appear once, in the projection's readable table."""
+    visit = _match_detector_to_image(make_visit_image(visit_image_components))
+    visit.summary_stats.raCorners = (1.0, 2.0, 3.0, 4.0)
+    visit.summary_stats.decCorners = (-1.0, -2.0, -3.0, -4.0)
+    report = visit.describe()
+    stats = report.children["summary_stats"]
+    assert not {"raCorners", "decCorners"} & {field.label for field in stats.fields}
+    # The projection is where they are read instead, and it still has them.
+    assert any(table.title == "Corners" for table in report.children["sky_projection"].tables)
+
+
+def test_visit_image_cutout_keeps_summary_stat_corners() -> None:
+    """A cutout keeps the statistics' corners, which still describe the whole
+    image the statistics were measured on.
+    """
+    # The DP2 variant is a cutout of a real image, so it carries the
+    # statistics measured on the whole of it.
+    path = current_fixture_path(FIXTURE_DIR, "visit_image", variant="dp2")
+    visit_image = read_archive(path)
+    assert visit_image.bbox != visit_image.detector.bbox
+    stats = visit_image.describe().children["summary_stats"]
+    assert {"raCorners", "decCorners"} <= {field.label for field in stats.fields}

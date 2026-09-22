@@ -313,6 +313,33 @@ class VisitImage(MaskedImage):
             bbox=bbox,
         )
 
+    def _summary_stats_describe_options(self, options: DescribeOptions) -> DescribeOptions:
+        """Return the options the summary-statistics child report is built
+        with.
+
+        Parameters
+        ----------
+        options : `DescribeOptions`
+            Options this image's own report is being built with.
+
+        Returns
+        -------
+        options : `DescribeOptions`
+            Options for the child report.
+
+        Notes
+        -----
+        `ObservationSummaryStats.raCorners` and
+        `~ObservationSummaryStats.decCorners` hold the sky corners of the
+        image the statistics were measured on, which the sky projection
+        tabulates more readably.  Taking a cutout does not recompute the
+        statistics, so those corners still describe the original image and
+        are worth keeping wherever they no longer match the pixels on hand.
+        """
+        if self.bbox == self.detector.bbox:
+            return options.for_child("corners")
+        return options.for_child()
+
     def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
         """Return a `Report` describing this visit image.
 
@@ -356,7 +383,7 @@ class VisitImage(MaskedImage):
             "sky_projection": self.sky_projection._describe(child, bbox=self.bbox),
             "psf": self.psf._describe(child),
             "detector": self.detector._describe(child),
-            "summary_stats": self.summary_stats._describe(child),
+            "summary_stats": self.summary_stats._describe(self._summary_stats_describe_options(options)),
             "backgrounds": self.backgrounds._describe(child),
         }
         if self.photometric_scaling is not None:
