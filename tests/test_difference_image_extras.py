@@ -33,6 +33,7 @@ from lsst.images import (
 )
 from lsst.images.cameras import Detector
 from lsst.images.convolution_kernels import ConvolutionKernel, ImageBasisConvolutionKernel
+from lsst.images.fields import ChebyshevField
 from lsst.images.psfs import GaussianPointSpreadFunction
 from lsst.images.serialization import read_archive
 from lsst.images.tests import (
@@ -281,3 +282,15 @@ def test_difference_image_repr_str_pinned() -> None:
         " dtype=dtype('int64')), mask_schema=MaskSchema([MaskPlane(name='M1', description='D1')],"
         " dtype=dtype('uint8')))"
     )
+
+
+def test_convolution_kernel_describes_itself() -> None:
+    """A kernel summarizes its basis rather than listing it."""
+    spatial = [ChebyshevField(Box.factory[0:10, 0:20], np.array([[1.0]])) for _ in range(3)]
+    kernel = ImageBasisConvolutionKernel(np.ones((3, 5, 5)), spatial)
+    report = kernel.describe()
+    values = {field.label: field.value for field in report.fields}
+    assert values["basis images"] == 3
+    assert values["spatial variation"] == "ChebyshevField"
+    assert report.children == {}
+    assert str(kernel) == "ImageBasisConvolutionKernel with 3 basis images over [y=0:10, x=0:20]"
