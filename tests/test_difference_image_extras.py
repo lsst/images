@@ -15,6 +15,8 @@ import dataclasses
 import logging
 import math
 import os
+import uuid
+from pathlib import Path
 from typing import Any
 
 import astropy.units as u
@@ -30,6 +32,7 @@ from lsst.images import (
     Image,
     MaskPlane,
     MaskSchema,
+    Polygon,
 )
 from lsst.images.cameras import Detector
 from lsst.images.convolution_kernels import ConvolutionKernel, ImageBasisConvolutionKernel
@@ -41,6 +44,7 @@ from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
     assert_values_equal,
+    current_fixture_path,
     make_random_sky_projection,
     reset_afw_mask_planes,  # noqa: F401
 )
@@ -282,6 +286,96 @@ def test_difference_image_repr_str_pinned() -> None:
         " dtype=dtype('int64')), mask_schema=MaskSchema([MaskPlane(name='M1', description='D1')],"
         " dtype=dtype('uint8')))"
     )
+
+
+FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
+
+
+def _make_template(
+    tract: int = 1,
+    patch: int = 2,
+    *,
+    skymap: str = "sky",
+    dataset_run: str = "run",
+    psf_shape_xx: float = 4.0,
+    psf_shape_yy: float = 4.0,
+    psf_shape_xy: float = 0.0,
+    psf_shape_flag: bool = False,
+) -> DifferenceImageTemplateInfo:
+    """Return a template info struct with defaults for everything a test does
+    not care about.
+    """
+    return DifferenceImageTemplateInfo(
+        skymap=skymap,
+        tract=tract,
+        patch=patch,
+        dataset_id=uuid.uuid4(),
+        dataset_run=dataset_run,
+        bounds=Polygon(x_vertices=[-0.5, 3.5, -0.5], y_vertices=[-0.5, -0.5, 3.5]),
+        psf_shape_xx=psf_shape_xx,
+        psf_shape_yy=psf_shape_yy,
+        psf_shape_xy=psf_shape_xy,
+        psf_shape_flag=psf_shape_flag,
+    )
+
+
+def test_describe_templates_hoists_shared_values() -> None:
+    """A value every template shares becomes a field instead of a column."""
+    templates = [_make_template(1, 2), _make_template(1, 3)]
+    fields, table = DifferenceImageTemplateInfo._describe_templates(templates)
+    assert {field.label: field.value for field in fields} == {"skymap": "sky", "template run": "run"}
+    assert table.title == "Templates"
+    assert table.columns == ["Tract", "Patch", "PSF \N{GREEK SMALL LETTER SIGMA}", "Dataset ID"]
+    assert [row[:3] for row in table.rows] == [[1, 2, "2.000"], [1, 3, "2.000"]]
+
+
+def test_describe_templates_keeps_varying_values_as_columns() -> None:
+    """A value that differs between templates stays in the table."""
+    templates = [_make_template(skymap="a", dataset_run="r1"), _make_template(skymap="b", dataset_run="r1")]
+    fields, table = DifferenceImageTemplateInfo._describe_templates(templates)
+    # Only the run is shared, so only the run is hoisted.
+    assert [field.label for field in fields] == ["template run"]
+    assert table.columns[0] == "Skymap"
+    assert [row[0] for row in table.rows] == ["a", "b"]
+
+
+def test_describe_templates_marks_unusable_psf_shapes() -> None:
+    """A flagged or degenerate PSF shape reports no radius, and the flag
+    column appears only when some template carries it.
+    """
+    good = _make_template(psf_shape_xx=9.0, psf_shape_yy=9.0)
+    flagged = _make_template(psf_shape_flag=True)
+    degenerate = _make_template(psf_shape_xx=1.0, psf_shape_yy=1.0, psf_shape_xy=1.0)
+    _, table = DifferenceImageTemplateInfo._describe_templates([good, degenerate])
+    assert "PSF flag" not in table.columns
+    assert [row[2] for row in table.rows] == ["3.000", "n/a"]
+    _, table = DifferenceImageTemplateInfo._describe_templates([good, flagged])
+    flag_column = table.columns.index("PSF flag")
+    assert [row[2] for row in table.rows] == ["3.000", "n/a"]
+    assert [row[flag_column] for row in table.rows] == ["", "set"]
+
+
+def test_difference_image_describe_reports_templates_and_kernel() -> None:
+    """A deserialized difference image describes both of the parts it adds to
+    a visit image.
+    """
+    difference_image = read_archive(str(current_fixture_path(FIXTURE_DIR, "difference_image", variant="dp2")))
+    report = difference_image.describe()
+    tables = {table.title: table for table in report.tables}
+    assert len(tables["Templates"].rows) == len(difference_image.templates)
+    assert "skymap" in {field.label for field in report.fields}
+    assert report.children["kernel"].type_name == "ImageBasisConvolutionKernel"
+    # Both renderers run over the whole thing without error.
+    assert isinstance(report._repr_html_(), str)
+    report.__rich__()
+
+
+def test_difference_image_describe_brief_skips_templates_and_kernel() -> None:
+    """Brief reports feed repr and str, which name neither part."""
+    difference_image = read_archive(str(current_fixture_path(FIXTURE_DIR, "difference_image", variant="dp2")))
+    report = difference_image.describe(brief=True)
+    assert report.tables == []
+    assert "kernel" not in report.children
 
 
 def test_convolution_kernel_describes_itself() -> None:

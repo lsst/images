@@ -15,6 +15,7 @@ __all__ = ("DifferenceImage", "DifferenceImageSerializationModel", "DifferenceIm
 
 import logging
 import math
+import operator
 import uuid
 from collections.abc import Iterable, Mapping
 from types import EllipsisType
@@ -37,7 +38,7 @@ from .aperture_corrections import (
 )
 from .cameras import Detector
 from .convolution_kernels import ConvolutionKernel, ConvolutionKernelSerializationModel
-from .describe import DescribeOptions, Report
+from .describe import DescribeOptions, FieldRole, Report, ReportField, ReportTable
 from .fields import Field
 from .psfs import (
     PointSpreadFunction,
@@ -262,8 +263,14 @@ class DifferenceImage(VisitImage):
         report = super()._describe(options)
         report.type_name = "DifferenceImage"
         report.summary = f"DifferenceImage({self.image!s}, {list(self.mask.schema.names)})"
-        # ConvolutionKernel does not implement _describe; omit it from the
-        # report until a describe method is added to that class.
+        if options.brief:
+            return report
+        if self._templates:
+            fields, table = DifferenceImageTemplateInfo._describe_templates(self._templates)
+            report.fields.extend(fields)
+            report.tables.append(table)
+        if self._kernel is not None:
+            report.children["kernel"] = self._kernel._describe(options.for_child())
         return report
 
     def copy(self, *, copy_detector: bool = False) -> DifferenceImage:
@@ -621,6 +628,101 @@ class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constant
             )
         result.sort(key=lambda item: (item.tract, item.patch))
         return result
+
+    _HOISTABLE_REPORT_VALUES: ClassVar[tuple[tuple[str, str, str], ...]] = (
+        ("skymap", "skymap", "Skymap"),
+        ("dataset_run", "template run", "Run"),
+    )
+    """Template attributes a report shows once above the templates table when
+    every template carries the same one, as ``(attribute, field label, column
+    header)``.
+
+    A value belongs here when it is wide enough to crowd the table and usually
+    uniform across a difference image's templates, and when it does not
+    identify the row: see the notes on `_describe_templates`.  Adding an
+    attribute here is all it takes to cover it; a value that turns out to vary
+    falls back to its column on its own.
+    """
+
+    def _report_psf_sigma(self) -> str:
+        """Return the determinant radius of a template's effective PSF,
+        formatted for a report cell.
+
+        Returns
+        -------
+        sigma : `str`
+            Determinant radius in pixels, or ``"n/a"`` where the second moments
+            do not describe an ellipse.
+
+        Notes
+        -----
+        This is the same quantity as `ObservationSummaryStats.psfSigma`, so the
+        template PSFs can be compared directly against the science image's.
+        """
+        if self.psf_shape_flag:
+            return "n/a"
+        determinant = self.psf_shape_xx * self.psf_shape_yy - self.psf_shape_xy**2
+        if not math.isfinite(determinant) or determinant <= 0.0:
+            return "n/a"
+        return f"{determinant**0.25:.3f}"
+
+    @staticmethod
+    def _describe_templates(
+        templates: list[DifferenceImageTemplateInfo],
+    ) -> tuple[list[ReportField], ReportTable]:
+        """Return the report elements describing a difference image's
+        templates.
+
+        Parameters
+        ----------
+        templates
+            Templates to describe; must not be empty.
+
+        Returns
+        -------
+        fields : `list` [ `~lsst.images.ReportField` ]
+            The `_HOISTABLE_REPORT_VALUES` that every template shares.
+        table : `~lsst.images.ReportTable`
+            One row per template.
+
+        Notes
+        -----
+        Some of what a template carries is usually, but not dependably, the
+        same for every template of one difference image, and is long enough to
+        crowd out the columns that do differ.  Each such value is shown once
+        above the table where every template shares it, and stays a column
+        where they do not, so nothing is lost when the usual case does not
+        hold.  `_HOISTABLE_REPORT_VALUES` lists them.
+
+        What identifies a row is never hoisted, however uniform it happens to
+        be.  A detector overlapping a single tract gives every template the
+        same tract, but tract and patch together name the coadd a row
+        describes, and splitting that pair between a field and a column would
+        leave each row unable to say what it is.
+        """
+        fields: list[ReportField] = []
+        columns: list[str] = []
+        getters: list[Any] = []
+        for attribute, label, column in DifferenceImageTemplateInfo._HOISTABLE_REPORT_VALUES:
+            getter = operator.attrgetter(attribute)
+            values = {getter(template) for template in templates}
+            if len(values) == 1:
+                fields.append(ReportField(label=label, value=values.pop(), role=FieldRole.DERIVED))
+            else:
+                columns.append(column)
+                getters.append(getter)
+        columns.extend(["Tract", "Patch", "PSF \N{GREEK SMALL LETTER SIGMA}"])
+        getters.extend([lambda t: t.tract, lambda t: t.patch, DifferenceImageTemplateInfo._report_psf_sigma])
+        if any(template.psf_shape_flag for template in templates):
+            columns.append("PSF flag")
+            getters.append(lambda t: "set" if t.psf_shape_flag else "")
+        columns.append("Dataset ID")
+        getters.append(lambda t: t.dataset_id)
+        return fields, ReportTable(
+            title="Templates",
+            columns=columns,
+            rows=[[getter(template) for getter in getters] for template in templates],
+        )
 
 
 class DifferenceImageSerializationModel[P: pydantic.BaseModel](VisitImageSerializationModel[P]):
