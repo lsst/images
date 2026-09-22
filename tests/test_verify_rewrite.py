@@ -18,11 +18,12 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from lsst.images import Background, BackgroundMap, Box
+from lsst.images import Background, BackgroundMap, Box, DifferenceImage
 from lsst.images.cli._main import main
 from lsst.images.fields import ChebyshevField
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
+    get_dp2_exposure_record,
     reset_afw_mask_planes,  # noqa: F401
 )
 from lsst.images.tests.verify_rewrite import (
@@ -135,20 +136,14 @@ def testdata_dir() -> str:
 
 
 def test_verify_rewrite_end_to_end(tmp_path: Path, testdata_dir: str, reset_afw_mask_planes) -> None:  # noqa: F811
-    """Run convert then verify-rewrite on a real difference image.
-
-    Happy path: asserts the whole flow exits successfully.
-    """
+    """Run verify-rewrite on a real difference image."""
     try:
-        from lsst.daf.butler import Butler, DataCoordinate, DatasetRef, DatasetType, FileDataset
+        from lsst.afw.image import ExposureF
+        from lsst.daf.butler import Butler, DataCoordinate, DatasetType
     except ImportError:
-        pytest.skip("lsst.daf.butler could not be imported.")
+        pytest.skip("lsst.daf.butler and lsst.afw could not be imported.")
 
     src = os.path.join(testdata_dir, "dp2", "legacy", "difference_image.fits")
-    converted = str(tmp_path / "difference_image.fits")
-    result = CliRunner().invoke(main, ["convert", src, converted])
-    assert result.exit_code == 0, result.output
-
     repo = str(tmp_path / "repo")
     Butler.makeRepo(repo)
     butler = Butler.from_config(repo, run="run1")
@@ -217,10 +212,12 @@ def test_verify_rewrite_end_to_end(tmp_path: Path, testdata_dir: str, reset_afw_
     reg.registerDatasetType(legacy_dt)
     reg.registerDatasetType(new_dt)
 
-    butler.ingest(
-        FileDataset(src, DatasetRef(legacy_dt, data_id, "run1")),
-        FileDataset(converted, DatasetRef(new_dt, data_id, "run1")),
-    )
+    butler.put(ExposureF(src), legacy_dt, data_id)
+    # Convert with a second read of the file, not from_legacy() on the
+    # exposure above: the conversion shares pixel data with, and mutates the
+    # metadata of, the exposure it is given.
+    new = DifferenceImage.read_legacy(src, exposure_record=get_dp2_exposure_record(butler.dimensions))
+    butler.put(new, new_dt, data_id)
 
     result = CliRunner().invoke(
         main,

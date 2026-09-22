@@ -19,6 +19,7 @@ __all__ = (
     "assert_images_equal",
     "assert_masked_images_equal",
     "assert_masks_equal",
+    "assert_obs_metadata_fields_equal",
     "assert_psfs_equal",
     "assert_sky_projections_equal",
     "assert_values_equal",
@@ -53,6 +54,7 @@ from collections.abc import Generator, Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+import astropy.coordinates as coords
 import astropy.time
 import astropy.units as u
 import astropy.wcs.wcsapi
@@ -1791,3 +1793,98 @@ def check_archive_tree_class_invariants(tree_type: type[ArchiveTree]) -> None:
     assert isinstance(tree_type.PUBLIC_TYPE, type)
     major = int(tree_type.SCHEMA_VERSION.split(".")[0])
     assert tree_type.MIN_READ_VERSION <= major
+
+
+def _angle_to_astropy(angle: Any) -> u.Quantity:
+    """Convert an `lsst.geom.Angle` to an Astropy angular quantity."""
+    return u.Quantity(angle.asRadians(), u.rad)
+
+
+def _observatory_to_location(observatory: Any) -> coords.EarthLocation:
+    """Convert an `lsst.afw.coord.Observatory` to an Astropy
+    `~astropy.coordinates.EarthLocation`.
+    """
+    return coords.EarthLocation.from_geodetic(
+        lon=observatory.getLongitude().asRadians() * u.rad,
+        lat=observatory.getLatitude().asRadians() * u.rad,
+        height=observatory.getElevation() * u.m,
+    )
+
+
+def assert_obs_metadata_fields_equal(actual: Any, expected: Any, *, label: str = "") -> None:
+    """Assert that two ObservationInfo or VisitInfo field values are equal.
+
+    Dispatches on the type of ``expected`` so that values affected by afw's
+    float64 date storage, unit conversions, and angle wrapping are compared
+    with appropriate tolerances; anything else is compared with ``==``.
+
+    Parameters
+    ----------
+    actual : `object`
+        The field value to check.
+    expected : `object`
+        The field value to check it against.
+    label : `str`, optional
+        Prefix for the failure message.
+    """
+    from lsst.afw.coord import Observatory, Weather
+    from lsst.daf.base import DateTime
+    from lsst.geom import Angle
+
+    if isinstance(expected, DateTime):
+        assert_obs_metadata_fields_equal(actual.toAstropy(), expected.toAstropy(), label=label)
+    elif isinstance(expected, astropy.time.Time):
+        # afw stores VisitInfo dates as float64 MJDs, which limits precision.
+        assert_values_equal(actual, expected, atol=1e-9, label=label)
+    elif isinstance(expected, coords.AltAz):
+        assert_values_equal(actual.az, expected.az, wrap_angles=True, label=f"{label}.az")
+        assert_values_equal(actual.alt, expected.alt, atol=1e-3 * u.arcsec, label=f"{label}.alt")
+    elif isinstance(expected, coords.SkyCoord):
+        assert_values_equal(actual, expected, atol=1e-3 * u.arcsec, label=label)
+    elif isinstance(expected, coords.EarthLocation):
+        assert_values_equal(
+            u.Quantity([actual.x, actual.y, actual.z]),
+            u.Quantity([expected.x, expected.y, expected.z]),
+            rtol=1e-9,
+            label=label,
+        )
+    elif isinstance(expected, Observatory):
+        assert_obs_metadata_fields_equal(
+            _observatory_to_location(actual), _observatory_to_location(expected), label=label
+        )
+    elif isinstance(expected, Weather):
+        assert_obs_metadata_fields_equal(
+            u.Quantity(actual.getAirTemperature(), u.deg_C),
+            u.Quantity(expected.getAirTemperature(), u.deg_C),
+            label=f"{label}.temperature",
+        )
+        assert_obs_metadata_fields_equal(
+            actual.getAirPressure(), expected.getAirPressure(), label=f"{label}.pressure"
+        )
+        assert_obs_metadata_fields_equal(
+            actual.getHumidity(), expected.getHumidity(), label=f"{label}.humidity"
+        )
+    elif isinstance(expected, Angle):
+        assert_values_equal(
+            _angle_to_astropy(actual),
+            _angle_to_astropy(expected),
+            atol=1e-12 * u.rad,
+            wrap_angles=True,
+            label=label,
+        )
+    elif (
+        isinstance(expected, u.Quantity)
+        and isinstance(actual, u.Quantity)
+        and expected.unit.physical_type == "temperature"
+        and actual.unit.physical_type == "temperature"
+    ):
+        assert_values_equal(
+            actual.to(u.K, equivalencies=u.temperature()),
+            expected.to(u.K, equivalencies=u.temperature()),
+            atol=1e-6 * u.K,
+            label=label,
+        )
+    elif isinstance(expected, u.Quantity | float):
+        assert_values_equal(actual, expected, rtol=1e-9, label=label)
+    elif actual != expected:
+        raise AssertionError(f"{label}: {actual!r} != {expected!r}")

@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 from astro_metadata_translator import ObservationInfo
 
+from lsst.daf.butler import DimensionUniverse
 from lsst.images import (
     Box,
     DetectorFrame,
@@ -45,6 +46,7 @@ from lsst.images.tests import (
     RoundtripFits,
     assert_values_equal,
     current_fixture_path,
+    get_dp2_exposure_record,
     make_random_sky_projection,
     reset_afw_mask_planes,  # noqa: F401
 )
@@ -77,6 +79,7 @@ class _LegacyTestData:
     template_psf: LegacyCoaddPsf
     exposure: LegacyExposure
     detector_frame: DetectorFrame
+    exposure_record: Any = None
 
 
 @pytest.fixture
@@ -98,6 +101,7 @@ def legacy_test_data(reset_afw_mask_planes: None) -> _LegacyTestData:  # noqa: F
     template_metadata = template_reader.readMetadata()
     template_psf = template_reader.readPsf()
     exposure = ExposureFitsReader(exposure_filename).read()
+    exposure_record = get_dp2_exposure_record(DimensionUniverse())
     detector_frame = DetectorFrame(
         **DP2_VISIT_DETECTOR_DATA_ID, bbox=Box.from_legacy(exposure.getDetector().getBBox())
     )
@@ -107,6 +111,7 @@ def legacy_test_data(reset_afw_mask_planes: None) -> _LegacyTestData:  # noqa: F
         template_psf=template_psf,
         exposure=exposure,
         detector_frame=detector_frame,
+        exposure_record=exposure_record,
     )
 
 
@@ -148,7 +153,9 @@ def _make_difference_image(legacy_test_data: _LegacyTestData) -> DifferenceImage
     """Return a DifferenceImage with kernel and template components
     attached.
     """
-    difference_image = DifferenceImage.from_legacy(legacy_test_data.exposure)
+    difference_image = DifferenceImage.from_legacy(
+        legacy_test_data.exposure, exposure_record=legacy_test_data.exposure_record
+    )
     difference_image.kernel = ImageBasisConvolutionKernel.from_legacy(legacy_test_data.kernel)
     difference_image.templates = DifferenceImageTemplateInfo.from_legacy(
         legacy_test_data.detector_frame,

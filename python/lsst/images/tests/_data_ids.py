@@ -16,10 +16,15 @@ __all__ = (
     "DP2_COADD_MISSING_CELL",
     "DP2_TEMPLATE_COADD_DATASETS",
     "DP2_VISIT_DETECTOR_DATA_ID",
+    "get_dp2_exposure_record",
 )
 
 import uuid
 from typing import Any
+
+import astropy.time
+
+from lsst.daf.butler import DimensionRecord, DimensionUniverse, Timespan
 
 DP2_VISIT_DETECTOR_DATA_ID: dict[str, Any] = {
     "instrument": "LSSTCam",
@@ -88,3 +93,41 @@ DP2_TEMPLATE_COADD_DATASETS = {
         "patch": 23,
     },
 }
+
+
+def get_dp2_exposure_record(universe: DimensionUniverse) -> DimensionRecord:
+    """Return the exposure record associated with the DP2 test data ID.
+
+    Parameters
+    ----------
+    universe
+        Dimension universe that defines the record's schema.
+    """
+    return universe["exposure"].RecordClass(
+        instrument="LSSTCam",
+        id=2025052000177,
+        day_obs=20250520,
+        group="2025-05-21T01:28:49.433",
+        physical_filter="r_57",
+        obs_id="MC_O_20250520_000177",
+        exposure_time=30.001108646392822,
+        dark_time=30.9427,
+        observation_type="science",
+        observation_reason="field_survey_science",
+        seq_num=177,
+        seq_start=177,
+        seq_end=177,
+        target_name="COSMOS",
+        science_program="BLOCK-365",
+        tracking_ra=150.1928872274704,
+        tracking_dec=2.2413629369011385,
+        sky_angle=57.7790074960578,
+        azimuth=302.7758502576103,
+        zenith_angle=50.1758964491342,
+        has_simulated=False,
+        can_see_sky=True,
+        timespan=Timespan(
+            begin=astropy.time.Time(2460817.0, -0.436745640356088, scale="tai", format="jd"),
+            end=astropy.time.Time(2460817.0, -0.43638751157407407, scale="tai", format="jd"),
+        ),
+    )
