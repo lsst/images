@@ -1153,22 +1153,54 @@ def test_background_map_with_entries_describe() -> None:
     report = bg_map._describe()
     assert report.type_name == "BackgroundMap"
     assert report.inline
-    # The inline summary lists every background and marks the subtracted one,
+    # The inline summary leads with the subtracted background and marks it,
     # since that is all a composite holding this map will show.
-    assert report.summary == "sky (subtracted), fringe"
+    # Only the subtracted background is marked, not the whole line.
+    assert report.summary == "**sky [SUBTRACTED]**; also: fringe"
+    assert report.emphasis_markup
+    # str reads the summary as text, so the delimiters never reach a user.
+    assert report.to_str() == "sky [SUBTRACTED]; also: fringe"
     # Standalone, each background is a child carrying its own model's report.
     assert set(report.children) == {"sky", "fringe"}
     sky = report.children["sky"]
     assert sky.type_name == "ChebyshevField"
+    # The marker is on the heading, where it is read before the fields.
+    assert sky.title == "ChebyshevField **[SUBTRACTED]**"
+    assert sky.emphasis_markup
     sky_fields = {f.label: f.value for f in sky.fields}
-    assert sky_fields["subtracted"] == "yes"
     assert sky_fields["description"] == "Sky model."
     # The model's own fields survive alongside the background's attributes.
     assert "bounds" in sky_fields
     # Only the subtracted one is marked, and an absent description is omitted.
-    fringe_fields = {f.label: f.value for f in report.children["fringe"].fields}
-    assert "subtracted" not in fringe_fields
-    assert "description" not in fringe_fields
+    fringe = report.children["fringe"]
+    assert fringe.title is None
+    assert fringe.emphasis_markup is False
+    assert "description" not in {f.label for f in fringe.fields}
+
+
+def test_background_map_describe_none_subtracted() -> None:
+    """A map with no subtracted background says so rather than being silent."""
+    cheby = ChebyshevField(Box.factory[0:100, 0:200], np.array([[1.0]]))
+    bg_map = BackgroundMap([Background("sky", cheby), Background("fringe", cheby)])
+    report = bg_map._describe()
+    assert report.summary == "sky, fringe (none subtracted)"
+    assert report.emphasis_markup is False
+    assert not any(child.emphasis_markup for child in report.children.values())
+
+
+def test_background_map_describe_leads_with_subtracted() -> None:
+    """The subtracted background leads the summary wherever it sits in the
+    map, and only its child is marked.
+    """
+    cheby = ChebyshevField(Box.factory[0:100, 0:200], np.array([[1.0]]))
+    bg_map = BackgroundMap(
+        [Background("sky", cheby), Background("skyCorr", cheby)],
+        subtracted="skyCorr",
+    )
+    report = bg_map._describe()
+    assert report.to_str() == "skyCorr [SUBTRACTED]; also: sky"
+    assert report.children["sky"].emphasis_markup is False
+    assert report.children["skyCorr"].emphasis_markup
 
 
 def test_background_map_describe_brief_skips_children() -> None:
@@ -1176,7 +1208,7 @@ def test_background_map_describe_brief_skips_children() -> None:
     cheby = ChebyshevField(Box.factory[0:100, 0:200], np.array([[1.0]]))
     bg_map = BackgroundMap([Background("sky", cheby)], subtracted="sky")
     report = bg_map._describe(DescribeOptions(brief=True))
-    assert report.summary == "sky (subtracted)"
+    assert report.to_str() == "sky [SUBTRACTED]"
     assert report.children == {}
 
 
