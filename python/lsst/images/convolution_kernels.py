@@ -26,6 +26,7 @@ import pydantic
 
 from ._geom import YX, Bounds, Box
 from ._image import Image
+from .describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
 from .fields import ChebyshevField, Field, FieldSerializationModel
 from .serialization import (
     ArchiveTree,
@@ -47,8 +48,25 @@ if TYPE_CHECKING:
 type ConvolutionKernelSerializationModel = ImageBasisConvolutionKernelSerializationModel
 
 
-class ConvolutionKernel(ABC):
+class ConvolutionKernel(DescribableMixin, ABC):
     """An abstract base class for spatially-varying convolution kernels."""
+
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
+        """Return a `Report` describing this kernel.
+
+        Parameters
+        ----------
+        options : `DescribeOptions`, optional
+            Unused; accepted for interface compatibility.
+        """
+        return Report(
+            type_name=type(self).__name__,
+            summary=f"{type(self).__name__} over {self.bounds}",
+            fields=[
+                ReportField(label="bounds", value=self.bounds, role=FieldRole.DERIVED),
+                ReportField(label="kernel_bbox", value=self.kernel_bbox, role=FieldRole.DERIVED),
+            ],
+        )
 
     @property
     @abstractmethod
@@ -178,6 +196,35 @@ class ImageBasisConvolutionKernel(ConvolutionKernel):
     def __iter__(self) -> Iterator[tuple[Image, Field]]:
         for field, array in zip(self._spatial, self._basis, strict=True):
             yield Image(array, bbox=self._kernel_bbox), field
+
+    def _describe(self, options: DescribeOptions = DescribeOptions(), /) -> Report:
+        """Return a `Report` describing this kernel.
+
+        Parameters
+        ----------
+        options : `DescribeOptions`, optional
+            Unused; accepted for interface compatibility.
+
+        Notes
+        -----
+        The basis functions are summarized rather than listed: a realistic
+        kernel has dozens of them, and each is a `~.fields.BaseField` whose
+        own report would bury the rest of the image it belongs to.  The
+        shape of the basis images is `kernel_bbox`, already reported.
+        """
+        report = super()._describe(options)
+        report.summary = f"{type(self).__name__} with {len(self._spatial)} basis images over {self.bounds}"
+        report.fields.append(
+            ReportField(label="basis images", value=len(self._spatial), role=FieldRole.DERIVED)
+        )
+        report.fields.append(
+            ReportField(
+                label="spatial variation",
+                value=", ".join(sorted({type(field).__name__ for field in self._spatial})),
+                role=FieldRole.DERIVED,
+            )
+        )
+        return report
 
     def compute_kernel_image(self, *, x: int, y: int) -> Image:
         # TODO[DM-54965]: simplify this once BaseField.__call__ behaves more

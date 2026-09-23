@@ -25,7 +25,8 @@ __all__ = (
 import dataclasses
 import enum
 import io
-from collections.abc import Collection
+import re
+from collections.abc import Collection, Iterator
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from rich.console import Console
@@ -35,6 +36,85 @@ from rich.tree import Tree
 
 if TYPE_CHECKING:
     from rich.console import RenderableType
+
+_EMPHASIS_STYLES = {"emphasis": "italic", "strong": "bold"}
+"""`rich` style for each kind of emphasized span, keyed by the group
+`_EMPHASIS_PATTERN` captures it as.
+
+Weight and slant rather than color: emphasis marks a span of a line that is
+otherwise ordinary, and it has to survive a terminal or an export that has no
+color.
+"""
+
+_EMPHASIS_PATTERN = re.compile(r"\*\*(?P<strong>[^*]+)\*\*|\*(?P<emphasis>[^*]+)\*")
+"""Markdown-style delimiters around an emphasized span of a headline:
+``*emphasis*`` and ``**strong**``.
+
+Both delimiters of a pair are required, so a lone ``*`` in a name or a unit
+renders as itself.
+"""
+
+
+def _emphasized_spans(text: str) -> Iterator[tuple[str, str | None]]:
+    """Split a headline into its runs of plain and emphasized text.
+
+    Parameters
+    ----------
+    text
+        Headline that may carry ``*``-delimited spans.
+
+    Yields
+    ------
+    span : `str`
+        Run of text with its delimiters removed.
+    style : `str` or `None`
+        `rich` style for the run, or `None` where it is not emphasized.
+    """
+    position = 0
+    for match in _EMPHASIS_PATTERN.finditer(text):
+        if plain := text[position : match.start()]:
+            yield plain, None
+        kind = "strong" if match.group("strong") is not None else "emphasis"
+        yield match.group(kind), _EMPHASIS_STYLES[kind]
+        position = match.end()
+    if plain := text[position:]:
+        yield plain, None
+
+
+def _strip_emphasis(text: str) -> str:
+    """Return a headline with its emphasis delimiters removed.
+
+    Parameters
+    ----------
+    text
+        Headline that may carry ``*``-delimited spans.
+
+    Returns
+    -------
+    text : `str`
+        The headline as plain text.
+    """
+    return "".join(span for span, _ in _emphasized_spans(text))
+
+
+def _render_emphasis(text: str) -> Text:
+    """Return a headline with its ``*``-delimited spans emphasized.
+
+    Parameters
+    ----------
+    text
+        Headline that may carry ``*``-delimited spans.
+
+    Returns
+    -------
+    text : `rich.text.Text`
+        The headline with the delimiters removed and the spans they marked
+        styled.
+    """
+    result = Text()
+    for span, style in _emphasized_spans(text):
+        result.append(span, style=style)
+    return result
 
 
 class FieldRole(enum.Enum):
@@ -203,6 +283,22 @@ class Report:
     child of another report, instead of a nested branch.
     """
 
+    emphasis_markup: bool = False
+    """Whether this report's headline marks spans markdown-style, as
+    ``*emphasis*`` and ``**strong**``.
+
+    The headline is the heading of this report's branch, or the single line it
+    renders as when `inline`.  Marking a span rather than styling the whole
+    line keeps the eye off the routine part of it, and a headline may mark as
+    many spans as it needs.  The delimiters are removed wherever the headline
+    is read as plain text, so ``str`` and ``repr`` never show them.
+
+    Emphasis never carries meaning on its own, since a plain-text export drops
+    it, so a marked span has to read as the point it is making.  Reports leave
+    this `False` unless they mark something, so a stray ``*`` in a value is
+    never mistaken for a delimiter.
+    """
+
     def to_repr(self) -> str:
         """Return a ``repr`` string built from the fields whose role feeds
         ``repr``.
@@ -224,15 +320,21 @@ class Report:
         if not parts:
             if self.summary is None:
                 return f"<{self.type_name}>"
+            summary = self.to_str()
             # Some summaries already open with the type name, which reads
             # naturally on its own; do not state it twice.
-            if self.summary.startswith(self.type_name):
-                return f"<{self.summary}>"
-            return f"<{self.type_name}: {self.summary}>"
+            if summary.startswith(self.type_name):
+                return f"<{summary}>"
+            return f"<{self.type_name}: {summary}>"
         return f"{self.type_name}({', '.join(parts)})"
 
     def to_str(self) -> str:
         """Return a compact one-line summary."""
+        marked = self._marked_str()
+        return _strip_emphasis(marked) if self.emphasis_markup else marked
+
+    def _marked_str(self) -> str:
+        """Return `to_str` with any emphasis delimiters left in place."""
         if self.summary is not None:
             return self.summary
         args = [str(field.value) for field in self.fields if field.role.in_repr]
@@ -263,6 +365,23 @@ class Report:
         """Text naming this report where it heads a tree (`str`)."""
         return self.title if self.title is not None else self.type_name
 
+    def _headline(self, text: str) -> Text:
+        """Return this report's rendered headline.
+
+        Parameters
+        ----------
+        text
+            Composed headline, which the caller assembles: a report names
+            itself differently where it heads its own tree and where it is a
+            line within its parent's.
+
+        Returns
+        -------
+        headline : `rich.text.Text`
+            The text, with any marked spans emphasized.
+        """
+        return _render_emphasis(text) if self.emphasis_markup else Text(text)
+
     def _as_tree(self, heading: str) -> Tree:
         """Return a `rich.tree.Tree` for this report under the given heading.
 
@@ -271,7 +390,7 @@ class Report:
         heading
             Text to label the root of the tree with.
         """
-        tree = Tree(Text(heading))
+        tree = Tree(self._headline(heading))
         for field in self.fields:
             if not field.role.in_display:
                 continue
@@ -284,7 +403,7 @@ class Report:
             tree.add(self._as_table(table))
         for key, child in self.children.items():
             if child.inline:
-                tree.add(Text(f"{key}: {child.to_str()}"))
+                tree.add(child._headline(f"{key}: {child._marked_str()}"))
             else:
                 # Name the child and what it is on one line, rather than
                 # spending a level and a line on each.

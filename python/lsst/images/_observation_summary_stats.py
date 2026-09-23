@@ -39,6 +39,12 @@ def _default_corners() -> tuple[float, float, float, float]:
     return (math.nan, math.nan, math.nan, math.nan)
 
 
+_CORNER_NAMES = frozenset({"raCorners", "decCorners"})
+"""Statistics a report drops when ``"corners"`` is excluded, because a
+container is tabulating the same corners from its sky projection.
+"""
+
+
 def _is_empty(value: Any) -> bool:
     """Return whether a summary-statistic value is unset.
 
@@ -462,7 +468,8 @@ class ObservationSummaryStats(ArchiveTree, DescribableMixin):
         ----------
         options : `DescribeOptions`, optional
             Rendering options.  `DescribeOptions.brief` reports how many
-            statistics are set instead of listing them.
+            statistics are set instead of listing them, and ``"corners"`` in
+            `DescribeOptions.exclude` drops `raCorners` and `decCorners`.
 
         Notes
         -----
@@ -492,7 +499,12 @@ class ObservationSummaryStats(ArchiveTree, DescribableMixin):
             )
         scalars: list[tuple[str, Any]] = []
         fields: list[ReportField] = []
+        # The count in the summary stays over every statistic that is set,
+        # whatever the caller chose not to render.
+        hide_corners = "corners" in options.exclude
         for name, value in present:
+            if hide_corners and name in _CORNER_NAMES:
+                continue
             if isinstance(value, list | tuple):
                 # Too long to pack alongside the scalars; give it a line.
                 fields.append(ReportField(label=name, value=value, role=FieldRole.DERIVED))

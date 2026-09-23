@@ -1153,22 +1153,54 @@ def test_background_map_with_entries_describe() -> None:
     report = bg_map._describe()
     assert report.type_name == "BackgroundMap"
     assert report.inline
-    # The inline summary lists every background and marks the subtracted one,
+    # The inline summary leads with the subtracted background and marks it,
     # since that is all a composite holding this map will show.
-    assert report.summary == "sky (subtracted), fringe"
+    # Only the subtracted background is marked, not the whole line.
+    assert report.summary == "**sky [SUBTRACTED]**; also: fringe"
+    assert report.emphasis_markup
+    # str reads the summary as text, so the delimiters never reach a user.
+    assert report.to_str() == "sky [SUBTRACTED]; also: fringe"
     # Standalone, each background is a child carrying its own model's report.
     assert set(report.children) == {"sky", "fringe"}
     sky = report.children["sky"]
     assert sky.type_name == "ChebyshevField"
+    # The marker is on the heading, where it is read before the fields.
+    assert sky.title == "ChebyshevField **[SUBTRACTED]**"
+    assert sky.emphasis_markup
     sky_fields = {f.label: f.value for f in sky.fields}
-    assert sky_fields["subtracted"] == "yes"
     assert sky_fields["description"] == "Sky model."
     # The model's own fields survive alongside the background's attributes.
     assert "bounds" in sky_fields
     # Only the subtracted one is marked, and an absent description is omitted.
-    fringe_fields = {f.label: f.value for f in report.children["fringe"].fields}
-    assert "subtracted" not in fringe_fields
-    assert "description" not in fringe_fields
+    fringe = report.children["fringe"]
+    assert fringe.title is None
+    assert fringe.emphasis_markup is False
+    assert "description" not in {f.label for f in fringe.fields}
+
+
+def test_background_map_describe_none_subtracted() -> None:
+    """A map with no subtracted background says so rather than being silent."""
+    cheby = ChebyshevField(Box.factory[0:100, 0:200], np.array([[1.0]]))
+    bg_map = BackgroundMap([Background("sky", cheby), Background("fringe", cheby)])
+    report = bg_map._describe()
+    assert report.summary == "sky, fringe (none subtracted)"
+    assert report.emphasis_markup is False
+    assert not any(child.emphasis_markup for child in report.children.values())
+
+
+def test_background_map_describe_leads_with_subtracted() -> None:
+    """The subtracted background leads the summary wherever it sits in the
+    map, and only its child is marked.
+    """
+    cheby = ChebyshevField(Box.factory[0:100, 0:200], np.array([[1.0]]))
+    bg_map = BackgroundMap(
+        [Background("sky", cheby), Background("skyCorr", cheby)],
+        subtracted="skyCorr",
+    )
+    report = bg_map._describe()
+    assert report.to_str() == "skyCorr [SUBTRACTED]; also: sky"
+    assert report.children["sky"].emphasis_markup is False
+    assert report.children["skyCorr"].emphasis_markup
 
 
 def test_background_map_describe_brief_skips_children() -> None:
@@ -1176,7 +1208,7 @@ def test_background_map_describe_brief_skips_children() -> None:
     cheby = ChebyshevField(Box.factory[0:100, 0:200], np.array([[1.0]]))
     bg_map = BackgroundMap([Background("sky", cheby)], subtracted="sky")
     report = bg_map._describe(DescribeOptions(brief=True))
-    assert report.summary == "sky (subtracted)"
+    assert report.to_str() == "sky [SUBTRACTED]"
     assert report.children == {}
 
 
@@ -1184,14 +1216,34 @@ def test_visit_image_repr_str_with_unreadable_psf() -> None:
     """Repr and str succeed even when the PSF stored an ArchiveReadError.
 
     An unreadable component is a supported state; repr and str read only the
-    cheap fields and summary, so they must not build the child tree (which
-    would raise when it accesses the PSF).
+    cheap fields and summary, so they do not build the child tree at all.
     """
     path = current_fixture_path(FIXTURE_DIR, "visit_image")
     visit_image = read_archive(path)
     visit_image._psf = ArchiveReadError("psf unreadable")
     assert repr(visit_image).startswith("VisitImage(")
     assert str(visit_image).startswith("VisitImage(")
+
+
+def test_visit_image_describe_names_an_unreadable_psf() -> None:
+    """A full report says the PSF could not be read, and describes the rest.
+
+    A PSF model can need a package the reader does not have installed, so an
+    unreadable PSF must not cost the report of everything else.
+    """
+    path = current_fixture_path(FIXTURE_DIR, "visit_image")
+    visit_image = read_archive(path)
+    visit_image._psf = ArchiveReadError("Failed to import piff.")
+    report = visit_image.describe(detail=True)
+    psf = report.children["psf"]
+    assert psf.inline
+    assert psf.to_str() == "unreadable (Failed to import piff.)"
+    # Every other component is described as usual.
+    assert "sky_projection" in report.children
+    assert "detector" in report.children
+    # Both renderers run over the report that contains it.
+    assert "unreadable" in report._repr_html_()
+    report.__rich__()
 
 
 def test_visit_image_slice_preserves_unreadable_psf() -> None:
@@ -1307,3 +1359,54 @@ def test_archive_tree_repr_omits_schema_bookkeeping() -> None:
     dumped = stats.model_dump()
     for name in ("schema_version", "min_read_version", "indirect"):
         assert name in dumped, name
+
+
+def _match_detector_to_image(visit_image: VisitImage) -> VisitImage:
+    """Return the visit image with its detector shrunk to the image bbox.
+
+    Parameters
+    ----------
+    visit_image
+        Image to adjust.
+
+    Returns
+    -------
+    visit_image : `VisitImage`
+        Image whose `~VisitImage.bbox` equals its detector's, as a full-frame
+        image read from a butler has.
+    """
+    detector = visit_image.detector
+    visit_image._detector = Detector(
+        detector._attributes.model_copy(update={"bbox": visit_image.bbox}),
+        detector.amplifiers,
+        detector._frames,
+        detector.visit,
+    )
+    return visit_image
+
+
+def test_visit_image_describe_hides_summary_stat_corners_for_a_full_frame(
+    visit_image_components: dict[str, Any],
+) -> None:
+    """The sky corners appear once, in the projection's readable table."""
+    visit = _match_detector_to_image(make_visit_image(visit_image_components))
+    visit.summary_stats.raCorners = (1.0, 2.0, 3.0, 4.0)
+    visit.summary_stats.decCorners = (-1.0, -2.0, -3.0, -4.0)
+    report = visit.describe()
+    stats = report.children["summary_stats"]
+    assert not {"raCorners", "decCorners"} & {field.label for field in stats.fields}
+    # The projection is where they are read instead, and it still has them.
+    assert any(table.title == "Corners" for table in report.children["sky_projection"].tables)
+
+
+def test_visit_image_cutout_keeps_summary_stat_corners() -> None:
+    """A cutout keeps the statistics' corners, which still describe the whole
+    image the statistics were measured on.
+    """
+    # The DP2 variant is a cutout of a real image, so it carries the
+    # statistics measured on the whole of it.
+    path = current_fixture_path(FIXTURE_DIR, "visit_image", variant="dp2")
+    visit_image = read_archive(path)
+    assert visit_image.bbox != visit_image.detector.bbox
+    stats = visit_image.describe().children["summary_stats"]
+    assert {"raCorners", "decCorners"} <= {field.label for field in stats.fields}

@@ -23,6 +23,9 @@ from .describe import DescribableMixin, DescribeOptions, FieldRole, Report, Repo
 from .fields import Field, FieldSerializationModel
 from .serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive
 
+_SUBTRACTED = "[SUBTRACTED]"
+"""Marker naming the background that was subtracted from the image."""
+
 
 @dataclasses.dataclass(frozen=True)
 class Background:
@@ -143,14 +146,21 @@ class BackgroundMap(DescribableMixin, Mapping[str, Background]):
         The report is ``inline``, so a composite that holds a map shows only
         the summary line.  The children below are what a map describes on its
         own, where the background models themselves are the point.
+
+        Uses bold text and an explicit annotations to indicate which background
+        has been subtracted.
         """
         subtracted_name = self._subtracted
-        if not self._backgrounds:
+        names = list(self._backgrounds)
+        if not names:
             summary = "no backgrounds"
+        elif subtracted_name is None:
+            summary = f"{', '.join(names)} (none subtracted)"
         else:
-            summary = ", ".join(
-                f"{name} (subtracted)" if name == subtracted_name else name for name in self._backgrounds
-            )
+            others = [name for name in names if name != subtracted_name]
+            summary = f"**{subtracted_name} {_SUBTRACTED}**"
+            if others:
+                summary = f"{summary}; also: {', '.join(others)}"
         children: dict[str, Report] = {}
         if not options.brief:
             child = options.for_child()
@@ -159,24 +169,26 @@ class BackgroundMap(DescribableMixin, Mapping[str, Background]):
                 # attributes at the top of it keeps them beside the model they
                 # describe, rather than behind another level of nesting.
                 report = background.field._describe(child)
-                attributes = []
                 if name == subtracted_name:
-                    attributes.append(ReportField(label="subtracted", value="yes", role=FieldRole.DERIVED))
+                    # Add marker to indicate this background was subtracted.
+                    report.title = f"{report._heading} **{_SUBTRACTED}**"
+                    report.emphasis_markup = True
                 if background.description:
-                    attributes.append(
+                    report.fields.insert(
+                        0,
                         ReportField(
                             label="description",
                             value=background.description,
                             role=FieldRole.DERIVED,
-                        )
+                        ),
                     )
-                report.fields[:0] = attributes
                 children[name] = report
         return Report(
             type_name="BackgroundMap",
             summary=summary,
             children=children,
             inline=True,
+            emphasis_markup=subtracted_name is not None,
         )
 
     def serialize(self, archive: OutputArchive[Any]) -> BackgroundMapSerializationModel:
