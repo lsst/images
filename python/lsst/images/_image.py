@@ -562,7 +562,9 @@ class Image(GeneralizedImage):
                 sky_projection = SkyProjection.from_fits_wcs(
                     fits_wcs, pixel_frame=fits_wcs_frame, x0=yx0.x, y0=yx0.y
                 )
-        image = Image(hdu.data, yx0=yx0, unit=unit, sky_projection=sky_projection)
+        # FITS data is big-endian; uncompressed HDUs are returned that way.
+        array = hdu.data.astype(hdu.data.dtype.newbyteorder("="), copy=False)
+        image = Image(array, yx0=yx0, unit=unit, sky_projection=sky_projection)
         if read_only:
             image._array.flags["WRITEABLE"] = False
         fits.strip_wcs_cards(hdu.header)
