@@ -228,7 +228,7 @@ def _subset_visit_image[T: VisitImage](
         aperture_corrections=subset.aperture_corrections,
         backgrounds=subset.backgrounds,
         band=subset.band,
-        metadata=subset.metadata,
+        metadata=subset._metadata,
     )
 
 

@@ -20,7 +20,7 @@ import astropy.io.fits
 import numpy as np
 import pytest
 
-from lsst.images import Image, Mask, MaskedImage, MaskPlane, MaskSchema, MetadataView
+from lsst.images import Box, Image, Mask, MaskedImage, MaskPlane, MaskSchema, MetadataView
 from lsst.images._metadata import _NativeMetadata
 from lsst.images.fits import ExtensionKey, FitsExternalMetadata, FitsOpaqueMetadata
 from lsst.images.serialization import EmptyExternalMetadata
@@ -320,3 +320,133 @@ def test_metadata_view_dict_operations() -> None:
     assert reverse_merged == {"z": 1, **dict(view)}
     assert view.native is not None
     assert list(view.external) == EXTERNAL_KEYS
+
+
+def _make_image(metadata: dict | None = None) -> Image:
+    """Return a small image whose opaque metadata holds `_make_header`."""
+    image = Image(0.0, shape=(4, 5), dtype=np.float32, metadata=metadata)
+    opaque_metadata = FitsOpaqueMetadata()
+    opaque_metadata.add_header(_make_header(), name="", ver=1)
+    image._opaque_metadata = opaque_metadata
+    return image
+
+
+def test_image_metadata_view() -> None:
+    """Test the metadata view on an image with external metadata."""
+    image = _make_image({"native_key": 7})
+    assert isinstance(image.metadata, MetadataView)
+    assert image.metadata["native_key"] == 7
+    assert image.metadata["exptime"] == 30.0
+    assert image.metadata.native == {"native_key": 7}
+    assert list(image.metadata.external) == EXTERNAL_KEYS
+    image.metadata["other"] = "x"
+    assert image.metadata.native == {"native_key": 7, "other": "x"}
+    with pytest.raises(KeyError):
+        image.metadata["ExpTime"] = 1.0
+    with pytest.raises(KeyError):
+        image.metadata.native["ExpTime"] = 1.0
+    with pytest.raises(KeyError):
+        image.metadata.update({"bgmean": 1.0})
+
+
+def test_image_metadata_without_opaque_metadata() -> None:
+    """Test that an in-memory image has empty external metadata."""
+    image = Image(0.0, shape=(4, 5), dtype=np.float32, metadata={"a": 1})
+    assert len(image.metadata.external) == 0
+    assert image.metadata == {"a": 1}
+    image.metadata["EXPTIME"] = 2.0
+    assert image.metadata.native == {"a": 1, "EXPTIME": 2.0}
+
+
+def test_image_metadata_view_reflects_later_opaque_metadata() -> None:
+    """Test that the view sees opaque metadata attached after
+    construction.
+    """
+    image = Image(0.0, shape=(4, 5), dtype=np.float32, metadata={"exptime": 1.0})
+    opaque_metadata = FitsOpaqueMetadata()
+    opaque_metadata.add_header(_make_header(), name="", ver=1)
+    image._opaque_metadata = opaque_metadata
+    assert image.metadata["exptime"] == 1.0
+    assert image.metadata["EXPTIME"] == 30.0
+    image.metadata["exptime"] = 2.0
+    assert image.metadata.native == {"exptime": 2.0}
+
+
+def test_subimage_metadata() -> None:
+    """Test that subimages share native metadata and see the same external
+    metadata.
+    """
+    image = _make_image({"native_key": 7})
+    subimage = image[Box.factory[0:2, 0:3]]
+    subimage.metadata["new"] = 1
+    assert image.metadata["new"] == 1
+    assert subimage.metadata["EXPTIME"] == 30.0
+    copied = image.copy()
+    copied.metadata["copied_only"] = 1
+    assert "copied_only" not in image.metadata
+    assert copied.metadata["EXPTIME"] == 30.0
+
+
+def test_constructor_with_metadata_view() -> None:
+    """Test that a metadata view passed to a constructor shares the native
+    dict rather than being nested.
+    """
+    source = _make_image({"a": 1})
+    # A view is accepted at runtime even though the annotation asks for a
+    # dict.
+    image = Image(0.0, shape=(4, 5), dtype=np.float32, metadata=source.metadata)  # type: ignore[arg-type]
+    assert type(image._metadata) is dict
+    assert image._metadata is source._metadata
+    assert image.metadata.native == {"a": 1}
+    assert "EXPTIME" not in image.metadata
+
+
+def test_metadata_setter() -> None:
+    """Test that the setter replaces native metadata with a copy, without a
+    shadowing check, and leaves external metadata readable.
+    """
+    image = _make_image()
+    image.metadata = {"exptime": 1.0}
+    assert image.metadata["exptime"] == 1.0
+    assert image.metadata["EXPTIME"] == 30.0
+    assigned: dict = {"s": 1}
+    image.metadata = assigned
+    assigned["t"] = 2
+    assert "t" not in image.metadata
+    image.metadata["u"] = 3
+    assert assigned == {"s": 1, "t": 2}
+    other = _make_image()
+    other.metadata = image.metadata
+    assert other.metadata.native == {"s": 1, "u": 3}
+    assert "EXPTIME" in other.metadata
+    other.metadata["v"] = 4
+    assert "v" not in image.metadata
+
+
+@pytest.mark.parametrize("disconnect", ["empty", "copy", "self"])
+def test_metadata_setter_disconnects_subimage(disconnect: str) -> None:
+    """Test that a subimage shares native metadata with its parent in both
+    directions until its metadata is assigned, which disconnects it while
+    keeping external metadata readable.
+    """
+    image = _make_image({"a": 1})
+    subimage = image[image.bbox]
+    subimage.metadata["b"] = 2
+    image.metadata["c"] = 3
+    assert image.metadata.native == subimage.metadata.native == {"a": 1, "b": 2, "c": 3}
+    if disconnect == "empty":
+        subimage.metadata = {}
+        expected = {}
+    else:
+        if disconnect == "copy":
+            subimage.metadata = subimage.metadata.copy()
+        else:
+            subimage.metadata = subimage.metadata
+        expected = {"a": 1, "b": 2, "c": 3}
+    assert subimage.metadata.native == expected
+    subimage.metadata["from_subimage"] = 4
+    image.metadata["from_parent"] = 5
+    assert "from_subimage" not in image.metadata
+    assert "from_parent" not in subimage.metadata
+    assert subimage.metadata["EXPTIME"] == 30.0
+

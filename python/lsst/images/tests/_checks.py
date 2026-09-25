@@ -301,12 +301,12 @@ def assert_images_equal(
     if expect_view is not None:
         assert np.may_share_memory(a.array, b.array) == bool(expect_view)
         if expect_view == "array":
-            assert a.metadata == b.metadata
+            assert a.metadata.native == b.metadata.native
         else:
-            assert (a.metadata is b.metadata) == expect_view
+            assert (a._metadata is b._metadata) == expect_view
     if not expect_view:
         assert_values_equal(a.array, b.array, atol=atol, rtol=rtol)
-        assert a.metadata == b.metadata
+        assert a.metadata.native == b.metadata.native
 
 
 def _note_mask_difference(
@@ -351,7 +351,7 @@ def assert_masks_equal(a: Mask, b: Mask) -> None:
     """
     assert a.bbox == b.bbox
     assert a.schema == b.schema
-    assert a.metadata == b.metadata
+    assert a.metadata.native == b.metadata.native
     assert_sky_projections_equal(a.sky_projection, b.sky_projection)
     try:
         assert_values_equal(a.array, b.array, label="mask")
@@ -384,7 +384,7 @@ def assert_masked_images_equal(
         If not `None`, also assert whether ``b`` shares memory with ``a``
         (i.e. is a view).
     """
-    assert a.metadata == b.metadata
+    assert a.metadata.native == b.metadata.native
     assert_sky_projections_equal(a.sky_projection, b.sky_projection)
     assert_images_equal(a.image, b.image, rtol=rtol, atol=atol, expect_view=expect_view)
     assert_masks_equal(a.mask, b.mask)

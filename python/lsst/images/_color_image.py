@@ -211,7 +211,7 @@ class ColorImage(GeneralizedImage):
             else None
         )
         return ColorImageSerializationModel(
-            red=r, green=g, blue=b, sky_projection=serialized_projection, metadata=self.metadata
+            red=r, green=g, blue=b, sky_projection=serialized_projection, metadata=self._metadata
         )
 
     @staticmethod

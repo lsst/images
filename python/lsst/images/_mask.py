@@ -990,7 +990,7 @@ class Mask(GeneralizedImage):
             planes=list(self.schema),
             dtype=serialized_dtype,
             sky_projection=serialized_projection,
-            metadata=self.metadata,
+            metadata=self._metadata,
         )
 
     def _serialize_2d[P: pydantic.BaseModel](

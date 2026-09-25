@@ -155,6 +155,7 @@ Most `lsst.afw.image.Exposure` components have `VisitImage` counterparts:
 - ``detector`` (`lsst.afw.cameraGeom.Detector`) -> `VisitImage.detector` (`cameras.Detector`)
 - ``apCorrMap`` (`lsst.afw.image.ApCorrMap`) -> `VisitImage.aperture_corrections` (`dict` of `fields.BaseField`)
 - ``photoCalib`` (`lsst.afw.image.PhotoCalib`) -> `VisitImage.photometric_scaling` (`fields.BaseField`)
+- ``metadata`` (`lsst.daf.base.PropertyList`) -> `VisitImage.metadata` (`MetadataView`); header cards read from a legacy file are available read-only through `MetadataView.external`
 
 `VisitImage` can also hold one or more background models (`VisitImage.backgrounds`), which have to be saved separately from `lsst.afw.image.Exposure`.
 
