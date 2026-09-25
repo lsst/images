@@ -23,7 +23,14 @@ import pytest
 from lsst.images import Box, Image, Mask, MaskedImage, MaskPlane, MaskSchema, MetadataView, NativeMetadata
 from lsst.images.fits import ExtensionKey, FitsExternalMetadata, FitsOpaqueMetadata
 from lsst.images.serialization import EmptyExternalMetadata
-from lsst.images.tests import reset_afw_mask_planes  # noqa: F401
+from lsst.images.tests import RoundtripFits, RoundtripNdf, reset_afw_mask_planes  # noqa: F401
+
+try:
+    import h5py  # noqa: F401
+
+    HAVE_H5PY = True
+except ImportError:
+    HAVE_H5PY = False
 
 EXTERNAL_KEYS = ["EXPTIME", "BGMEAN", "LSST ISR UNITS", "LOWER KEY", "NOVAL", "CPLX"]
 
@@ -437,3 +444,44 @@ def test_metadata_setter() -> None:
     image.metadata = image.metadata.copy()
     image.metadata["v"] = 4
     assert "v" not in other.metadata
+
+
+def _make_masked_image() -> MaskedImage:
+    """Return a small masked image with native metadata and opaque metadata
+    holding `_make_header`.
+    """
+    masked_image = MaskedImage(
+        Image(1.0, shape=(4, 5), dtype=np.float32),
+        mask_schema=MaskSchema([MaskPlane("BAD", "Pixel is bad.")]),
+        metadata={"native_key": 7, "MixedCase": "yes"},
+    )
+    opaque_metadata = FitsOpaqueMetadata()
+    opaque_metadata.add_header(_make_header(), name="", ver=1)
+    masked_image._opaque_metadata = opaque_metadata
+    return masked_image
+
+
+def _check_round_trip(result: MaskedImage) -> None:
+    assert result.metadata.native == {"native_key": 7, "MixedCase": "yes"}
+    assert list(result.metadata.external) == EXTERNAL_KEYS
+    assert result.metadata["exptime"] == 30.0
+    assert result.metadata.get_all("BGMEAN") == (1.5, 2.5)
+    assert result.metadata["NOVAL"] is None
+    assert result.metadata["CPLX"] == 1 + 2j
+    assert result.metadata["lower key"] == 3
+    assert "COMMENT" not in result.metadata
+
+
+def test_external_metadata_fits_round_trip() -> None:
+    """Test that native and external metadata survive a FITS round trip."""
+    with RoundtripFits(_make_masked_image()) as roundtrip:
+        pass
+    _check_round_trip(roundtrip.result)
+
+
+@pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
+def test_external_metadata_ndf_round_trip() -> None:
+    """Test that native and external metadata survive an NDF round trip."""
+    with RoundtripNdf(_make_masked_image()) as roundtrip:
+        pass
+    _check_round_trip(roundtrip.result)
