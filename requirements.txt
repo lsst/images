@@ -6,8 +6,8 @@ numpy >= 2.0
 packaging
 pydantic >= 2.12
 lsst-resources[https,s3] @ git+https://github.com/lsst/resources@main
-lsst-daf-butler @ git+https://github.com/lsst/daf_butler@main
-astro-metadata-translator @ git+https://github.com/lsst/astro_metadata_translator@main
+lsst-daf-butler @ git+https://github.com/lsst/daf_butler@tickets/DM-56143
+astro-metadata-translator @ git+https://github.com/lsst/astro_metadata_translator@tickets/DM-56143
 starlink-pyast >= 4.0.0
 scipy >= 1.13
 shapely >= 2.1
