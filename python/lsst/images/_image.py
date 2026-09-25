@@ -361,7 +361,7 @@ class Image(GeneralizedImage):
             data=data,
             yx0=list(self.bbox.start),
             sky_projection=serialized_projection,
-            metadata=self.metadata,
+            metadata=self._metadata,
         )
 
     @staticmethod

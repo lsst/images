@@ -290,7 +290,7 @@ class MaskedImage(GeneralizedImage):
             mask=serialized_mask,
             variance=serialized_variance,
             sky_projection=serialized_projection,
-            metadata=self.metadata,
+            metadata=self._metadata,
         )
 
     @staticmethod
@@ -583,7 +583,7 @@ class MaskedImage(GeneralizedImage):
                 grouped[card.keyword].append(card.value)
             for keyword, values in grouped.items():
                 legacy_metadata[keyword] = values
-        for n, (k, v) in enumerate(self.metadata.items()):
+        for n, (k, v) in enumerate(self._metadata.items()):
             legacy_metadata[f"LSST IMAGES KEY {n + 1}"] = k
             legacy_metadata[f"LSST IMAGES VALUE {n + 1}"] = v
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 __all__ = ("AbsoluteSliceProxy", "GeneralizedImage", "LocalSliceProxy")
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from functools import cached_property
 from types import EllipsisType
 from typing import TYPE_CHECKING, Any, Self, TypeVar
@@ -23,11 +24,13 @@ import astropy.wcs
 from lsst.resources import ResourcePathExpression
 
 from ._geom import YX, Box, NoOverlapError, NotContainedError
+from ._metadata import MetadataView, NativeMetadata
 from ._transforms import SkyProjection, SkyProjectionAstropyView
 from .describe import DescribableMixin
 from .serialization import (
     ArchiveTree,
     ButlerInfo,
+    EmptyExternalMetadata,
     MetadataValue,
     OpaqueArchiveMetadata,
     read_archive,
@@ -51,8 +54,8 @@ class GeneralizedImage(DescribableMixin, ABC):
         Arbitrary flexible metadata to associate with the image.
     """
 
-    def __init__(self, metadata: dict[str, MetadataValue] | None = None) -> None:
-        self._metadata = metadata if metadata is not None else {}
+    def __init__(self, metadata: Mapping[str, MetadataValue] | MetadataView | None = None) -> None:
+        self._metadata = self._to_native_dict(metadata) if metadata is not None else {}
         self._opaque_metadata: OpaqueArchiveMetadata | None = None
         self._butler_info: ButlerInfo | None = None
 
@@ -168,21 +171,54 @@ class GeneralizedImage(DescribableMixin, ABC):
         return AbsoluteSliceProxy(self)
 
     @property
-    def metadata(self) -> dict[str, MetadataValue]:
-        """Arbitrary flexible metadata associated with the image (`dict`).
+    def metadata(self) -> MetadataView:
+        """Flexible metadata associated with the image
+        (`~lsst.images.MetadataView`).
 
         Notes
         -----
-        Metadata is shared with subimages and other views.  It can be
+        The view combines two sources:
+
+        - ``metadata.native``: metadata that is part of the image's data
+          model and is saved with it.  Keys are case-sensitive.
+        - ``metadata.external``: read-only metadata carried in from the file
+          the image was read from, such as the primary FITS header.  Keys are
+          case-insensitive, and ``COMMENT`` and ``HISTORY`` cards are not
+          included.
+
+        Lookups check native metadata first, matching case exactly, and then
+        external metadata.  Writes go to native metadata; adding a new key
+        that case-insensitively matches an external key raises `KeyError`.
+        When an external key is repeated, which of its values is returned is
+        unspecified; use `~lsst.images.MetadataView.get_all` to obtain every
+        value.
+
+        Native metadata is shared with subimages and other views.  It can be
         disconnected by reassigning to a copy explicitly:
 
             image.metadata = image.metadata.copy()
         """
-        return self._metadata
+        external = (
+            self._opaque_metadata.external_metadata()
+            if self._opaque_metadata is not None
+            else EmptyExternalMetadata()
+        )
+        return MetadataView(NativeMetadata(self._metadata, external), external)
 
     @metadata.setter
-    def metadata(self, value: dict[str, MetadataValue]) -> None:
-        self._metadata = value
+    def metadata(self, value: Mapping[str, MetadataValue] | MetadataView) -> None:
+        self._metadata = self._to_native_dict(value)
+
+    @staticmethod
+    def _to_native_dict(value: Mapping[str, MetadataValue] | MetadataView) -> dict[str, MetadataValue]:
+        """Return the dict to hold as native metadata, sharing it with
+        ``value`` where possible.
+        """
+        if isinstance(value, MetadataView):
+            return value.native._data
+        if isinstance(value, dict):
+            return value
+        return dict(value)
 
     # Subclasses should delegate to _handle_getitem_args for some user-friendly
     # argument type-checking before providing their own implementation.
