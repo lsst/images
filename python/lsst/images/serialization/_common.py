@@ -42,6 +42,7 @@ from packaging.version import Version
 
 from .._geom import Box
 from ..utils import is_none
+from ._external_metadata import ExternalMetadata
 from ._migrations import _MIGRATABLE_NAMES, _MIGRATIONS
 
 try:
@@ -502,6 +503,12 @@ class OpaqueArchiveMetadata(Protocol):
         ----------
         bbox
             Bounding box of the subset being extracted.
+        """
+        ...
+
+    def external_metadata(self) -> ExternalMetadata:
+        """Return a read-only view of the metadata carried by this object
+        that is not part of the data model.
         """
         ...
 
