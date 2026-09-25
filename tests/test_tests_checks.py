@@ -11,9 +11,11 @@
 
 from __future__ import annotations
 
+import astropy.time
 import astropy.units as u
 import numpy as np
 import pytest
+from astropy.coordinates import SkyCoord
 
 from lsst.images import Box, Mask, MaskPlane, MaskSchema
 from lsst.images.tests import annotate_errors, assert_masks_equal, assert_values_equal
@@ -50,8 +52,8 @@ def test_assert_values_equal_fails_with_report():
 
 
 def test_assert_values_equal_label_prefix():
-    """Assert the label prefixes the failure message."""
-    with pytest.raises(AssertionError, match=r"^mask\[BAD\]: "):
+    """Assert the label appears in the failure message."""
+    with pytest.raises(AssertionError, match=r"mask\[BAD\]: arrays are not equal"):
         assert_values_equal(np.array([True]), np.array([False]), label="mask[BAD]")
 
 
@@ -62,10 +64,10 @@ def test_assert_values_equal_shape_mismatch():
 
 
 def test_assert_values_equal_non_numeric_reports_indices():
-    """Assert non-numeric arrays report differing indices."""
+    """Assert non-numeric arrays report differing indices (via numpy)."""
     a = np.array(["a", "b", "c"])
     b = np.array(["a", "b", "z"])
-    with pytest.raises(AssertionError, match="values differ"):
+    with pytest.raises(AssertionError, match=r"Mismatched elements: 1 / 3"):
         assert_values_equal(a, b)
 
 
@@ -93,6 +95,189 @@ def test_assert_values_equal_incompatible_units_raise():
     """Assert incompatible units raise."""
     with pytest.raises(u.UnitConversionError):
         assert_values_equal(np.array([1.0]) * u.deg, np.array([1.0]) * u.s)
+
+
+def test_assert_values_equal_time_within_atol():
+    """Assert times close enough (with atol in seconds) pass."""
+    t0 = astropy.time.Time("2026-01-01T00:00:00", scale="utc")
+    t1 = t0 + astropy.time.TimeDelta(1e-6, format="sec")
+    assert_values_equal(t1, t0, atol=1e-5 * u.s)
+    assert_values_equal(t1, t0, atol=astropy.time.TimeDelta(1e-5, format="sec"))
+    with pytest.raises(u.UnitConversionError):
+        assert_values_equal(t1, t0, atol=1e-5)
+
+
+def test_assert_values_equal_time_exact_by_default():
+    """Assert times differing by any amount fail with zero tolerance."""
+    t0 = astropy.time.Time("2026-01-01T00:00:00", scale="utc")
+    t1 = t0 + astropy.time.TimeDelta(1e-6, format="sec")
+    with pytest.raises(AssertionError, match="differ by"):
+        assert_values_equal(t1, t0)
+
+
+def test_assert_values_equal_time_quantity_atol():
+    """Assert a time-unit Quantity atol bounds the time difference."""
+    t0 = astropy.time.Time("2026-01-01T00:00:00", scale="utc")
+    t1 = t0 + astropy.time.TimeDelta(0.002, format="sec")
+    assert_values_equal(t1, t0, atol=u.Quantity(3, "ms"))
+    with pytest.raises(AssertionError, match="differ by"):
+        assert_values_equal(t1, t0, atol=u.Quantity(1, "ms"))
+
+
+def test_assert_values_equal_time_incompatible_atol_raises():
+    """Assert a non-time Quantity atol for times raises."""
+    t0 = astropy.time.Time("2026-01-01T00:00:00", scale="utc")
+    with pytest.raises(u.UnitConversionError):
+        assert_values_equal(t0, t0, atol=u.Quantity(1.0, "m"))
+
+
+def test_assert_values_equal_timedelta():
+    """Assert timedeltas compare by their difference in seconds."""
+    d0 = astropy.time.TimeDelta(30.0, format="sec")
+    assert_values_equal(d0, astropy.time.TimeDelta(30.0, format="sec"))
+    assert_values_equal(d0, astropy.time.TimeDelta(30.000001, format="sec"), atol=1e-5 * u.s)
+    assert_values_equal(
+        d0, astropy.time.TimeDelta(30.000001, format="sec"), atol=astropy.time.TimeDelta(1e-5, format="sec")
+    )
+    with pytest.raises(AssertionError, match="differ by"):
+        assert_values_equal(d0, astropy.time.TimeDelta(30.5, format="sec"))
+
+
+def test_assert_values_equal_timedelta_rtol():
+    """Assert timedeltas accept a relative tolerance on their magnitude."""
+    d0 = astropy.time.TimeDelta(30.0, format="sec")
+    assert_values_equal(d0, astropy.time.TimeDelta(30.5, format="sec"), rtol=0.1)
+    with pytest.raises(AssertionError, match="differ by"):
+        assert_values_equal(d0, astropy.time.TimeDelta(30.5, format="sec"), rtol=1e-6)
+
+
+def test_assert_values_equal_nan_semantics():
+    """Assert NaN matches NaN only when equal_nan, for timedeltas too."""
+    d0 = astropy.time.TimeDelta([1.0, np.nan], format="sec")
+    assert_values_equal(d0, d0.copy())
+    with pytest.raises(AssertionError, match="values differ"):
+        assert_values_equal(d0, d0.copy(), equal_nan=False)
+    with pytest.raises(AssertionError, match="values differ"):
+        assert_values_equal(d0, astropy.time.TimeDelta([1.0, 2.0], format="sec"))
+
+
+def test_assert_values_equal_mixed_operand_kinds_raise():
+    """Assert mixing operand kinds (bare numeric with unitful, or different
+    astropy types) raises instead of comparing as objects.
+    """
+    t0 = astropy.time.Time("2026-01-01T00:00:00", scale="utc")
+    d0 = astropy.time.TimeDelta(30.0, format="sec")
+    with pytest.raises(TypeError, match="cannot compare Time with TimeDelta"):
+        assert_values_equal(t0, d0)
+    with pytest.raises(TypeError, match="cannot compare TimeDelta with Time"):
+        assert_values_equal(d0, t0)
+    with pytest.raises(TypeError, match="cannot compare Time with float"):
+        assert_values_equal(t0, 1.0)
+    with pytest.raises(u.UnitConversionError):
+        assert_values_equal(1.0 * u.s, 1.0)
+    with pytest.raises(u.UnitConversionError):
+        assert_values_equal(1.0, 1.0 * u.s)
+    with pytest.raises(TypeError, match="cannot compare SkyCoord with float"):
+        assert_values_equal(SkyCoord(1.0, 2.0, unit="deg"), 1.0)
+
+
+def test_assert_values_equal_exact_operands():
+    """Assert non-floating-point operands (ints, bools, strings) compare
+    exactly and report mismatches through numpy.testing.assert_array_equal.
+    """
+    assert_values_equal(np.array([1, 2, 3]), np.array([1, 2, 3]))
+    assert_values_equal(np.array([True, False]), np.array([True, False]))
+    assert_values_equal(["a", "b"], ["a", "b"])
+    assert_values_equal("a", "a")
+    with pytest.raises(AssertionError, match=r"Mismatched elements: 1 / 3"):
+        assert_values_equal(np.array([1, 2, 3]), np.array([1, 5, 3]))
+    with pytest.raises(AssertionError, match=r"ACTUAL: array\('a'"):
+        assert_values_equal("a", "b")
+    with pytest.raises(AssertionError, match=r"mask: arrays are not equal"):
+        assert_values_equal(np.array([True, False]), np.array([True, True]), label="mask")
+    with pytest.raises(AssertionError, match=r"shapes \(3,\), \(2,\) mismatch"):
+        assert_values_equal(np.array([1, 2, 3]), np.array([1, 2]))
+
+
+def test_assert_values_equal_exact_operands_reject_tolerances():
+    """Assert rtol/atol on non-floating-point operands raise (they have no
+    numeric tolerance semantics), while a unit-independent zero atol is
+    still accepted.
+    """
+    with pytest.raises(ValueError, match="floating-point"):
+        assert_values_equal(np.array([1, 2]), np.array([1, 2]), rtol=1e-9)
+    with pytest.raises(ValueError, match="floating-point"):
+        assert_values_equal(["a"], ["a"], atol=1e-3)
+    assert_values_equal(np.array([1, 2]), np.array([1, 2]), atol=0.0 * u.m)
+
+
+def test_assert_values_equal_atol_units_must_match_operands():
+    """Assert atol units follow the operands: bare for unitless, Quantity
+    (or exactly zero) for unitful.
+    """
+    with pytest.raises(u.UnitConversionError):
+        assert_values_equal(np.array([1.0]), np.array([1.0]), atol=1e-3 * u.m)
+    with pytest.raises(u.UnitConversionError):
+        assert_values_equal(1.0, 1.0, atol=astropy.time.TimeDelta(1e-3, format="sec"))
+    with pytest.raises(u.UnitConversionError):
+        assert_values_equal(np.array([1.0]) * u.deg, np.array([1.0]) * u.deg, atol=1e-6)
+    with pytest.raises(u.UnitConversionError):
+        assert_values_equal(np.array([1.0]) * u.deg, np.array([1.0]) * u.deg, atol=1e-6 * u.s)
+
+
+def test_assert_values_equal_sky_coords_within_atol():
+    """Assert sky coordinates close enough (with an angular atol) pass."""
+    a = SkyCoord(10.0, 45.0, unit="deg")
+    b = SkyCoord(10.0 + 1e-4, 45.0, unit="deg")
+    assert_values_equal(a, b, atol=1 * u.arcsec)
+    with pytest.raises(AssertionError, match=r"differ by .*arcsec"):
+        assert_values_equal(a, b, atol=0.1 * u.arcsec)
+
+
+def test_assert_values_equal_sky_coords_wrap():
+    """Assert separations across the RA = 0 meridian compare correctly."""
+    a = SkyCoord(359.9999, 30.0, unit="deg")
+    b = SkyCoord(0.0001, 30.0, unit="deg")
+    assert_values_equal(a, b, atol=1 * u.arcsec)
+
+
+def test_assert_values_equal_sky_coords_exact_atol_zero():
+    """Assert bare atol=0.0 demands exact coincidence."""
+    a = SkyCoord(10.0, 45.0, unit="deg")
+    assert_values_equal(a, SkyCoord(10.0, 45.0, unit="deg"), atol=0.0)
+    with pytest.raises(AssertionError, match=r"differ by .*arcsec"):
+        assert_values_equal(a, SkyCoord(10.0 + 1e-9, 45.0, unit="deg"), atol=0.0)
+
+
+def test_assert_values_equal_sky_coords_unitless_atol_raises():
+    """Assert a nonzero bare-float atol for sky coords raises."""
+    a = SkyCoord(10.0, 45.0, unit="deg")
+    with pytest.raises(u.UnitConversionError):
+        assert_values_equal(a, a, atol=1e-3)
+    with pytest.raises(ValueError, match="rtol"):
+        assert_values_equal(a, a, rtol=1e-6)
+
+
+def test_assert_values_equal_wrap_angles():
+    """Assert angles differing by whole turns compare equal."""
+    a = 359.9999 * u.deg
+    b = 0.0001 * u.deg
+    assert_values_equal(a, b, atol=1 * u.arcsec, wrap_angles=True)
+    assert_values_equal(1 * u.deg, -359.0 * u.deg, atol=0.0, wrap_angles=True)
+    with pytest.raises(AssertionError, match="!="):
+        assert_values_equal(a, b, atol=0.1 * u.arcsec, wrap_angles=True)
+
+
+def test_assert_values_equal_wrap_angles_requires_units():
+    """Assert wrap_angles demands angular units on operands and atol."""
+    with pytest.raises(u.UnitConversionError):
+        assert_values_equal(1.0, 1.0, wrap_angles=True)
+    with pytest.raises(u.UnitConversionError):
+        assert_values_equal(1 * u.deg, 1 * u.deg, atol=1e-3, wrap_angles=True)
+    with pytest.raises(ValueError, match="rtol"):
+        assert_values_equal(1 * u.deg, 1 * u.deg, rtol=1e-6, wrap_angles=True)
+    with pytest.raises(u.UnitConversionError):
+        assert_values_equal(1 * u.s, 1 * u.s, wrap_angles=True)
 
 
 def test_label_assertions_notes():

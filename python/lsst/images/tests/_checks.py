@@ -15,12 +15,10 @@ __all__ = (
     "annotate_errors",
     "arrays_to_legacy_points",
     "assert_cell_coadds_equal",
-    "assert_equal_allow_nan",
     "assert_images_equal",
     "assert_masked_images_equal",
     "assert_masks_equal",
     "assert_psfs_equal",
-    "assert_sky_coords_close",
     "assert_sky_projections_equal",
     "assert_values_equal",
     "assert_visit_images_equal",
@@ -48,12 +46,13 @@ __all__ = (
 )
 
 import dataclasses
-import math
 import re
+from abc import ABC, abstractmethod
 from collections.abc import Generator, Iterator, Mapping
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, NoReturn, Self, cast
 
+import astropy.time
 import astropy.units as u
 import astropy.wcs.wcsapi
 import numpy as np
@@ -101,20 +100,287 @@ _AST_RTOL = 1e-9
 _AST_SKY_ATOL = 1e-7 * u.deg
 
 
+class _BaseCmpArg(ABC):
+    """A helper base clas for `assert_values_equal` whose subclasses represent
+    different types of comparisons.
+
+    Parameters
+    ----------
+    value
+        The coerced operand;  type is subclass-dependent..
+    """
+
+    def __init__(self, value: Any):
+        self.value = value
+
+    @property
+    @abstractmethod
+    def unit(self) -> u.UnitBase:
+        raise NotImplementedError()
+
+    def coerce_atol(self, atol: float | u.Quantity | astropy.time.TimeDelta) -> float:
+        try:
+            if isinstance(atol, astropy.time.TimeDelta):
+                return atol.to_value(self.unit)
+            if atol != 0.0:
+                return u.Quantity(atol).to_value(self.unit)
+            return 0.0
+        except u.UnitConversionError as err:
+            err.add_note("Invalid atol for these operands.")
+            raise
+
+    def get_nan_mask(self) -> np.ndarray:
+        return np.isnan(np.asarray(self.value))
+
+    @abstractmethod
+    def get_separation(self, other: Self) -> np.ndarray:
+        raise NotImplementedError
+
+    @abstractmethod
+    def find_mismatches(
+        self,
+        other: Self,
+        *,
+        rtol: float,
+        atol_value: float,
+        equal_nan: bool,
+    ) -> np.ndarray | None:
+        """Search for element-wise mismatches against ``other``.
+
+        Each comparison family implements its own tolerance semantics.
+
+        Parameters
+        ----------
+        other
+            The other comparison argument.
+        rtol
+            Relative tolerance.
+        atol_value
+            Absolute tolerance, already coerced to this comparison's unit.
+        equal_nan
+            If `True`, treat NaN as equal to NaN wherever the operand can
+            hold NaN.
+
+        Returns
+        -------
+        mismatch : `numpy.ndarray` | None
+            Boolean mask marking differing elements, or `None` if all
+            elements agree within tolerance.
+        """
+        raise NotImplementedError()
+
+    def report_mismatches(
+        self,
+        other: Self,
+        a: Any,
+        b: Any,
+        mismatch: np.ndarray,
+        label: str,
+    ) -> NoReturn:
+        """Raise an `AssertionError` reporting a computed mismatch.
+
+        Parameters
+        ----------
+        other : _BaseCmpArg
+            The other comparison argument.
+        a
+            First original operand; used for the scalar failure message.
+        b
+            Second original operand; used for the scalar failure message.
+        mismatch
+            Boolean mask marking differing elements, from `find_mismatches`.
+        label
+            Prefix prepended to the failure message.
+        """
+        n_mismatch = int(np.count_nonzero(mismatch))
+        prefix = f"{label}: " if label else ""
+        separation = self.get_separation(other)
+        if mismatch.shape == ():
+            raise AssertionError(f"{prefix}{a!r} != {b!r} (differ by {float(separation)}{self.unit})")
+        nan_mismatch = int(np.count_nonzero(mismatch & (self.get_nan_mask() | other.get_nan_mask())))
+        nan_str = f"; {nan_mismatch} NaN mismatches" if nan_mismatch else ""
+        if np.isnan(separation).all():
+            raise AssertionError(f"{prefix}{n_mismatch}/{mismatch.size} values differ{nan_str}")
+        maxdiff = float(np.nanmax(separation))
+        # Convert to plain ints so the index prints as e.g. (2198,)
+        # rather than (np.int64(2198),).
+        loc = tuple(int(i) for i in np.unravel_index(np.nanargmax(separation), separation.shape))
+        raise AssertionError(
+            f"{prefix}{n_mismatch}/{mismatch.size} values differ; "
+            f"max abs diff {maxdiff}{self.unit} at index {loc} {nan_str}"
+        )
+
+
+class _QuantityCmpArg(_BaseCmpArg):
+    """Direct comparison of (possibly dimensionless)
+    `astropy.units.Quantity` instances, used for all non-separation
+    floating-point comparisons.
+    """
+
+    value: u.Quantity
+
+    @property
+    def unit(self) -> u.UnitBase:
+        return self.value.unit
+
+    def get_separation(self, other: Self) -> np.ndarray:
+        a_vals = self.value.to_value(self.unit)
+        b_vals = other.value.to_value(self.unit)
+        return np.abs(a_vals - b_vals)
+
+    def find_mismatches(
+        self,
+        other: Self,
+        *,
+        rtol: float,
+        atol_value: float,
+        equal_nan: bool,
+    ) -> np.ndarray | None:
+        a_vals = self.value.to_value(self.unit)
+        b_vals = other.value.to_value(self.unit)
+        mismatch = ~np.isclose(a_vals, b_vals, rtol=rtol, atol=atol_value, equal_nan=equal_nan)
+        return mismatch if np.any(mismatch) else None
+
+
+class _SeparationCmpArg(_BaseCmpArg):
+    """A base class for operands compared through a pairwise separation.
+
+    ``rtol`` is meaningless and must be zero for these comparisons.
+    """
+
+    @property
+    @abstractmethod
+    def unit(self) -> u.UnitBase:
+        raise NotImplementedError
+
+    def find_mismatches(
+        self,
+        other: Self,
+        *,
+        rtol: float,
+        atol_value: float,
+        equal_nan: bool,
+    ) -> np.ndarray | None:
+        if rtol != 0.0:
+            raise ValueError(f"rtol is meaningless for separations; use atol (in {self.unit}) instead.")
+        # A NaN separation (from a NaN operand element) fails the ``<=``
+        # test and so counts as a mismatch unless equal_nan clears it.
+        separation = np.asarray(self.get_separation(other))
+        mismatch = np.logical_not(separation <= atol_value)
+        if equal_nan:
+            mismatch = mismatch & ~(self.get_nan_mask() & other.get_nan_mask())
+        return mismatch if np.any(mismatch) else None
+
+
+class _TimeCmpArg(_SeparationCmpArg):
+    value: astropy.time.Time
+
+    @property
+    def unit(self) -> u.UnitBase:
+        return u.s
+
+    def get_separation(self, other: Self) -> np.ndarray:
+        return np.abs((self.value - other.value).sec)
+
+    def get_nan_mask(self) -> np.ndarray:
+        # astropy.time.Time rejects non-finite values at construction.
+        return np.zeros(self.value.shape, dtype=bool)
+
+
+class _SkyCoordCmpArg(_SeparationCmpArg):
+    value: SkyCoord
+
+    @property
+    def unit(self) -> u.UnitBase:
+        return u.arcsec
+
+    def get_separation(self, other: Self) -> np.ndarray:
+        return self.value.separation(other.value).to_value(self.unit)
+
+    def get_nan_mask(self) -> np.ndarray:
+        # A coordinate counts as NaN only when *both* components are NaN;
+        # a half-NaN coordinate is a difference to report, not a NaN match.
+        return np.isnan(self.value.ra) & np.isnan(self.value.dec)
+
+
+class _WrappedAngleCmpArg(_SeparationCmpArg):
+    value: u.Quantity
+
+    @property
+    def unit(self) -> u.UnitBase:
+        return u.rad
+
+    def get_separation(self, other: Self) -> np.ndarray:
+        a_rad = np.asarray(self.value.to_value(u.rad))
+        b_rad = np.asarray(other.value.to_value(u.rad))
+        return np.abs((a_rad - b_rad + np.pi) % (2.0 * np.pi) - np.pi)
+
+
+def _classify_operand(arg: Any, *, wrap_angles: bool = False) -> _BaseCmpArg | None:
+    """Coerce one comparison operand into its comparison-argument wrapper.
+
+    Parameters
+    ----------
+    arg
+        Operand to classify.
+    wrap_angles
+        If `True`, ``arg`` must be an angular `~astropy.units.Quantity` and
+        is classified for wrapped-angle comparison.
+
+    Returns
+    -------
+    cmp_arg : _BaseCmpArg | None
+        Wrapper selecting the comparison space for ``arg``, or `None` for
+        operands that cannot hold floating-point values (integers, bools,
+        strings); those are compared exactly by the driver.
+    """
+    if wrap_angles:
+        return _WrappedAngleCmpArg(u.Quantity(arg).to(u.rad))
+    match arg:
+        case astropy.time.Time():
+            return _TimeCmpArg(arg)
+        case astropy.time.TimeDelta():
+            return _QuantityCmpArg(arg.to(u.s))
+        case SkyCoord():
+            return _SkyCoordCmpArg(arg)
+        case u.Quantity():
+            if arg.dtype.kind not in "fc":
+                # Coerce integer Quantities to floating point.
+                arg = arg.astype(float)
+            return _QuantityCmpArg(arg)
+    arg = np.asarray(arg)
+    if arg.dtype.kind not in "fc":
+        return None
+    return _QuantityCmpArg(u.Quantity(arg))
+
+
 def assert_values_equal(
-    a: np.ndarray | u.Quantity | float,
-    b: np.ndarray | u.Quantity | float,
+    a: (np.ndarray | u.Quantity | float | astropy.time.Time | astropy.time.TimeDelta | SkyCoord),
+    b: (np.ndarray | u.Quantity | float | astropy.time.Time | astropy.time.TimeDelta | SkyCoord),
     *,
     rtol: float = 0.0,
-    atol: float | u.Quantity = 0.0,
+    atol: float | u.Quantity | astropy.time.TimeDelta = 0.0,
     equal_nan: bool = True,
     label: str = "",
+    wrap_angles: bool = False,
 ) -> None:
-    """Assert that two arrays, quantities, or floats are equal or close.
+    """Assert that two arrays, quantities, floats, astropy times, or sky
+    coordinates are equal or close.
 
     On mismatch this raises an `AssertionError` with a concise report (count,
     max absolute difference, location, NaN-mismatch count) rather than dumping
-    the arrays.
+    the arrays.  Exact (non-floating-point) mismatches instead report through
+    `numpy.testing.assert_array_equal`.
+
+    Both operands must be of the same kind: both floating-point numeric
+    (bare or as `~astropy.units.Quantity` or `~astropy.time.TimeDelta`),
+    or both the same astropy type (`~astropy.time.Time` or
+    `astropy.coordinates.SkyCoord`).
+    Operands that cannot hold floating-point values (integers, bools,
+    strings) are compared exactly, with no tolerance or NaN semantics.
+    Tolerances never have their units guessed: a bare-float ``atol`` is
+    only valid for dimensionless operands, and for unitful operands only
+    exactly ``0.0`` (which is unit-independent) is accepted without units.
 
     Parameters
     ----------
@@ -123,71 +389,42 @@ def assert_values_equal(
     b
         Second value to compare.
     rtol
-        Relative tolerance.
+        Relative tolerance, applied to the operand magnitudes.  Must be zero
+        for comparisons of separations.
     atol
-        Absolute tolerance; a `~astropy.units.Quantity` is converted to the
-        unit of ``a``, or of the quantity-valued operand when only one
-        operand has a unit.
+        Absolute tolerance.  For dimensionless operands, a bare float.  For
+        unitful operands, a `~astropy.units.Quantity` with units compatible
+        with ``a``, or exactly ``0.0``.
     equal_nan
-        If `True`, treat NaN as equal to NaN.
+        If `True`, treat NaN as equal to NaN. A `astropy.coordinates.SkyCoord`
+        element counts as NaN only when both of its coordinates are NaN.
     label
         Prefix prepended to the failure message.
+    wrap_angles
+        If `True`, compare ``a`` and ``b`` (angular quantities) modulo 2 pi.
     """
-    if isinstance(a, u.Quantity) and isinstance(b, u.Quantity):
-        unit = a.unit
-        a_vals = np.asarray(a.value)
-        b_vals = np.asarray(b.to_value(unit))
-        if isinstance(atol, u.Quantity):
-            atol = atol.to_value(unit)
-    elif isinstance(a, u.Quantity) or isinstance(b, u.Quantity):
-        unit = getattr(a, "unit", None) or getattr(b, "unit", None)
-        a_vals = np.asarray(getattr(a, "value", a))
-        b_vals = np.asarray(getattr(b, "value", b))
-        if isinstance(atol, u.Quantity):
-            atol = atol.to_value(unit)
-    else:
-        unit = None
-        a_vals = np.asarray(a)
-        b_vals = np.asarray(b)
-    if a_vals.shape != b_vals.shape:
-        raise AssertionError(f"{label}: shape {a_vals.shape} != {b_vals.shape}")
-    if rtol == 0.0 and atol == 0.0:
-        mismatch = a_vals != b_vals
-        if equal_nan and a_vals.dtype.kind in "fc":
-            mismatch = np.logical_and(
-                mismatch,
-                np.logical_not(np.logical_and(np.isnan(a_vals), np.isnan(b_vals))),
-            )
-    else:
-        mismatch = ~np.isclose(a_vals, b_vals, rtol=rtol, atol=atol, equal_nan=equal_nan)
-    n_mismatch = int(np.count_nonzero(mismatch))
-    if n_mismatch == 0:
+    a_arg = _classify_operand(a, wrap_angles=wrap_angles)
+    b_arg = _classify_operand(b, wrap_angles=wrap_angles)
+    if type(a_arg) is not type(b_arg):
+        raise TypeError(f"cannot compare {type(a).__name__} with {type(b).__name__}")
+    if a_arg is None or b_arg is None:
+        # The type check above means both are None: exact comparison of
+        # operands that cannot hold floating-point values.
+        if rtol != 0.0 or atol != 0.0:
+            raise ValueError("rtol and atol are only supported for floating-point operands.")
+        np.testing.assert_array_equal(
+            np.asarray(a),
+            np.asarray(b),
+            strict=True,
+            err_msg=f"{label}: arrays are not equal." if label else "",
+        )
         return
-    prefix = f"{label}: " if label else ""
-    if a_vals.shape == ():
-        raise AssertionError(f"{prefix}{a!r} != {b!r}")
-    if a_vals.dtype.kind in "fc":
-        diff = np.abs(a_vals - b_vals)
-        nan_mismatch = int(
-            np.count_nonzero(np.logical_and(mismatch, np.logical_or(np.isnan(a_vals), np.isnan(b_vals))))
-        )
-        unit_str = f" {unit}" if unit is not None else ""
-        nan_str = f"; {nan_mismatch} NaN mismatches" if nan_mismatch else ""
-        if np.isnan(diff).all():
-            raise AssertionError(f"{prefix}{n_mismatch}/{a_vals.size} values differ{nan_str}{unit_str}")
-        maxdiff = float(np.nanmax(diff))
-        # Convert to plain ints so the index prints as e.g. (2198,) rather than
-        # (np.int64(2198),).
-        loc = tuple(int(i) for i in np.unravel_index(np.nanargmax(diff), diff.shape))
-        raise AssertionError(
-            f"{prefix}{n_mismatch}/{a_vals.size} values differ; "
-            f"max abs diff {maxdiff} at index {loc}{nan_str}{unit_str}"
-        )
-    else:
-        first = np.argwhere(mismatch)[:5].tolist()
-        raise AssertionError(
-            f"{prefix}{n_mismatch}/{a_vals.size} values differ; first differing indices: {first}"
-        )
+    atol_value = a_arg.coerce_atol(atol)
+    if a_arg.value.shape != b_arg.value.shape:
+        raise AssertionError(f"{label}: shape {a_arg.value.shape} != {b_arg.value.shape}")
+    mismatch = a_arg.find_mismatches(b_arg, rtol=rtol, atol_value=atol_value, equal_nan=equal_nan)
+    if mismatch is not None:
+        a_arg.report_mismatches(b_arg, a, b, mismatch, label)
 
 
 @contextmanager
@@ -204,71 +441,6 @@ def annotate_errors(note: str) -> Generator[None]:
     except Exception as err:
         err.add_note(note)
         raise
-
-
-def assert_equal_allow_nan(a: float, b: float) -> None:
-    """Test that two floating point values are equal, with nan == nan.
-
-    Parameters
-    ----------
-    a
-        First value to compare.
-    b
-        Second value to compare.
-    """
-    if not (a == b or (math.isnan(a) and math.isnan(b))):
-        raise AssertionError(f"{a!r} != {b!r}")
-
-
-def assert_sky_coords_close(
-    test_sky: SkyCoord, expected_sky: SkyCoord, atol: u.Quantity, *, label: str = "sky_coords"
-) -> None:
-    """Assert that two astropy sky-coordinate sets are close.
-
-    Great-circle separations are used instead of per-axis RA/Dec
-    comparisons, so the comparison is correct across the RA = 0 meridian
-    and near the poles.
-
-    Parameters
-    ----------
-    test_sky
-        Sky coordinates to test, of the same shape as ``expected_sky``.
-    expected_sky
-        Expected sky coordinates.
-    atol
-        Maximum allowed great-circle separation.
-    label
-        Prefix prepended to the failure message.
-    """
-    separation = expected_sky.separation(test_sky)
-    if np.all(separation <= atol):
-        return
-    if separation.shape:
-        worst = int(np.argmax(separation.value))
-        detail = f"separation {separation[worst]} > atol {atol} at index {worst}"
-    else:
-        detail = f"separation {separation} > atol {atol}"
-    raise AssertionError(f"{label}: {detail}")
-
-
-def _assert_wrapped_angles_close(
-    a: np.ndarray | float, b: np.ndarray | float, *, atol: float, label: str = ""
-) -> None:
-    """Assert that angle arrays (in radians) are equal modulo 2 pi.
-
-    Parameters
-    ----------
-    a
-        First angle or angle array.
-    b
-        Second angle or angle array.
-    atol
-        Absolute tolerance, in radians.
-    label
-        Prefix prepended to the failure message.
-    """
-    delta = (np.asarray(a) - np.asarray(b) + np.pi) % (2.0 * np.pi) - np.pi
-    assert_values_equal(delta, np.zeros_like(delta), atol=atol, equal_nan=False, label=label)
 
 
 def assert_images_equal(
@@ -1110,11 +1282,7 @@ def compare_observation_summary_stats_to_legacy(
             continue
         a = getattr(legacy_summary_stats, field.name)
         b = getattr(summary_stats, field.name)
-        if isinstance(b, tuple):
-            for ai, bi in zip(a, b):
-                assert ai == bi or (math.isnan(ai) and math.isnan(bi)), f"{field.name}: {a} != {b}"
-        else:
-            assert a == b or (math.isnan(a) and math.isnan(b)), f"{field.name}: {a} != {b}"
+        assert_values_equal(a, b, label=field.name)
 
 
 def compare_sky_projection_to_legacy_wcs[F: Frame](
@@ -1261,9 +1429,14 @@ def check_transform[I: Frame, O: Frame](
             return
         test_values = np.asarray(getattr(test, "value", test))
         expected_values = np.asarray(getattr(expected, "value", expected))
-        delta = (test_values - expected_values + np.pi) % (2.0 * np.pi) - np.pi
-        atol_v = atol.to_value(u.rad) if isinstance(atol, u.Quantity) else float(atol)
-        assert_values_equal(delta, np.zeros_like(delta), atol=atol_v, equal_nan=False)
+        atol_rad = atol.to_value(u.rad) if isinstance(atol, u.Quantity) else float(atol)
+        assert_values_equal(
+            test_values * u.rad,
+            expected_values * u.rad,
+            atol=atol_rad * u.rad,
+            equal_nan=False,
+            wrap_angles=True,
+        )
 
     # Test array interfaces.
     test_output_xy = transform.apply_forward(x=input_xy.x, y=input_xy.y)
@@ -1352,7 +1525,7 @@ def check_projection[P: Frame](
     assert_values_equal(test_pixel_xy.x, pixel_xy.x, atol=pixel_atol, rtol=_AST_RTOL)
     assert_values_equal(test_pixel_xy.y, pixel_xy.y, atol=pixel_atol, rtol=_AST_RTOL)
     test_sky_astropy = sky_projection.pixel_to_sky(x=pixel_xy.x, y=pixel_xy.y)
-    assert_sky_coords_close(test_sky_astropy, sky_coords, sky_atol, label="pixel_to_sky")
+    assert_values_equal(test_sky_astropy, sky_coords, atol=sky_atol, label="pixel_to_sky")
     # Test scalar interfaces.
     for pixel_x, pixel_y, sky_single in zip(pixel_xy.x, pixel_xy.y, sky_coords):
         assert_values_equal(
@@ -1362,7 +1535,7 @@ def check_projection[P: Frame](
             sky_projection.sky_to_pixel(sky_single).y, pixel_y, atol=pixel_atol, rtol=_AST_RTOL
         )
         test_sky_single = sky_projection.pixel_to_sky(x=pixel_x, y=pixel_y)
-        assert_sky_coords_close(test_sky_single, sky_single, sky_atol, label="pixel_to_sky")
+        assert_values_equal(test_sky_single, sky_single, atol=sky_atol, label="pixel_to_sky")
     # Test the underlying Transform object.
     sky_xy = XY(x=sky_coords.ra.to_value(u.rad), y=sky_coords.dec.to_value(u.rad))
     check_transform(
@@ -1455,7 +1628,7 @@ def check_astropy_wcs_interface(
     assert_values_equal(test_x, pixel_xy.x, atol=pixel_atol, rtol=_AST_RTOL)
     assert_values_equal(test_y, pixel_xy.y, atol=pixel_atol, rtol=_AST_RTOL)
     test_sky_coords = wcs.pixel_to_world(pixel_xy.x, pixel_xy.y)
-    assert_sky_coords_close(test_sky_coords, sky_coords, sky_atol, label="pixel_to_world")
+    assert_values_equal(test_sky_coords, sky_coords, atol=sky_atol, label="pixel_to_world")
 
 
 def legacy_points_to_xy_array(legacy_points: list[Any]) -> XY[np.ndarray]:
@@ -1547,11 +1720,29 @@ def compare_amplifier_to_legacy(
         assert Box.from_legacy(legacy_amplifier.getRawPrescanBBox()) == raw_geom.horizontal_prescan_bbox
     if expect_nominal_calibrations:
         assert amplifier.nominal_calibrations is not None
-        assert_equal_allow_nan(legacy_amplifier.getGain(), amplifier.nominal_calibrations.gain)
-        assert_equal_allow_nan(legacy_amplifier.getReadNoise(), amplifier.nominal_calibrations.read_noise)
-        assert_equal_allow_nan(legacy_amplifier.getSaturation(), amplifier.nominal_calibrations.saturation)
-        assert_equal_allow_nan(
-            legacy_amplifier.getSuspectLevel(), amplifier.nominal_calibrations.suspect_level
+        assert_values_equal(
+            legacy_amplifier.getGain(),
+            amplifier.nominal_calibrations.gain,
+            equal_nan=True,
+            label="gain",
+        )
+        assert_values_equal(
+            legacy_amplifier.getReadNoise(),
+            amplifier.nominal_calibrations.read_noise,
+            equal_nan=True,
+            label="read_noise",
+        )
+        assert_values_equal(
+            legacy_amplifier.getSaturation(),
+            amplifier.nominal_calibrations.saturation,
+            equal_nan=True,
+            label="saturation",
+        )
+        assert_values_equal(
+            legacy_amplifier.getSuspectLevel(),
+            amplifier.nominal_calibrations.suspect_level,
+            equal_nan=True,
+            label="suspect_level",
         )
         assert_values_equal(
             legacy_amplifier.getLinearityCoeffs(),
