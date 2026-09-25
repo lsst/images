@@ -20,7 +20,6 @@ __all__ = (
     "assert_masked_images_equal",
     "assert_masks_equal",
     "assert_psfs_equal",
-    "assert_sky_coords_close",
     "assert_sky_projections_equal",
     "assert_values_equal",
     "assert_visit_images_equal",
@@ -54,6 +53,7 @@ from collections.abc import Generator, Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+import astropy.time
 import astropy.units as u
 import astropy.wcs.wcsapi
 import numpy as np
@@ -102,19 +102,43 @@ _AST_SKY_ATOL = 1e-7 * u.deg
 
 
 def assert_values_equal(
-    a: np.ndarray | u.Quantity | float,
-    b: np.ndarray | u.Quantity | float,
+    a: (np.ndarray | u.Quantity | float | astropy.time.Time | astropy.time.TimeDelta | SkyCoord),
+    b: (np.ndarray | u.Quantity | float | astropy.time.Time | astropy.time.TimeDelta | SkyCoord),
     *,
     rtol: float = 0.0,
     atol: float | u.Quantity = 0.0,
     equal_nan: bool = True,
     label: str = "",
+    wrap_angles: bool = False,
 ) -> None:
-    """Assert that two arrays, quantities, or floats are equal or close.
+    """Assert that two arrays, quantities, floats, astropy times, or sky
+    coordinates are equal or close.
 
     On mismatch this raises an `AssertionError` with a concise report (count,
     max absolute difference, location, NaN-mismatch count) rather than dumping
     the arrays.
+
+    If both operands are `~astropy.time.Time` or `~astropy.time.TimeDelta`
+    values, they are compared by their difference in seconds, so ``atol`` (a
+    bare float, interpreted as seconds, or a time-unit
+    `~astropy.units.Quantity`) bounds that difference.  Relative tolerance is
+    meaningless for differences, so ``rtol`` must be zero; ``equal_nan`` is
+    ignored in that case.
+
+    If both operands are `~astropy.coordinates.SkyCoord` values, they are
+    compared by their great-circle separation (which transforms between
+    frames, so it is correct across the RA = 0 meridian and near the poles),
+    bounded by ``atol``.  Because the separation's own units are not visible
+    at the call site, ``atol`` must be an angular
+    `~astropy.units.Quantity`; the bare float ``0.0`` (requiring exact
+    coincidence) is also accepted, and any other bare float raises
+    `TypeError`.  ``rtol`` must be zero and ``equal_nan`` is ignored, as for
+    times.
+
+    If ``wrap_angles`` is `True`, both operands must have angular units and
+    they are compared modulo 2 pi, so values differing by whole turns compare
+    equal.  The same ``atol`` unit rules as for sky coordinates apply, and
+    ``rtol`` must be zero.
 
     Parameters
     ----------
@@ -123,16 +147,68 @@ def assert_values_equal(
     b
         Second value to compare.
     rtol
-        Relative tolerance.
+        Relative tolerance.  Must be zero for time-valued operands,
+        sky-coordinate operands, and ``wrap_angles``.
     atol
         Absolute tolerance; a `~astropy.units.Quantity` is converted to the
         unit of ``a``, or of the quantity-valued operand when only one
-        operand has a unit.
+        operand has a unit.  For time-valued operands a bare float is
+        interpreted as seconds and a Quantity must have time units.  For
+        sky-coordinate operands and ``wrap_angles`` a Quantity with angular
+        units is required; only the bare float ``0.0`` is accepted without
+        units.
     equal_nan
         If `True`, treat NaN as equal to NaN.
     label
         Prefix prepended to the failure message.
+    wrap_angles
+        If `True`, compare ``a`` and ``b`` (angular quantities) modulo 2 pi.
     """
+    if wrap_angles:
+        if rtol != 0.0:
+            raise ValueError(
+                "rtol is meaningless for wrapped angle comparisons; use atol (an angle) instead."
+            )
+        # As for sky coordinates, refuse to invent a unit for a bare atol
+        # tolerance (except the unit-independent zero), and require the
+        # operands themselves to carry their units.
+        if not isinstance(atol, u.Quantity) and atol != 0.0:
+            raise TypeError(
+                "atol for wrapped angle comparisons must be an angular Quantity;"
+                " a bare float is only valid as exactly 0.0."
+            )
+        if not (isinstance(a, u.Quantity) and isinstance(b, u.Quantity)):
+            raise TypeError("wrap_angles=True requires operands with angular units.")
+        delta = (np.asarray(a.to_value(u.rad)) - np.asarray(b.to_value(u.rad)) + np.pi) % (
+            2.0 * np.pi
+        ) - np.pi
+        atol_rad = atol.to_value(u.rad) if isinstance(atol, u.Quantity) else 0.0
+        assert_values_equal(delta, np.zeros_like(delta), atol=atol_rad, equal_nan=False, label=label)
+        return
+    if isinstance(a, astropy.time.Time | astropy.time.TimeDelta) and isinstance(
+        b, astropy.time.Time | astropy.time.TimeDelta
+    ):
+        if rtol != 0.0:
+            raise ValueError("rtol is meaningless for time comparisons; use atol (seconds) instead.")
+        atol_sec = atol.to_value(u.s) if isinstance(atol, u.Quantity) else atol
+        assert_values_equal((a - b).sec, 0.0, atol=atol_sec, equal_nan=False, label=label)
+        return
+    if isinstance(a, SkyCoord) and isinstance(b, SkyCoord):
+        if rtol != 0.0:
+            raise ValueError(
+                "rtol is meaningless for sky coordinate comparisons; use atol (an angle) instead."
+            )
+        # There is no obvious default angular unit for a bare atol against
+        # coordinates whose separation units are implicit, so refuse to
+        # guess one (except for the unit-independent zero).
+        if not isinstance(atol, u.Quantity) and atol != 0.0:
+            raise TypeError(
+                "atol for SkyCoord comparisons must be an angular Quantity;"
+                " a bare float is only valid as exactly 0.0."
+            )
+        separation = a.separation(b)
+        assert_values_equal(separation, np.zeros_like(separation), atol=atol, equal_nan=False, label=label)
+        return
     if isinstance(a, u.Quantity) and isinstance(b, u.Quantity):
         unit = a.unit
         a_vals = np.asarray(a.value)
@@ -218,57 +294,6 @@ def assert_equal_allow_nan(a: float, b: float) -> None:
     """
     if not (a == b or (math.isnan(a) and math.isnan(b))):
         raise AssertionError(f"{a!r} != {b!r}")
-
-
-def assert_sky_coords_close(
-    test_sky: SkyCoord, expected_sky: SkyCoord, atol: u.Quantity, *, label: str = "sky_coords"
-) -> None:
-    """Assert that two astropy sky-coordinate sets are close.
-
-    Great-circle separations are used instead of per-axis RA/Dec
-    comparisons, so the comparison is correct across the RA = 0 meridian
-    and near the poles.
-
-    Parameters
-    ----------
-    test_sky
-        Sky coordinates to test, of the same shape as ``expected_sky``.
-    expected_sky
-        Expected sky coordinates.
-    atol
-        Maximum allowed great-circle separation.
-    label
-        Prefix prepended to the failure message.
-    """
-    separation = expected_sky.separation(test_sky)
-    if np.all(separation <= atol):
-        return
-    if separation.shape:
-        worst = int(np.argmax(separation.value))
-        detail = f"separation {separation[worst]} > atol {atol} at index {worst}"
-    else:
-        detail = f"separation {separation} > atol {atol}"
-    raise AssertionError(f"{label}: {detail}")
-
-
-def _assert_wrapped_angles_close(
-    a: np.ndarray | float, b: np.ndarray | float, *, atol: float, label: str = ""
-) -> None:
-    """Assert that angle arrays (in radians) are equal modulo 2 pi.
-
-    Parameters
-    ----------
-    a
-        First angle or angle array.
-    b
-        Second angle or angle array.
-    atol
-        Absolute tolerance, in radians.
-    label
-        Prefix prepended to the failure message.
-    """
-    delta = (np.asarray(a) - np.asarray(b) + np.pi) % (2.0 * np.pi) - np.pi
-    assert_values_equal(delta, np.zeros_like(delta), atol=atol, equal_nan=False, label=label)
 
 
 def assert_images_equal(
@@ -1352,7 +1377,7 @@ def check_projection[P: Frame](
     assert_values_equal(test_pixel_xy.x, pixel_xy.x, atol=pixel_atol, rtol=_AST_RTOL)
     assert_values_equal(test_pixel_xy.y, pixel_xy.y, atol=pixel_atol, rtol=_AST_RTOL)
     test_sky_astropy = sky_projection.pixel_to_sky(x=pixel_xy.x, y=pixel_xy.y)
-    assert_sky_coords_close(test_sky_astropy, sky_coords, sky_atol, label="pixel_to_sky")
+    assert_values_equal(test_sky_astropy, sky_coords, atol=sky_atol, label="pixel_to_sky")
     # Test scalar interfaces.
     for pixel_x, pixel_y, sky_single in zip(pixel_xy.x, pixel_xy.y, sky_coords):
         assert_values_equal(
@@ -1362,7 +1387,7 @@ def check_projection[P: Frame](
             sky_projection.sky_to_pixel(sky_single).y, pixel_y, atol=pixel_atol, rtol=_AST_RTOL
         )
         test_sky_single = sky_projection.pixel_to_sky(x=pixel_x, y=pixel_y)
-        assert_sky_coords_close(test_sky_single, sky_single, sky_atol, label="pixel_to_sky")
+        assert_values_equal(test_sky_single, sky_single, atol=sky_atol, label="pixel_to_sky")
     # Test the underlying Transform object.
     sky_xy = XY(x=sky_coords.ra.to_value(u.rad), y=sky_coords.dec.to_value(u.rad))
     check_transform(
@@ -1455,7 +1480,7 @@ def check_astropy_wcs_interface(
     assert_values_equal(test_x, pixel_xy.x, atol=pixel_atol, rtol=_AST_RTOL)
     assert_values_equal(test_y, pixel_xy.y, atol=pixel_atol, rtol=_AST_RTOL)
     test_sky_coords = wcs.pixel_to_world(pixel_xy.x, pixel_xy.y)
-    assert_sky_coords_close(test_sky_coords, sky_coords, sky_atol, label="pixel_to_world")
+    assert_values_equal(test_sky_coords, sky_coords, atol=sky_atol, label="pixel_to_world")
 
 
 def legacy_points_to_xy_array(legacy_points: list[Any]) -> XY[np.ndarray]:
