@@ -358,6 +358,8 @@ class FitsInputArchive(InputArchive[PointerModel]):
             array = reader.section[slices]
         else:
             array = reader.data
+        # FITS data is big-endian; uncompressed HDUs are returned that way.
+        array = array.astype(array.dtype.newbyteorder("="), copy=False)
         if key not in self._opaque_metadata.headers:
             opaque_header = reader.header.copy(strip=True)
             strip_header(opaque_header)
@@ -390,7 +392,20 @@ class FitsInputArchive(InputArchive[PointerModel]):
             opaque_header = reader.header.copy(strip=True)
             strip_header(opaque_header)
             self._opaque_metadata.add_header(opaque_header, key=key)
-        return reader.hdu.data
+        data = reader.hdu.data
+        # Columns are read through FITS_rec field access, which applies
+        # TZERO/TSCAL and logical-column conversions; byte-swapping the raw
+        # storage instead would lose them.
+        columns = {}
+        for name in data.dtype.names:
+            column = np.asarray(data[name])
+            columns[name] = column.astype(column.dtype.newbyteorder("="), copy=False)
+        result = np.empty(
+            len(data), dtype=[(name, column.dtype, column.shape[1:]) for name, column in columns.items()]
+        )
+        for name, column in columns.items():
+            result[name] = column
+        return result
 
     def get_opaque_metadata(self) -> FitsOpaqueMetadata:
         # Docstring inherited.

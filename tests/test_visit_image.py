@@ -559,11 +559,8 @@ def test_external_metadata_legacy_round_trip(
     assert result.metadata["platform"] == "lsstcam"
     assert result.metadata.external["ID"] == 99
 
-    # Writing the result back out must not duplicate the external cards.
-    from lsst.daf.base import PropertyList
-
-    legacy_metadata = PropertyList()
-    result._fill_legacy_metadata(legacy_metadata)
+    # Converting the result back must not duplicate the external cards.
+    legacy_metadata = result.to_legacy().getMetadata()
     assert legacy_metadata.getArray("BGMEAN") == [1.5, 2.5]
     assert legacy_metadata["LSST IMAGES KEY 1"] == "native_key"
 

@@ -16,10 +16,11 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import astropy.io.fits
+import astropy.table
 import numpy as np
 import pydantic
 
-from lsst.images.fits import FitsOutputArchive
+from lsst.images.fits import FitsInputArchive, FitsOutputArchive
 from lsst.images.serialization import ArchiveTree, InputArchive
 
 
@@ -96,3 +97,34 @@ def test_direct_and_pointer_target_names_do_not_collide(tmp_path: Path) -> None:
     keys = _write_archive(body, tmp_path)
     assert sources == ["fits:DATA", "fits:/DATA"]
     assert keys == [("DATA", None), ("/DATA", None)]
+
+
+def test_table_read_is_native_byte_order(tmp_path: Path) -> None:
+    """Verify that tables read back from FITS (always big-endian on disk)
+    are in native byte order, with scaled and logical columns intact.
+    """
+    table = astropy.table.Table(
+        {
+            "f": np.array([1.5, 2.5]),
+            "i": np.array([1, 2], dtype=np.int32),
+            # Stored as a signed column with TZERO; naive byte swapping of
+            # the raw storage loses the offset.
+            "u": np.array([1, 2**31 + 5], dtype=np.uint32),
+            "b": np.array([True, False]),
+            "v": np.arange(6, dtype=np.float32).reshape(2, 3),
+        }
+    )
+    filename = tmp_path / "table.fits"
+    with FitsOutputArchive.open(filename) as archive:
+        model = archive.add_table(table, name="t")
+        archive.add_tree(_TinyTree())
+    with FitsInputArchive.open(filename) as archive:
+        array = archive.get_structured_array(model)
+        read_table = archive.get_table(model)
+    assert array.dtype.isnative
+    for name in table.colnames:
+        assert read_table[name].dtype.isnative, name
+        np.testing.assert_array_equal(array[name], table[name], err_msg=name)
+        np.testing.assert_array_equal(read_table[name], table[name], err_msg=name)
+    assert array["u"].dtype == np.uint32
+    assert array["b"].dtype == np.bool_
