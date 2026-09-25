@@ -741,7 +741,7 @@ class VisitImage(MaskedImage):
             band=legacy.info.getFilter().bandLabel,
             metadata=metadata,
         )
-        result.metadata["id"] = legacy.info.getId()
+        result._metadata["id"] = legacy.info.getId()
         result._opaque_metadata = opaque_fits_metadata
         return result
 
@@ -771,7 +771,7 @@ class VisitImage(MaskedImage):
         legacy_masked_image = super().to_legacy(copy=copy, plane_map=plane_map)
         result = LegacyExposure(legacy_masked_image, dtype=self.image.array.dtype)
         result_info = result.info
-        result_info.setId(self.metadata.get("id"))
+        result_info.setId(self._metadata.get("id"))
         result_info.setWcs(self.sky_projection.to_legacy())
         result_info.setDetector(self.detector.to_legacy())
         result_info.setFilter(LegacyFilterLabel.fromBandPhysical(self.band, self.obs_info.physical_filter))
@@ -966,7 +966,7 @@ class VisitImage(MaskedImage):
             metadata=metadata,
         )
         result._opaque_metadata = from_masked_image._opaque_metadata
-        result.metadata["id"] = reader.readExposureId()
+        result._metadata["id"] = reader.readExposureId()
         return result
 
 

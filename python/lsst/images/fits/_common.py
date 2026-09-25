@@ -21,6 +21,7 @@ __all__ = (
     "FitsCompressionAlgorithm",
     "FitsCompressionOptions",
     "FitsDitherAlgorithm",
+    "FitsExternalMetadata",
     "FitsOpaqueMetadata",
     "FitsQuantizationOptions",
     "InvalidFitsArchiveError",
@@ -51,7 +52,13 @@ import numpy as np
 import pydantic
 
 from .._geom import YX, Box
-from ..serialization import ArchiveReadError, OpaqueArchiveMetadata, TableColumnModel
+from ..serialization import (
+    ArchiveReadError,
+    ExternalMetadata,
+    ExternalMetadataValue,
+    OpaqueArchiveMetadata,
+    TableColumnModel,
+)
 
 type ExtensionHDU = astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU
 
@@ -332,6 +339,87 @@ class PrecompressedImage:
         return cls(header=header, data=hdu.data)
 
 
+_HIDDEN_KEYWORDS = frozenset({"", "COMMENT", "HISTORY"})
+"""Keywords of FITS commentary cards, which `FitsExternalMetadata` hides."""
+
+
+def _from_card_value(value: Any) -> ExternalMetadataValue:
+    """Convert a FITS card value to an `ExternalMetadataValue`, mapping the
+    value of a card with no value to `None`.
+    """
+    if isinstance(value, astropy.io.fits.card.Undefined):
+        return None
+    return value
+
+
+@final
+class FitsExternalMetadata(ExternalMetadata):
+    """Read-only access to the cards of a FITS header by keyword.
+
+    Parameters
+    ----------
+    header
+        Header to wrap.  It must not be modified after this object is
+        constructed.  `None` is equivalent to an empty header.
+
+    Notes
+    -----
+    ``COMMENT``, ``HISTORY``, and blank-keyword cards are not visible.
+    Keywords are reported in upper case, with HIERARCH keywords lacking the
+    ``HIERARCH`` prefix (e.g. ``LSST ISR UNITS``).  Lookups ignore case and
+    accept an optional ``HIERARCH`` prefix.  Cards with no value are
+    reported as `None`.
+    """
+
+    def __init__(self, header: astropy.io.fits.Header | None) -> None:
+        self._header = header
+        # Keywords are indexed from the cards themselves rather than looked
+        # up through astropy, whose keyword lookup does not find every
+        # keyword it reports (e.g. a lower-case HIERARCH keyword containing
+        # a dot is parsed as a record-valued keyword).
+        self._values: dict[str, list[ExternalMetadataValue]] = {}
+        if header is not None:
+            for card in header.cards:
+                keyword = card.keyword.upper()
+                if keyword not in _HIDDEN_KEYWORDS:
+                    self._values.setdefault(keyword, []).append(_from_card_value(card.value))
+
+    @property
+    def header(self) -> astropy.io.fits.Header | None:
+        """The wrapped header (`astropy.io.fits.Header` | `None`)."""
+        return self._header
+
+    def _find(self, key: object) -> list[ExternalMetadataValue]:
+        """Return the values for ``key``, raising `KeyError` if the header
+        has no visible card with that keyword.
+        """
+        if isinstance(key, str):
+            keyword = key.upper()
+            if (values := self._values.get(keyword.removeprefix("HIERARCH "))) is not None:
+                return values
+        raise KeyError(key)
+
+    def __getitem__(self, key: str) -> ExternalMetadataValue:
+        return self._find(key)[0]
+
+    def __contains__(self, key: object) -> bool:
+        try:
+            self._find(key)
+        except KeyError:
+            return False
+        return True
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def get_all(self, key: str) -> tuple[ExternalMetadataValue, ...]:
+        # Docstring inherited.
+        return tuple(self._find(key))
+
+
 @final
 @dataclasses.dataclass
 class FitsOpaqueMetadata(OpaqueArchiveMetadata):
@@ -357,6 +445,11 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
     Keys are EXTNAME values, which must be unique (no EXTVER disambiguation).
     Precompressed pixel values are never copied or transferred to subsets.
     """
+
+    _external_metadata: FitsExternalMetadata | None = dataclasses.field(
+        default=None, init=False, repr=False, compare=False
+    )
+    """Cached view of the primary header returned by `external_metadata`."""
 
     def add_header(
         self,
@@ -427,6 +520,12 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         header
             Primary HDU header of the legacy FITS file.
         """
+        metadata: dict[str, Any] = {}
+        for n in itertools.count():
+            if (key := header.pop(f"LSST IMAGES KEY {n + 1}", ...)) is ...:
+                break
+            value = header.pop(f"LSST IMAGES VALUE {n + 1}")
+            metadata[key] = value
         primary_header = header.copy(strip=True)
         # No idea what these spare TAN-SIP headers are doing in the afw
         # FITS files, but we'll strip them here:
@@ -435,12 +534,6 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         primary_header.remove("DATE", ignore_missing=True)
         strip_legacy_exposure_cards(primary_header)
         strip_butler_cards(primary_header)
-        metadata: dict[str, Any] = {}
-        for n in itertools.count():
-            if (key := header.pop(f"LSST IMAGES KEY {n + 1}", ...)) is ...:
-                break
-            value = header.pop(f"LSST IMAGES VALUE {n + 1}")
-            metadata[key] = value
         self.headers[ExtensionKey()] = primary_header
         return metadata
 
@@ -472,6 +565,15 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
     def subset(self, bbox: Box) -> FitsOpaqueMetadata:
         # Docstring inherited.
         return FitsOpaqueMetadata(headers=self.headers)
+
+    def external_metadata(self) -> FitsExternalMetadata:
+        # Docstring inherited.
+        primary_header = self.headers.get(ExtensionKey())
+        # Indexing a header costs a pass over its cards, so the result is
+        # reused until the primary header is replaced.
+        if self._external_metadata is None or self._external_metadata.header is not primary_header:
+            self._external_metadata = FitsExternalMetadata(primary_header)
+        return self._external_metadata
 
     def get_instrumental_unit(self) -> astropy.units.UnitBase | None:
         """Extract the ``LSST ISR UNIT`` key from the primary header (if it

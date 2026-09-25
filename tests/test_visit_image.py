@@ -502,6 +502,69 @@ def test_repeated_metadata_keys_legacy_round_trip(
     assert [card.value for card in round_tripped_header.cards if card.keyword == "DUMMYVAR"] == [0.5, 1.5]
 
 
+def test_external_metadata_legacy_round_trip(
+    visit_image_components: dict[str, Any],
+    reset_afw_mask_planes: None,  # noqa: F811
+    tmp_path: Path,
+) -> None:
+    """Verify that native metadata is written to a legacy file as
+    ``LSST IMAGES`` cards and is not visible as external metadata when the
+    file is read back.
+    """
+    from lsst.afw.detection import GaussianPsf
+
+    opaque_metadata = FitsOpaqueMetadata()
+    header = astropy.io.fits.Header()
+    header.append(("PLATFORM", "lsstcam"), end=True)
+    header.append(("BGMEAN", 1.5), end=True)
+    header.append(("BGMEAN", 2.5), end=True)
+    # An external ID card must neither block nor replace the native "id".
+    header.append(("ID", 99), end=True)
+    opaque_metadata.extract_legacy_primary_header(header)
+    visit_image = VisitImage(
+        visit_image_components["image"],
+        variance=visit_image_components["variance"],
+        psf=PointSpreadFunction.from_legacy(GaussianPsf(33, 33, 2.5), bounds=Box.factory[0:1024, 0:1024]),
+        mask_schema=visit_image_components["mask_schema"],
+        sky_projection=visit_image_components["sky_projection"],
+        detector=visit_image_components["detector"],
+        obs_info=visit_image_components["obs_info"],
+        band="r",
+        metadata={"native_key": 7, "MixedCase": "yes"},
+    )
+    visit_image._opaque_metadata = opaque_metadata
+    path = tmp_path / "legacy.fits"
+    visit_image.to_legacy().writeFits(str(path))
+
+    with astropy.io.fits.open(path) as hdu_list:
+        primary = hdu_list[0].header
+        native_cards = {}
+        n = 1
+        while f"LSST IMAGES KEY {n}" in primary:
+            native_cards[primary[f"LSST IMAGES KEY {n}"]] = primary[f"LSST IMAGES VALUE {n}"]
+            n += 1
+        assert native_cards == {"native_key": 7, "MixedCase": "yes"}
+        assert [card.value for card in primary.cards if card.keyword == "BGMEAN"] == [1.5, 2.5]
+
+    result = VisitImage.read_legacy(
+        str(path),
+        instrument=visit_image_components["obs_info"].instrument,
+        visit=visit_image_components["sky_projection"].pixel_frame.visit,
+    )
+    assert result.metadata.native["native_key"] == 7
+    assert result.metadata.native["MixedCase"] == "yes"
+    assert "id" in result.metadata.native
+    assert not [key for key in result.metadata.external if key.startswith("LSST IMAGES")]
+    assert result.metadata.external.get_all("BGMEAN") == (1.5, 2.5)
+    assert result.metadata["platform"] == "lsstcam"
+    assert result.metadata.external["ID"] == 99
+
+    # Converting the result back must not duplicate the external cards.
+    legacy_metadata = result.to_legacy().getMetadata()
+    assert legacy_metadata.getArray("BGMEAN") == [1.5, 2.5]
+    assert legacy_metadata["LSST IMAGES KEY 1"] == "native_key"
+
+
 @skip_no_h5py
 def test_round_trip_ndf(visit_image_components: dict[str, Any]) -> None:
     """Verify NDF round-trip produces a VisitImage equal to the original."""

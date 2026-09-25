@@ -300,6 +300,49 @@ def test_fits_roundtrip_lossy(tmp_path: Path) -> None:
     assert_masked_images_equal(subimage, roundtripped[subbox], expect_view=False)
 
 
+def test_fits_uncompressed_read_is_native_byte_order(tmp_path: Path) -> None:
+    """Verify that reading uncompressed (big-endian on disk) FITS HDUs
+    yields arrays in native byte order.
+    """
+    mi = make_masked_image()
+    path = tmp_path / "uncompressed.fits"
+    mi.write(path, compression_options={"image": None, "mask": None, "variance": None})
+    with astropy.io.fits.open(path) as hdu_list:
+        assert not hdu_list[1].data.dtype.isnative
+    full = MaskedImage.read(path)
+    subimage = MaskedImage.read(path, bbox=Box.factory[11:20, 25:30])
+    for result in (full, subimage):
+        assert result.image.array.dtype.isnative
+        assert result.mask.array.dtype.isnative
+        assert result.variance.array.dtype.isnative
+    assert_masked_images_equal(full, mi, expect_view=False)
+
+
+def test_legacy_uncompressed_read_is_native_byte_order(
+    tmp_path: Path,
+    reset_afw_mask_planes: None,  # noqa: F811
+) -> None:
+    """Verify that reading an uncompressed legacy FITS file yields arrays
+    in native byte order that can be converted back to afw.
+    """
+    mi = MaskedImage(
+        Image(np.arange(20, dtype=np.float32).reshape(4, 5)),
+        mask_schema=MaskSchema([MaskPlane("BAD", "Pixel is bad.")]),
+    )
+    path = tmp_path / "legacy_uncompressed.fits"
+    mi.to_legacy().writeFits(str(path))
+    with astropy.io.fits.open(path) as hdu_list:
+        assert not hdu_list[1].data.dtype.isnative
+    masked_result = MaskedImage.read_legacy(path)
+    image_result = Image.read_legacy(path)
+    for image in (masked_result.image, masked_result.variance, image_result):
+        assert image.array.dtype.isnative
+    np.testing.assert_array_equal(masked_result.image.array, mi.image.array)
+    np.testing.assert_array_equal(image_result.array, mi.image.array)
+    masked_result.to_legacy()
+    image_result.to_legacy()
+
+
 @skip_no_h5py
 def test_round_trip_ndf_compatible_mask() -> None:
     """Verify NDF round-trip for a MaskedImage with ≤8 mask planes."""

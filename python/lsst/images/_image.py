@@ -361,7 +361,7 @@ class Image(GeneralizedImage):
             data=data,
             yx0=list(self.bbox.start),
             sky_projection=serialized_projection,
-            metadata=self.metadata,
+            metadata=self._metadata,
         )
 
     @staticmethod
@@ -508,7 +508,7 @@ class Image(GeneralizedImage):
             fs, fspath = ResourcePath(uri).to_fsspec()
             stream = exit_stack.enter_context(fs.open(fspath))
             hdu_list = exit_stack.enter_context(astropy.io.fits.open(stream))
-            opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
+            native_metadata = opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
             bintable_hdu: astropy.io.fits.BinTableHDU | None = None
             if preserve_quantization:
                 bintable_stream = exit_stack.enter_context(fs.open(fspath))
@@ -520,6 +520,7 @@ class Image(GeneralizedImage):
                 hdu_list[ext], opaque_metadata, preserve_bintable=bintable_hdu, fits_wcs_frame=fits_wcs_frame
             )
             result._opaque_metadata = opaque_metadata
+            result._metadata = native_metadata
         return result
 
     @staticmethod
@@ -561,7 +562,9 @@ class Image(GeneralizedImage):
                 sky_projection = SkyProjection.from_fits_wcs(
                     fits_wcs, pixel_frame=fits_wcs_frame, x0=yx0.x, y0=yx0.y
                 )
-        image = Image(hdu.data, yx0=yx0, unit=unit, sky_projection=sky_projection)
+        # FITS data is big-endian; uncompressed HDUs are returned that way.
+        array = hdu.data.astype(hdu.data.dtype.newbyteorder("="), copy=False)
+        image = Image(array, yx0=yx0, unit=unit, sky_projection=sky_projection)
         if read_only:
             image._array.flags["WRITEABLE"] = False
         fits.strip_wcs_cards(hdu.header)
