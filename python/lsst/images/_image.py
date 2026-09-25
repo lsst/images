@@ -508,7 +508,7 @@ class Image(GeneralizedImage):
             fs, fspath = ResourcePath(uri).to_fsspec()
             stream = exit_stack.enter_context(fs.open(fspath))
             hdu_list = exit_stack.enter_context(astropy.io.fits.open(stream))
-            opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
+            native_metadata = opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
             bintable_hdu: astropy.io.fits.BinTableHDU | None = None
             if preserve_quantization:
                 bintable_stream = exit_stack.enter_context(fs.open(fspath))
@@ -520,6 +520,7 @@ class Image(GeneralizedImage):
                 hdu_list[ext], opaque_metadata, preserve_bintable=bintable_hdu, fits_wcs_frame=fits_wcs_frame
             )
             result._opaque_metadata = opaque_metadata
+            result._metadata = native_metadata
         return result
 
     @staticmethod

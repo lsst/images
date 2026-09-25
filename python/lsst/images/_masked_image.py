@@ -501,9 +501,12 @@ class MaskedImage(GeneralizedImage):
         component: Literal["image", "mask", "variance"] | None,
         fits_wcs_frame: Frame | None = None,
     ) -> Any:
+        # A caller that passes opaque_metadata has already extracted the
+        # native metadata from the primary header itself.
+        native_metadata: dict[str, Any] | None = None
         if opaque_metadata is None:
             opaque_metadata = fits.FitsOpaqueMetadata()
-            opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
+            native_metadata = opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
         image_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
         variance_bintable_hdu: astropy.io.fits.BinTableHDU | None = None
         result: Any
@@ -546,6 +549,8 @@ class MaskedImage(GeneralizedImage):
         if component is None:
             result = MaskedImage(image, mask=mask, variance=variance)
         result._opaque_metadata = opaque_metadata
+        if native_metadata is not None:
+            result._metadata = native_metadata
         return result
 
     def _fill_legacy_metadata(self, legacy_metadata: PropertyList) -> None:

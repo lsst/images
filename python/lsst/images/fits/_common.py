@@ -520,6 +520,12 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         header
             Primary HDU header of the legacy FITS file.
         """
+        metadata: dict[str, Any] = {}
+        for n in itertools.count():
+            if (key := header.pop(f"LSST IMAGES KEY {n + 1}", ...)) is ...:
+                break
+            value = header.pop(f"LSST IMAGES VALUE {n + 1}")
+            metadata[key] = value
         primary_header = header.copy(strip=True)
         # No idea what these spare TAN-SIP headers are doing in the afw
         # FITS files, but we'll strip them here:
@@ -528,12 +534,6 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         primary_header.remove("DATE", ignore_missing=True)
         strip_legacy_exposure_cards(primary_header)
         strip_butler_cards(primary_header)
-        metadata: dict[str, Any] = {}
-        for n in itertools.count():
-            if (key := header.pop(f"LSST IMAGES KEY {n + 1}", ...)) is ...:
-                break
-            value = header.pop(f"LSST IMAGES VALUE {n + 1}")
-            metadata[key] = value
         self.headers[ExtensionKey()] = primary_header
         return metadata
 

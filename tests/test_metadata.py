@@ -13,12 +13,16 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Mapping
+from pathlib import Path
 
 import astropy.io.fits
+import numpy as np
 import pytest
 
+from lsst.images import Image, Mask, MaskedImage, MaskPlane, MaskSchema
 from lsst.images.fits import ExtensionKey, FitsExternalMetadata, FitsOpaqueMetadata
 from lsst.images.serialization import EmptyExternalMetadata
+from lsst.images.tests import reset_afw_mask_planes  # noqa: F401
 
 EXTERNAL_KEYS = ["EXPTIME", "BGMEAN", "LSST ISR UNITS", "LOWER KEY", "NOVAL", "CPLX"]
 
@@ -155,3 +159,54 @@ def test_fits_opaque_metadata_external_metadata() -> None:
     assert list(external) == EXTERNAL_KEYS
     assert "EXTRA" not in external
     assert opaque_metadata.headers[ExtensionKey("IMAGE")]["EXTRA"] == 1
+
+
+def test_extract_legacy_primary_header_strips_native_cards() -> None:
+    """Test that the cards holding native metadata in a legacy file are
+    returned as native metadata and not kept in the opaque header.
+    """
+    header = astropy.io.fits.Header()
+    header.append(("PLATFORM", "lsstcam"), end=True)
+    header.append(("HIERARCH LSST IMAGES KEY 1", "native_key"), end=True)
+    header.append(("HIERARCH LSST IMAGES VALUE 1", 7), end=True)
+    header.append(("HIERARCH LSST IMAGES KEY 2", "MixedCase"), end=True)
+    header.append(("HIERARCH LSST IMAGES VALUE 2", "yes"), end=True)
+    opaque_metadata = FitsOpaqueMetadata()
+    assert opaque_metadata.extract_legacy_primary_header(header) == {"native_key": 7, "MixedCase": "yes"}
+    stored = opaque_metadata.headers[ExtensionKey()]
+    assert stored["PLATFORM"] == "lsstcam"
+    assert not [keyword for keyword in stored if keyword.startswith("LSST IMAGES")]
+    assert list(opaque_metadata.external_metadata()) == ["PLATFORM"]
+
+
+def test_legacy_readers_restore_native_metadata(
+    tmp_path: Path,
+    reset_afw_mask_planes: None,  # noqa: F811
+) -> None:
+    """Test that every legacy reader restores native metadata from the
+    ``LSST IMAGES`` cards and does not keep those cards as opaque metadata.
+    """
+    from lsst.daf.base import PropertyList
+
+    masked_image = MaskedImage(
+        Image(1.0, shape=(4, 5), dtype=np.float32),
+        mask_schema=MaskSchema([MaskPlane("BAD", "Pixel is bad.")]),
+        metadata={"native_key": 7, "MixedCase": "yes"},
+    )
+    legacy_metadata = PropertyList()
+    masked_image._fill_legacy_metadata(legacy_metadata)
+    path = tmp_path / "legacy_masked_image.fits"
+    masked_image.to_legacy().writeFits(str(path), metadata=legacy_metadata)
+    with astropy.io.fits.open(path) as hdu_list:
+        assert hdu_list[0].header["LSST IMAGES KEY 1"] == "native_key"
+    results = {
+        "MaskedImage": MaskedImage.read_legacy(path),
+        "MaskedImage image component": MaskedImage.read_legacy(path, component="image"),
+        "MaskedImage mask component": MaskedImage.read_legacy(path, component="mask"),
+        "Image": Image.read_legacy(path),
+        "Mask": Mask.read_legacy(path, ext=2),
+    }
+    for label, result in results.items():
+        assert result._metadata == {"native_key": 7, "MixedCase": "yes"}, label
+        opaque_header = result._opaque_metadata.headers[ExtensionKey()]
+        assert not [keyword for keyword in opaque_header if keyword.startswith("LSST IMAGES")], label
