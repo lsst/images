@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import copy
 import warnings
 from collections.abc import Mapping
 from pathlib import Path
@@ -19,7 +20,7 @@ import astropy.io.fits
 import numpy as np
 import pytest
 
-from lsst.images import Image, Mask, MaskedImage, MaskPlane, MaskSchema
+from lsst.images import Image, Mask, MaskedImage, MaskPlane, MaskSchema, MetadataView, NativeMetadata
 from lsst.images.fits import ExtensionKey, FitsExternalMetadata, FitsOpaqueMetadata
 from lsst.images.serialization import EmptyExternalMetadata
 from lsst.images.tests import reset_afw_mask_planes  # noqa: F401
@@ -210,3 +211,127 @@ def test_legacy_readers_restore_native_metadata(
         assert result._metadata == {"native_key": 7, "MixedCase": "yes"}, label
         opaque_header = result._opaque_metadata.headers[ExtensionKey()]
         assert not [keyword for keyword in opaque_header if keyword.startswith("LSST IMAGES")], label
+
+
+def _make_view(data: dict) -> MetadataView:
+    external = FitsExternalMetadata(_make_header())
+    return MetadataView(NativeMetadata(data, external), external)
+
+
+def test_native_metadata_shadowing() -> None:
+    """Test that new native keys may not shadow external keys, while keys
+    already present may be updated.
+    """
+    external = FitsExternalMetadata(_make_header())
+    data: dict = {"exptime": 1.0}
+    native = NativeMetadata(data, external)
+    native["exptime"] = 2.0
+    assert data == {"exptime": 2.0}
+    for key in ("EXPTIME", "Bgmean", "lsst isr units", "LOWER KEY", "noval"):
+        with pytest.raises(KeyError):
+            native[key] = 3.0
+    with pytest.raises(KeyError):
+        native.update({"cplx": 1})
+    with pytest.raises(KeyError):
+        native.setdefault("NOVAL", 1)
+    native["fresh"] = 1
+    del native["fresh"]
+    assert data == {"exptime": 2.0}
+    assert dict(native) == {"exptime": 2.0}
+    assert len(native) == 1
+
+
+def test_native_metadata_accepts_non_fits_keys() -> None:
+    """Test that keys that cannot be FITS keywords are accepted."""
+    external = FitsExternalMetadata(_make_header())
+    data: dict = {}
+    native = NativeMetadata(data, external)
+    for key in ("roundtrip_test_1", "a=b", "é", "MixedCaseKey"):
+        native[key] = 1
+    assert set(data) == {"roundtrip_test_1", "a=b", "é", "MixedCaseKey"}
+
+
+def test_metadata_view_lookup() -> None:
+    """Test that native keys are found first with exact case, then external
+    keys case-insensitively.
+    """
+    view = _make_view({"native_key": 7, "exptime": 1.0})
+    assert view["native_key"] == 7
+    assert view["exptime"] == 1.0
+    assert view["EXPTIME"] == 30.0
+    assert view["ExpTime"] == 30.0
+    assert view["BGMEAN"] in (1.5, 2.5)
+    assert view["noval"] is None
+    assert "lsst isr units" in view
+    assert view.get("missing") is None
+    assert view.get_all("BGMEAN") == (1.5, 2.5)
+    assert view.get_all("exptime") == (1.0,)
+    assert view.get_all("EXPTIME") == (30.0,)
+    for key in ("COMMENT", "HISTORY", ""):
+        assert key not in view
+    with pytest.raises(KeyError):
+        view["missing"]
+    with pytest.raises(KeyError):
+        view.get_all("missing")
+
+
+def test_metadata_view_iteration() -> None:
+    """Test that iteration is the exact-case union of both sources and
+    agrees with lookup.
+    """
+    view = _make_view({"native_key": 7, "exptime": 1.0})
+    keys = list(view)
+    assert sorted(keys) == sorted(["native_key", "exptime", *EXTERNAL_KEYS])
+    assert len(view) == len(keys) == len(set(keys))
+    as_dict = dict(view)
+    assert as_dict["exptime"] == 1.0
+    assert as_dict["EXPTIME"] == 30.0
+    for key in keys:
+        assert as_dict[key] == view[key]
+    assert view == as_dict
+
+
+def test_metadata_view_writes() -> None:
+    """Test that writes and deletes go to native and respect shadowing."""
+    data: dict = {"native_key": 7}
+    view = _make_view(data)
+    view["new"] = 1
+    assert data == {"native_key": 7, "new": 1}
+    with pytest.raises(KeyError):
+        view["cplx"] = 1
+    with pytest.raises(KeyError):
+        del view["EXPTIME"]
+    with pytest.raises(KeyError):
+        view.pop("EXPTIME")
+    assert view.pop("missing", None) is None
+    assert view.pop("new") == 1
+    view |= {"another": 2}
+    assert data == {"native_key": 7, "another": 2}
+    view.clear()
+    assert data == {}
+    assert view["EXPTIME"] == 30.0
+
+
+def test_metadata_view_chainmap_operations() -> None:
+    """Test the ChainMap operations that the view overrides."""
+    data: dict = {"native_key": 7}
+    view = _make_view(data)
+    copied = view.copy()
+    assert type(copied) is dict
+    assert copied == data
+    assert copied is not data
+    shallow = copy.copy(view)
+    assert type(shallow) is dict
+    assert shallow == data
+    merged = view | {"z": 1}
+    assert type(merged) is dict
+    assert merged == {**dict(view), "z": 1}
+    reverse_merged = {"z": 1} | view
+    assert type(reverse_merged) is dict
+    assert reverse_merged == {"z": 1, **dict(view)}
+    with pytest.raises(TypeError):
+        view.new_child()
+    with pytest.raises(TypeError):
+        view.parents
+    assert view.native is not None
+    assert list(view.external) == EXTERNAL_KEYS
