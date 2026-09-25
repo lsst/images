@@ -38,6 +38,10 @@ nitpick_ignore_regex = [
   ['py:class', 'a shallow copy.*'],  # collections.abc.Mapping inheritance.
   ['py:class', 'None\.  .*'],  # collections.abc.Mapping inheritance.
   ['py:class', 'an object providing.*'],  # collections.abc.Mapping inheritance.
+  ['py:class', 'D\[k\] if k in D.*'],  # collections.abc.Mapping inheritance.
+  ['py:class', 'D\.get\(k,d\).*'],  # collections.abc.MutableMapping inheritance.
+  ['py:class', 'v, remove specified key.*'],  # collections.abc.MutableMapping inheritance.
+  ['py:class', '\(k, v\), remove and return.*'],  # collections.abc.MutableMapping inheritance.
   ['py:.*', 'typing.Union'],  # Link does not resolve to py3 docs.
   ['py:.*', '__builtins__.range'],  # None of 'range', 'builtins.range', or '__builtins__.range' resolves.
 ]
