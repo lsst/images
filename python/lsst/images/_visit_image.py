@@ -271,6 +271,10 @@ class VisitImage(MaskedImage):
             raise self._psf
         return self._psf
 
+    @psf.setter
+    def psf(self, value: PointSpreadFunction) -> None:
+        self._psf = value
+
     @property
     def detector(self) -> Detector:
         """Geometry and electronic information about the detector
@@ -782,7 +786,7 @@ class VisitImage(MaskedImage):
         self._fill_legacy_metadata(result_info.getMetadata())
         if isinstance(self._psf, LegacyPointSpreadFunction):
             result_info.setPsf(self._psf.legacy_psf)
-        elif isinstance(self._psf, PiffWrapper):
+        elif isinstance(self._psf, PiffWrapper | GaussianPointSpreadFunction):
             result_info.setPsf(self._psf.to_legacy())
         if isinstance(self.bounds, Polygon):
             result_info.setValidPolygon(self.bounds.to_legacy())

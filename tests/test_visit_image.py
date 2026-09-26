@@ -503,6 +503,26 @@ def test_repeated_metadata_keys_legacy_round_trip(
     assert [card.value for card in round_tripped_header.cards if card.keyword == "DUMMYVAR"] == [0.5, 1.5]
 
 
+def test_gaussian_psf_legacy_round_trip(
+    visit_image_components: dict[str, Any],
+    reset_afw_mask_planes: None,  # noqa: F811
+) -> None:
+    """Verify that a Gaussian PSF set after construction is attached to the
+    legacy Exposure that `VisitImage.to_legacy` returns.
+    """
+    from lsst.afw.detection import GaussianPsf
+
+    visit_image = make_simplest_visit_image(visit_image_components)
+    psf = GaussianPointSpreadFunction(3.25, stamp_size=27, bounds=Box.factory[0:1024, 0:1024])
+    visit_image.psf = psf
+    assert visit_image.psf is psf
+
+    legacy_psf = visit_image.to_legacy().getPsf()
+    assert isinstance(legacy_psf, GaussianPsf)
+    assert legacy_psf.getSigma() == psf.sigma
+    assert legacy_psf.computeBBox(legacy_psf.getAveragePosition()).getWidth() == 27
+
+
 @skip_no_h5py
 def test_round_trip_ndf(visit_image_components: dict[str, Any]) -> None:
     """Verify NDF round-trip produces a VisitImage equal to the original."""
