@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +34,7 @@ from lsst.images import (
     SkyProjection,
     get_legacy_visit_image_mask_planes,
 )
-from lsst.images.fits import FitsCompressionOptions, FitsOpaqueMetadata
+from lsst.images.fits import ExtensionKey, FitsCompressionOptions, FitsOpaqueMetadata
 from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
@@ -424,6 +425,59 @@ def test_repeated_legacy_metadata_keys(reset_afw_mask_planes: None) -> None:  # 
     masked_image._fill_legacy_metadata(legacy_metadata)
     assert legacy_metadata.getArray("BGMEAN") == [1.5, 2.5]
     assert legacy_metadata["PLATFORM"] == "lsstcam"
+
+
+def test_valueless_legacy_metadata_card(reset_afw_mask_planes: None) -> None:  # noqa: F811
+    """Test that a FITS card with no value becomes `None` in the legacy
+    metadata, rather than the sentinel astropy reads it as.
+    """
+    from lsst.daf.base import PropertyList
+
+    opaque_metadata = FitsOpaqueMetadata()
+    header = astropy.io.fits.Header()
+    header.append(("EMPTY", None), end=True)
+    header.append(("BGMEAN", 1.5), end=True)
+    opaque_metadata.extract_legacy_primary_header(header)
+    masked_image = make_masked_image()
+    masked_image._opaque_metadata = opaque_metadata
+
+    legacy_metadata = PropertyList()
+    masked_image._fill_legacy_metadata(legacy_metadata)
+    assert legacy_metadata["EMPTY"] is None
+    assert legacy_metadata["BGMEAN"] == 1.5
+
+
+def test_lsst_images_cards_are_not_left_in_the_opaque_header(
+    reset_afw_mask_planes: None,  # noqa: F811
+) -> None:
+    """Test that the cards holding non-FITS metadata are extracted from the
+    header rather than copied, so that they are written once on the way back
+    to a legacy image.
+    """
+    from lsst.daf.base import PropertyList
+
+    opaque_metadata = FitsOpaqueMetadata()
+    header = astropy.io.fits.Header()
+    with warnings.catch_warnings():
+        # Silence warnings about long keys becoming HIERARCH.
+        warnings.simplefilter("ignore", category=astropy.io.fits.verify.VerifyWarning)
+        header.append(("LSST IMAGES KEY 1", "id"), end=True)
+        # An image with no exposure id stores `None` for it, which is written
+        # as a card with no value.
+        header.append(("LSST IMAGES VALUE 1", None), end=True)
+    metadata = opaque_metadata.extract_legacy_primary_header(header)
+    assert metadata == {"id": None}
+    assert "LSST IMAGES KEY 1" not in opaque_metadata.headers[ExtensionKey()]
+    assert "LSST IMAGES VALUE 1" not in opaque_metadata.headers[ExtensionKey()]
+
+    masked_image = make_masked_image()
+    masked_image._opaque_metadata = opaque_metadata
+    legacy_metadata = PropertyList()
+    masked_image._fill_legacy_metadata(legacy_metadata)
+    # These cards carry the image's own metadata. The copies the opaque header
+    # used to keep would have been written alongside them.
+    assert legacy_metadata.getArray("LSST IMAGES KEY 1") == ["fifty"]
+    assert legacy_metadata.getArray("LSST IMAGES VALUE 1") == ["5 * 10"]
 
 
 def test_sky_circle_bbox() -> None:

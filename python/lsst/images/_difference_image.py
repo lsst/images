@@ -366,8 +366,8 @@ class DifferenceImage(VisitImage):
             key will be used, if available.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
-            description.  If `None` (default)
-            `get_legacy_visit_image_mask_planes` is used.
+            description.  If `None` (default),
+            `get_legacy_difference_image_mask_planes` is used.
         instrument
             Name of the instrument.  Extracted from the metadata if not
             provided.
@@ -399,7 +399,7 @@ class DifferenceImage(VisitImage):
         plane_map
             A mapping from legacy mask plane name to the new plane name and
             description.  If `None` (default),
-            `get_legacy_visit_image_mask_planes` is used.
+            `get_legacy_difference_image_mask_planes` is used.
         """
         if plane_map is None:
             plane_map = get_legacy_difference_image_mask_planes()
@@ -443,8 +443,8 @@ class DifferenceImage(VisitImage):
             not transferred to the copy.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
-            description.  If `None` (default)
-            `get_legacy_visit_image_mask_planes` is used.
+            description.  If `None` (default),
+            `get_legacy_difference_image_mask_planes` is used.
         instrument
             Name of the instrument.  Read from the primary header if not
             provided.
@@ -529,8 +529,6 @@ class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constant
         log
             Logger to use for diagnostic messages.
         """
-        from lsst.afw.geom import makeWcsPairTransform
-
         n_inputs = legacy_template_metadata["LSST BUTLER N_INPUTS"]
         butler_info: dict[tuple[int, int], tuple[uuid.UUID, str]] = {}
         skymap: str | None = None
@@ -547,6 +545,47 @@ class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constant
                     input_id,
                     input_run,
                 )
+        return DifferenceImageTemplateInfo.from_legacy_psf(
+            detector_frame, legacy_template_psf, cast(str, skymap), butler_info, log=log
+        )
+
+    @staticmethod
+    def from_legacy_psf(
+        detector_frame: DetectorFrame,
+        legacy_template_psf: LegacyCoaddPsf,
+        skymap: str,
+        butler_info: Mapping[tuple[int, int], tuple[uuid.UUID, str]],
+        log: logging.Logger | None = None,
+    ) -> list[DifferenceImageTemplateInfo]:
+        """Construct a list of template information structs from a legacy
+        stitched template PSF and butler provenance held by the caller.
+
+        Parameters
+        ----------
+        detector_frame
+            Coordinate system and bounding box of the science image.
+        legacy_template_psf
+            The lazy-evaluation PSF model for the stitched template; used to
+            extract the tract and patch IDs of the coadds actually used and
+            their PSF models.
+        skymap
+            Name of the skymap that defines the tract and patch tiling.
+        butler_info
+            A mapping from ``(tract, patch)`` to the butler dataset ID and
+            RUN collection name of that coadd.  May be a superset of the
+            coadds that contributed to the template.
+        log
+            Logger to use for diagnostic messages.
+
+        Notes
+        -----
+        A task that builds the template has its input coadd references in
+        hand and can call this directly.  `from_legacy` is for a caller that
+        has only the stored template, and reads the same provenance out of
+        its FITS metadata.
+        """
+        from lsst.afw.geom import makeWcsPairTransform
+
         result: list[DifferenceImageTemplateInfo] = []
         # A "component" of this PSF is an input {tract, patch} coadd.
         for n in range(legacy_template_psf.getComponentCount()):

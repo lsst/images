@@ -61,6 +61,7 @@ from lsst.images.tests import (
     assert_visit_images_equal,
     compare_aperture_corrections_to_legacy,
     compare_detector_to_legacy,
+    compare_mask_to_legacy,
     compare_photo_calib_to_legacy,
     compare_visit_image_to_legacy,
     current_fixture_path,
@@ -502,6 +503,26 @@ def test_repeated_metadata_keys_legacy_round_trip(
     assert [card.value for card in round_tripped_header.cards if card.keyword == "DUMMYVAR"] == [0.5, 1.5]
 
 
+def test_gaussian_psf_legacy_round_trip(
+    visit_image_components: dict[str, Any],
+    reset_afw_mask_planes: None,  # noqa: F811
+) -> None:
+    """Verify that a Gaussian PSF set after construction is attached to the
+    legacy Exposure that `VisitImage.to_legacy` returns.
+    """
+    from lsst.afw.detection import GaussianPsf
+
+    visit_image = make_simplest_visit_image(visit_image_components)
+    psf = GaussianPointSpreadFunction(3.25, stamp_size=27, bounds=Box.factory[0:1024, 0:1024])
+    visit_image.psf = psf
+    assert visit_image.psf is psf
+
+    legacy_psf = visit_image.to_legacy().getPsf()
+    assert isinstance(legacy_psf, GaussianPsf)
+    assert legacy_psf.getSigma() == psf.sigma
+    assert legacy_psf.computeBBox(legacy_psf.getAveragePosition()).getWidth() == 27
+
+
 @skip_no_h5py
 def test_round_trip_ndf(visit_image_components: dict[str, Any]) -> None:
     """Verify NDF round-trip produces a VisitImage equal to the original."""
@@ -786,6 +807,35 @@ def _check_legacy_obs_info(obs_info: ObservationInfo | None) -> None:
     assert obs_info.detector_num == 85, obs_info
     assert obs_info.detector_unique_name == "R21_S11", obs_info
     assert obs_info.physical_filter == "r_57", obs_info
+
+
+def test_legacy_optional_mask_planes(legacy_test_data_calibrated: _LegacyTestData) -> None:
+    """Verify that an optional source injection plane converts in both
+    directions."""
+    legacy = legacy_test_data_calibrated.legacy_exposure.clone()
+    injected = np.zeros(legacy.mask.array.shape, dtype=bool)
+    injected[4:9, 3:11] = True
+    for old_name in ("INJECTED", "INJECTED_CORE"):
+        legacy.mask.addMaskPlane(old_name)
+    legacy.mask.array[injected] |= legacy.mask.getPlaneBitMask("INJECTED")
+    plane_map = legacy_test_data_calibrated.plane_map
+
+    image = legacy_test_data_calibrated.read_cls.from_legacy(legacy, plane_map=plane_map)
+
+    assert "INJECTED" in image.mask.schema.names
+    assert_values_equal(image.mask.get("INJECTED"), injected)
+    assert "INJECTED_CORE" not in image.mask.schema.names
+    # Every plane the image really uses, mapped and optional alike.
+    compare_mask_to_legacy(image.mask, legacy.mask, plane_map)
+
+    round_tripped = image.to_legacy()
+
+    assert "INJECTED" in round_tripped.mask.getMaskPlaneDict()
+    assert_values_equal(
+        (round_tripped.mask.array & round_tripped.mask.getPlaneBitMask("INJECTED")).astype(bool),
+        injected,
+    )
+    compare_mask_to_legacy(image.mask, round_tripped.mask, plane_map)
 
 
 def test_legacy_errors(legacy_test_data: _LegacyTestData) -> None:

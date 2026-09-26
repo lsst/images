@@ -436,10 +436,12 @@ class FitsOpaqueMetadata(OpaqueArchiveMetadata):
         strip_legacy_exposure_cards(primary_header)
         strip_butler_cards(primary_header)
         metadata: dict[str, Any] = {}
+        # Remove the header entries when they are added to the metadata
+        # so that they aren't written twice.
         for n in itertools.count():
-            if (key := header.pop(f"LSST IMAGES KEY {n + 1}", ...)) is ...:
+            if (key := primary_header.pop(f"LSST IMAGES KEY {n + 1}", ...)) is ...:
                 break
-            value = header.pop(f"LSST IMAGES VALUE {n + 1}")
+            value = primary_header.pop(f"LSST IMAGES VALUE {n + 1}")
             metadata[key] = value
         self.headers[ExtensionKey()] = primary_header
         return metadata

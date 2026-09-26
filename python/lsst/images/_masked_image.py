@@ -573,11 +573,11 @@ class MaskedImage(GeneralizedImage):
                 if not card.keyword:
                     # Skip blanks
                     continue
-                if card.keyword not in grouped:
-                    grouped[card.keyword] = []
-                grouped[card.keyword].append(card.value)
+                values = grouped.setdefault(card.keyword, [])
+                if not isinstance(card.value, astropy.io.fits.card.Undefined):
+                    values.append(card.value)
             for keyword, values in grouped.items():
-                legacy_metadata[keyword] = values
+                legacy_metadata[keyword] = values if values else None
         for n, (k, v) in enumerate(self.metadata.items()):
             legacy_metadata[f"LSST IMAGES KEY {n + 1}"] = k
             legacy_metadata[f"LSST IMAGES VALUE {n + 1}"] = v
