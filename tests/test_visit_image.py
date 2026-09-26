@@ -61,6 +61,7 @@ from lsst.images.tests import (
     assert_visit_images_equal,
     compare_aperture_corrections_to_legacy,
     compare_detector_to_legacy,
+    compare_mask_to_legacy,
     compare_photo_calib_to_legacy,
     compare_visit_image_to_legacy,
     current_fixture_path,
@@ -786,6 +787,35 @@ def _check_legacy_obs_info(obs_info: ObservationInfo | None) -> None:
     assert obs_info.detector_num == 85, obs_info
     assert obs_info.detector_unique_name == "R21_S11", obs_info
     assert obs_info.physical_filter == "r_57", obs_info
+
+
+def test_legacy_optional_mask_planes(legacy_test_data_calibrated: _LegacyTestData) -> None:
+    """Verify that an optional source injection plane converts in both
+    directions."""
+    legacy = legacy_test_data_calibrated.legacy_exposure.clone()
+    injected = np.zeros(legacy.mask.array.shape, dtype=bool)
+    injected[4:9, 3:11] = True
+    for old_name in ("INJECTED", "INJECTED_CORE"):
+        legacy.mask.addMaskPlane(old_name)
+    legacy.mask.array[injected] |= legacy.mask.getPlaneBitMask("INJECTED")
+    plane_map = legacy_test_data_calibrated.plane_map
+
+    image = legacy_test_data_calibrated.read_cls.from_legacy(legacy, plane_map=plane_map)
+
+    assert "INJECTED" in image.mask.schema.names
+    assert_values_equal(image.mask.get("INJECTED"), injected)
+    assert "INJECTED_CORE" not in image.mask.schema.names
+    # Every plane the image really uses, mapped and optional alike.
+    compare_mask_to_legacy(image.mask, legacy.mask, plane_map)
+
+    round_tripped = image.to_legacy()
+
+    assert "INJECTED" in round_tripped.mask.getMaskPlaneDict()
+    assert_values_equal(
+        (round_tripped.mask.array & round_tripped.mask.getPlaneBitMask("INJECTED")).astype(bool),
+        injected,
+    )
+    compare_mask_to_legacy(image.mask, round_tripped.mask, plane_map)
 
 
 def test_legacy_errors(legacy_test_data: _LegacyTestData) -> None:

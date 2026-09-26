@@ -20,6 +20,8 @@ __all__ = (
     "get_legacy_deep_coadd_mask_planes",
     "get_legacy_difference_image_mask_planes",
     "get_legacy_non_cell_coadd_mask_planes",
+    "get_legacy_optional_mask_planes",
+    "get_legacy_template_mask_planes",
     "get_legacy_visit_image_mask_planes",
 )
 
@@ -1080,15 +1082,23 @@ class Mask(GeneralizedImage):
         result = lsst.afw.image.Mask(self.bbox.to_legacy())
         if plane_map is None:
             plane_map = {plane.name: plane for plane in self.schema if plane is not None}
+
+        def add_legacy_plane(old_name: str) -> int:
+            """Add a legacy plane to ``result`` and return its bitmask."""
+            return _legacy_bitmask(result.addMaskPlane(old_name))
+
+        written: set[str] = set()
         for old_name, new_plane in plane_map.items():
-            old_bit = result.addMaskPlane(old_name)
-            old_bitmask = 1 << old_bit
-            if old_bitmask == 2147483648:
-                # afw uses int32 masks, but relies on overflow wrapping, which
-                # numpy doesn't like.
-                old_bitmask = -2147483648
+            old_bitmask = add_legacy_plane(old_name)
             if new_plane in self.schema:
                 result.array[self.get(new_plane.name)] |= old_bitmask
+                written.add(new_plane.name)
+        # Preserve additional mask planes defined in addition to the base
+        # mapping
+        for plane in self.schema:
+            if plane is None or plane.name in written:
+                continue
+            result.array[self.get(plane.name)] |= add_legacy_plane(plane.name)
         return result
 
     @staticmethod
@@ -1100,16 +1110,11 @@ class Mask(GeneralizedImage):
         plane_map: Mapping[str, MaskPlane] | None = None,
         sky_projection: SkyProjection | None = None,
     ) -> Mask:
-        if plane_map is None:
-            plane_map = _guess_legacy_plane_map(old_planes)
-        planes: list[MaskPlane] = list(plane_map.values()) if plane_map is not None else []
+        plane_map = _resolve_legacy_plane_map(plane_map, old_planes, array2d)
+        planes: list[MaskPlane] = list(plane_map.values())
         new_name_to_old_bitmask: dict[str, int] = {}
         for old_name, old_bit in old_planes.items():
-            old_bitmask = 1 << old_bit
-            if old_bitmask == 2147483648:
-                # afw uses int32 masks, but relies on overflow wrapping, which
-                # numpy doesn't like.
-                old_bitmask = -2147483648
+            old_bitmask = _legacy_bitmask(old_bit)
             if new_plane := plane_map.get(old_name):
                 # Already added to 'planes' at initialization.
                 new_name_to_old_bitmask[new_plane.name] = old_bitmask
@@ -1199,7 +1204,7 @@ class Mask(GeneralizedImage):
             # Legacy ``lsst.afw.image`` form: bit indices in MP_* cards are
             # mapped to new planes via ``plane_map``.
             old_planes = MaskPlane.read_legacy(hdu.header, strip=strip_legacy_planes)
-            resolved_map = plane_map if plane_map is not None else _guess_legacy_plane_map(old_planes)
+            resolved_map = _resolve_legacy_plane_map(plane_map, old_planes, hdu.data)
             mask = Mask._from_legacy_array(
                 hdu.data, old_planes, yx0=yx0, plane_map=resolved_map, sky_projection=sky_projection
             )
@@ -1478,6 +1483,91 @@ def get_legacy_non_cell_coadd_mask_planes() -> dict[str, MaskPlane]:
     return result
 
 
+def get_legacy_template_mask_planes() -> dict[str, MaskPlane]:
+    """Return a mapping from legacy mask plane name to `MaskPlane` instance
+    for image differencing template images.
+
+    Returns
+    -------
+    plane_map : `dict` [`str`, `MaskPlane`]
+        Mapping from legacy mask plane name to the plane it becomes.
+    """
+    result = get_legacy_non_cell_coadd_mask_planes()
+    result["HIGH_VARIANCE"] = MaskPlane(
+        "HIGH_VARIANCE", "Template pixel had fewer-than-usual input epochs, leading to high noise."
+    )
+    return result
+
+
+def get_legacy_optional_mask_planes() -> dict[str, MaskPlane]:
+    """Return a mapping from legacy mask plane name to `MaskPlane` instance
+    for the planes that only some images carry.
+
+    Source injection defines these planes, but otherwise they are not used.
+
+    Returns
+    -------
+    plane_map : `dict` [`str`, `MaskPlane`]
+        Mapping from legacy mask plane name to the plane it becomes.
+    """
+    return {
+        "INJECTED": MaskPlane(
+            "INJECTED", "Pixel was affected by a synthetic source injected into the image."
+        ),
+        "INJECTED_CORE": MaskPlane(
+            "INJECTED_CORE", "Pixel is in the core of a synthetic source injected into the image."
+        ),
+        "INJECTED_TEMPLATE": MaskPlane(
+            "INJECTED_TEMPLATE", "Pixel was affected by a synthetic source injected into the template."
+        ),
+        "INJECTED_CORE_TEMPLATE": MaskPlane(
+            "INJECTED_CORE_TEMPLATE",
+            "Pixel is in the core of a synthetic source injected into the template.",
+        ),
+    }
+
+
+def _legacy_bitmask(old_bit: int) -> int:
+    """Return the bitmask that selects a legacy mask plane's bit."""
+    old_bitmask = 1 << old_bit
+    if old_bitmask == 2147483648:
+        # afw uses int32 masks, but relies on overflow wrapping, which
+        # numpy doesn't like.
+        old_bitmask = -2147483648
+    return old_bitmask
+
+
+def _resolve_legacy_plane_map(
+    plane_map: Mapping[str, MaskPlane] | None,
+    old_planes: Mapping[str, int],
+    array: np.ndarray,
+) -> dict[str, MaskPlane]:
+    """Return the plane map to convert a legacy mask array with.
+
+    Parameters
+    ----------
+    plane_map
+        Map given by the caller, or `None` to guess one from ``old_planes``.
+    old_planes
+        Mapping from legacy mask plane name to its bit index.
+    array
+        Legacy mask array, read to see which optional planes are in use.
+
+    Returns
+    -------
+    plane_map
+        The given (or guessed) map, plus the planes of
+        `get_legacy_optional_mask_planes` that ``array`` has pixels set in.
+    """
+    resolved = dict(plane_map) if plane_map is not None else _guess_legacy_plane_map(old_planes)
+    for old_name, plane in get_legacy_optional_mask_planes().items():
+        if old_name in resolved or (old_bit := old_planes.get(old_name)) is None:
+            continue
+        if np.any(array & _legacy_bitmask(old_bit)):
+            resolved[old_name] = plane
+    return resolved
+
+
 def _guess_legacy_plane_map(old_planes: Mapping[str, int]) -> dict[str, MaskPlane]:
     """Guess which of the ``get_legacy_*_plane_map`` created the given mask
     plane dictionary and call it.
@@ -1489,6 +1579,8 @@ def _guess_legacy_plane_map(old_planes: Mapping[str, int]) -> dict[str, MaskPlan
         # (assemble_coadd) coadds flag chip edges with SENSOR_EDGE; cell coadds
         # use CELL_EDGE.
         if "SENSOR_EDGE" in old_planes:
+            if "HIGH_VARIANCE" in old_planes:
+                return get_legacy_template_mask_planes()
             return get_legacy_non_cell_coadd_mask_planes()
         return get_legacy_deep_coadd_mask_planes()
     return get_legacy_visit_image_mask_planes()
