@@ -9,6 +9,27 @@ Schema versioning
 Every serialized ``lsst.images`` data product records enough version information to answer one question on read: *can this release safely interpret these bytes?*
 This page describes the scheme, what it writes, and how to evolve a schema over time.
 
+.. note::
+
+   Quick reference: bumping a schema version
+
+   Rewrite schema versions in the code directly, then run admin commands.
+
+   If a development model is changing (``X.Y.Z.devN → X.Y.Z.dev(N+1)``), or a stable model is advancing to a development version (e.g. ``X.Y.Z → X.Y.(Z+1).dev0``):
+
+   .. code-block:: bash
+
+      lsst-images-admin fixtures refresh
+
+   If a development model is being stabilized (``X.Y.Z.devN → X.Y.Z``), or a stable model is being advanced with no development version (e.g. ``X.Y.Z → X.Y.(Z+1)``:
+
+   .. code-block:: bash
+
+      lsst-images-admin schemas write
+      lsst-images-admin fixtures freeze
+
+   Commit the frozen files and fixtures together.
+
 Two version axes
 ================
 
