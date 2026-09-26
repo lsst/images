@@ -451,6 +451,36 @@ def test_summary_stats_from_legacy_unknown_field() -> None:
         ObservationSummaryStats.from_legacy(FakeLegacy(notARealField=1.0))
 
 
+def test_summary_stats_legacy_butler_read(reset_afw_mask_planes: None) -> None:  # noqa: F811
+    """Test that a round-tripped ObservationSummaryStats can be read back as
+    a legacy afw ExposureSummaryStats via the converter registered on the
+    ExposureSummaryStats storage class.
+    """
+    from lsst.afw.image import ExposureSummaryStats as LegacyExposureSummaryStats
+
+    summary_stats = ObservationSummaryStats(psfSigma=2.5, zeroPoint=31.4)
+    with RoundtripFits(summary_stats, storage_class="ObservationSummaryStats") as roundtrip:
+        legacy_stats = roundtrip.get(storageClass="ExposureSummaryStats")
+        assert isinstance(legacy_stats, LegacyExposureSummaryStats)
+        assert legacy_stats.psfSigma == 2.5
+        assert legacy_stats.zeroPoint == 31.4
+        assert ObservationSummaryStats.from_legacy(legacy_stats) == summary_stats
+
+
+def test_detector_legacy_butler_read(reset_afw_mask_planes: None) -> None:  # noqa: F811
+    """Test that a round-tripped Detector (written under the DetectorV2
+    storage class) can be read back as a legacy lsst.afw.cameraGeom.Detector
+    via the converter registered on the Detector storage class.
+    """
+    from lsst.afw.cameraGeom import Detector as LegacyDetector
+
+    detector = read_archive(os.path.join(LOCAL_DATA_DIR, "detector.json"), Detector)
+    with RoundtripFits(detector, storage_class="DetectorV2") as roundtrip:
+        legacy_detector = roundtrip.get(storageClass="Detector")
+        assert isinstance(legacy_detector, LegacyDetector)
+        compare_detector_to_legacy(detector, legacy_detector, is_raw_assembled=True)
+
+
 def test_repeated_metadata_keys_legacy_round_trip(
     visit_image_components: dict[str, Any],
     reset_afw_mask_planes: None,  # noqa: F811
