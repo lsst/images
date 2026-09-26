@@ -239,7 +239,8 @@ class AmplifierCalibrations(pydantic.BaseModel, ser_json_inf_nan="constants"):
     def __eq__(self, other: object) -> bool:
         if type(other) is not AmplifierCalibrations:
             return NotImplemented
-        # ``suspect_level`` is a float whose "unset" sentinel is ``NaN``;
+        # ``suspect_level`` is a float whose "unset" sentinel is ``NaN``,
+        # and unused ``linearity_coefficients`` entries are ``NaN``;
         # treat NaN==NaN as equal here so a round-tripped calibration
         # block does not spuriously compare unequal to its source.
         return (
@@ -250,7 +251,7 @@ class AmplifierCalibrations(pydantic.BaseModel, ser_json_inf_nan="constants"):
                 self.suspect_level == other.suspect_level
                 or (np.isnan(self.suspect_level) and np.isnan(other.suspect_level))
             )
-            and np.array_equal(self.linearity_coefficients, other.linearity_coefficients)
+            and np.array_equal(self.linearity_coefficients, other.linearity_coefficients, equal_nan=True)
             and self.linearity_type == other.linearity_type
         )
 

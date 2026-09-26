@@ -14,10 +14,17 @@ from __future__ import annotations
 import os
 from typing import Any
 
+import numpy as np
 import pytest
 
 from lsst.images import YX
-from lsst.images.cameras import Amplifier, AmplifierRawGeometry, Detector, ReadoutCorner
+from lsst.images.cameras import (
+    Amplifier,
+    AmplifierCalibrations,
+    AmplifierRawGeometry,
+    Detector,
+    ReadoutCorner,
+)
 from lsst.images.describe import DescribableMixin, Report
 from lsst.images.serialization import read_archive
 from lsst.images.tests import (
@@ -199,6 +206,24 @@ def _make_legacy_amplifier(*, has_prescan: bool) -> Any:
     builder.setRawFlipX(True)
     builder.setRawXYOffset(Extent2I(0, 0))
     return builder.finish()
+
+
+def test_amplifier_calibrations_nan_sentinels_equal() -> None:
+    """Test that two calibrations whose NaN sentinels (an unset suspect
+    level, unused linearity coefficients) survived a JSON round trip
+    compare equal, so a round-tripped block does not spuriously compare
+    unequal to its source.
+    """
+    calibrations = AmplifierCalibrations(
+        gain=3.43,
+        read_noise=1.5,
+        saturation=50000.0,
+        suspect_level=np.nan,
+        linearity_coefficients=np.array([1.6e-7, 0.0, np.nan, np.nan]),
+        linearity_type="Squared",
+    )
+    round_tripped = AmplifierCalibrations.model_validate_json(calibrations.model_dump_json())
+    assert round_tripped == calibrations
 
 
 def test_amplifier_with_full_raw_geometry(reset_afw_mask_planes: None) -> None:  # noqa: F811
