@@ -651,7 +651,7 @@ class VisitImage(MaskedImage):
         if plane_map is None:
             plane_map = get_legacy_visit_image_mask_planes()
         md = legacy.getMetadata()
-        obs_info = _obs_info_from_md(md, visit_info=legacy.info.getVisitInfo())
+        obs_info, md = _obs_info_from_md(md, visit_info=legacy.info.getVisitInfo())
         instrument = _extract_or_check_header(
             "LSST BUTLER DATAID INSTRUMENT", instrument, md, obs_info.instrument, str
         )
@@ -890,7 +890,7 @@ class VisitImage(MaskedImage):
         filter_label = reader.readFilter()
         with astropy.io.fits.open(filename) as hdu_list:
             primary_header = hdu_list[0].header
-            obs_info = _obs_info_from_md(primary_header)
+            obs_info, _ = _obs_info_from_md(primary_header)
             obs_info = _update_obs_info_from_legacy(obs_info, legacy_detector, filter_label)
             if component == "obs_info":
                 return obs_info
@@ -1067,7 +1067,9 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
 
 def _obs_info_from_md(
     md: MutableMapping[str, Any], visit_info: LegacyVisitInfo | None = None
-) -> ObservationInfo:
+) -> tuple[ObservationInfo, MutableMapping[str, Any]]:
+    # Returns the ObservationInfo and the metadata it came from.
+
     # Try to get an ObservationInfo from the primary header as if
     # it's a raw header. Else fallback.
     obs_info: ObservationInfo | None
@@ -1077,7 +1079,7 @@ def _obs_info_from_md(
         # Not a known translator.
         obs_info = None
     if obs_info is not None and obs_info.datetime_begin is not None and obs_info.datetime_end is not None:
-        return obs_info
+        return obs_info, md
 
     # Either there was no translator for this header, or there was one but it
     # could not find the observation times. Writing an Exposure to FITS moves
@@ -1106,7 +1108,7 @@ def _obs_info_from_md(
     # no way to disable those without capturing them.
     from_visit_info = ObservationInfo.from_header(md, translator_class=VisitInfoTranslator, quiet=True)
     if obs_info is None:
-        return from_visit_info
+        return from_visit_info, md
 
     # Keep everything the instrument translator did find, and take only what
     # it was missing from the VisitInfo.
@@ -1121,7 +1123,7 @@ def _obs_info_from_md(
     for name in ("exposure_time", "dark_time"):
         if getattr(obs_info, name) is None and getattr(from_visit_info, name) is not None:
             updates[name] = getattr(from_visit_info, name)
-    return obs_info.model_copy(update=updates) if updates else obs_info
+    return (obs_info.model_copy(update=updates) if updates else obs_info), md
 
 
 def _update_obs_info_from_legacy(
