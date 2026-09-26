@@ -27,6 +27,9 @@ __all__ = (
     "PointerModel",
     "PrecompressedImage",
     "add_offset_wcs",
+    "header_from_legacy",
+    "header_to_legacy",
+    "parse_legacy_bunit",
     "read_offset_wcs",
     "read_yx0",
     "strip_butler_cards",
@@ -43,7 +46,7 @@ import re
 import string
 import warnings
 from collections.abc import Iterator
-from typing import Any, ClassVar, Self, final
+from typing import TYPE_CHECKING, Any, ClassVar, Self, final
 
 import astropy.io.fits
 import astropy.io.fits.verify
@@ -52,6 +55,15 @@ import pydantic
 
 from .._geom import YX, Box
 from ..serialization import ArchiveReadError, OpaqueArchiveMetadata, TableColumnModel
+
+if TYPE_CHECKING:
+    try:
+        from lsst.daf.base import PropertyList as LegacyPropertyList
+        from lsst.daf.base import PropertySet as LegacyPropertySet
+    except ImportError:
+        type LegacyPropertyList = Any  # type: ignore[no-redef]
+        type LegacyPropertySet = Any  # type: ignore[no-redef]
+
 
 type ExtensionHDU = astropy.io.fits.ImageHDU | astropy.io.fits.CompImageHDU | astropy.io.fits.BinTableHDU
 
@@ -646,3 +658,95 @@ def strip_butler_cards(header: astropy.io.fits.Header) -> None:
     for key in list(header):
         if key.startswith("LSST BUTLER"):
             del header[key]
+
+
+def parse_legacy_bunit(
+    bunit: str, instrumental_unit: astropy.units.UnitBase | None = None
+) -> astropy.units.UnitBase:
+    """Handle a BUNIT value written by lsst.afw or LSST-supported instruments.
+
+    Parameters
+    ----------
+    bunit
+        BUNIT FITS header card value.
+    instrumental_unit
+        The correct instrumental unit for this instrument's post-ISR images.
+        Should only be passed if this *is* a post-ISR image.
+
+    Notes
+    -----
+    This works around two problems with the FITS BUNIT headers:
+
+    - At least according to Astropy, BUNIT='ADU' is not valid but 'adu' is.
+    - Some files are written with BUNIT='adu' when the LSSTCam ISR's output
+      units are 'electron'.
+    """
+    bunit = bunit.replace("ADU", "adu")
+    try:
+        unit = astropy.units.Unit(bunit, format="fits")
+    except ValueError:
+        # Accept non-FITS units by assuming Astropy can still figure
+        # them out if we don't specify the format.
+        unit = astropy.units.Unit(bunit)
+    # Fix incorrect BUNIT='adu' in LSST preliminary_visit_image, accounting
+    # for variance planes with squared units as well.
+    if unit == astropy.units.adu and instrumental_unit == astropy.units.electron:
+        unit = astropy.units.electron
+    if unit == astropy.units.adu**2 and instrumental_unit == astropy.units.electron:
+        unit = astropy.units.electron**2
+    return unit
+
+
+def header_from_legacy(ps: LegacyPropertySet) -> astropy.io.fits.Header:
+    """Convert a legacy `lsst.daf.base.PropertySet` that represents a FITS
+    header into an `astropy.io.fits.Header` instance.
+
+    Parameters
+    ----------
+    ps
+        Input FITS header.
+    """
+    header = astropy.io.fits.Header()
+    with warnings.catch_warnings():
+        # Silence warnings about long keys becoming HIERARCH.
+        warnings.simplefilter("ignore", category=astropy.io.fits.verify.VerifyWarning)
+        for name in ps.getOrderedNames():
+            # Some keys may be set more than once.
+            # Write one card per value in those cases.
+            for value in ps.getArray(name):
+                header.append((name, value), end=True)
+    return header
+
+
+def header_to_legacy(header: astropy.io.fits.Header) -> LegacyPropertyList:
+    """Convert an `astropy.io.fits.Header` instance to an
+    `lsst.daf.base.PropertyList`.
+
+    Blank cards and cards with values that cannot be represented in
+    legacy metadata (unparsable values, `astropy.io.fits.card.Undefined`
+    values, and value-less comment-only cards) are skipped.
+
+    Parameters
+    ----------
+    header
+        Input FITS header.
+    """
+    from lsst.daf.base import PropertyList as LegacyPropertyList
+
+    result = LegacyPropertyList()
+    for card in header.cards:
+        if not card.keyword:
+            # Skip blanks
+            continue
+        try:
+            value = card.value
+        except astropy.io.fits.verify.VerifyError:
+            # Values astropy cannot parse (e.g. from unterminated quoted
+            # strings) have no representation in legacy metadata.
+            continue
+        if value is None or isinstance(value, astropy.io.fits.card.Undefined):
+            # Value-less cards (e.g. "SEEING =" or "FOO / comment") have
+            # no keyed value to store.
+            continue
+        result.add(card.keyword, value, card.comment)
+    return result
