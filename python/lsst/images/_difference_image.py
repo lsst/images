@@ -396,7 +396,7 @@ class DifferenceImage(VisitImage):
         plane_map
             A mapping from legacy mask plane name to the new plane name and
             description.  If `None` (default),
-            `get_legacy_visit_image_mask_planes` is used.
+            `get_legacy_difference_image_mask_planes` is used.
         """
         if plane_map is None:
             plane_map = get_legacy_difference_image_mask_planes()
