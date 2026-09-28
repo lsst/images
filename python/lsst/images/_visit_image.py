@@ -815,6 +815,7 @@ class VisitImage(MaskedImage):
             "summary_stats",
             "aperture_corrections",
             "bounds",
+            "unit",
         ]
         | None = None,
     ) -> Any:
@@ -893,6 +894,7 @@ class VisitImage(MaskedImage):
             "obs_info",
             "detector",
             "photometric_scaling",
+            "unit",
         ), component  # for MyPy
         visit_info = legacy_exposure_info.getVisitInfo()
         if visit_info is None:
@@ -917,6 +919,10 @@ class VisitImage(MaskedImage):
             # this opaque_metadata down to MaskedImage._read_legacy_hdus
             # so it doesn't try to extract it again.
             metadata = opaque_metadata.extract_legacy_primary_header(primary_header)
+            if component == "unit":
+                if (fits_unit := hdu_list[1].header.get("BUNIT")) is None:
+                    return None
+                return parse_legacy_bunit(fits_unit, opaque_metadata.get_instrumental_unit())
             if (instrumental_unit := opaque_metadata.get_instrumental_unit()) is None:
                 instrumental_unit = astropy.units.electron
             photometric_scaling: Field | None = None

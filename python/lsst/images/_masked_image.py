@@ -603,6 +603,11 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         """The bounding box of the image."""
         return self.image.bbox
 
+    @property
+    def unit(self) -> astropy.units.UnitBase | None:
+        """The units of the image plane, if any."""
+        return self.image.unit
+
     def deserialize(
         self, archive: InputArchive[Any], *, bbox: Box | None = None, **kwargs: Any
     ) -> MaskedImage:
@@ -629,8 +634,8 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         )._finish_deserialize(self)
 
     def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
-        if component == "bbox" and kwargs:
+        if component in ("bbox", "unit") and kwargs:
             raise InvalidParameterError(
-                f"Unrecognized parameters for MaskedImage.bbox: {set(kwargs.keys())}."
+                f"Unrecognized parameters for MaskedImage.{component}: {set(kwargs.keys())}."
             )
         return super().deserialize_component(component, archive, **kwargs)
