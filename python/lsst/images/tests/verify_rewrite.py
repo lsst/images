@@ -34,7 +34,6 @@ from lsst.images import (
 )
 from lsst.images.convolution_kernels import ConvolutionKernel
 from lsst.images.tests import (
-    annotate_errors,
     assert_obs_metadata_fields_equal,
     compare_masked_image_to_legacy,
     compare_visit_image_to_legacy,
@@ -275,6 +274,12 @@ class RewriteVerifier:
             _check_backgrounds(new.backgrounds, new.bbox, expected=expected_backgrounds)
 
     def _check_obs_info(self, new: Any, old: Any, data_id: DataCoordinate) -> None:
+        """Compare the new dataset's ObservationInfo against one re-derived
+        from the legacy exposure and the repo's exposure dimension record.
+
+        All mismatching fields are collected and reported together so that
+        one early failure cannot hide the rest.
+        """
         record = self._exposure_records.get(cast(int, data_id["visit"]))
         if record is None:
             raise AssertionError("no exposure record for visit")
@@ -284,15 +289,32 @@ class RewriteVerifier:
             old.getDetector(),
             detector_exposure_id=old.info.getId(),
         )
+        mismatches: list[str] = []
         for field in ObservationInfo.model_fields:
             if field == "warnings":
                 # Translator diagnostics are not part of the science
                 # metadata and need not round-trip.
                 continue
-            with annotate_errors(field):
-                assert_obs_metadata_fields_equal(
-                    getattr(new.obs_info, field), getattr(expected, field), label=field
-                )
+            actual_value = getattr(new.obs_info, field, None)
+            expected_value = getattr(expected, field, None)
+            if actual_value is None and expected_value is None:
+                continue
+            if actual_value is None or expected_value is None:
+                mismatches.append(f"{field}: {actual_value!r} != {expected_value!r}")
+                continue
+            try:
+                assert_obs_metadata_fields_equal(actual_value, expected_value, label=field)
+            except Exception as err:
+                detail = str(err)
+                if not detail.startswith(f"{field}:"):
+                    detail = f"{field}: {detail}"
+                if notes := getattr(err, "__notes__", ()):
+                    detail += f" ({' -> '.join(notes)})"
+                mismatches.append(detail)
+        if mismatches:
+            raise AssertionError(
+                f"{len(mismatches)} ObservationInfo field(s) differ: " + "; ".join(mismatches)
+            )
 
     def require_compressed(self, data_id: DataCoordinate) -> None:
         ref = self.butler.find_dataset(f"{self.new_prefix}{self.base_dataset_type}", data_id)
