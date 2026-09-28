@@ -370,7 +370,7 @@ class DifferenceImage(VisitImage):
             key will be used, if available.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
-            description.  If `None` (default)
+            description.  If `None` (default),
             `get_legacy_difference_image_mask_planes` is used.
         """
         if plane_map is None:
@@ -444,7 +444,7 @@ class DifferenceImage(VisitImage):
             not transferred to the copy.
         plane_map
             A mapping from legacy mask plane name to the new plane name and
-            description.  If `None` (default)
+            description.  If `None` (default),
             `get_legacy_difference_image_mask_planes` is used.
         component
             A component to read instead of the full image.
@@ -522,6 +522,25 @@ class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constant
             The name of the coadd template dataset type.
         log
             Logger to use for diagnostic messages.
+
+        Returns
+        -------
+        `list` [`DifferenceImageTemplateInfo`]
+            One struct for each input coadd that overlaps the science image,
+            sorted by tract and patch.
+
+        Raises
+        ------
+        KeyError
+            Raised if a PSF component's ``(tract, patch)`` has no matching
+            input coadd in the metadata, or if an input coadd's dataset ID is
+            missing from ``coadd_data_ids_by_uuid``.
+        RuntimeError
+            Raised if the input coadds come from more than one skymap.
+
+        See Also
+        --------
+        from_legacy_psf
         """
         n_inputs = legacy_template_metadata["LSST BUTLER N_INPUTS"]
         butler_info: dict[tuple[int, int], tuple[uuid.UUID, str]] = {}
@@ -570,6 +589,22 @@ class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constant
             coadds that contributed to the template.
         log
             Logger to use for diagnostic messages.
+
+        Returns
+        -------
+        `list` [`DifferenceImageTemplateInfo`]
+            One struct for each input coadd that overlaps the science image,
+            sorted by tract and patch.
+
+        Raises
+        ------
+        KeyError
+            Raised if a PSF component's ``(tract, patch)`` is missing from
+            ``butler_info``.
+
+        See Also
+        --------
+        from_legacy
 
         Notes
         -----

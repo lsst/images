@@ -1053,9 +1053,16 @@ class Mask(GeneralizedImage):
             A mapping from legacy mask plane name to the new plane name and
             description.  If not provided, the right legacy mask plane will be
             guessed, but this can depend on which mask planes the legacy
-            mask actually has set.
+            mask actually has set.  Planes from
+            `get_legacy_optional_mask_planes` are added when the legacy mask
+            defines them and has pixels set in them.
         sky_projection
-            Projection from pixels to xky.
+            Projection from pixels to sky.
+
+        Returns
+        -------
+        `Mask`
+            Converted mask.
         """
         return Mask._from_legacy_array(
             legacy.array,
@@ -1074,7 +1081,14 @@ class Mask(GeneralizedImage):
         ----------
         plane_map
             A mapping from legacy mask plane name to the new plane name and
-            description.
+            description.  Schema planes the map does not name are written
+            under their own names.  If not provided, every schema plane is
+            written under its own name.
+
+        Returns
+        -------
+        `lsst.afw.image.Mask`
+            Converted mask.
         """
         import lsst.afw.image
         import lsst.geom
@@ -1093,8 +1107,7 @@ class Mask(GeneralizedImage):
             if new_plane in self.schema:
                 result.array[self.get(new_plane.name)] |= old_bitmask
                 written.add(new_plane.name)
-        # Preserve additional mask planes defined in addition to the base
-        # mapping
+        # Write schema planes the map does not name under their own names.
         for plane in self.schema:
             if plane is None or plane.name in written:
                 continue
@@ -1148,13 +1161,20 @@ class Mask(GeneralizedImage):
             A mapping from legacy mask plane name to the new plane name and
             description.  If not provided, the right legacy mask plane will be
             guessed, but this can depend on which mask planes the legacy
-            mask actually has set.
+            mask actually has set.  Planes from
+            `get_legacy_optional_mask_planes` are added when the legacy mask
+            defines them and has pixels set in them.
         ext
             Name or index of the FITS HDU to read.
         fits_wcs_frame
             If not `None` and the HDU containing the mask has a FITS WCS,
             attach a `SkyProjection` to the returned mask by converting that
             WCS.
+
+        Returns
+        -------
+        `Mask`
+            Mask read from the file.
         """
         opaque_metadata = fits.FitsOpaqueMetadata()
         fs, fspath = ResourcePath(uri).to_fsspec()
@@ -1495,7 +1515,7 @@ def get_legacy_template_mask_planes() -> dict[str, MaskPlane]:
     """
     result = get_legacy_non_cell_coadd_mask_planes()
     result["HIGH_VARIANCE"] = MaskPlane(
-        "HIGH_VARIANCE", "Template pixel had fewer-than-usual input epochs, leading to high noise."
+        "HIGH_VARIANCE", "Template pixel had fewer-than-usual input epochs and hence high noise."
     )
     return result
 
