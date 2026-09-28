@@ -419,6 +419,8 @@ class DifferenceImage(VisitImage):
             "obs_info",
             "summary_stats",
             "aperture_corrections",
+            "bounds",
+            "unit",
         ]
         | None = None,
     ) -> Any:

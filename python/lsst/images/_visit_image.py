@@ -814,6 +814,7 @@ class VisitImage(MaskedImage):
             "obs_info",
             "summary_stats",
             "aperture_corrections",
+            "bounds",
         ]
         | None = None,
     ) -> Any:
@@ -845,6 +846,13 @@ class VisitImage(MaskedImage):
         reader = ExposureFitsReader(filename)
         if component == "bbox":
             return Box.from_legacy(reader.readBBox())
+        if component == "bounds":
+            bbox = Box.from_legacy(reader.readBBox())
+            if (legacy_polygon := reader.readValidPolygon()) is None:
+                return bbox
+            # Clip to the image, as the VisitImage constructor does.
+            bounds = Polygon.from_legacy(legacy_polygon)
+            return bounds if bbox.contains(bounds.bbox) else bounds.intersection(bbox)
         legacy_detector = reader.readDetector()
         if legacy_detector is None:
             raise ValueError(f"Exposure file {filename!r} does not have a Detector.")
@@ -1067,6 +1075,8 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
             )
         if component == "masked_image":
             return super().deserialize(archive, **kwargs)
+        if component == "bounds":
+            return self.bounds.deserialize() if self.bounds is not None else self.bbox
         return super().deserialize_component(component, archive, **kwargs)
 
 
