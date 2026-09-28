@@ -44,13 +44,14 @@ from lsst.images import (
     get_legacy_visit_image_mask_planes,
     json,
 )
+from lsst.images import fits as images_fits
 from lsst.images.aperture_corrections import ApertureCorrectionMap, aperture_corrections_to_legacy
 from lsst.images.cameras import Detector
 from lsst.images.describe import DescribableMixin, DescribeOptions, FieldRole, Report
 from lsst.images.fields import ChebyshevField, SplineField, SumField, field_from_legacy_photo_calib
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
 from lsst.images.psfs import GaussianPointSpreadFunction, PointSpreadFunction
-from lsst.images.serialization import ArchiveReadError, read_archive
+from lsst.images.serialization import ArchiveReadError, open_archive, read_archive
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
@@ -715,6 +716,21 @@ def test_read_write(visit_image_components: dict[str, Any]) -> None:
     assert roundtrip.result.backgrounds.subtracted.description == "Background subtracted from the image."
 
 
+def test_read_bounds_and_unit_components(visit_image_components: dict[str, Any], tmp_path: Path) -> None:
+    """Verify that the bounds and unit components match a full read, both
+    when the bounds are a polygon and when they default to the bbox.
+    """
+    for n, visit_image in enumerate(
+        [make_visit_image(visit_image_components), make_simplest_visit_image(visit_image_components)]
+    ):
+        path = tmp_path / f"visit_image_{n}.fits"
+        images_fits.write(visit_image, path)
+        with open_archive(path) as reader:
+            assert reader.get_component("bounds") == visit_image.bounds
+            assert reader.get_component("unit") == visit_image.unit
+    assert isinstance(make_visit_image(visit_image_components).bounds, Polygon)
+
+
 def test_read_write_components(visit_image_components: dict[str, Any]) -> None:
     """Verify component reads and storage-class overrides round-trip correctly.
 
@@ -738,6 +754,8 @@ def test_read_write_components(visit_image_components: dict[str, Any]) -> None:
         assert_masked_images_equal(components["masked_image"], subimage_masked, expect_view=False)
 
         assert roundtrip.get("bbox") == visit_image.bbox
+        assert roundtrip.get("bounds") == visit_image.bounds
+        assert roundtrip.get("unit") == visit_image.unit
 
         obs_info = roundtrip.get("obs_info")
         assert isinstance(obs_info, ObservationInfo)
@@ -776,6 +794,8 @@ def test_read_write_components(visit_image_components: dict[str, Any]) -> None:
             "sky_projection",
             "summary_stats",
             "photometric_scaling",
+            "bounds",
+            "unit",
         }
 
         # Butler morphs RuntimeError to ValueError.
@@ -1069,6 +1089,18 @@ def test_component_reads(legacy_test_data: _LegacyTestData) -> None:
         legacy_test_data.legacy_exposure.getPhotoCalib(),
         subimage_bbox=visit.bbox,
     )
+    bounds = VisitImage.read_legacy(
+        legacy_test_data.filename,
+        exposure_record=legacy_test_data.exposure_record,
+        component="bounds",
+    )
+    assert bounds == visit.bounds
+    unit = VisitImage.read_legacy(
+        legacy_test_data.filename,
+        exposure_record=legacy_test_data.exposure_record,
+        component="unit",
+    )
+    assert unit == visit.unit
 
 
 def test_legacy_obs_info(legacy_test_data: _LegacyTestData) -> None:
