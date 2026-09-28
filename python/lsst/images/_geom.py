@@ -41,6 +41,7 @@ from typing import (
     final,
     get_args,
     overload,
+    runtime_checkable,
 )
 
 import astropy.units as u
@@ -1384,6 +1385,8 @@ class BoxSliceFactory:
 Box.factory = BoxSliceFactory()
 
 
+# The @runtime_checkable decorator makes this work as a butler storage class
+@runtime_checkable
 class Bounds(Protocol):
     """A protocol for objects that represent the validity region for a function
     defined in 2-d pixel coordinates.
