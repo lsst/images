@@ -41,6 +41,7 @@ from lsst.images import (
     VisitImage,
     get_legacy_difference_image_mask_planes,
     get_legacy_visit_image_mask_planes,
+    json,
 )
 from lsst.images.aperture_corrections import ApertureCorrectionMap, aperture_corrections_to_legacy
 from lsst.images.cameras import Detector
@@ -623,6 +624,24 @@ def test_fits_json_consistency(visit_image_components: dict[str, Any]) -> None:
         assert_visit_images_equal(visit_image, fits_rt.result, expect_view=False)
         assert_visit_images_equal(visit_image, json_rt.result, expect_view=False)
         assert_visit_images_equal(fits_rt.result, json_rt.result, expect_view=False)
+
+
+def test_serialized_schema_version(visit_image_components: dict[str, Any]) -> None:
+    """The written tree's schema_version matches its schema_url.
+
+    The image, mask, and variance subtrees are stamped with their own
+    versions too.
+    """
+    visit_image = make_visit_image(visit_image_components)
+    tree = json.write(visit_image)
+    tree_type = type(tree)
+    assert tree.schema_version == tree_type.SCHEMA_VERSION
+    assert tree.min_read_version == tree_type.MIN_READ_VERSION
+    assert tree.schema_url.endswith(f"-{tree.schema_version}")
+    assert tree.model_dump()["schema_version"] == tree_type.SCHEMA_VERSION
+    for name in ("image", "mask", "variance"):
+        component = getattr(tree, name)
+        assert component.schema_version == type(component).SCHEMA_VERSION, name
 
 
 def test_read_write(visit_image_components: dict[str, Any]) -> None:

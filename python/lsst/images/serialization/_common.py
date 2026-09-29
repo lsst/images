@@ -162,6 +162,38 @@ class ArchiveTree(
         cls = type(self)
         return f"{cls.SCHEMA_URL_BASE}/{cls.SCHEMA_NAME}-{cls.SCHEMA_VERSION}"
 
+    # The pydantic mypy plugin synthesizes a per-model model_construct
+    # signature, which this override necessarily conflicts with.
+    @classmethod  # type: ignore[no-redef]
+    def model_construct(  # type: ignore[override]
+        cls, _fields_set: set[str] | None = None, **values: Any
+    ) -> Self:
+        """Construct a tree without validation, stamping the in-code schema
+        version.
+
+        The field defaults cannot know a subclass's ``SCHEMA_VERSION`` and
+        ``MIN_READ_VERSION``, and the validator that normally sets them does
+        not run here, so they are filled in from the class constants unless
+        given explicitly.
+
+        Parameters
+        ----------
+        _fields_set
+            Names of the fields to record as explicitly set; passed through
+            to `pydantic.BaseModel.model_construct`.
+        **values
+            Field values for the new tree.
+
+        Returns
+        -------
+        `ArchiveTree`
+            The constructed tree.
+        """
+        if hasattr(cls, "SCHEMA_NAME"):
+            values.setdefault("schema_version", cls.SCHEMA_VERSION)
+            values.setdefault("min_read_version", cls.MIN_READ_VERSION)
+        return super().model_construct(_fields_set, **values)
+
     @pydantic.model_validator(mode="before")
     @classmethod
     def _migrate_from_older_major(cls, data: Any, info: pydantic.ValidationInfo) -> Any:
