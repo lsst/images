@@ -457,7 +457,7 @@ class CellCoadd(MaskedImage):
             patch=self._patch,
             provenance=serialized_provenance,
             backgrounds=serialized_backgrounds,
-            metadata=self.metadata,
+            metadata=self._metadata,
         )
 
     @staticmethod

@@ -990,7 +990,7 @@ class Mask(GeneralizedImage):
             planes=list(self.schema),
             dtype=serialized_dtype,
             sky_projection=serialized_projection,
-            metadata=self.metadata,
+            metadata=self._metadata,
         )
 
     def _serialize_2d[P: pydantic.BaseModel](
@@ -1154,11 +1154,12 @@ class Mask(GeneralizedImage):
         opaque_metadata = fits.FitsOpaqueMetadata()
         fs, fspath = ResourcePath(uri).to_fsspec()
         with fs.open(fspath) as stream, astropy.io.fits.open(stream) as hdu_list:
-            opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
+            native_metadata = opaque_metadata.extract_legacy_primary_header(hdu_list[0].header)
             result = Mask._read_legacy_hdu(
                 hdu_list[ext], opaque_metadata, plane_map=plane_map, fits_wcs_frame=fits_wcs_frame
             )
             result._opaque_metadata = opaque_metadata
+            result._metadata = native_metadata
         return result
 
     @staticmethod
