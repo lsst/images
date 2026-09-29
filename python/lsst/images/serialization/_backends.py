@@ -179,6 +179,11 @@ def _backend_for_format(name: str) -> Backend | None:
             from ..json import write as json_write
 
             return Backend("json", json_write, JsonInputArchive)
+        case "zarr":
+            from ..zarr import ZarrInputArchive
+            from ..zarr import write as zarr_write
+
+            return Backend("zarr", zarr_write, ZarrInputArchive)
     return None
 
 
@@ -188,7 +193,8 @@ def backend_for_name(name: str) -> Backend:
     Parameters
     ----------
     name
-        Backend format name: ``"fits"``, ``"ndf"``, or ``"json"``.
+        Backend format name: ``"fits"``, ``"ndf"``, ``"json"``, or
+        ``"zarr"``.
 
     Raises
     ------
@@ -197,7 +203,9 @@ def backend_for_name(name: str) -> Backend:
     """
     backend = _backend_for_format(name)
     if backend is None:
-        raise ValueError(f"Unrecognized format name: {name!r}; expected one of 'fits', 'ndf', 'json'.")
+        raise ValueError(
+            f"Unrecognized format name: {name!r}; expected one of 'fits', 'ndf', 'json', 'zarr'."
+        )
     return backend
 
 
@@ -206,9 +214,9 @@ def backend_for_path(path: ResourcePathExpression) -> Backend:
 
     Supported extensions: ``.fits`` (FITS), ``.h5`` / ``.sdf`` (NDF), and
     ``.json`` (JSON), each optionally followed by a ``.gz`` or ``.zst``
-    compression suffix.  The NDF and FITS backends are imported lazily so
-    optional dependencies (e.g. ``h5py``) are only required when actually
-    used.
+    compression suffix, plus ``.zarr`` / ``.zarr.zip`` (zarr).  The NDF,
+    FITS, and zarr backends are imported lazily so optional dependencies
+    (e.g. ``h5py``, ``zarr``) are only required when actually used.
 
     Parameters
     ----------
@@ -222,6 +230,11 @@ def backend_for_path(path: ResourcePathExpression) -> Backend:
     """
     uri = ResourcePath(path)
     name = uri.basename()
+    if not name:
+        # A directory store (e.g. a zarr directory) is a directory URI
+        # with a trailing slash and hence an empty basename; recover the
+        # directory's own name so its extension can be inspected.
+        name = uri.path.rstrip("/").rsplit("/", 1)[-1]
     for suffix in _COMPRESSION_SUFFIXES:
         if name.endswith(suffix):
             name = name.removesuffix(suffix)
@@ -233,11 +246,17 @@ def backend_for_path(path: ResourcePathExpression) -> Backend:
             return backend_for_name("ndf")
         case ".json":
             return backend_for_name("json")
+        # A zip zarr store is a ``.zarr.zip`` path, but ``.zip`` is not a
+        # compression suffix stripped above, so ``os.path.splitext``
+        # reports such a path's extension as ``.zip``.  The zarr store
+        # layer re-derives directory-vs-zip from the full path.
+        case ".zarr" | ".zip":
+            return backend_for_name("zarr")
         case ext:
             raise ValueError(
                 f"Unrecognized file extension: {ext!r} from {uri!r}; "
-                "expected one of .fits, .h5, .sdf, .json, optionally with "
-                "a .gz or .zst compression suffix."
+                "expected one of .fits, .h5, .sdf, .json (optionally with "
+                "a .gz or .zst compression suffix), .zarr, or .zarr.zip."
             )
 
 
