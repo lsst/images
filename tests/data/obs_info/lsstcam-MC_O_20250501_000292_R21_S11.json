@@ -1,0 +1,62 @@
+{
+  "_translator": "LSSTCam",
+  "telescope": "Simonyi Survey Telescope",
+  "instrument": "LSSTCam",
+  "location": [
+    1818938.94,
+    -5208470.95,
+    -3195172.08
+  ],
+  "exposure_id": 2025050100292,
+  "visit_id": 3260771398100000,
+  "physical_filter": "i_39",
+  "datetime_begin": [
+    2460798.0,
+    -0.45881626894697547
+  ],
+  "datetime_end": [
+    2460798.0,
+    -0.4584581134259259
+  ],
+  "exposure_time": 30.001066207885742,
+  "exposure_time_requested": 30.0,
+  "dark_time": 30.9444,
+  "boresight_airmass": 1.370205213364271,
+  "boresight_rotation_angle": 124.03552216889216,
+  "boresight_rotation_coord": "sky",
+  "detector_num": 85,
+  "detector_name": "S11",
+  "detector_unique_name": "R21_S11",
+  "detector_serial": "E2V-CCD250-366",
+  "detector_group": "R21",
+  "detector_exposure_id": 46967891029,
+  "focus_z": -0.0035823220650403774,
+  "object": "M49",
+  "temperature": 283.1875003814697,
+  "pressure": 743.75,
+  "relative_humidity": 26.475000381469727,
+  "tracking_radec": [
+    186.8470826394098,
+    7.0179165676165285
+  ],
+  "altaz_begin": [
+    34.6082030198326,
+    46.8208297544062
+  ],
+  "altaz_end": [
+    34.4439189934823,
+    46.8846329461454
+  ],
+  "science_program": "BLOCK-365",
+  "observation_type": "science",
+  "observation_id": "MC_O_20250501_000292",
+  "observation_reason": "field_survey_science",
+  "exposure_group": "2025-05-02T00:58:59.810",
+  "observing_day": 20250501,
+  "observing_day_offset": 43200,
+  "observation_counter": 292,
+  "has_simulated_content": false,
+  "group_counter_start": 292,
+  "group_counter_end": 292,
+  "can_see_sky": true
+}

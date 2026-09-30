@@ -126,6 +126,12 @@ class GaussianPointSpreadFunction(PointSpreadFunction):
         yi = round_half_up(y)
         return Box.factory[yi - r : yi + r + 1, xi - r : xi + r + 1]
 
+    def to_legacy(self) -> Any:
+        """Convert to a legacy `lsst.afw.detection.GaussianPsf`."""
+        from lsst.afw.detection import GaussianPsf
+
+        return GaussianPsf(self._stamp_size, self._stamp_size, self.sigma)
+
     def serialize(self, archive: serialization.OutputArchive[Any]) -> GaussianPSFSerializationModel:
         return GaussianPSFSerializationModel(
             sigma=self.sigma, stamp_size=self._stamp_size, bounds=self._bounds.serialize()

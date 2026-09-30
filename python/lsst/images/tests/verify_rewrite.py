@@ -15,12 +15,13 @@ __all__ = ()
 
 import random
 from collections.abc import Iterable, Sequence
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import astropy.io.fits
 import click
 import fsspec
 import numpy as np
+from astro_metadata_translator import ObservationInfo
 
 from lsst.images import (
     BackgroundMap,
@@ -29,14 +30,19 @@ from lsst.images import (
     DifferenceImageTemplateInfo,
     VisitImage,
     get_legacy_difference_image_mask_planes,
+    obs_info_from_legacy,
 )
 from lsst.images.convolution_kernels import ConvolutionKernel
-from lsst.images.tests import compare_masked_image_to_legacy, compare_visit_image_to_legacy
+from lsst.images.tests import (
+    assert_obs_metadata_fields_equal,
+    compare_masked_image_to_legacy,
+    compare_visit_image_to_legacy,
+)
 
 if TYPE_CHECKING:
     import tqdm
 
-    from lsst.daf.butler import Butler, DataCoordinate
+    from lsst.daf.butler import Butler, DataCoordinate, DimensionRecord
 
 
 # These defaults match the rewrite tasks used for DP2 in pipe_tasks. That makes
@@ -110,6 +116,14 @@ def _check_backgrounds(backgrounds: BackgroundMap, bbox: Box, *, expected: Seque
 @click.option(
     "--check-backgrounds/--no-check-backgrounds", default=True, help="Sanity-check attached backgrounds."
 )
+@click.option(
+    "--check-obs-info/--no-check-obs-info",
+    default=True,
+    help=(
+        "Check the new dataset's ObservationInfo against one re-derived from the legacy "
+        "exposure and the repo's exposure dimension record."
+    ),
+)
 def verify_rewrite(
     *,
     repo: str,
@@ -122,6 +136,7 @@ def verify_rewrite(
     check_kernel: bool,
     check_templates: bool,
     check_backgrounds: bool,
+    check_obs_info: bool,
 ) -> None:  # numpydoc ignore=PR01
     """Compare rewritten images in COLLECTION against the originals in
     COLLECTION of REPO.
@@ -142,6 +157,7 @@ def verify_rewrite(
                 check_kernel=check_kernel,
                 check_templates=check_templates,
                 check_backgrounds=check_backgrounds,
+                check_obs_info=check_obs_info,
             )
             if require_compressed:
                 verifier.require_compressed(data_id)
@@ -165,6 +181,7 @@ class RewriteVerifier:
         self.new_prefix = new_prefix
         self._progress: tqdm.tqdm | None = None
         self._n_problems = 0
+        self._exposure_records: dict[int, DimensionRecord] = {}
 
     def _report_problem(self) -> None:
         self._n_problems += 1
@@ -178,6 +195,7 @@ class RewriteVerifier:
 
         old_dataset_type = self.butler.get_dataset_type(f"{self.old_prefix}{self.base_dataset_type}")
         dimension_group = old_dataset_type.dimensions.union(self.butler.dimensions.conform(dimensions))
+        visit_group = self.butler.dimensions["visit"].minimal_group
         with self.butler.query() as query:
             data_ids = list(
                 tqdm.tqdm(
@@ -187,6 +205,13 @@ class RewriteVerifier:
             )
             new_count = query.datasets(f"{self.new_prefix}{self.base_dataset_type}").where(where).count()
             assert len(data_ids) == new_count, f"Count mismatch: new ({new_count}) != old ({len(data_ids)})."
+            # Fetch the exposure dimension records for all of these data IDs
+            # up front.  Assume there's only one instrument in play.
+            visit_data_ids = {d.subset(visit_group) for d in data_ids}
+            self._exposure_records = {
+                record.id: record
+                for record in query.join_data_coordinates(visit_data_ids).dimension_records("exposure")
+            }
         random.shuffle(data_ids)
         self._progress = tqdm.tqdm(data_ids)
         yield from self._progress
@@ -198,9 +223,16 @@ class RewriteVerifier:
         check_kernel: bool = True,
         check_templates: bool = True,
         check_backgrounds: bool = True,
+        check_obs_info: bool = True,
     ) -> None:
         old = self.butler.get(f"{self.old_prefix}{self.base_dataset_type}", data_id)
         new = self.butler.get(f"{self.new_prefix}{self.base_dataset_type}", data_id)
+        if check_obs_info:
+            try:
+                self._check_obs_info(new, old, data_id)
+            except Exception as err:
+                self.print_error(data_id, err)
+                return
         expected_backgrounds = None
         plane_map = None
         if isinstance(new, DifferenceImage):
@@ -240,6 +272,49 @@ class RewriteVerifier:
                 return
         if check_backgrounds and expected_backgrounds is not None:
             _check_backgrounds(new.backgrounds, new.bbox, expected=expected_backgrounds)
+
+    def _check_obs_info(self, new: Any, old: Any, data_id: DataCoordinate) -> None:
+        """Compare the new dataset's ObservationInfo against one re-derived
+        from the legacy exposure and the repo's exposure dimension record.
+
+        All mismatching fields are collected and reported together so that
+        one early failure cannot hide the rest.
+        """
+        record = self._exposure_records.get(cast(int, data_id["visit"]))
+        if record is None:
+            raise AssertionError("no exposure record for visit")
+        expected = obs_info_from_legacy(
+            old.info.getVisitInfo(),
+            record,
+            old.getDetector(),
+            detector_exposure_id=old.info.getId(),
+        )
+        mismatches: list[str] = []
+        for field in ObservationInfo.model_fields:
+            if field == "warnings":
+                # Translator diagnostics are not part of the science
+                # metadata and need not round-trip.
+                continue
+            actual_value = getattr(new.obs_info, field, None)
+            expected_value = getattr(expected, field, None)
+            if actual_value is None and expected_value is None:
+                continue
+            if actual_value is None or expected_value is None:
+                mismatches.append(f"{field}: {actual_value!r} != {expected_value!r}")
+                continue
+            try:
+                assert_obs_metadata_fields_equal(actual_value, expected_value, label=field)
+            except Exception as err:
+                detail = str(err)
+                if not detail.startswith(f"{field}:"):
+                    detail = f"{field}: {detail}"
+                if notes := getattr(err, "__notes__", ()):
+                    detail += f" ({' -> '.join(notes)})"
+                mismatches.append(detail)
+        if mismatches:
+            raise AssertionError(
+                f"{len(mismatches)} ObservationInfo field(s) differ: " + "; ".join(mismatches)
+            )
 
     def require_compressed(self, data_id: DataCoordinate) -> None:
         ref = self.butler.find_dataset(f"{self.new_prefix}{self.base_dataset_type}", data_id)

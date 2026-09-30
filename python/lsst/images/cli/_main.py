@@ -15,6 +15,7 @@ __all__ = ("main",)
 import click
 
 from ..tests.extract_legacy_test_data import extract_test_data
+from ..tests.extract_obs_info_test_data import extract_obs_info_test_data
 from ..tests.verify_rewrite import verify_rewrite
 from ._convert import convert
 from ._describe import describe
@@ -41,5 +42,6 @@ main.add_command(minify)
 main.add_command(reformat)
 main.add_command(schemas)
 main.add_command(extract_test_data, name="extract-test-data")
+main.add_command(extract_obs_info_test_data, name="extract-obs-info-test-data")
 main.add_command(verify_rewrite, name="verify-rewrite")
 main.add_command(fuzz_masked_image, name="fuzz-masked-image")

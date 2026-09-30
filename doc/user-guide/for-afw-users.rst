@@ -123,6 +123,9 @@ The types in `lsst.images` can be sliced in this coordinate system via the `Gene
 This means that a "mask pixel" is actually a shape ``(N,)`` `numpy.uint8` array, but (thanks to automatic broadcasting) the usual bitwise operations still work.
 The `Mask.get`, `Mask.set`, and `Mask.clear` convenience methods can be used instead of direct bitwise array operations in most cases.
 The planes of different `Mask` objects are not necessarily the same (as is enforced by global state in `lsst.afw.image.Mask`); instead, a separate `MaskSchema` object is used to manage shared mask plane definitions.
+Mask conversions take a ``plane_map`` from legacy plane name to `MaskPlane`.
+The ``get_legacy_*_mask_planes`` functions (e.g. `get_legacy_visit_image_mask_planes`, `get_legacy_difference_image_mask_planes`, and `get_legacy_template_mask_planes`) return the maps for standard data products, and conversions from legacy guess one when none is given.
+Conversions from legacy also add the planes of `get_legacy_optional_mask_planes` (e.g. ``INJECTED``) that the legacy mask defines and has pixels set in.
 
 `lsst.afw.image.MaskedImage` corresponds directly to `MaskedImage`, but the latter can also hold a `SkyProjection`, flexible metadata, and units.
 
@@ -252,6 +255,7 @@ Concrete PSF implementations include:
 **Conversions**
 
 - `psfs.PiffWrapper.to_legacy`
+- `psfs.GaussianPointSpreadFunction.to_legacy` (returns `lsst.afw.detection.GaussianPsf`)
 - `psfs.LegacyPointSpreadFunction.to_legacy` (inherited by `psfs.PSFExWrapper`)
 - `cells.CellPointSpreadFunction.to_legacy`
 

@@ -18,6 +18,7 @@ from ._image import *
 from ._mask import *
 from ._masked_image import *
 from ._metadata import *
+from ._obs_info_from_legacy import *
 from ._observation_summary_stats import *
 from ._polygon import *
 from ._transforms import *

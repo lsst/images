@@ -80,6 +80,30 @@ def _load_skymap(skymap: str | None, butler: str | None, collection: str | None,
     raise click.ClickException("Converting a cell coadd requires --skymap (a pickled skymap) or --butler.")
 
 
+def _fetch_exposure_record(butler: str, instrument: str, exposure: int) -> Any:
+    """Fetch the ``exposure`` dimension record from a butler repository.
+
+    Raises
+    ------
+    click.ClickException
+        If the record is missing or ambiguous.
+    """
+    from lsst.daf.butler import Butler
+
+    with Butler.from_config(butler) as repo:
+        records = list(
+            repo.registry.queryDimensionRecords(
+                "exposure", dataId={"instrument": instrument, "exposure": exposure}
+            )
+        )
+    if not records:
+        raise click.ClickException(
+            f"No exposure dimension record for instrument {instrument!r}, exposure {exposure} in {butler!r}."
+        )
+    assert len(records) == 1
+    return records[0]
+
+
 def _read_legacy(
     input: str,
     legacy_type: str,
@@ -87,16 +111,31 @@ def _read_legacy(
     butler: str | None,
     collection: str | None,
     preserve_quantization: bool = False,
+    instrument: str | None = None,
+    exposure: int | None = None,
 ) -> VisitImage | CellCoadd:
     """Read a legacy FITS file into the corresponding lsst.images object."""
+    exposure_record: Any = None
+    if legacy_type in ("visit_image", "difference_image"):
+        if butler is None or instrument is None or exposure is None:
+            raise click.ClickException(
+                f"Converting a legacy {legacy_type.replace('_', ' ')} requires"
+                " --butler, --instrument, and --exposure, which together"
+                " identify the exposure dimension record."
+            )
+        exposure_record = _fetch_exposure_record(butler, instrument, exposure)
     if legacy_type == "visit_image":
         from .. import VisitImage
 
-        return VisitImage.read_legacy(input, preserve_quantization=preserve_quantization)
+        return VisitImage.read_legacy(
+            input, preserve_quantization=preserve_quantization, exposure_record=exposure_record
+        )
     if legacy_type == "difference_image":
         from .. import DifferenceImage
 
-        return DifferenceImage.read_legacy(input, preserve_quantization=preserve_quantization)
+        return DifferenceImage.read_legacy(
+            input, preserve_quantization=preserve_quantization, exposure_record=exposure_record
+        )
     if legacy_type == "cell_coadd":
         from lsst.cell_coadds import MultipleCellCoadd
 
@@ -133,12 +172,26 @@ def _read_legacy(
 @click.option(
     "--butler",
     default=None,
-    help="Butler repository to resolve the skymap (cell coadds only).",
+    help=(
+        "Butler repository: for the skymap (cell coadds) or for the exposure"
+        " dimension record (visit and difference images)."
+    ),
 )
 @click.option(
     "--collection",
     default=None,
     help="Butler collection holding the skymap (required with --butler).",
+)
+@click.option(
+    "--instrument",
+    default=None,
+    help="Instrument name (visit and difference images; with --butler and --exposure).",
+)
+@click.option(
+    "--exposure",
+    type=int,
+    default=None,
+    help="Exposure ID (visit and difference images; with --butler and --instrument).",
 )
 @click.option("--overwrite", is_flag=True, default=False, help="Overwrite OUTPUT if it exists.")
 @click.option(
@@ -156,6 +209,8 @@ def convert(
     skymap: str | None,
     butler: str | None,
     collection: str | None,
+    instrument: str | None,
+    exposure: int | None,
     overwrite: bool,
     preserve_quantization: bool,
 ) -> None:
@@ -190,7 +245,16 @@ def convert(
         raise click.ClickException(f"{output!r} already exists; pass --overwrite to replace it.")
 
     try:
-        obj = _read_legacy(input, legacy_type, skymap, butler, collection, preserve_quantization)
+        obj = _read_legacy(
+            input,
+            legacy_type,
+            skymap,
+            butler,
+            collection,
+            preserve_quantization,
+            instrument=instrument,
+            exposure=exposure,
+        )
     except click.ClickException:
         raise
     except ImportError as err:

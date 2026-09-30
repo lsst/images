@@ -571,18 +571,7 @@ class MaskedImage(GeneralizedImage):
                 # than lying.
                 legacy_metadata["BUNIT"] = self.unit.to_string()
         if isinstance(self._opaque_metadata, fits.FitsOpaqueMetadata):
-            # Group all cards with the same keyword into a list, and write them
-            # all at once.
-            grouped: dict[str, list[Any]] = {}
-            for card in self._opaque_metadata.headers[fits.ExtensionKey()].cards:
-                if not card.keyword:
-                    # Skip blanks
-                    continue
-                if card.keyword not in grouped:
-                    grouped[card.keyword] = []
-                grouped[card.keyword].append(card.value)
-            for keyword, values in grouped.items():
-                legacy_metadata[keyword] = values
+            legacy_metadata.update(fits.header_to_legacy(self._opaque_metadata.headers[fits.ExtensionKey()]))
         for n, (k, v) in enumerate(self._metadata.items()):
             legacy_metadata[f"LSST IMAGES KEY {n + 1}"] = k
             legacy_metadata[f"LSST IMAGES VALUE {n + 1}"] = v
@@ -614,6 +603,11 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         """The bounding box of the image."""
         return self.image.bbox
 
+    @property
+    def unit(self) -> astropy.units.UnitBase | None:
+        """The units of the image plane, if any."""
+        return self.image.unit
+
     def deserialize(
         self, archive: InputArchive[Any], *, bbox: Box | None = None, **kwargs: Any
     ) -> MaskedImage:
@@ -640,8 +634,8 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         )._finish_deserialize(self)
 
     def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
-        if component == "bbox" and kwargs:
+        if component in ("bbox", "unit") and kwargs:
             raise InvalidParameterError(
-                f"Unrecognized parameters for MaskedImage.bbox: {set(kwargs.keys())}."
+                f"Unrecognized parameters for MaskedImage.{component}: {set(kwargs.keys())}."
             )
         return super().deserialize_component(component, archive, **kwargs)

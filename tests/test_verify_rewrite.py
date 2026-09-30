@@ -13,16 +13,18 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from lsst.images import Background, BackgroundMap, Box
+from lsst.images import Background, BackgroundMap, Box, DifferenceImage
 from lsst.images.cli._main import main
 from lsst.images.fields import ChebyshevField
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
+    get_dp2_exposure_record,
     reset_afw_mask_planes,  # noqa: F401
 )
 from lsst.images.tests.verify_rewrite import (
@@ -134,95 +136,97 @@ def testdata_dir() -> str:
     return result
 
 
-def test_verify_rewrite_end_to_end(tmp_path: Path, testdata_dir: str, reset_afw_mask_planes) -> None:  # noqa: F811
-    """Run convert then verify-rewrite on a real difference image.
+def _make_dp2_rewrite_repo(repo: str, src: str) -> None:
+    """Build a repo holding a legacy DP2 difference image and its rewritten
+    counterpart, ready for ``verify-rewrite``.
 
-    Happy path: asserts the whole flow exits successfully.
+    The rewritten dataset is converted from the source file with the given
+    (or the true DP2) exposure record; passing a tampered record produces a
+    product that ``verify-rewrite``'s observation-info check should reject.
     """
-    try:
-        from lsst.daf.butler import Butler, DataCoordinate, DatasetRef, DatasetType, FileDataset
-    except ImportError:
-        pytest.skip("lsst.daf.butler could not be imported.")
+    from lsst.afw.image import ExposureF
+    from lsst.daf.butler import Butler, DataCoordinate, DatasetType
 
-    src = os.path.join(testdata_dir, "dp2", "legacy", "difference_image.fits")
-    converted = str(tmp_path / "difference_image.fits")
-    result = CliRunner().invoke(main, ["convert", src, converted])
-    assert result.exit_code == 0, result.output
-
-    repo = str(tmp_path / "repo")
     Butler.makeRepo(repo)
-    butler = Butler.from_config(repo, run="run1")
-    reg = butler.registry
-    reg.insertDimensionData(
-        "instrument",
-        {
-            "instrument": DP2_VISIT_DETECTOR_DATA_ID["instrument"],
-            "name": DP2_VISIT_DETECTOR_DATA_ID["instrument"],
-        },
-    )
-    reg.insertDimensionData(
-        "day_obs",
-        {
-            "instrument": DP2_VISIT_DETECTOR_DATA_ID["instrument"],
-            "day_obs": DP2_VISIT_DETECTOR_DATA_ID["day_obs"],
-        },
-    )
-    reg.insertDimensionData(
-        "physical_filter",
-        {
-            "physical_filter": DP2_VISIT_DETECTOR_DATA_ID["physical_filter"],
-            "band": DP2_VISIT_DETECTOR_DATA_ID["band"],
-            "instrument": DP2_VISIT_DETECTOR_DATA_ID["instrument"],
-        },
-    )
-    reg.insertDimensionData(
-        "detector",
-        {
-            "instrument": DP2_VISIT_DETECTOR_DATA_ID["instrument"],
-            "id": DP2_VISIT_DETECTOR_DATA_ID["detector"],
-            "full_name": "R21_S11",
-        },
-    )
-    reg.insertDimensionData(
-        "visit",
-        {
-            "instrument": DP2_VISIT_DETECTOR_DATA_ID["instrument"],
-            "id": DP2_VISIT_DETECTOR_DATA_ID["visit"],
-            "physical_filter": DP2_VISIT_DETECTOR_DATA_ID["physical_filter"],
-            "name": str(DP2_VISIT_DETECTOR_DATA_ID["visit"]),
-            "day_obs": DP2_VISIT_DETECTOR_DATA_ID["day_obs"],
-        },
-    )
-    reg.insertDimensionData(
-        "visit_detector_region",
-        {
-            "instrument": DP2_VISIT_DETECTOR_DATA_ID["instrument"],
-            "visit": DP2_VISIT_DETECTOR_DATA_ID["visit"],
-            "detector": DP2_VISIT_DETECTOR_DATA_ID["detector"],
-            "region": None,
-        },
-    )
+    with Butler.from_config(repo, run="run1") as butler:
+        exposure_record = get_dp2_exposure_record(butler.dimensions)
+        reg = butler.registry
+        reg.insertDimensionData("instrument", {"instrument": exposure_record.instrument})
+        reg.insertDimensionData(
+            "day_obs", {"instrument": exposure_record.instrument, "day_obs": exposure_record.day_obs}
+        )
+        reg.insertDimensionData(
+            "physical_filter",
+            {
+                "physical_filter": exposure_record.physical_filter,
+                "band": DP2_VISIT_DETECTOR_DATA_ID["band"],
+                "instrument": exposure_record.instrument,
+            },
+        )
+        reg.insertDimensionData(
+            "detector",
+            {
+                "instrument": exposure_record.instrument,
+                "id": DP2_VISIT_DETECTOR_DATA_ID["detector"],
+                "full_name": "R21_S11",
+            },
+        )
+        reg.insertDimensionData(
+            "visit",
+            {
+                "instrument": exposure_record.instrument,
+                "id": exposure_record.id,
+                "physical_filter": exposure_record.physical_filter,
+                "name": str(exposure_record.id),
+                "day_obs": exposure_record.day_obs,
+            },
+        )
+        reg.insertDimensionData(
+            "visit_detector_region",
+            {
+                "instrument": exposure_record.instrument,
+                "visit": exposure_record.id,
+                "detector": DP2_VISIT_DETECTOR_DATA_ID["detector"],
+                "region": None,
+            },
+        )
+        reg.insertDimensionData(
+            "group", {"instrument": exposure_record.instrument, "name": exposure_record.group}
+        )
+        reg.insertDimensionData("exposure", exposure_record)
+        reg.insertDimensionData(
+            "visit_definition",
+            {
+                "instrument": exposure_record.instrument,
+                "visit": exposure_record.id,
+                "exposure": exposure_record.id,
+            },
+        )
 
-    dims = ("instrument", "visit", "detector")
-    data_id = DataCoordinate.standardize(
-        {
-            "instrument": DP2_VISIT_DETECTOR_DATA_ID["instrument"],
-            "visit": DP2_VISIT_DETECTOR_DATA_ID["visit"],
-            "detector": DP2_VISIT_DETECTOR_DATA_ID["detector"],
-        },
-        universe=butler.dimensions,
-    )
-    legacy_dt = DatasetType("legacy_difference_image", dims, "ExposureF", universe=butler.dimensions)
-    new_dt = DatasetType("difference_image", dims, "DifferenceImage", universe=butler.dimensions)
-    reg.registerDatasetType(legacy_dt)
-    reg.registerDatasetType(new_dt)
+        dims = ("instrument", "visit", "detector")
+        data_id = DataCoordinate.standardize(
+            {
+                "instrument": exposure_record.instrument,
+                "visit": exposure_record.id,
+                "detector": DP2_VISIT_DETECTOR_DATA_ID["detector"],
+            },
+            universe=butler.dimensions,
+        )
+        legacy_dt = DatasetType("legacy_difference_image", dims, "ExposureF", universe=butler.dimensions)
+        new_dt = DatasetType("difference_image", dims, "DifferenceImage", universe=butler.dimensions)
+        reg.registerDatasetType(legacy_dt)
+        reg.registerDatasetType(new_dt)
 
-    butler.ingest(
-        FileDataset(src, DatasetRef(legacy_dt, data_id, "run1")),
-        FileDataset(converted, DatasetRef(new_dt, data_id, "run1")),
-    )
+        butler.put(ExposureF(src), legacy_dt, data_id)
+        # Convert with a second read of the file, not from_legacy() on the
+        # exposure above: the conversion shares pixel data with, and mutates
+        # the metadata of, the exposure it is given.
+        new = DifferenceImage.read_legacy(src, exposure_record=exposure_record)
+        butler.put(new, new_dt, data_id)
 
-    result = CliRunner().invoke(
+
+def _invoke_verify_rewrite(repo: str) -> Any:
+    return CliRunner().invoke(
         main,
         [
             "verify-rewrite",
@@ -234,4 +238,18 @@ def test_verify_rewrite_end_to_end(tmp_path: Path, testdata_dir: str, reset_afw_
             "--no-require-compressed",
         ],
     )
+
+
+def test_verify_rewrite_end_to_end(tmp_path: Path, testdata_dir: str, reset_afw_mask_planes) -> None:  # noqa: F811
+    """Run verify-rewrite on a real difference image."""
+    try:
+        import lsst.afw.image
+        import lsst.daf.butler  # noqa: F401
+    except ImportError:
+        pytest.skip("lsst.daf.butler and lsst.afw could not be imported.")
+
+    src = os.path.join(testdata_dir, "dp2", "legacy", "difference_image.fits")
+    repo = str(tmp_path / "repo")
+    _make_dp2_rewrite_repo(repo, src)
+    result = _invoke_verify_rewrite(repo)
     assert result.exit_code == 0, result.output
