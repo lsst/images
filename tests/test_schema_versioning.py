@@ -57,6 +57,22 @@ class _DummyArchiveTree(ArchiveTree):
         raise NotImplementedError()
 
 
+class _BumpedArchiveTree(ArchiveTree):
+    """ArchiveTree whose versions differ from the field defaults, so tests
+    can tell a value taken from the class constants from a default.
+    """
+
+    SCHEMA_NAME: ClassVar[str] = "dummy_bumped"
+    SCHEMA_VERSION: ClassVar[str] = "3.2.0"
+    MIN_READ_VERSION: ClassVar[int] = 2
+    PUBLIC_TYPE: ClassVar[type] = object
+
+    def deserialize(
+        self, archive: InputArchive[Any], **kwargs: Any
+    ) -> Any:  # pragma: no cover - never invoked
+        raise NotImplementedError()
+
+
 class _DevTree(ArchiveTree):
     """Development-version tree double."""
 
@@ -147,6 +163,28 @@ def test_default_values_filled_from_classvars() -> None:
     """Verify default instance values are filled from class-var constants."""
     instance = _DummyArchiveTree()
     assert instance.schema_version == "1.0.0"
+    assert instance.min_read_version == 1
+
+
+def test_constructed_versions_match_classvars() -> None:
+    """Verify every construction path stamps the class-var versions."""
+    for instance in (
+        _BumpedArchiveTree(),
+        _BumpedArchiveTree.model_validate({}),
+        _BumpedArchiveTree.model_construct(),
+    ):
+        assert instance.schema_version == "3.2.0"
+        assert instance.min_read_version == 2
+        dumped = instance.model_dump()
+        assert dumped["schema_version"] == "3.2.0"
+        assert dumped["min_read_version"] == 2
+        assert dumped["schema_url"] == "https://images.lsst.io/schemas/dummy_bumped-3.2.0"
+
+
+def test_model_construct_keeps_explicit_versions() -> None:
+    """Verify model_construct does not override versions it is given."""
+    instance = _BumpedArchiveTree.model_construct(schema_version="3.1.0", min_read_version=1)
+    assert instance.schema_version == "3.1.0"
     assert instance.min_read_version == 1
 
 
