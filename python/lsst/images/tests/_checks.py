@@ -1841,6 +1841,7 @@ def iter_concrete_archive_tree_subclasses() -> Iterator[type[ArchiveTree]]:
     stack: list[type] = [ArchiveTree]
     while stack:
         kls = stack.pop()
+        sub: type
         for sub in kls.__subclasses__():
             if sub in seen:
                 continue
