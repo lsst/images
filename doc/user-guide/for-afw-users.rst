@@ -249,7 +249,7 @@ Concrete PSF implementations include:
 
 - `lsst.meas.extensions.piff.PiffPsf` -> `psfs.PiffWrapper`
 - `lsst.meas.extensions.psfex.PsfExPsf` -> `psfs.PSFExWrapper` (this actually just wraps `lsst.meas.extensions.psfex.PsfExPsf` and cannot be used when that cannot be imported)
-- `lsst.afw.detection.SingleGaussianPsf` -> `psfs.GaussianPointSpreadFunction`
+- `lsst.afw.detection.GaussianPsf` -> `psfs.GaussianPointSpreadFunction`
 - `lsst.cell_coadds.StitchedPsf` -> `cells.CellPointSpreadFunction`
 
 **Conversions**
@@ -261,6 +261,7 @@ Concrete PSF implementations include:
 
 - `psfs.LegacyPointSpreadFunction.from_legacy` (inherited by `psfs.PSFExWrapper`)
 - `psfs.PiffWrapper.from_legacy`
+- `psfs.GaussianPointSpreadFunction.from_legacy`
 - `cells.CellPointSpreadFunction.from_legacy`
 
 Camera Geometry
