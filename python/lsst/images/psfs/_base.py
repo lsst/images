@@ -118,7 +118,7 @@ class PointSpreadFunction(DescribableMixin, ABC):
         `~lsst.images.psfs.PointSpreadFunction` subclass to use.  When that is
         already known, a subclass `from_legacy` method can be called instead.
         """
-        from lsst.afw.detection import Psf
+        from lsst.afw.detection import GaussianPsf, Psf
         from lsst.cell_coadds import StitchedPsf
         from lsst.meas.extensions.piff.piffPsf import PiffPsf
 
@@ -131,6 +131,10 @@ class PointSpreadFunction(DescribableMixin, ABC):
                 from ..cells import CellPointSpreadFunction
 
                 return CellPointSpreadFunction.from_legacy(legacy_psf, bounds)
+            case GaussianPsf():
+                from ._gaussian import GaussianPointSpreadFunction
+
+                return GaussianPointSpreadFunction.from_legacy(legacy_psf, bounds)
             case Psf():
                 from ._legacy import LegacyPointSpreadFunction
 
