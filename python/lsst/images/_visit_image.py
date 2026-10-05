@@ -34,6 +34,7 @@ from ._masked_image import MaskedImage, MaskedImageSerializationModel
 from ._obs_info_from_legacy import obs_info_from_legacy
 from ._observation_summary_stats import ObservationSummaryStats
 from ._polygon import Polygon
+from ._quality_flags import CompositeQuality
 from ._transforms import (
     DetectorFrame,
     SkyProjection,
@@ -136,6 +137,11 @@ class VisitImage(MaskedImage):
     band
         Name of the passband the image was observed with (this is a shorter,
         less specific version of ``obs_info.physical_filter``).
+    quality
+        Information about potential quality issues with this object that may
+        degrade or invalidate components.  `None` is equivalent to a
+        default-constructed `CompositeQuality` object that indicates no
+        problems.
     metadata
         Arbitrary flexible metadata to associate with the image.
     """
@@ -157,6 +163,7 @@ class VisitImage(MaskedImage):
         aperture_corrections: ApertureCorrectionMap | None = None,
         backgrounds: BackgroundMap | None = None,
         band: str,
+        quality: CompositeQuality | None = None,
         metadata: dict[str, MetadataValue] | None = None,
     ) -> None:
         super().__init__(
@@ -192,6 +199,7 @@ class VisitImage(MaskedImage):
             self._bounds = self._bounds.intersection(self.bbox)
         self._backgrounds = backgrounds if backgrounds is not None else BackgroundMap()
         self._band = band
+        self._quality = quality if quality is not None else CompositeQuality()
 
     @property
     def unit(self) -> astropy.units.UnitBase:
@@ -293,6 +301,13 @@ class VisitImage(MaskedImage):
         (`BackgroundMap`).
         """
         return self._backgrounds
+
+    @property
+    def quality(self) -> CompositeQuality:
+        """Information about potential quality issues with this object that may
+        degrade or invalidate components (`CompositeQuality`).
+        """
+        return self._quality
 
     def __getitem__(self, bbox: Box | EllipsisType) -> VisitImage:
         bbox, _ = self._handle_getitem_args(bbox)
@@ -610,6 +625,7 @@ class VisitImage(MaskedImage):
             functools.partial(ApertureCorrectionMapSerializationModel.serialize, self.aperture_corrections),
         )
         result.backgrounds = archive.serialize_direct("backgrounds", self._backgrounds.serialize)
+        result.quality = self.quality
         return result
 
     @staticmethod
@@ -993,7 +1009,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     """A Pydantic model used to represent a serialized `VisitImage`."""
 
     SCHEMA_NAME: ClassVar[str] = "visit_image"
-    SCHEMA_VERSION: ClassVar[str] = "1.1.0"
+    SCHEMA_VERSION: ClassVar[str] = "1.2.0.dev"
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = VisitImage
 
@@ -1041,6 +1057,13 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
         description="Background models associated with this image.",
     )
     band: str = pydantic.Field(description="Short name of the bandpass filter.")
+    quality: CompositeQuality = pydantic.Field(
+        default_factory=CompositeQuality,
+        description=(
+            "Information about potential quality issues with this object "
+            "that may degrade or invalidate components."
+        ),
+    )
 
     def deserialize(
         self, archive: InputArchive[Any], *, bbox: Box | None = None, **kwargs: Any
@@ -1072,6 +1095,7 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
             bounds=self.bounds.deserialize() if self.bounds is not None else None,
             backgrounds=self.backgrounds.deserialize(archive),
             band=self.band,
+            quality=self.quality,
         )._finish_deserialize(self)
 
     def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:
