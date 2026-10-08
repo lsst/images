@@ -369,7 +369,7 @@ class CoaddProvenance(DescribableMixin):
             in the `inputs` table.
         """
         from lsst.afw.geom.ellipses import Quadrupole
-        from lsst.cell_coadds import CoaddInputs as LegacyCoaddInputs
+        from lsst.cell_coadds import CoaddInputs as LegacyCellCoaddInputs
         from lsst.skymap import Index2D as LegacyIndex2D
 
         if observations is None:
@@ -377,12 +377,12 @@ class CoaddProvenance(DescribableMixin):
         observations_by_key: dict[tuple[str, int, int], LegacyObservationIdentifiers] = {
             (obs.instrument, obs.visit, obs.detector): obs for obs in observations
         }
-        result: dict[LegacyIndex2D, dict[LegacyObservationIdentifiers, LegacyCoaddInputs]] = {}
+        result: dict[LegacyIndex2D, dict[LegacyObservationIdentifiers, LegacyCellCoaddInputs]] = {}
         for row in self.contributions:
             obs_key = (str(row["instrument"]), int(row["visit"]), int(row["detector"]))
             obs = observations_by_key[obs_key]
             cell_inputs = result.setdefault(LegacyIndex2D(x=int(row["cell_j"]), y=int(row["cell_i"])), {})
-            cell_inputs[obs] = LegacyCoaddInputs(
+            cell_inputs[obs] = LegacyCellCoaddInputs(
                 overlaps_center=bool(row["overlaps_center"]),
                 overlap_fraction=float(row["overlap_fraction"]),
                 unmasked_overlap_fraction=float(row["unmasked_fraction"]),
