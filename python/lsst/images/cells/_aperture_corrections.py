@@ -11,7 +11,11 @@
 
 from __future__ import annotations
 
-__all__ = ("CellApertureCorrectionMapSerializationModel", "CellField")
+__all__ = (
+    "CellApertureCorrectionMapSerializationModel",
+    "CellField",
+    "approximate_aperture_corrections_from_legacy",
+)
 
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, ClassVar, final
@@ -36,10 +40,10 @@ from ..serialization import (
 
 if TYPE_CHECKING:
     try:
-        from lsst.afw.image import ApCorrMap as LegacyApCorrMap
+        from lsst.afw.math import BoundedField as LegacyBoundedField
         from lsst.cell_coadds import StitchedApertureCorrection as LegacyStitchedApertureCorrection
     except ImportError:
-        type LegacyApCorrMap = Any  # type: ignore[no-redef]
+        type LegacyBoundedField = Any  # type: ignore[no-redef]
         type LegacyStitchedApertureCorrection = Any  # type: ignore[no-redef]
 
 
@@ -201,6 +205,130 @@ class CellField(BaseField):
         for cell_index in self.bounds.cell_indices():
             gc[cell_index.to_legacy()] = self.value_in_cell(cell_index)
         return StitchedApertureCorrection(grid, gc)
+
+    @staticmethod
+    def approximate_from_legacy(
+        legacy: LegacyBoundedField, bounds: CellGridBounds, default_is_missing: bool = True
+    ) -> CellField:
+        """Convert from a legacy bounded field by evaluating it at cell
+        centers and assuming variation within a cell is approximately
+        constant.
+
+        When the center sample is unusable (e.g. the center falls outside
+        the field's bounding box), the field is instead sampled at the
+        cell's four corners and the usable samples are averaged.  Cells
+        with no usable sample at all are marked missing.
+
+        Parameters
+        ----------
+        legacy
+            Legacy bounded field to approximate.
+        bounds
+            Cell grid and known-missing cells.
+        default_is_missing
+            If `True` and ``legacy.getThrowOnMissing()`` returns `False`,
+            treat values that are identical to ``legacy.getDefault()`` as
+            missing.  This covers some confusing
+            `lsst.meas.algorithms.CoaddBoundedField` behavior for backwards
+            compatibility.
+        """
+        from lsst.pex.exceptions import DomainError
+
+        get_throw_on_missing = getattr(legacy, "getThrowOnMissing", None)
+        get_default = getattr(legacy, "getDefault", None)
+        default = (
+            get_default()
+            if default_is_missing
+            and get_throw_on_missing is not None
+            and get_default is not None
+            and not get_throw_on_missing()
+            else None
+        )
+
+        def usable(value: float) -> bool:
+            return np.isfinite(value) and (default is None or value != default)
+
+        array = np.full(bounds.subgrid_size.as_tuple(), np.nan, dtype=np.float64)
+        missing: set[CellIJ] = set()
+        for cell_index in bounds.cell_indices():
+            cell_bbox = bounds.grid.bbox_of(cell_index)
+            try:
+                value = legacy.evaluate(cell_bbox.center.to_legacy_float_point())
+            except DomainError:
+                value = np.nan
+            if not usable(value):
+                corner_values: list[float] = []
+                for corner in cell_bbox.boundary():
+                    try:
+                        corner_value = legacy.evaluate(corner.to_legacy_float_point())
+                    except DomainError:
+                        continue
+                    if not usable(corner_value):
+                        continue
+                    corner_values.append(corner_value)
+                if not corner_values:
+                    missing.add(cell_index)
+                    continue
+                else:
+                    value = np.mean(corner_values)
+            array_index = cell_index - bounds.subgrid_start
+            array[array_index.i, array_index.j] = value
+        if missing:
+            bounds = CellGridBounds(
+                grid=bounds.grid, missing=frozenset(bounds.missing | missing), bbox=bounds.bbox
+            )
+        return CellField(bounds, array)
+
+
+def approximate_aperture_corrections_from_legacy(
+    legacy_map: Mapping[str, LegacyBoundedField],
+    bounds: CellGridBounds,
+    flux_suffix: str = "_instFlux",
+    err_suffix: str = "_instFluxErr",
+) -> dict[str, CellField]:
+    """Convert a mapping of legacy aperture-correction bounded fields to
+    `CellField` instances by approximating them on a cell grid.
+
+    Parameters
+    ----------
+    legacy_map
+        Mapping of aperture-correction names to legacy bounded fields, as
+        returned by a legacy `lsst.afw.image.Exposure`'s ``getApCorrMap()``.
+    bounds
+        Cell grid and known-missing cells to convert onto.
+    flux_suffix
+        Suffix of the flux member of an aperture-correction name pair.
+    err_suffix
+        Suffix of the error member of an aperture-correction name pair.
+
+    Returns
+    -------
+    `dict` [`str`, `CellField`]
+        Mapping with the same keys, holding the converted fields.
+
+    Notes
+    -----
+    This routine relies on the fact that aperture correction fields come in
+    ``*_instFlux`` + ``*_instFluxErr`` pairs to resolve the fact that zero is
+    a possible valid (albeit suspicious) value for the latter *and* the
+    sentinel used for missing data.  We assume a zero ``*_instFlux``
+    evaluation represents bad data, but a zero ``*_instFluxErr`` is bad data
+    only if the corresponding ``*_instFlux`` evaluation is also bad data.
+    """
+    converted: dict[str, CellField] = {}
+    for name, legacy_field in legacy_map.items():
+        if name.endswith(err_suffix):
+            continue
+        converted[name] = CellField.approximate_from_legacy(legacy_field, bounds)
+    for name, legacy_field in legacy_map.items():
+        if not name.endswith(err_suffix):
+            continue
+        partner = converted.get(name[: -len(err_suffix)] + flux_suffix)
+        err_bounds = partner.bounds if partner is not None else bounds
+        converted[name] = CellField.approximate_from_legacy(
+            legacy_field, err_bounds, default_is_missing=False
+        )
+    return converted
 
 
 class CellApertureCorrectionMapSerializationModel(ArchiveTree):

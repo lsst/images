@@ -39,9 +39,11 @@ if TYPE_CHECKING:
     try:
         from lsst.cell_coadds import UniformGrid as LegacyUniformGrid
         from lsst.skymap import Index2D as LegacyIndex2D
+        from lsst.skymap import PatchInfo as LegacyPatchInfo
     except ImportError:
         type LegacyUniformGrid = Any  # type: ignore[no-redef]
         type LegacyIndex2D = Any  # type: ignore[no-redef]
+        type LegacyPatchInfo = Any  # type: ignore[no-redef]
 
 
 @dataclasses.dataclass(frozen=True, order=True)
@@ -237,6 +239,13 @@ class CellGridBounds(pydantic.BaseModel, frozen=True):
         """
         return self.subgrid_stop - self.subgrid_start
 
+    @property
+    def n_cells(self) -> int:
+        """Return the number of cells within this bounds, accounting for
+        `missing`.
+        """
+        return self.subgrid_size.i * self.subgrid_size.j - len(self.missing)
+
     @overload
     def contains(self, point: XY[int | float] | YX[int | float], /) -> bool: ...
 
@@ -386,6 +395,28 @@ class PatchDefinition(pydantic.BaseModel, frozen=True):
     def outer_bbox(self) -> Box:
         """The outer bounding box of this patch (`.Box`)."""
         return self.cells.bbox
+
+    @staticmethod
+    def from_legacy_patch_info(patch_info: LegacyPatchInfo) -> PatchDefinition:
+        """Convert from a legacy `lsst.skymap.PatchInfo` object.
+
+        Parameters
+        ----------
+        patch_info
+            Legacy patch definition to convert.
+        """
+        index = patch_info.getIndex()
+        cell_extent = patch_info.getCellInnerDimensions()
+        cell_grid = CellGrid(
+            bbox=Box.from_legacy(patch_info.getOuterBBox()),
+            cell_shape=YX(y=cell_extent.y, x=cell_extent.x),
+        )
+        return PatchDefinition(
+            id=patch_info.getSequentialIndex(),
+            index=YX(y=index.y, x=index.x),
+            inner_bbox=Box.from_legacy(patch_info.getInnerBBox()),
+            cells=cell_grid,
+        )
 
 
 if TYPE_CHECKING:
