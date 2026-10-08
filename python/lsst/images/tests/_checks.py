@@ -30,7 +30,9 @@ __all__ = (
     "check_transform",
     "compare_amplifier_to_legacy",
     "compare_aperture_corrections_to_legacy",
+    "compare_cell_coadd_provenance_to_legacy_lazy",
     "compare_cell_coadd_to_legacy",
+    "compare_cell_coadd_to_legacy_lazy",
     "compare_detector_to_legacy",
     "compare_field_to_legacy",
     "compare_image_to_legacy",
@@ -63,13 +65,18 @@ from astropy.coordinates import SkyCoord
 
 from .._geom import XY, YX, Bounds, Box
 from .._image import Image
-from .._mask import Mask, MaskPlane, get_legacy_visit_image_mask_planes
+from .._mask import (
+    Mask,
+    MaskPlane,
+    get_legacy_non_cell_coadd_mask_planes,
+    get_legacy_visit_image_mask_planes,
+)
 from .._masked_image import MaskedImage
 from .._observation_summary_stats import ObservationSummaryStats
 from .._transforms import DetectorFrame, Frame, SkyFrame, SkyProjection, TractFrame, Transform
 from .._visit_image import VisitImage
 from ..cameras import Amplifier, Detector, DetectorType, ReadoutCorner
-from ..cells import CellCoadd, CellIJ, CoaddProvenance
+from ..cells import CellCoadd, CellGridBounds, CellIJ, CoaddProvenance
 from ..fields import BaseField, ChebyshevField
 from ..psfs import PointSpreadFunction
 from ..serialization import ArchiveTree
@@ -969,6 +976,52 @@ def compare_photo_calib_to_legacy(
         )
 
 
+def _check_cell_coadd_geometry(cell_coadd: CellCoadd, tract_bbox: Box) -> None:
+    """Check the geometric self-consistency of a cell coadd's patch,
+    bounds, grid, and bounding box.
+
+    Parameters
+    ----------
+    cell_coadd
+        Coadd to test.
+    tract_bbox
+        Bounding box of the full tract.
+    """
+    assert tract_bbox.contains(cell_coadd.patch.outer_bbox)
+    assert cell_coadd.patch.outer_bbox.contains(cell_coadd.patch.inner_bbox)
+    assert cell_coadd.patch.outer_bbox.contains(cell_coadd.bbox)
+    # bounds.bbox is snapped to cell boundaries, cell_coadd.bbox is not.
+    assert cell_coadd.bounds.bbox.contains(cell_coadd.bbox)
+    assert cell_coadd.grid.bbox.contains(cell_coadd.bbox)
+
+
+def _cell_center_points(cell_coadd: CellCoadd) -> YX[np.ndarray]:
+    """Return the centers of the non-missing cells of a cell coadd.
+
+    These are the points at which approximations made by conversions from
+    legacy (non-cell) coadds are expected to be accurate.
+
+    Parameters
+    ----------
+    cell_coadd
+        Coadd whose cells to return the centers of.
+
+    Returns
+    -------
+    `YX` [ `numpy.ndarray` ]
+        Centers of the non-missing cells within ``cell_coadd.bounds``.
+    """
+    xs: list[float] = []
+    ys: list[float] = []
+    for cell in cell_coadd.bounds.cell_indices():
+        if cell in cell_coadd.bounds.missing:
+            continue
+        bbox = cell_coadd.grid.bbox_of(cell)
+        xs.append(bbox.x.center)
+        ys.append(bbox.y.center)
+    return YX(y=np.array(ys), x=np.array(xs))
+
+
 def compare_cell_coadd_to_legacy(
     cell_coadd: CellCoadd,
     legacy_cell_coadd: MultipleCellCoadd,
@@ -1014,12 +1067,8 @@ def compare_cell_coadd_to_legacy(
     assert cell_coadd.patch.index.x == legacy_stitched.identifiers.patch.x
     assert cell_coadd.patch.index.y == legacy_stitched.identifiers.patch.y
     assert cell_coadd.band == legacy_stitched.identifiers.band
-    assert tract_bbox.contains(cell_coadd.patch.outer_bbox)
-    assert cell_coadd.patch.outer_bbox.contains(cell_coadd.patch.inner_bbox)
-    assert cell_coadd.patch.outer_bbox.contains(cell_coadd.bbox)
+    _check_cell_coadd_geometry(cell_coadd, tract_bbox)
     assert cell_coadd.unit == u.Unit(legacy_cell_coadd.common.units.value)
-    assert cell_coadd.bounds.bbox.contains(cell_coadd.bbox)
-    assert cell_coadd.grid.bbox.contains(cell_coadd.bbox)
     compare_sky_projection_to_legacy_wcs(
         cell_coadd.sky_projection,
         legacy_cell_coadd.wcs,
@@ -1162,11 +1211,194 @@ def compare_cell_coadd_provenance_to_legacy(
             assert legacy_polygon == row["polygon"].to_legacy()
 
 
+def compare_cell_coadd_to_legacy_lazy(
+    cell_coadd: CellCoadd,
+    legacy_exposure: Any,
+    *,
+    skymap: str,
+    tract: int,
+    patch: int,
+    band: str,
+    tract_bbox: Box,
+    plane_map: Mapping[str, MaskPlane] | None = None,
+    unit: u.UnitBase = u.nJy,
+    expect_view: bool | None = None,
+    alternates: Mapping[str, Any] | None = None,
+    psf_points: XY[np.ndarray] | YX[np.ndarray] | None = None,
+) -> None:
+    """Compare a `.cells.CellCoadd` object to the legacy
+    `lsst.afw.image.Exposure` instance it was converted from
+    by ``CellCoadd.from_legacy_lazy_coadd``.
+
+    Parameters
+    ----------
+    cell_coadd
+        New coadd to test.
+    legacy_exposure
+        Legacy `lsst.afw.image.Exposure` to test against.
+    skymap
+        Expected skymap name, which the legacy exposure does not carry.
+    tract
+        Expected tract ID.
+    patch
+        Expected patch sequential ID.
+    band
+        Expected band name.
+    tract_bbox
+        Bounding box of the full tract.
+    plane_map
+        Mapping between new and legacy mask planes; defaults to the planes
+        used by legacy (non-cell) coadds like DP2's ``template_coadd``.
+    unit
+        Expected pixel unit of the coadd.
+    expect_view
+        Whether to test that the image and variance arrays do or do not
+        share memory with ``legacy_exposure``.
+    alternates
+        A mapping of other versions of one or more (new) components to also
+        check against the legacy versions of those components.
+    psf_points
+        Points to use to compare the PSFs.  Defaults to the centers of the
+        coadd's non-missing cells.
+    """
+    if plane_map is None:
+        plane_map = get_legacy_non_cell_coadd_mask_planes()
+    compare_masked_image_to_legacy(
+        cell_coadd, legacy_exposure.getMaskedImage(), plane_map=plane_map, expect_view=expect_view
+    )
+    # A legacy (non-cell) coadd has no place for any of these components,
+    # so a faithful conversion must not invent them.
+    assert cell_coadd.mask_fractions == {}
+    assert cell_coadd.noise_realizations == []
+    assert cell_coadd.backgrounds.keys() == set()
+    assert cell_coadd.backgrounds.subtracted is None
+    assert cell_coadd.skymap == skymap
+    assert cell_coadd.tract == tract
+    assert cell_coadd.patch.id == patch
+    assert cell_coadd.band == band
+    assert cell_coadd.unit == unit
+    _check_cell_coadd_geometry(cell_coadd, tract_bbox)
+    assert cell_coadd.sky_projection is cell_coadd.mask.sky_projection
+    assert cell_coadd.sky_projection is cell_coadd.variance.sky_projection
+    compare_sky_projection_to_legacy_wcs(
+        cell_coadd.sky_projection,
+        legacy_exposure.getWcs(),
+        TractFrame(skymap=skymap, tract=tract, bbox=tract_bbox),
+        cell_coadd.bbox,
+        is_fits=True,
+    )
+    if psf_points is None:
+        psf_points = _cell_center_points(cell_coadd)
+    compare_psf_to_legacy(cell_coadd.psf, legacy_exposure.getPsf(), points=psf_points, rtol=1e-5)
+    compare_aperture_corrections_to_legacy(
+        cell_coadd.aperture_corrections,
+        legacy_exposure.info.getApCorrMap(),
+        cell_coadd.bbox,
+        eval_points=psf_points,
+        expect_subset_bounds=True,
+    )
+    compare_cell_coadd_provenance_to_legacy_lazy(cell_coadd.provenance, legacy_exposure, cell_coadd.bounds)
+    if alternates:
+        if sky_projection := alternates.get("sky_projection"):
+            compare_sky_projection_to_legacy_wcs(
+                sky_projection,
+                legacy_exposure.getWcs(),
+                TractFrame(skymap=skymap, tract=tract, bbox=tract_bbox),
+                cell_coadd.bbox,
+                is_fits=True,
+            )
+        if psf := alternates.get("psf"):
+            compare_psf_to_legacy(psf, legacy_exposure.getPsf(), points=psf_points, rtol=1e-5)
+        if aperture_corrections := alternates.get("aperture_corrections"):
+            compare_aperture_corrections_to_legacy(
+                aperture_corrections,
+                legacy_exposure.info.getApCorrMap(),
+                cell_coadd.bbox,
+                eval_points=psf_points,
+                expect_subset_bounds=True,
+            )
+        if provenance := alternates.get("provenance"):
+            compare_cell_coadd_provenance_to_legacy_lazy(provenance, legacy_exposure, cell_coadd.bounds)
+
+
+def compare_cell_coadd_provenance_to_legacy_lazy(
+    provenance: CoaddProvenance,
+    legacy_exposure: Any,
+    bounds: CellGridBounds,
+) -> None:
+    """Compare a `.cells.CoaddProvenance` object to the
+    `lsst.afw.image.CoaddInputs` of the legacy (non-cell) coadd it was
+    converted from.
+
+    Parameters
+    ----------
+    provenance
+        New provenance object to test.
+    legacy_exposure
+        Legacy `lsst.afw.image.Exposure` whose ``info.getCoaddInputs()``
+        the provenance should be consistent with.
+    bounds
+        The cell bounds of the coadd this provenance belongs to.
+    """
+    coadd_inputs = legacy_exposure.info.getCoaddInputs()
+    assert coadd_inputs is not None
+    wcs = legacy_exposure.getWcs()
+    legacy_by_key: dict[tuple[int, int], Any] = {(row["visit"], row["ccd"]): row for row in coadd_inputs.ccds}
+    inputs = provenance.inputs
+    prov_keys = {(row["visit"], row["detector"]) for row in inputs}
+    # A coadd converted from a larger CoaddInputs (e.g. a postage stamp cut
+    # from a whole-tract template) legitimately drops inputs that intersect
+    # its bounds nowhere, so this is subset, not equality.
+    assert prov_keys <= set(legacy_by_key), "Provenance inputs must be a subset of CoaddInputs ccds."
+    instruments = {row["instrument"] for row in inputs}
+    assert len(instruments) == 1, "A coadd's inputs must all share one instrument."
+    for row in inputs:
+        legacy_row = legacy_by_key[(row["visit"], row["detector"])]
+        assert row["physical_filter"] == legacy_row["filter"]
+        assert row["polygon"].area > 0
+    # Group contribution rows by input, checking weights are carried over
+    # exactly, and then group them by cell for the geometric checks below.
+    contributions_by_input: dict[tuple[int, int], list[Any]] = {}
+    contributions_by_cell: dict[CellIJ, list[Any]] = {}
+    for row in provenance.contributions:
+        key = (row["visit"], row["detector"])
+        assert key in prov_keys
+        contributions_by_input.setdefault(key, []).append(row)
+        contributions_by_cell.setdefault(CellIJ(i=row["cell_i"], j=row["cell_j"]), []).append(row)
+    for key, rows in contributions_by_input.items():
+        assert rows, f"Input (visit={key[0]}, detector={key[1]}) must contribute somewhere."
+        assert_values_equal(
+            np.array([row["weight"] for row in rows]),
+            np.full(len(rows), legacy_by_key[key]["weight"]),
+            rtol=1e-12,
+            label="contributions[weight]",
+        )
+    overlap = np.asarray(provenance.contributions["overlap_fraction"], dtype=np.float64)
+    assert np.all((overlap > 0.0) & (overlap <= 1.0)), "Overlap fractions must be valid cell fractions."
+    valid_cells = set(bounds.cell_indices()) - set(bounds.missing)
+    assert set(contributions_by_cell) <= valid_cells, "Contributions must be on non-missing cells."
+    for cell, rows in contributions_by_cell.items():
+        bbox = bounds.grid.bbox_of(cell)
+        overlapping = {
+            (row["visit"], row["ccd"])
+            for row in coadd_inputs.ccds.subsetContaining(
+                bbox.center.to_legacy_float_point(), wcs, includeValidPolygon=True
+            )
+        }
+        keys = {(row["visit"], row["detector"]) for row in rows}
+        assert overlapping <= keys, "Inputs overlapping a cell center must contribute to that cell."
+        centered = {(row["visit"], row["detector"]) for row in rows if row["overlaps_center"]}
+        assert centered == overlapping, "overlaps_center must match which inputs cover the cell center."
+
+
 def compare_psf_to_legacy(
     psf: PointSpreadFunction,
     legacy_psf: Any,
     points: YX[np.ndarray] | XY[np.ndarray] | None = None,
     expect_legacy_raise_on_out_of_bounds: bool = False,
+    *,
+    rtol: float = 0.0,
+    atol: float = 0.0,
 ) -> int:
     """Compare a PSF model object to its legacy interface.
 
@@ -1183,6 +1415,14 @@ def compare_psf_to_legacy(
         If `True`, expect ``legacy_psf`` to raise
         `lsst.afw.detection.InvalidPsfError` when evaluated at a position
         considered out-of-bounds by ``psf``.
+    rtol
+        Relative tolerance for kernel and stellar image pixel values.
+        The default of zero (with ``atol`` also zero) requires exact
+        equality, appropriate when both PSFs were converted from the same
+        representation.  Nonzero values are for comparing approximations,
+        such as cell-based evaluations of a spatially varying legacy PSF.
+    atol
+        Absolute tolerance for kernel and stellar image pixel values.
 
     Returns
     -------
@@ -1191,6 +1431,7 @@ def compare_psf_to_legacy(
     """
     from lsst.afw.detection import InvalidPsfError
 
+    approximate = rtol != 0.0 or atol != 0.0
     if points is None:
         points = psf.bounds.bbox.meshgrid(n=3).map(np.ravel)
     legacy_points = arrays_to_legacy_points(points.x, points.y)
@@ -1201,10 +1442,30 @@ def compare_psf_to_legacy(
                 with pytest.raises(InvalidPsfError):
                     legacy_psf.computeKernelImage(p)
             continue
+        try:
+            legacy_kernel_image = legacy_psf.computeKernelImage(p)
+        except InvalidPsfError:
+            # The legacy PSF has no opinion here; the conversion should have
+            # built this cell's stamp from corner samples instead.
+            continue
         assert psf.kernel_bbox == Box.from_legacy(legacy_psf.computeKernelBBox(p))
-        assert psf.compute_kernel_image(x=p.x, y=p.y) == Image.from_legacy(legacy_psf.computeKernelImage(p))
+        kernel = psf.compute_kernel_image(x=p.x, y=p.y)
+        if approximate:
+            assert_values_equal(
+                kernel.array, legacy_kernel_image.array, rtol=rtol, atol=atol, label="psf kernel"
+            )
+        else:
+            assert kernel == Image.from_legacy(legacy_kernel_image)
         assert psf.compute_stellar_bbox(x=p.x, y=p.y) == Box.from_legacy(legacy_psf.computeImageBBox(p))
-        assert psf.compute_stellar_image(x=p.x, y=p.y) == Image.from_legacy(legacy_psf.computeImage(p))
+        stellar = psf.compute_stellar_image(x=p.x, y=p.y)
+        legacy_stellar = Image.from_legacy(legacy_psf.computeImage(p))
+        if approximate:
+            assert stellar.bbox == legacy_stellar.bbox
+            assert_values_equal(
+                stellar.array, legacy_stellar.array, rtol=rtol, atol=atol, label="psf stellar image"
+            )
+        else:
+            assert stellar == legacy_stellar
         n_points_tested += 1
     return n_points_tested
 
@@ -1213,6 +1474,8 @@ def compare_field_to_legacy(
     field: BaseField,
     legacy_field: Any,
     subimage_bbox: Box,
+    eval_points: XY[np.ndarray] | YX[np.ndarray] | None = None,
+    expect_subset_bounds: bool = False,
 ) -> None:
     """Test a Field object by comparing it to an equivalent
     `lsst.afw.math.BoundedField`.
@@ -1225,15 +1488,27 @@ def compare_field_to_legacy(
         Equivalent legacy bounded field.
     subimage_bbox
         Bounding box for full-image tests.
+    eval_points
+        Points at which to compare field values, instead of testing over a
+        grid covering ``field.bounds``.  This also disables image-rendering
+        comparison checks.
+    expect_subset_bounds
+        If `True`, expect ``field.bounds`` to be contained by
+        ``legacy_field.getBBox()``, not equal to it.
     """
     from lsst.afw.math import BoundedField as LegacyBoundedField
 
-    assert field.bounds.bbox == Box.from_legacy(legacy_field.getBBox())
-    # Pixel coordinates to test the numpy array interface with.
-    pixel_xy = field.bounds.bbox.meshgrid(n=5).map(np.ravel)
-    if not isinstance(field.bounds, Box):
-        mask = field.bounds.contains(x=pixel_xy.x, y=pixel_xy.y)
-        pixel_xy = pixel_xy.map(lambda v: v[mask])
+    if expect_subset_bounds:
+        assert Box.from_legacy(legacy_field.getBBox()).contains(field.bounds.bbox)
+    else:
+        assert field.bounds.bbox == Box.from_legacy(legacy_field.getBBox())
+    if eval_points is not None:
+        pixel_xy = eval_points.map(np.ravel)
+    else:
+        pixel_xy = field.bounds.bbox.meshgrid(n=5).map(np.ravel)
+        if not isinstance(field.bounds, Box):
+            mask = field.bounds.contains(x=pixel_xy.x, y=pixel_xy.y)
+            pixel_xy = pixel_xy.map(lambda v: v[mask])
     try:
         assert_values_equal(
             field(x=pixel_xy.x, y=pixel_xy.y),
@@ -1249,6 +1524,8 @@ def compare_field_to_legacy(
         # Legacy StitchedApertureCorrection objects are not true BoundedFields
         # and don't have addToImage.
         return
+    if eval_points is not None:
+        return
     legacy_image_1 = Image(0, bbox=subimage_bbox, dtype=np.float64).to_legacy()
     legacy_field.addToImage(legacy_image_1, overlapOnly=True)
     assert_images_equal(
@@ -1260,6 +1537,9 @@ def compare_aperture_corrections_to_legacy(
     aperture_corrections: Mapping[str, BaseField],
     legacy_ap_corr_map: Any,
     subimage_bbox: Box,
+    *,
+    eval_points: XY[np.ndarray] | YX[np.ndarray] | None = None,
+    expect_subset_bounds: bool = False,
 ) -> None:
     """Test an aperture correction `dict` by comparing it to an equivalent
     `lsst.afw.image.ApCorrMap`.
@@ -1272,10 +1552,23 @@ def compare_aperture_corrections_to_legacy(
         Equivalent legacy aperture correction map.
     subimage_bbox
         Bounding box for full-image tests.
+    eval_points
+        Points at which to compare field values, forwarded to
+        `compare_field_to_legacy`.  This also disables image-rendering
+        comparison checks.
+    expect_subset_bounds
+        If `True`, expect ``field.bounds`` to be contained by
+        ``legacy_field.getBBox()``, not equal to it.
     """
     assert aperture_corrections.keys() == set(legacy_ap_corr_map.keys())
     for name, field in aperture_corrections.items():
-        compare_field_to_legacy(field, legacy_ap_corr_map[name], subimage_bbox)
+        compare_field_to_legacy(
+            field,
+            legacy_ap_corr_map[name],
+            subimage_bbox,
+            eval_points=eval_points,
+            expect_subset_bounds=expect_subset_bounds,
+        )
 
 
 def compare_observation_summary_stats_to_legacy(

@@ -20,7 +20,7 @@ import numpy as np
 import pydantic
 
 from .._cell_grid import CellGrid, CellGridBounds, CellIJ
-from .._geom import YX, Bounds, BoundsError, Box
+from .._geom import XY, YX, Bounds, BoundsError, Box, Interval
 from .._image import Image
 from ..psfs import PointSpreadFunction
 from ..serialization import (
@@ -35,8 +35,10 @@ from ..utils import round_half_up
 
 if TYPE_CHECKING:
     try:
+        from lsst.afw.detection import Psf as LegacyPsf
         from lsst.cell_coadds import StitchedPsf as LegacyStitchedPsf
     except ImportError:
+        type LegacyPsf = Any  # type: ignore[no-redef]
         type LegacyStitchedPsf = Any  # type: ignore[no-redef]
 
 
@@ -208,6 +210,66 @@ class CellPointSpreadFunction(PointSpreadFunction):
         for cell_index in self.bounds.cell_indices():
             gc[cell_index.to_legacy()] = self[cell_index].to_legacy()
         return LegacyStitchedPsf(gc, grid)
+
+    @staticmethod
+    def approximate_from_legacy(legacy: LegacyPsf, bounds: CellGridBounds) -> CellPointSpreadFunction:
+        """Convert from a legacy PSF by evaluating it at cell centers and
+        assuming variation within a cell is approximately constant.
+
+        When the legacy PSF cannot be evaluated at a cell's center (e.g. the
+        center falls outside every contributing exposure), it is instead
+        sampled at the cell's four corners and the valid samples are averaged.
+
+        Parameters
+        ----------
+        legacy
+            Legacy point-spread function to approximate.
+        bounds
+            Cell grid and known-missing cells.
+        """
+        from lsst.afw.detection import InvalidPsfError
+
+        stamps: dict[CellIJ, list[Image]] = {}
+        missing: set[CellIJ] = set()
+        x_intervals: list[Interval] = []
+        y_intervals: list[Interval] = []
+
+        def append_stamp_at(cell_index: CellIJ, point: XY[float] | YX[int]) -> bool:
+            try:
+                stamp = Image.from_legacy(legacy.computeKernelImage(point.to_legacy_float_point()))
+                stamps.setdefault(cell_index, []).append(stamp)
+                x_intervals.append(stamp.bbox.x)
+                y_intervals.append(stamp.bbox.y)
+            except InvalidPsfError:
+                return False
+            return True
+
+        for cell_index in bounds.cell_indices():
+            cell_bbox = bounds.grid.bbox_of(cell_index)
+            if not append_stamp_at(cell_index, cell_bbox.center):
+                # Average evaluations at corners instead (or at least the ones
+                # where we can evaluate).  We use `sum` instead of `any` to
+                # avoid short-circuiting.
+                if not sum(append_stamp_at(cell_index, corner) for corner in cell_bbox.boundary()):
+                    missing.add(cell_index)
+                    continue
+        if not stamps:
+            raise ValueError("Given PSF could not be evaluated at any cell center or corner.")
+        kernel_bbox = Box(y=Interval.hull(*y_intervals), x=Interval.hull(*x_intervals))
+        array = np.full(bounds.subgrid_size.as_tuple() + kernel_bbox.shape, np.nan, dtype=np.float64)
+        for cell_index, stamps_for_cell in stamps.items():
+            assert stamps_for_cell, "Should be guaranteed by append_stamp_at."
+            array_index = cell_index - bounds.subgrid_start
+            array[array_index.i, array_index.j, :, :] = 0.0
+            for stamp in stamps_for_cell:
+                slices = stamp.bbox.slice_within(kernel_bbox)
+                array[array_index.i, array_index.j, slices.y, slices.x] += stamp.array
+            array[array_index.i, array_index.j, :, :] /= len(stamps_for_cell)
+        if missing:
+            bounds = CellGridBounds(
+                grid=bounds.grid, bbox=bounds.bbox, missing=frozenset(bounds.missing | missing)
+            )
+        return CellPointSpreadFunction(array, bounds=bounds)
 
     @staticmethod
     def _subset_impl(bounds: CellGridBounds, bbox: Box) -> tuple[CellGridBounds, YX[slice]]:
