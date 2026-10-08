@@ -54,9 +54,16 @@ def extract_exposure(
         QuantizationOptions,
         ScalingAlgorithm,
     )
+    from lsst.afw.image import LOCAL
     from lsst.geom import Box2I, Extent2I, Point2I
 
-    exposure = butler.get(dataset_ref, parameters={"bbox": Box2I(Point2I(5, 4), Extent2I(256, 250))})
+    exposure = butler.get(
+        dataset_ref,
+        # Interpret bbox as LOCAL to let us select from a patch-level coadd
+        # image without knowing that patch's offset (LOCAL==PARENT for
+        # detector-level images).
+        parameters={"bbox": Box2I(Point2I(5, 4), Extent2I(256, 250)), "origin": LOCAL},
+    )
     if shuffle:
         indices = np.arange(exposure.image.array.size, dtype=int)
         rng = np.random.default_rng()
@@ -268,27 +275,32 @@ def extract_test_data() -> None:
 )
 @click.option(
     "--visit-images/--no-visit-images",
-    default=True,
+    default=False,
     help="Whether to extract preliminary_visit_image or visit_image datasets.",
 )
 @click.option(
     "--difference-images/--no-difference-images",
-    default=True,
+    default=False,
     help="Whether to extract difference_image datasets.",
 )
 @click.option(
-    "--coadds/--no-coadds",
-    default=True,
-    help="Whether to extract coadd datasets.",
+    "--deep-coadds/--no-deep-coadds",
+    default=False,
+    help="Whether to extract deep_coadd datasets.",
+)
+@click.option(
+    "--template-coadds/--no-template-coadds",
+    default=False,
+    help="Whether to extract template_coadd datasets.",
 )
 @click.option(
     "--camera/--no-camera",
-    default=True,
+    default=False,
     help="Whether to extract the camera.",
 )
 @click.option(
     "--skymap/--no-skymap",
-    default=True,
+    default=False,
     help="Whether to extract the skymap.",
 )
 def extract_dp2(
@@ -298,7 +310,8 @@ def extract_dp2(
     *,
     visit_images: bool,
     difference_images: bool,
-    coadds: bool,
+    deep_coadds: bool,
+    template_coadds: bool,
     camera: bool,
     skymap: bool,
 ) -> None:  # numpydoc ignore=PR01
@@ -368,7 +381,7 @@ def extract_dp2(
             os.path.join(testdata_dir, "dp2", "legacy", "difference_kernel.fits"),
             find_dataset_or_raise(butler, "difference_kernel", **DP2_VISIT_DETECTOR_DATA_ID),
         )
-    if coadds:
+    if deep_coadds:
         extract_cell_coadd(
             butler,
             os.path.join(
@@ -378,6 +391,13 @@ def extract_dp2(
                 "deep_coadd_cell_predetection.fits",
             ),
             find_dataset_or_raise(butler, "deep_coadd_cell_predetection", **DP2_COADD_DATA_ID),
+            shuffle=True,
+        )
+    if template_coadds:
+        extract_exposure(
+            butler,
+            os.path.join(testdata_dir, "dp2", "legacy", "template_coadd.fits"),
+            find_dataset_or_raise(butler, "template_coadd", **DP2_COADD_DATA_ID),
             shuffle=True,
         )
     if skymap:
