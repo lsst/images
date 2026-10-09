@@ -44,13 +44,14 @@ from lsst.images import (
     get_legacy_visit_image_mask_planes,
     json,
 )
+from lsst.images import fits as images_fits
 from lsst.images.aperture_corrections import ApertureCorrectionMap, aperture_corrections_to_legacy
 from lsst.images.cameras import Detector
 from lsst.images.describe import DescribableMixin, DescribeOptions, FieldRole, Report
 from lsst.images.fields import ChebyshevField, SplineField, SumField, field_from_legacy_photo_calib
 from lsst.images.fits import ExtensionKey, FitsOpaqueMetadata
 from lsst.images.psfs import GaussianPointSpreadFunction, PointSpreadFunction
-from lsst.images.serialization import ArchiveReadError, read_archive
+from lsst.images.serialization import ArchiveReadError, open_archive, read_archive
 from lsst.images.tests import (
     DP2_VISIT_DETECTOR_DATA_ID,
     RoundtripFits,
@@ -63,6 +64,7 @@ from lsst.images.tests import (
     assert_visit_images_equal,
     compare_aperture_corrections_to_legacy,
     compare_detector_to_legacy,
+    compare_mask_to_legacy,
     compare_photo_calib_to_legacy,
     compare_visit_image_to_legacy,
     current_fixture_path,
@@ -604,6 +606,26 @@ def test_external_metadata_legacy_round_trip(
     assert legacy_metadata["LSST IMAGES KEY 1"] == "native_key"
 
 
+def test_gaussian_psf_legacy_round_trip(
+    visit_image_components: dict[str, Any],
+    reset_afw_mask_planes: None,  # noqa: F811
+) -> None:
+    """Verify that a Gaussian PSF set after construction is attached to the
+    legacy Exposure that `VisitImage.to_legacy` returns.
+    """
+    from lsst.afw.detection import GaussianPsf
+
+    visit_image = make_simplest_visit_image(visit_image_components)
+    psf = GaussianPointSpreadFunction(3.25, stamp_size=27, bounds=Box.factory[0:1024, 0:1024])
+    visit_image.psf = psf
+    assert visit_image.psf is psf
+
+    legacy_psf = visit_image.to_legacy().getPsf()
+    assert isinstance(legacy_psf, GaussianPsf)
+    assert legacy_psf.getSigma() == psf.sigma
+    assert legacy_psf.computeBBox(legacy_psf.getAveragePosition()).getWidth() == 27
+
+
 @skip_no_h5py
 def test_round_trip_ndf(visit_image_components: dict[str, Any]) -> None:
     """Verify NDF round-trip produces a VisitImage equal to the original."""
@@ -694,6 +716,21 @@ def test_read_write(visit_image_components: dict[str, Any]) -> None:
     assert roundtrip.result.backgrounds.subtracted.description == "Background subtracted from the image."
 
 
+def test_read_bounds_and_unit_components(visit_image_components: dict[str, Any], tmp_path: Path) -> None:
+    """Verify that the bounds and unit components match a full read, both
+    when the bounds are a polygon and when they default to the bbox.
+    """
+    for n, visit_image in enumerate(
+        [make_visit_image(visit_image_components), make_simplest_visit_image(visit_image_components)]
+    ):
+        path = tmp_path / f"visit_image_{n}.fits"
+        images_fits.write(visit_image, path)
+        with open_archive(path) as reader:
+            assert reader.get_component("bounds") == visit_image.bounds
+            assert reader.get_component("unit") == visit_image.unit
+    assert isinstance(make_visit_image(visit_image_components).bounds, Polygon)
+
+
 def test_read_write_components(visit_image_components: dict[str, Any]) -> None:
     """Verify component reads and storage-class overrides round-trip correctly.
 
@@ -717,6 +754,8 @@ def test_read_write_components(visit_image_components: dict[str, Any]) -> None:
         assert_masked_images_equal(components["masked_image"], subimage_masked, expect_view=False)
 
         assert roundtrip.get("bbox") == visit_image.bbox
+        assert roundtrip.get("bounds") == visit_image.bounds
+        assert roundtrip.get("unit") == visit_image.unit
 
         obs_info = roundtrip.get("obs_info")
         assert isinstance(obs_info, ObservationInfo)
@@ -755,6 +794,8 @@ def test_read_write_components(visit_image_components: dict[str, Any]) -> None:
             "sky_projection",
             "summary_stats",
             "photometric_scaling",
+            "bounds",
+            "unit",
         }
 
         # Butler morphs RuntimeError to ValueError.
@@ -914,6 +955,38 @@ def _check_legacy_obs_info(obs_info: ObservationInfo | None) -> None:
     assert obs_info.physical_filter == "r_57", obs_info
 
 
+def test_legacy_optional_mask_planes(legacy_test_data_calibrated: _LegacyTestData) -> None:
+    """Verify that an optional source injection plane converts in both
+    directions.
+    """
+    legacy = legacy_test_data_calibrated.legacy_exposure.clone()
+    injected = np.zeros(legacy.mask.array.shape, dtype=bool)
+    injected[4:9, 3:11] = True
+    for old_name in ("INJECTED", "INJECTED_CORE"):
+        legacy.mask.addMaskPlane(old_name)
+    legacy.mask.array[injected] |= legacy.mask.getPlaneBitMask("INJECTED")
+    plane_map = legacy_test_data_calibrated.plane_map
+
+    image = legacy_test_data_calibrated.read_cls.from_legacy(
+        legacy, plane_map=plane_map, exposure_record=legacy_test_data_calibrated.exposure_record
+    )
+
+    assert "INJECTED" in image.mask.schema.names
+    assert_values_equal(image.mask.get("INJECTED"), injected)
+    assert "INJECTED_CORE" not in image.mask.schema.names
+    # Every plane the image really uses, mapped and optional alike.
+    compare_mask_to_legacy(image.mask, legacy.mask, plane_map)
+
+    round_tripped = image.to_legacy()
+
+    assert "INJECTED" in round_tripped.mask.getMaskPlaneDict()
+    assert_values_equal(
+        (round_tripped.mask.array & round_tripped.mask.getPlaneBitMask("INJECTED")).astype(bool),
+        injected,
+    )
+    compare_mask_to_legacy(image.mask, round_tripped.mask, plane_map)
+
+
 def test_legacy_errors(legacy_test_data: _LegacyTestData) -> None:
     """Verify that from_legacy and read_legacy raise on bad arguments."""
     with pytest.raises(TypeError):
@@ -1016,6 +1089,18 @@ def test_component_reads(legacy_test_data: _LegacyTestData) -> None:
         legacy_test_data.legacy_exposure.getPhotoCalib(),
         subimage_bbox=visit.bbox,
     )
+    bounds = VisitImage.read_legacy(
+        legacy_test_data.filename,
+        exposure_record=legacy_test_data.exposure_record,
+        component="bounds",
+    )
+    assert bounds == visit.bounds
+    unit = VisitImage.read_legacy(
+        legacy_test_data.filename,
+        exposure_record=legacy_test_data.exposure_record,
+        component="unit",
+    )
+    assert unit == visit.unit
 
 
 def test_legacy_obs_info(legacy_test_data: _LegacyTestData) -> None:

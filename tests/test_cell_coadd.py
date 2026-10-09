@@ -540,12 +540,14 @@ def test_roundtrip_components(legacy_test_data: _LegacyTestData) -> None:
                 "provenance",
                 "backgrounds",
                 "bbox",
+                "unit",
             ]
         }
         # Read all the components at once.
         all_components = roundtrip.get("components")
         assert set(all_components) == set(alternates) - {"masked_image"}
         assert all_components["bbox"] == alternates["bbox"]
+        assert all_components["unit"] == legacy_test_data.cell_coadd.unit
         assert_psfs_equal(all_components["psf"], alternates["psf"])
         assert_images_equal(all_components["image"], alternates["image"])
 

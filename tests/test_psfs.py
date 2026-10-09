@@ -182,6 +182,35 @@ def test_gaussian() -> None:
         GaussianPointSpreadFunction(-2.5, bounds=bounds, stamp_size=33)
 
 
+def test_gaussian_from_legacy(reset_afw_mask_planes: None) -> None:  # noqa: F811
+    """Test converting a legacy GaussianPsf to and from
+    GaussianPointSpreadFunction.
+    """
+    # reset_afw_mask_planes will have already skipped if afw is not available.
+    from lsst.afw.detection import GaussianPsf
+    from lsst.geom import Point2D
+
+    bounds = Box.factory[0:64, 0:48]
+    legacy_psf = GaussianPsf(33, 33, 2.5)
+    psf = PointSpreadFunction.from_legacy(legacy_psf, bounds)
+    assert isinstance(psf, GaussianPointSpreadFunction)
+    assert psf == GaussianPointSpreadFunction(2.5, bounds=bounds, stamp_size=33)
+    # The kernels match to round-off, so compare_psf_to_legacy (which checks
+    # exact equality) cannot be used.
+    for x, y in [(10.0, 10.0), (10.3, 20.7)]:
+        legacy_kernel = Image.from_legacy(legacy_psf.computeKernelImage(Point2D(x, y)))
+        kernel = psf.compute_kernel_image(x=x, y=y)
+        assert kernel.bbox == legacy_kernel.bbox
+        np.testing.assert_allclose(kernel.array, legacy_kernel.array, rtol=0, atol=1e-15)
+    legacy_psf_2 = psf.to_legacy()
+    assert isinstance(legacy_psf_2, GaussianPsf)
+    assert legacy_psf_2.getSigma() == legacy_psf.getSigma()
+    assert legacy_psf_2.getDimensions() == legacy_psf.getDimensions()
+
+    with pytest.raises(ValueError, match="must be square"):
+        PointSpreadFunction.from_legacy(GaussianPsf(33, 31, 2.5), bounds)
+
+
 def test_piff_writer_normalizes_tuple_metadata():  # intentionally untyped
     """Test that Piff metadata is normalized to JSON-like values."""
     writer = _ArchivePiffWriter()
