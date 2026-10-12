@@ -25,7 +25,10 @@ from lsst.images import (
     Mask,
     MaskPlane,
     MaskSchema,
+    get_legacy_difference_image_mask_planes,
     get_legacy_non_cell_coadd_mask_planes,
+    get_legacy_optional_mask_planes,
+    get_legacy_template_mask_planes,
     get_legacy_visit_image_mask_planes,
 )
 from lsst.images._mask import _guess_legacy_plane_map
@@ -496,14 +499,163 @@ def test_legacy_non_cell_coadd_plane_map() -> None:
     assert plane_map["SENSOR_EDGE"].name == "SENSOR_EDGE"
 
 
+def test_legacy_optional_plane_map() -> None:
+    """Verify the source injection planes are optional, and so belong to no
+    image's plane map.
+    """
+    optional = get_legacy_optional_mask_planes()
+    assert set(optional) == {
+        "INJECTED",
+        "INJECTED_CORE",
+        "INJECTED_TEMPLATE",
+        "INJECTED_CORE_TEMPLATE",
+    }
+    for old_name, plane in optional.items():
+        assert plane.name == old_name
+    for plane_map in (
+        get_legacy_visit_image_mask_planes(),
+        get_legacy_difference_image_mask_planes(),
+        get_legacy_non_cell_coadd_mask_planes(),
+        get_legacy_template_mask_planes(),
+    ):
+        assert not (plane_map.keys() & optional.keys())
+
+
+def test_from_legacy_adds_optional_planes_in_use(reset_afw_mask_planes: None) -> None:  # noqa: F811
+    """Verify an optional plane joins the schema when the legacy mask has
+    pixels set in it, and costs nothing when it does not.
+    """
+    # reset_afw_mask_planes will have already skipped if afw is not available.
+    from lsst.afw.image import Mask as LegacyMask
+
+    legacy = LegacyMask(5, 4)
+    injected = np.arange(20).reshape(4, 5) < 3
+    for old_name in ("INJECTED", "INJECTED_CORE"):
+        legacy.addMaskPlane(old_name)
+    legacy.array[injected] |= legacy.getPlaneBitMask("INJECTED")
+    plane_map = get_legacy_visit_image_mask_planes()
+
+    mask = Mask.from_legacy(legacy, plane_map=plane_map)
+
+    assert "INJECTED" in mask.schema.names
+    np.testing.assert_array_equal(mask.get("INJECTED"), injected)
+    # INJECTED_CORE is defined but unused, so it takes up no bit.
+    assert "INJECTED_CORE" not in mask.schema.names
+    assert len(mask.schema) == len(plane_map) + 1
+    # The plane keeps its legacy name on the way back out.
+    round_tripped = mask.to_legacy(plane_map)
+    np.testing.assert_array_equal(
+        (round_tripped.array & round_tripped.getPlaneBitMask("INJECTED")).astype(bool), injected
+    )
+
+
+def test_legacy_template_plane_map() -> None:
+    """Verify the template map has the coadd planes and HIGH_VARIANCE."""
+    plane_map = get_legacy_template_mask_planes()
+    non_cell_coadd = get_legacy_non_cell_coadd_mask_planes()
+    assert non_cell_coadd.keys() < plane_map.keys()
+    assert plane_map["HIGH_VARIANCE"].name == "HIGH_VARIANCE"
+
+
 def test_guess_legacy_plane_map_coadd_discriminator() -> None:
-    """Verify INEXACT_PSF routes to a coadd map and SENSOR_EDGE discriminates
-    non-cell from cell.
+    """Verify INEXACT_PSF routes to a coadd map, SENSOR_EDGE discriminates
+    non-cell from cell, and HIGH_VARIANCE marks a template.
     """
     non_cell = _guess_legacy_plane_map({"INEXACT_PSF": 11, "SENSOR_EDGE": 14})
     assert "SENSOR_EDGE" in non_cell
+    assert "HIGH_VARIANCE" not in non_cell
     cell = _guess_legacy_plane_map({"INEXACT_PSF": 11})
     assert "SENSOR_EDGE" not in cell
+    template = _guess_legacy_plane_map({"INEXACT_PSF": 11, "SENSOR_EDGE": 14, "HIGH_VARIANCE": 15})
+    assert "HIGH_VARIANCE" in template
+
+
+def test_to_legacy_keeps_unmapped_planes(reset_afw_mask_planes: None) -> None:  # noqa: F811
+    """Verify a plane the map does not name keeps its pixels and its name.
+
+    A template is a warped coadd stored as a difference image, so it has
+    CLIPPED set while the difference image map has no entry for it.
+    """
+    plane_map = get_legacy_non_cell_coadd_mask_planes()
+    mask = Mask(0, schema=MaskSchema(list(plane_map.values())), bbox=Box.factory[0:4, 0:5])
+    clipped = np.arange(20).reshape(4, 5) < 3
+    saturated = np.arange(20).reshape(4, 5) > 17
+    mask.set("CLIPPED", clipped)
+    mask.set("SATURATED", saturated)
+
+    legacy = mask.to_legacy(get_legacy_difference_image_mask_planes())
+
+    # The unmapped coadd plane is written under the name it already has.
+    assert "CLIPPED" in legacy.getMaskPlaneDict()
+    np.testing.assert_array_equal((legacy.array & legacy.getPlaneBitMask("CLIPPED")).astype(bool), clipped)
+    # A mapped plane still comes back under its legacy name.
+    np.testing.assert_array_equal((legacy.array & legacy.getPlaneBitMask("SAT")).astype(bool), saturated)
+    assert "SATURATED" not in legacy.getMaskPlaneDict()
+    assert_masks_equal(Mask.from_legacy(legacy, plane_map=plane_map), mask)
+
+
+def test_legacy_round_trip_with_optional_plane(reset_afw_mask_planes: None) -> None:  # noqa: F811
+    """Verify a legacy mask survives a round trip through `Mask`, with the
+    mapped planes renamed both ways and an optional plane carried as it is.
+    """
+    # reset_afw_mask_planes will have already skipped if afw is not available.
+    from lsst.afw.image import Mask as LegacyMask
+
+    legacy = LegacyMask(5, 4)
+    rows = {"SAT": 0, "INTRP": 1, "INJECTED": 2}
+    pixels = {}
+    for old_name, row in rows.items():
+        legacy.addMaskPlane(old_name)
+        selection = np.zeros(legacy.array.shape, dtype=bool)
+        selection[row, :] = True
+        legacy.array[selection] |= legacy.getPlaneBitMask(old_name)
+        pixels[old_name] = selection
+    # Defined by some other image in this process, but unused here.
+    legacy.addMaskPlane("INJECTED_CORE")
+    plane_map = get_legacy_visit_image_mask_planes()
+
+    mask = Mask.from_legacy(legacy, plane_map=plane_map)
+
+    assert {"SATURATED", "INTERPOLATED", "INJECTED"} <= set(mask.schema.names)
+    assert "INJECTED_CORE" not in mask.schema.names
+    np.testing.assert_array_equal(mask.get("SATURATED"), pixels["SAT"])
+    np.testing.assert_array_equal(mask.get("INJECTED"), pixels["INJECTED"])
+
+    round_tripped = mask.to_legacy(plane_map)
+
+    compare_mask_to_legacy(mask, round_tripped, plane_map)
+    for old_name, selection in pixels.items():
+        np.testing.assert_array_equal(
+            (round_tripped.array & round_tripped.getPlaneBitMask(old_name)).astype(bool), selection
+        )
+    # The mapped planes go back out under their legacy names, and the
+    # optional plane under the only name it has.
+    assert "SATURATED" not in round_tripped.getMaskPlaneDict()
+    assert "INJECTED" in round_tripped.getMaskPlaneDict()
+
+
+def test_read_legacy_adds_optional_planes_in_use(reset_afw_mask_planes: None) -> None:  # noqa: F811
+    """Verify reading a legacy FITS mask resolves the optional planes the
+    same way converting one in memory does.
+    """
+    # reset_afw_mask_planes will have already skipped if afw is not available.
+    from lsst.afw.image import MaskedImageF
+
+    # `read_legacy` reads the MASK extension of a masked image or exposure.
+    masked_image = MaskedImageF(5, 4)
+    legacy = masked_image.mask
+    injected = np.arange(20).reshape(4, 5) < 3
+    for old_name in ("INJECTED", "INJECTED_CORE"):
+        legacy.addMaskPlane(old_name)
+    legacy.array[injected] |= legacy.getPlaneBitMask("INJECTED")
+
+    with lsst.utils.tests.getTempFilePath(".fits") as tmpFile:
+        masked_image.writeFits(tmpFile)
+        mask = Mask.read_legacy(tmpFile, ext=2, plane_map=get_legacy_visit_image_mask_planes())
+
+    assert "INJECTED" in mask.schema.names
+    np.testing.assert_array_equal(mask.get("INJECTED"), injected)
+    assert "INJECTED_CORE" not in mask.schema.names
 
 
 def test_legacy(legacy_test_data: _LegacyTestData) -> None:

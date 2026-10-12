@@ -595,6 +595,14 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
                 shape = self.data.shape
         return Box.from_shape(shape, self.yx0)
 
+    @property
+    def unit(self) -> astropy.units.UnitBase | None:
+        """The units of the pixel values, if any."""
+        match self.data:
+            case ArrayReferenceQuantityModel() | InlineArrayQuantityModel():
+                return self.data.unit
+        return None
+
     def deserialize(
         self,
         archive: InputArchive[Any],

@@ -727,7 +727,9 @@ def compare_mask_to_legacy(
         Legacy `lsst.afw.image.Mask` to compare against.
     plane_map
         Mapping from legacy plane name to the new mask plane; defaults to
-        the planes in ``mask.schema``.
+        the planes in ``mask.schema``.  Schema planes the map does not name
+        are compared under their own names.  A plane the legacy mask does
+        not define must have no pixels set in ``mask``.
     label
         Prefix for the failure message; each plane is reported as
         ``"{label}[<plane>]"``.
@@ -735,11 +737,24 @@ def compare_mask_to_legacy(
     assert mask.bbox == Box.from_legacy(legacy_mask.getBBox())
     if plane_map is None:
         plane_map = {plane.name: plane for plane in mask.schema if plane is not None}
+    legacy_planes = legacy_mask.getMaskPlaneDict()
+    # Compare schema planes the map does not name (e.g. the planes of
+    # `get_legacy_optional_mask_planes`) under their own names.
+    plane_map = dict(plane_map)
+    mapped = {plane.name for plane in plane_map.values()}
+    plane_map.update(
+        {plane.name: plane for plane in mask.schema if plane is not None and plane.name not in mapped}
+    )
     try:
         for old_name, new_plane in plane_map.items():
+            pixels = mask.get(new_plane.name)
+            if old_name not in legacy_planes:
+                # A plane the legacy mask does not define must be empty.
+                assert_values_equal(np.zeros_like(pixels), pixels, label=f"{label}[{old_name}]")
+                continue
             assert_values_equal(
                 (legacy_mask.array & legacy_mask.getPlaneBitMask(old_name)).astype(bool),
-                mask.get(new_plane.name),
+                pixels,
                 label=f"{label}[{old_name}]",
             )
     except AssertionError as err:

@@ -273,6 +273,10 @@ class VisitImage(MaskedImage):
             raise self._psf
         return self._psf
 
+    @psf.setter
+    def psf(self, value: PointSpreadFunction) -> None:
+        self._psf = value
+
     @property
     def detector(self) -> Detector:
         """Geometry and electronic information about the detector
@@ -790,7 +794,7 @@ class VisitImage(MaskedImage):
         self._fill_legacy_metadata(result_info.getMetadata())
         if isinstance(self._psf, LegacyPointSpreadFunction):
             result_info.setPsf(self._psf.legacy_psf)
-        elif isinstance(self._psf, PiffWrapper):
+        elif isinstance(self._psf, PiffWrapper | GaussianPointSpreadFunction):
             result_info.setPsf(self._psf.to_legacy())
         if isinstance(self.bounds, Polygon):
             result_info.setValidPolygon(self.bounds.to_legacy())
@@ -819,6 +823,8 @@ class VisitImage(MaskedImage):
             "obs_info",
             "summary_stats",
             "aperture_corrections",
+            "bounds",
+            "unit",
         ]
         | None = None,
     ) -> Any:
@@ -852,6 +858,13 @@ class VisitImage(MaskedImage):
         reader = ExposureFitsReader(filename)
         if component == "bbox":
             return Box.from_legacy(reader.readBBox())
+        if component == "bounds":
+            bbox = Box.from_legacy(reader.readBBox())
+            if (legacy_polygon := reader.readValidPolygon()) is None:
+                return bbox
+            # Clip to the image, as the VisitImage constructor does.
+            bounds = Polygon.from_legacy(legacy_polygon)
+            return bounds if bbox.contains(bounds.bbox) else bounds.intersection(bbox)
         legacy_detector = reader.readDetector()
         if legacy_detector is None:
             raise ValueError(f"Exposure file {filename!r} does not have a Detector.")
@@ -892,6 +905,7 @@ class VisitImage(MaskedImage):
             "obs_info",
             "detector",
             "photometric_scaling",
+            "unit",
         ), component  # for MyPy
         visit_info = legacy_exposure_info.getVisitInfo()
         if visit_info is None:
@@ -923,6 +937,10 @@ class VisitImage(MaskedImage):
             # this opaque_metadata down to MaskedImage._read_legacy_hdus
             # so it doesn't try to extract it again.
             metadata = opaque_metadata.extract_legacy_primary_header(primary_header)
+            if component == "unit":
+                if (fits_unit := hdu_list[1].header.get("BUNIT")) is None:
+                    return None
+                return parse_legacy_bunit(fits_unit, opaque_metadata.get_instrumental_unit())
             if (instrumental_unit := opaque_metadata.get_instrumental_unit()) is None:
                 instrumental_unit = astropy.units.electron
             photometric_scaling: Field | None = None
@@ -1081,6 +1099,8 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
             )
         if component == "masked_image":
             return super().deserialize(archive, **kwargs)
+        if component == "bounds":
+            return self.bounds.deserialize() if self.bounds is not None else self.bbox
         return super().deserialize_component(component, archive, **kwargs)
 
 

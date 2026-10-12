@@ -126,6 +126,38 @@ class GaussianPointSpreadFunction(PointSpreadFunction):
         yi = round_half_up(y)
         return Box.factory[yi - r : yi + r + 1, xi - r : xi + r + 1]
 
+    @classmethod
+    def from_legacy(cls, legacy_psf: Any, bounds: Bounds) -> GaussianPointSpreadFunction:
+        """Convert from a legacy `lsst.afw.detection.GaussianPsf`.
+
+        Parameters
+        ----------
+        legacy_psf
+            Legacy Gaussian PSF, with a square stamp.
+        bounds
+            The region where this PSF model is valid.
+
+        Returns
+        -------
+        `GaussianPointSpreadFunction`
+            The converted PSF.
+
+        Raises
+        ------
+        ValueError
+            Raised if the stamp of ``legacy_psf`` is not square.
+        """
+        dimensions = legacy_psf.getDimensions()
+        if dimensions.x != dimensions.y:
+            raise ValueError(f"Legacy GaussianPsf stamp must be square; got {dimensions}.")
+        return cls(legacy_psf.getSigma(), bounds=bounds, stamp_size=dimensions.x)
+
+    def to_legacy(self) -> Any:
+        """Convert to a legacy `lsst.afw.detection.GaussianPsf`."""
+        from lsst.afw.detection import GaussianPsf
+
+        return GaussianPsf(self._stamp_size, self._stamp_size, self.sigma)
+
     def serialize(self, archive: serialization.OutputArchive[Any]) -> GaussianPSFSerializationModel:
         return GaussianPSFSerializationModel(
             sigma=self.sigma, stamp_size=self._stamp_size, bounds=self._bounds.serialize()
