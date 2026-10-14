@@ -1606,7 +1606,7 @@ def test_observation_summary_stats_str_is_the_report_summary() -> None:
     assert str(stats) == stats.describe().to_str()
     # The two set here, plus the integer counters, which default to a genuine
     # zero rather than to NaN.
-    assert str(stats) == "ObservationSummaryStats(4 of 66 statistics set)"
+    assert str(stats) == "ObservationSummaryStats(4 of 70 statistics set)"
     assert stats.nPsfStar == 0
     assert stats.nShapeletsStar == 0
     # The unset statistics reach repr but not str.
