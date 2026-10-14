@@ -39,6 +39,10 @@ def _default_corners() -> tuple[float, float, float, float]:
     return (math.nan, math.nan, math.nan, math.nan)
 
 
+def _default_shutter_chebyshev_coefficients() -> tuple[float, float, float, float, float, float]:
+    return (math.nan,) * 6
+
+
 _CORNER_NAMES = frozenset({"raCorners", "decCorners"})
 """Statistics a report drops when ``"corners"`` is excluded, because a
 container is tabulating the same corners from its sky projection.
@@ -64,7 +68,7 @@ class ObservationSummaryStats(ArchiveTree, DescribableMixin):
     """Various statistics obtained from a single observation."""
 
     SCHEMA_NAME: ClassVar[str] = "observation_summary_stats"
-    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    SCHEMA_VERSION: ClassVar[str] = "1.1.0"
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type]  # Assigned after class construction.
 
@@ -439,6 +443,36 @@ class ObservationSummaryStats(ArchiveTree, DescribableMixin):
             "Per-exposure median-over-CCDs of TE4ex ~ <de1 de2> of PSF residual ellipticity, "
             "where each CCD uses theta within [5,20] arcmin bins. Dimensionless; downstream "
             "pipelines take the 85th percentile over images to evaluate TE4."
+        ),
+    )
+
+    shutterMidpointMjdTai: float = pydantic.Field(
+        math.nan,
+        description="Shutter-corrected mid-exposure time at the detector centre (MJD TAI).",
+    )
+
+    shutterChebyshevCoefficients: tuple[float, float, float, float, float, float] = pydantic.Field(
+        default_factory=_default_shutter_chebyshev_coefficients,
+        description=(
+            "Chebyshev coefficients (seconds), in increasing degree, of the shutter-corrected "
+            "mid-exposure time relative to shutterMidpointMjdTai, in "
+            "u = (y - shutterChebyshevYCenter)/shutterChebyshevYHalfRange with y the pixel row."
+        ),
+    )
+
+    shutterChebyshevYCenter: float = pydantic.Field(
+        math.nan, description="Pixel row at which the shutter Chebyshev variable is 0 (pixels)."
+    )
+
+    shutterChebyshevYHalfRange: float = pydantic.Field(
+        math.nan, description="Pixel rows per unit of the shutter Chebyshev variable (pixels)."
+    )
+
+    shutterExposureTime: float = pydantic.Field(
+        math.nan,
+        description=(
+            "Time between the shutter opening and closing at the detector centre (seconds); "
+            "not the photometric effTime."
         ),
     )
 
