@@ -2516,6 +2516,12 @@
           "title": "Deccorners",
           "type": "array"
         },
+        "detectorMidpointMjdTai": {
+          "default": NaN,
+          "description": "Shutter-corrected mid-exposure time at the detector centre (MJD TAI).",
+          "title": "Detectormidpointmjdtai",
+          "type": "number"
+        },
         "effTime": {
           "default": NaN,
           "description": "Effective exposure time calculated from psfSigma, skyBg, and zeroPoint (seconds).",
@@ -2848,7 +2854,7 @@
           "type": "number"
         },
         "shutterChebyshevCoefficients": {
-          "description": "Chebyshev coefficients (seconds), in increasing degree, of the shutter-corrected mid-exposure time relative to shutterMidpointMjdTai, in u = (y - shutterChebyshevYCenter)/shutterChebyshevYHalfRange with y the pixel row.",
+          "description": "Chebyshev coefficients (seconds), in increasing degree, of the shutter-corrected mid-exposure time relative to detectorMidpointMjdTai, in u = (y - shutterChebyshevYCenter)/shutterChebyshevYHalfRange with y the pixel row.",
           "maxItems": 6,
           "minItems": 6,
           "prefixItems": [
@@ -2884,18 +2890,6 @@
           "default": NaN,
           "description": "Pixel rows per unit of the shutter Chebyshev variable (pixels).",
           "title": "Shutterchebyshevyhalfrange",
-          "type": "number"
-        },
-        "shutterExposureTime": {
-          "default": NaN,
-          "description": "Time between the shutter opening and closing at the detector centre (seconds); not the photometric effTime.",
-          "title": "Shutterexposuretime",
-          "type": "number"
-        },
-        "shutterMidpointMjdTai": {
-          "default": NaN,
-          "description": "Shutter-corrected mid-exposure time at the detector centre (MJD TAI).",
-          "title": "Shuttermidpointmjdtai",
           "type": "number"
         },
         "skyBg": {

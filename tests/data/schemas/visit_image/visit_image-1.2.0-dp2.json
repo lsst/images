@@ -3143,7 +3143,7 @@
     "psfTE4e1": NaN,
     "psfTE4e2": NaN,
     "psfTE4ex": NaN,
-    "shutterMidpointMjdTai": NaN,
+    "detectorMidpointMjdTai": NaN,
     "shutterChebyshevCoefficients": [
       NaN,
       NaN,
@@ -3154,7 +3154,6 @@
     ],
     "shutterChebyshevYCenter": NaN,
     "shutterChebyshevYHalfRange": NaN,
-    "shutterExposureTime": NaN,
     "schema_url": "https://images.lsst.io/schemas/observation_summary_stats-1.1.0"
   },
   "detector": {
