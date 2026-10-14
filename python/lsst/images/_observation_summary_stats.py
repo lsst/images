@@ -446,7 +446,7 @@ class ObservationSummaryStats(ArchiveTree, DescribableMixin):
         ),
     )
 
-    shutterMidpointMjdTai: float = pydantic.Field(
+    detectorMidpointMjdTai: float = pydantic.Field(
         math.nan,
         description="Shutter-corrected mid-exposure time at the detector centre (MJD TAI).",
     )
@@ -455,7 +455,7 @@ class ObservationSummaryStats(ArchiveTree, DescribableMixin):
         default_factory=_default_shutter_chebyshev_coefficients,
         description=(
             "Chebyshev coefficients (seconds), in increasing degree, of the shutter-corrected "
-            "mid-exposure time relative to shutterMidpointMjdTai, in "
+            "mid-exposure time relative to detectorMidpointMjdTai, in "
             "u = (y - shutterChebyshevYCenter)/shutterChebyshevYHalfRange with y the pixel row."
         ),
     )
@@ -466,14 +466,6 @@ class ObservationSummaryStats(ArchiveTree, DescribableMixin):
 
     shutterChebyshevYHalfRange: float = pydantic.Field(
         math.nan, description="Pixel rows per unit of the shutter Chebyshev variable (pixels)."
-    )
-
-    shutterExposureTime: float = pydantic.Field(
-        math.nan,
-        description=(
-            "Time between the shutter opening and closing at the detector centre (seconds); "
-            "not the photometric effTime."
-        ),
     )
 
     def __eq__(self, other: object) -> bool:
