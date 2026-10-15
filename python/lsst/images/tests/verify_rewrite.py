@@ -13,6 +13,7 @@ from __future__ import annotations
 
 __all__ = ()
 
+import copy
 import random
 from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any, cast
@@ -283,13 +284,16 @@ class RewriteVerifier:
         record = self._exposure_records.get(cast(int, data_id["visit"]))
         if record is None:
             raise AssertionError("no exposure record for visit")
-        telescope = old.getMetadata().get("TELESCOP", None)
+        # Work on a copy, since embedded ObservationInfo cards are stripped
+        # from the metadata that is passed in.
+        metadata = copy.deepcopy(old.getMetadata())
         expected = obs_info_from_legacy(
             old.info.getVisitInfo(),
             record,
             old.getDetector(),
             detector_exposure_id=old.info.getId(),
-            telescope=telescope,
+            telescope=metadata.get("TELESCOP", None),
+            header=metadata,
         )
         mismatches: list[str] = []
         for field in ObservationInfo.model_fields:

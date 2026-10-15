@@ -14,10 +14,16 @@ from __future__ import annotations
 __all__ = ("obs_info_from_legacy",)
 
 import logging
+from collections.abc import MutableMapping
 from typing import TYPE_CHECKING, Any
 
 import astropy.units as u
-from astro_metadata_translator import ObservationInfo, VisitInfoTranslator
+from astro_metadata_translator import (
+    FITS_FLAT_DICT_PREFIX,
+    FITS_FLAT_DICT_SEP,
+    ObservationInfo,
+    VisitInfoTranslator,
+)
 from astropy.coordinates import AltAz
 
 _LOG = logging.getLogger("lsst.images")
@@ -41,10 +47,16 @@ def obs_info_from_legacy(
     detector_exposure_id: int,
     telescope: str | None = None,
     physical_filter: str | None = None,
+    header: MutableMapping[str, Any] | None = None,
 ) -> ObservationInfo:
-    """Reconstruct as much of an observation info struct as possible from
-    what's available from a legacy `lsst.afw.image.Exposure`, an ``exposure``
-    dimension record, and the camera geometry.
+    """Recover the observation info struct of a legacy
+    `lsst.afw.image.Exposure`.
+
+    If the legacy metadata carries an embedded
+    `~astro_metadata_translator.ObservationInfo` (the flat ``OBS_INFO`` cards
+    written by the raw formatter), that is returned as is.  Otherwise as much
+    as possible is reconstructed from the `~lsst.afw.image.VisitInfo`, an
+    ``exposure`` dimension record, and the camera geometry.
 
     Parameters
     ----------
@@ -67,12 +79,43 @@ def obs_info_from_legacy(
         Full name of the physical bandpass filter (the ``physicalLabel`` of
         the legacy exposure's `~lsst.afw.image.FilterLabel`), if available.
         Only used when there is no ``exposure_record``.
+    header
+        The legacy exposure's metadata (its primary FITS header as an
+        `astropy.io.fits.Header` or `lsst.daf.base.PropertyList`), if
+        available.  When it holds an embedded ``ObservationInfo`` the
+        ``OBS_INFO`` cards are removed from it in place, so they do not leak
+        into other metadata, and the other parameters are only used to check
+        that the ``exposure_record`` describes the same exposure.
 
     Returns
     -------
     obs_info : `~astro_metadata_translator.ObservationInfo`
-        The reconstructed observation metadata.
+        The recovered observation metadata.
+
+    Raises
+    ------
+    ValueError
+        Raised if ``exposure_record`` is given and does not describe the same
+        instrument and exposure as the embedded ``ObservationInfo`` or the
+        ``visit_info``.
     """
+    flat_dict_kwargs: dict[str, Any] = {"prefix": FITS_FLAT_DICT_PREFIX, "sep": FITS_FLAT_DICT_SEP}
+    if header is not None and ObservationInfo.has_flat_dict(header, **flat_dict_kwargs):
+        obs_info = ObservationInfo.from_flat_dict(header, **flat_dict_kwargs)
+        ObservationInfo.strip_from_flat_dict(header, **flat_dict_kwargs)
+        if exposure_record is not None:
+            if obs_info.instrument != exposure_record.instrument:
+                raise ValueError(
+                    f"Instrument {obs_info.instrument!r} from embedded ObservationInfo does not match "
+                    f"instrument {exposure_record.instrument!r} of the given exposure record."
+                )
+            if obs_info.exposure_id != exposure_record.id:
+                raise ValueError(
+                    f"Exposure ID {obs_info.exposure_id} from embedded ObservationInfo does not match "
+                    f"exposure ID {exposure_record.id} of the given exposure record."
+                )
+        return obs_info
+
     from lsst.afw.image import setVisitInfoMetadata
     from lsst.daf.base import PropertyList
 

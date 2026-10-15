@@ -20,6 +20,7 @@ live here because the reconstruction logic they exercise lives in
 from __future__ import annotations
 
 import dataclasses
+import logging
 import warnings
 from functools import cached_property
 from pathlib import Path
@@ -29,10 +30,11 @@ import astropy.coordinates as coords
 import astropy.io.fits
 import astropy.units as u
 import pytest
-from astro_metadata_translator import ObservationInfo
+from astro_metadata_translator import FITS_FLAT_DICT_PREFIX, FITS_FLAT_DICT_SEP, ObservationInfo
 
 from lsst.images import VisitImage
 from lsst.images.cameras import Detector
+from lsst.images.fits import ExtensionKey
 from lsst.images.serialization import read_archive
 from lsst.images.tests import (
     TemporaryButler,
@@ -132,6 +134,16 @@ class InstrumentCase:
         exposure.info.setFilter(
             FilterLabel(band="g", physical=self.true_obs_info.physical_filter or "UNKNOWN")
         )
+        return exposure
+
+    def make_embedded_exposure(self) -> LegacyExposureF:
+        """Build a test ``ExposureF`` whose metadata carries the true
+        `ObservationInfo` as flat ``OBS_INFO`` cards, as written by the raw
+        formatter, in addition to the stripped legacy header content.
+        """
+        exposure = self.make_stripped_exposure()
+        md = exposure.getMetadata()
+        md.update(self.true_obs_info.to_flat_dict(prefix=FITS_FLAT_DICT_PREFIX, sep=FITS_FLAT_DICT_SEP))
         return exposure
 
 
@@ -256,31 +268,33 @@ def assert_visit_info_equal(actual: LegacyVisitInfo, expected: LegacyVisitInfo) 
         )
 
 
+INSTRUMENT_CASES = [
+    InstrumentCase(
+        label="DECam",
+        test_data_filename="decam-c4d_150218_052850-N25.hdr",
+        obs_info_filename="decam-c4d_150218_052850-N25.json",
+        detector_filename="decam-c4d_150218_052850-N25.json",
+    ),
+    InstrumentCase(
+        label="HSC",
+        test_data_filename="hsc-HSCA90333426.hdr",
+        obs_info_filename="hsc-HSCA90333426.json",
+        detector_filename="hsc-HSCA90333426.json",
+    ),
+    InstrumentCase(
+        label="LSSTCam",
+        test_data_filename="lsstcam-MC_O_20250501_000292_R21_S11.hdr",
+        obs_info_filename="lsstcam-MC_O_20250501_000292_R21_S11.json",
+        detector_filename="lsstcam-MC_O_20250501_000292_R21_S11.json",
+    ),
+]
+INSTRUMENT_IDS = [case.label for case in INSTRUMENT_CASES]
+
+parametrize_instruments = pytest.mark.parametrize("instrument_case", INSTRUMENT_CASES, ids=INSTRUMENT_IDS)
+
+
 @skip_no_legacy
-@pytest.mark.parametrize(
-    "instrument_case",
-    [
-        InstrumentCase(
-            label="DECam",
-            test_data_filename="decam-c4d_150218_052850-N25.hdr",
-            obs_info_filename="decam-c4d_150218_052850-N25.json",
-            detector_filename="decam-c4d_150218_052850-N25.json",
-        ),
-        InstrumentCase(
-            label="HSC",
-            test_data_filename="hsc-HSCA90333426.hdr",
-            obs_info_filename="hsc-HSCA90333426.json",
-            detector_filename="hsc-HSCA90333426.json",
-        ),
-        InstrumentCase(
-            label="LSSTCam",
-            test_data_filename="lsstcam-MC_O_20250501_000292_R21_S11.hdr",
-            obs_info_filename="lsstcam-MC_O_20250501_000292_R21_S11.json",
-            detector_filename="lsstcam-MC_O_20250501_000292_R21_S11.json",
-        ),
-    ],
-    ids=["DECam", "HSC", "LSSTCam"],
-)
+@parametrize_instruments
 def test_from_and_read_legacy_preserve_obs_info(instrument_case: InstrumentCase) -> None:
     """ObservationInfo fields must survive from_legacy on a stripped header."""
     assert instrument_case.true_obs_info.instrument == instrument_case.label
@@ -325,3 +339,86 @@ def test_from_and_read_legacy_preserve_obs_info(instrument_case: InstrumentCase)
         visit_image_ref = helper.legacy.overrideStorageClass("VisitImage")
         with pytest.raises(ValueError, match="exposure_record"):
             helper.butler.get(visit_image_ref)
+
+
+def _assert_obs_info_not_in_header(visit_image: VisitImage) -> None:
+    """Assert that no flat ``OBS_INFO`` cards leaked into the opaque primary
+    header attached to a converted image.
+    """
+    header = visit_image._opaque_metadata.headers[ExtensionKey()]
+    assert not ObservationInfo.has_flat_dict(header, prefix=FITS_FLAT_DICT_PREFIX, sep=FITS_FLAT_DICT_SEP)
+    leaked = [key for key in header if key.startswith(FITS_FLAT_DICT_PREFIX)]
+    assert not leaked, leaked
+
+
+@skip_no_legacy
+@parametrize_instruments
+def test_from_legacy_uses_embedded_obs_info(
+    instrument_case: InstrumentCase, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Embedded OBS_INFO cards are used verbatim, without a record, with no
+    degradation warning, and are stripped from the attached header.
+    """
+    exposure = instrument_case.make_embedded_exposure()
+    with caplog.at_level(logging.WARNING, logger="lsst.images"), warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*filter label mismatch.*", category=UserWarning)
+        result = VisitImage.from_legacy(exposure, exposure_record=None)
+    assert result.obs_info == instrument_case.true_obs_info
+    degraded = [r.getMessage() for r in caplog.records if "exposure dimension record" in r.getMessage()]
+    assert not degraded, degraded
+    _assert_obs_info_not_in_header(result)
+    # The exposure passed in is not modified.
+    assert ObservationInfo.has_flat_dict(
+        exposure.getMetadata(), prefix=FITS_FLAT_DICT_PREFIX, sep=FITS_FLAT_DICT_SEP
+    )
+
+
+@skip_no_legacy
+@parametrize_instruments
+def test_read_legacy_uses_embedded_obs_info(instrument_case: InstrumentCase, tmp_path: Path) -> None:
+    """Embedded OBS_INFO cards survive a legacy FITS write and are used by
+    read_legacy, both for the full image and the obs_info component.
+    """
+    exposure = instrument_case.make_embedded_exposure()
+    filename = str(tmp_path / "embedded.fits")
+    exposure.writeFits(filename)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*filter label mismatch.*", category=UserWarning)
+        result = VisitImage.read_legacy(filename, exposure_record=None)
+        component = VisitImage.read_legacy(filename, exposure_record=None, component="obs_info")
+    assert result.obs_info == instrument_case.true_obs_info
+    assert component == instrument_case.true_obs_info
+    _assert_obs_info_not_in_header(result)
+
+
+@skip_no_legacy
+@parametrize_instruments
+def test_butler_get_uses_embedded_obs_info(instrument_case: InstrumentCase) -> None:
+    """A butler read of an ExposureF dataset as VisitImage uses the embedded
+    OBS_INFO cards even though the exposure record must still be passed.
+    """
+    exposure = instrument_case.make_embedded_exposure()
+    exposure_record = instrument_case.make_record()
+    with TemporaryButler(legacy="ExposureF") as helper:
+        helper.butler.put(exposure, helper.legacy)
+        visit_image_ref = helper.legacy.overrideStorageClass("VisitImage")
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*filter label mismatch.*", category=UserWarning)
+            result = helper.butler.get(visit_image_ref, parameters={"exposure_record": exposure_record})
+    assert result.obs_info == instrument_case.true_obs_info
+    _assert_obs_info_not_in_header(result)
+
+
+@skip_no_legacy
+@parametrize_instruments
+def test_embedded_obs_info_rejects_mismatched_record(instrument_case: InstrumentCase) -> None:
+    """An exposure record for a different exposure than the embedded
+    ObservationInfo describes is an error.
+    """
+    exposure = instrument_case.make_embedded_exposure()
+    assert instrument_case.true_obs_info.exposure_id is not None
+    with instrument_case.true_obs_info.edit_copy() as other_obs_info:
+        other_obs_info.exposure_id = instrument_case.true_obs_info.exposure_id + 1
+    other_record = makeExposureRecordFromObsInfo(other_obs_info, DimensionUniverse())
+    with pytest.raises(ValueError, match="embedded ObservationInfo"):
+        VisitImage.from_legacy(exposure, exposure_record=other_record)
