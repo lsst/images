@@ -66,6 +66,9 @@ if TYPE_CHECKING:
         type LegacySkyWcs = Any  # type: ignore[no-redef]
 
 
+_UNKNOWN_INSTRUMENT = "UNKNOWN"
+
+
 class DifferenceImage(VisitImage):
     """An image that is the PSF-matched difference of two other images.
 
@@ -495,6 +498,13 @@ class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constant
     psf_shape_flag: bool = pydantic.Field(
         description="Flag set if the second moments of the effective template PSF could not be computed."
     )
+    instrument: str = pydantic.Field(
+        default=_UNKNOWN_INSTRUMENT,
+        description=(
+            "Name of the instrument whose observations were coadded to make this template, "
+            "or 'UNKNOWN' if it could not be determined."
+        ),
+    )
 
     @staticmethod
     def from_legacy(
@@ -504,6 +514,7 @@ class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constant
         coadd_data_ids_by_uuid: Mapping[uuid.UUID, DataId],
         coadd_dataset_type: str = "template_coadd",
         log: logging.Logger | None = None,
+        instrument: str | None = None,
     ) -> list[DifferenceImageTemplateInfo]:
         """Construct a list of template information structs from information
         stored in a legacy stitched template image.
@@ -528,6 +539,10 @@ class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constant
             The name of the coadd template dataset type.
         log
             Logger to use for diagnostic messages.
+        instrument
+            Name of the instrument whose observations were coadded to make the
+            templates, or `None` if it is not known; an unknown instrument is
+            recorded as ``"UNKNOWN"``.
 
         Returns
         -------
@@ -565,7 +580,12 @@ class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constant
                     input_run,
                 )
         return DifferenceImageTemplateInfo.from_legacy_psf(
-            detector_frame, legacy_template_psf, cast(str, skymap), butler_info, log=log
+            detector_frame,
+            legacy_template_psf,
+            cast(str, skymap),
+            butler_info,
+            log=log,
+            instrument=instrument,
         )
 
     @staticmethod
@@ -575,6 +595,7 @@ class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constant
         skymap: str,
         butler_info: Mapping[tuple[int, int], tuple[uuid.UUID, str]],
         log: logging.Logger | None = None,
+        instrument: str | None = None,
     ) -> list[DifferenceImageTemplateInfo]:
         """Construct a list of template information structs from a legacy
         stitched template PSF and butler provenance held by the caller.
@@ -595,6 +616,10 @@ class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constant
             coadds that contributed to the template.
         log
             Logger to use for diagnostic messages.
+        instrument
+            Name of the instrument whose observations were coadded to make the
+            templates, or `None` if it is not known; an unknown instrument is
+            recorded as ``"UNKNOWN"``.
 
         Returns
         -------
@@ -698,6 +723,7 @@ class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constant
                     psf_shape_yy=psf_shape.getIyy() if psf_shape is not None else math.nan,
                     psf_shape_xy=psf_shape.getIxy() if psf_shape is not None else math.nan,
                     psf_shape_flag=psf_shape is None,
+                    instrument=instrument if instrument is not None else _UNKNOWN_INSTRUMENT,
                 )
             )
         result.sort(key=lambda item: (item.tract, item.patch))
@@ -803,7 +829,7 @@ class DifferenceImageSerializationModel[P: pydantic.BaseModel](VisitImageSeriali
     """A Pydantic model used to represent a serialized `DifferenceImage`."""
 
     SCHEMA_NAME: ClassVar[str] = "difference_image"
-    SCHEMA_VERSION: ClassVar[str] = "1.1.0"
+    SCHEMA_VERSION: ClassVar[str] = "1.2.0"
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = DifferenceImage
 
