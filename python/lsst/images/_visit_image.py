@@ -642,9 +642,11 @@ class VisitImage(MaskedImage):
             variance (but not mask) pixel data with the returned object.
         exposure_record
             The ``exposure`` dimension record for this observation, as a
-            source of additional required metadata.  Pass `None` explicitly to
-            convert without some `~astro_metadata_translator.ObservationInfo`
-            fields (with a warning).
+            source of additional required metadata.  It is only consulted when
+            the legacy metadata does not carry an embedded
+            `~astro_metadata_translator.ObservationInfo` (flat ``OBS_INFO``
+            cards); in that case pass `None` explicitly to convert without
+            some ``ObservationInfo`` fields (with a warning).
         unit
             Units of the image.  If not provided, the ``BUNIT`` metadata
             key will be used, if available.
@@ -684,6 +686,7 @@ class VisitImage(MaskedImage):
             detector_exposure_id=legacy.info.getId(),
             telescope=telescope,
             physical_filter=legacy.info.getFilter().physicalLabel or None,
+            header=primary_header,
         )
         if exposure_record is not None:
             instrument = exposure_record.instrument
@@ -836,9 +839,11 @@ class VisitImage(MaskedImage):
             Full name of the file.
         exposure_record
             The ``exposure`` dimension record for this observation, as a
-            source of additional required metadata.  Pass `None` explicitly to
-            convert without some `~astro_metadata_translator.ObservationInfo`
-            fields (with a warning).
+            source of additional required metadata.  It is only consulted when
+            the legacy metadata does not carry an embedded
+            `~astro_metadata_translator.ObservationInfo` (flat ``OBS_INFO``
+            cards); in that case pass `None` explicitly to convert without
+            some ``ObservationInfo`` fields (with a warning).
         preserve_quantization
             If `True`, ensure that writing the masked image back out again will
             exactly preserve quantization-compressed pixel values.  This causes
@@ -921,6 +926,7 @@ class VisitImage(MaskedImage):
                 detector_exposure_id=legacy_exposure_info.getId(),
                 telescope=str(telescope) if telescope is not None else None,
                 physical_filter=filter_label.physicalLabel or None,
+                header=primary_header,
             )
             if exposure_record is not None:
                 instrument = exposure_record.instrument
