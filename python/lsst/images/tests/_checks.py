@@ -23,6 +23,7 @@ __all__ = (
     "assert_sky_projections_equal",
     "assert_values_equal",
     "assert_visit_images_equal",
+    "cell_center_points",
     "check_archive_tree_class_invariants",
     "check_astropy_wcs_interface",
     "check_bounds_contains_broadcasting",
@@ -694,7 +695,12 @@ def assert_cell_coadds_equal(
 
 
 def compare_image_to_legacy(
-    image: Image, legacy_image: Any, expect_view: bool | None = None, *, label: str = "image"
+    image: Image,
+    legacy_image: Any,
+    expect_view: bool | None = None,
+    *,
+    label: str = "image",
+    atol: float = 0.0,
 ) -> None:
     """Compare an `.Image` object to a legacy `lsst.afw.image.Image` object.
 
@@ -709,12 +715,14 @@ def compare_image_to_legacy(
         ``legacy_image`` (i.e. is a view).
     label
         Prefix for the failure message.
+    atol
+        Absolute tolerance for the pixel-value comparison.
     """
     assert image.bbox == Box.from_legacy(legacy_image.getBBox())
     if expect_view is not None:
         assert np.may_share_memory(image.array, legacy_image.array) == expect_view
     if not expect_view:
-        assert_values_equal(image.array, legacy_image.array, label=label)
+        assert_values_equal(image.array, legacy_image.array, atol=atol, label=label)
 
 
 def compare_mask_to_legacy(
@@ -777,6 +785,8 @@ def compare_masked_image_to_legacy(
     plane_map: Mapping[str, MaskPlane] | None = None,
     expect_view: bool | None = None,
     alternates: Mapping[str, Any] | None = None,
+    image_atol: float = 0.0,
+    variance_atol: float = 0.0,
 ) -> None:
     """Compare a `.MaskedImage` object to a legacy `lsst.afw.image.MaskedImage`
     object.
@@ -795,26 +805,48 @@ def compare_masked_image_to_legacy(
     alternates
         A mapping of other versions of one or more (new) components to also
         check against the legacy versions of those components.
+    image_atol
+        Absolute tolerance for the image pixel comparison.
+    variance_atol
+        Absolute tolerance for the variance pixel comparison.  Separate from
+        ``image_atol`` because the two have different units.  The mask
+        comparison is always exact.
     """
     compare_image_to_legacy(
-        masked_image.image, legacy_masked_image.getImage(), expect_view=expect_view, label="image"
+        masked_image.image,
+        legacy_masked_image.getImage(),
+        expect_view=expect_view,
+        label="image",
+        atol=image_atol,
     )
     compare_mask_to_legacy(
         masked_image.mask, legacy_masked_image.getMask(), plane_map=plane_map, label="mask"
     )
     compare_image_to_legacy(
-        masked_image.variance, legacy_masked_image.getVariance(), expect_view=expect_view, label="variance"
+        masked_image.variance,
+        legacy_masked_image.getVariance(),
+        expect_view=expect_view,
+        label="variance",
+        atol=variance_atol,
     )
     if alternates:
         if image := alternates.get("image"):
             compare_image_to_legacy(
-                image, legacy_masked_image.getImage(), expect_view=expect_view, label="image"
+                image,
+                legacy_masked_image.getImage(),
+                expect_view=expect_view,
+                label="image",
+                atol=image_atol,
             )
         if mask := alternates.get("mask"):
             compare_mask_to_legacy(mask, legacy_masked_image.getMask(), plane_map=plane_map, label="mask")
         if variance := alternates.get("variance"):
             compare_image_to_legacy(
-                variance, legacy_masked_image.getVariance(), expect_view=expect_view, label="variance"
+                variance,
+                legacy_masked_image.getVariance(),
+                expect_view=expect_view,
+                label="variance",
+                atol=variance_atol,
             )
 
 
@@ -995,28 +1027,26 @@ def _check_cell_coadd_geometry(cell_coadd: CellCoadd, tract_bbox: Box) -> None:
     assert cell_coadd.grid.bbox.contains(cell_coadd.bbox)
 
 
-def _cell_center_points(cell_coadd: CellCoadd) -> YX[np.ndarray]:
-    """Return the centers of the non-missing cells of a cell coadd.
+def cell_center_points(bounds: CellGridBounds) -> YX[np.ndarray]:
+    """Return the centers of the non-missing cells of cell grid bounds.
 
     These are the points at which approximations made by conversions from
     legacy (non-cell) coadds are expected to be accurate.
 
     Parameters
     ----------
-    cell_coadd
-        Coadd whose cells to return the centers of.
+    bounds
+        Cell grid bounds whose cells' centers are returned.
 
     Returns
     -------
-    `YX` [ `numpy.ndarray` ]
-        Centers of the non-missing cells within ``cell_coadd.bounds``.
+    `.YX` [ `numpy.ndarray` ]
+        Centers of the non-missing cells within ``bounds``.
     """
     xs: list[float] = []
     ys: list[float] = []
-    for cell in cell_coadd.bounds.cell_indices():
-        if cell in cell_coadd.bounds.missing:
-            continue
-        bbox = cell_coadd.grid.bbox_of(cell)
+    for cell in bounds.cell_indices():
+        bbox = bounds.grid.bbox_of(cell)
         xs.append(bbox.x.center)
         ys.append(bbox.y.center)
     return YX(y=np.array(ys), x=np.array(xs))
@@ -1225,6 +1255,8 @@ def compare_cell_coadd_to_legacy_lazy(
     expect_view: bool | None = None,
     alternates: Mapping[str, Any] | None = None,
     psf_points: XY[np.ndarray] | YX[np.ndarray] | None = None,
+    image_atol: float = 0.0,
+    variance_atol: float = 0.0,
 ) -> None:
     """Compare a `.cells.CellCoadd` object to the legacy
     `lsst.afw.image.Exposure` instance it was converted from
@@ -1260,11 +1292,20 @@ def compare_cell_coadd_to_legacy_lazy(
     psf_points
         Points to use to compare the PSFs.  Defaults to the centers of the
         coadd's non-missing cells.
+    image_atol
+        Absolute tolerance for the image pixel comparison.
+    variance_atol
+        Absolute tolerance for the variance pixel comparison.
     """
     if plane_map is None:
         plane_map = get_legacy_non_cell_coadd_mask_planes()
     compare_masked_image_to_legacy(
-        cell_coadd, legacy_exposure.getMaskedImage(), plane_map=plane_map, expect_view=expect_view
+        cell_coadd,
+        legacy_exposure.getMaskedImage(),
+        plane_map=plane_map,
+        expect_view=expect_view,
+        image_atol=image_atol,
+        variance_atol=variance_atol,
     )
     # A legacy (non-cell) coadd has no place for any of these components,
     # so a faithful conversion must not invent them.
@@ -1288,7 +1329,7 @@ def compare_cell_coadd_to_legacy_lazy(
         is_fits=True,
     )
     if psf_points is None:
-        psf_points = _cell_center_points(cell_coadd)
+        psf_points = cell_center_points(cell_coadd.bounds)
     compare_psf_to_legacy(cell_coadd.psf, legacy_exposure.getPsf(), points=psf_points, rtol=1e-5)
     compare_aperture_corrections_to_legacy(
         cell_coadd.aperture_corrections,
@@ -1476,6 +1517,8 @@ def compare_field_to_legacy(
     subimage_bbox: Box,
     eval_points: XY[np.ndarray] | YX[np.ndarray] | None = None,
     expect_subset_bounds: bool = False,
+    *,
+    rtol: float = 1e-5,
 ) -> None:
     """Test a Field object by comparing it to an equivalent
     `lsst.afw.math.BoundedField`.
@@ -1495,6 +1538,8 @@ def compare_field_to_legacy(
     expect_subset_bounds
         If `True`, expect ``field.bounds`` to be contained by
         ``legacy_field.getBBox()``, not equal to it.
+    rtol
+        Relative tolerance for the evaluation-point field-value comparison.
     """
     from lsst.afw.math import BoundedField as LegacyBoundedField
 
@@ -1515,7 +1560,7 @@ def compare_field_to_legacy(
             legacy_field.evaluate(pixel_xy.x, pixel_xy.y),
             # The field coefficients come from a numerical fit, so this can
             # be bigger than just round-off error epsilon.
-            rtol=1e-5,
+            rtol=rtol,
         )
     except AssertionError as err:
         err.add_note(f"evaluated at {pixel_xy}")
@@ -1540,6 +1585,7 @@ def compare_aperture_corrections_to_legacy(
     *,
     eval_points: XY[np.ndarray] | YX[np.ndarray] | None = None,
     expect_subset_bounds: bool = False,
+    rtol: float = 1e-5,
 ) -> None:
     """Test an aperture correction `dict` by comparing it to an equivalent
     `lsst.afw.image.ApCorrMap`.
@@ -1559,6 +1605,9 @@ def compare_aperture_corrections_to_legacy(
     expect_subset_bounds
         If `True`, expect ``field.bounds`` to be contained by
         ``legacy_field.getBBox()``, not equal to it.
+    rtol
+        Relative tolerance for the evaluation-point field-value comparison,
+        forwarded to `compare_field_to_legacy`.
     """
     assert aperture_corrections.keys() == set(legacy_ap_corr_map.keys())
     for name, field in aperture_corrections.items():
@@ -1568,6 +1617,7 @@ def compare_aperture_corrections_to_legacy(
             subimage_bbox,
             eval_points=eval_points,
             expect_subset_bounds=expect_subset_bounds,
+            rtol=rtol,
         )
 
 

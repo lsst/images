@@ -17,6 +17,7 @@ import pickle
 from typing import Any
 
 import astropy.units as u
+import numpy as np
 import pytest
 
 from lsst.images import YX, Box, get_legacy_non_cell_coadd_mask_planes
@@ -27,6 +28,7 @@ from lsst.images.tests import (
     assert_cell_coadds_equal,
     assert_masked_images_equal,
     compare_cell_coadd_to_legacy_lazy,
+    compare_field_to_legacy,
     compare_masked_image_to_legacy,
     compare_psf_to_legacy,
     compare_sky_projection_to_legacy_wcs,
@@ -160,4 +162,57 @@ def test_to_legacy(legacy_test_data: _LazyCoaddTestData) -> None:
         cell_coadd.sky_projection.pixel_frame,
         subimage_bbox=cell_coadd.bbox,
         is_fits=True,
+    )
+
+
+def test_compare_lazy_coadd_image_atol(legacy_test_data: _LazyCoaddTestData) -> None:
+    """Test that image_atol lets compare_cell_coadd_to_legacy_lazy accept a
+    small offset in the image pixels (while image_atol=0.0 rejects it).
+    """
+    perturbed = legacy_test_data.legacy_exposure.clone()
+    perturbed.getMaskedImage().getImage().array += 0.5
+    kwargs = _lazy_coadd_kwargs(legacy_test_data)
+    with pytest.raises(AssertionError):
+        compare_cell_coadd_to_legacy_lazy(legacy_test_data.cell_coadd, perturbed, **kwargs)
+    compare_cell_coadd_to_legacy_lazy(legacy_test_data.cell_coadd, perturbed, image_atol=1.0, **kwargs)
+
+
+def test_compare_lazy_coadd_variance_atol(legacy_test_data: _LazyCoaddTestData) -> None:
+    """Test that variance_atol lets compare_cell_coadd_to_legacy_lazy accept
+    a small offset in the variance pixels (while variance_atol=0.0 rejects
+    it), with the image still compared exactly.
+    """
+    perturbed = legacy_test_data.legacy_exposure.clone()
+    perturbed.getMaskedImage().getVariance().array += 0.5
+    kwargs = _lazy_coadd_kwargs(legacy_test_data)
+    with pytest.raises(AssertionError):
+        compare_cell_coadd_to_legacy_lazy(legacy_test_data.cell_coadd, perturbed, **kwargs)
+    compare_cell_coadd_to_legacy_lazy(legacy_test_data.cell_coadd, perturbed, variance_atol=1.0, **kwargs)
+
+
+def test_compare_field_to_legacy_rtol(legacy_test_data: _LazyCoaddTestData) -> None:
+    """Test that compare_field_to_legacy's default rtol catches a
+    1e-4-scale eval-point mismatch, while a looser rtol accepts it.
+    """
+    ap_corr_map = legacy_test_data.legacy_exposure.info.getApCorrMap()
+    name = sorted(ap_corr_map.keys())[0]
+    field = legacy_test_data.cell_coadd.aperture_corrections[name]
+    legacy_field = ap_corr_map[name]
+    perturbed = field * (1.0 + 1e-4)
+    eval_points = field.bounds.bbox.meshgrid(n=3).map(np.ravel)
+    with pytest.raises(AssertionError):
+        compare_field_to_legacy(
+            perturbed,
+            legacy_field,
+            field.bounds.bbox,
+            eval_points=eval_points,
+            expect_subset_bounds=True,
+        )
+    compare_field_to_legacy(
+        perturbed,
+        legacy_field,
+        field.bounds.bbox,
+        eval_points=eval_points,
+        expect_subset_bounds=True,
+        rtol=1e-2,
     )
