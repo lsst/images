@@ -162,6 +162,7 @@ def _make_difference_image(legacy_test_data: _LegacyTestData) -> DifferenceImage
         legacy_test_data.template_psf,
         legacy_test_data.template_metadata,
         DP2_TEMPLATE_COADD_DATASETS,
+        instrument="LSSTCam",
     )
     return difference_image
 
@@ -175,6 +176,7 @@ def test_roundtrip(legacy_test_data: _LegacyTestData) -> None:
         pass
     compare_kernel_to_legacy(roundtrip.result.kernel, legacy_test_data.kernel)
     _sanity_check_template_info(roundtrip.result.templates, legacy_test_data.detector_frame)
+    assert all(info.instrument == "LSSTCam" for info in roundtrip.result.templates)
 
 
 def test_kernel_component_read(legacy_test_data: _LegacyTestData) -> None:
@@ -208,6 +210,22 @@ def test_template_info(legacy_test_data: _LegacyTestData) -> None:
         DP2_TEMPLATE_COADD_DATASETS,
     )
     _sanity_check_template_info(template_info, legacy_test_data.detector_frame)
+    assert all(info.instrument == "UNKNOWN" for info in template_info)
+
+
+def test_template_info_instrument(legacy_test_data: _LegacyTestData) -> None:
+    """Test that the instrument passed to from_legacy is recorded on every
+    template.
+    """
+    template_info = DifferenceImageTemplateInfo.from_legacy(
+        legacy_test_data.detector_frame,
+        legacy_test_data.template_psf,
+        legacy_test_data.template_metadata,
+        DP2_TEMPLATE_COADD_DATASETS,
+        instrument="LSSTCam",
+    )
+    assert template_info
+    assert all(info.instrument == "LSSTCam" for info in template_info)
 
 
 def test_template_info_no_overlap_is_skipped(
@@ -324,6 +342,13 @@ def _make_template(
         psf_shape_xy=psf_shape_xy,
         psf_shape_flag=psf_shape_flag,
     )
+
+
+def test_template_info_instrument_defaults_to_unknown() -> None:
+    """A template without a recorded instrument, such as one read from a file
+    written before the field existed, has the instrument ``"UNKNOWN"``.
+    """
+    assert _make_template().instrument == "UNKNOWN"
 
 
 def test_describe_templates_hoists_shared_values() -> None:
