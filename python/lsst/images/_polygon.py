@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-__all__ = ("Polygon", "Region", "RegionSerializationModel")
+__all__ = ("Polygon", "Region", "RegionDomainError", "RegionSerializationModel")
 
 from typing import TYPE_CHECKING, Any, Literal, assert_type, overload
 
@@ -34,6 +34,12 @@ if TYPE_CHECKING:
         from lsst.afw.geom import Polygon as LegacyPolygon
     except ImportError:
         type LegacyPolygon = Any  # type: ignore[no-redef]
+
+
+class RegionDomainError(ValueError):
+    """Exception raised when a region is transformed to non-finite
+    coordinates, i.e. it lies outside the domain of the transform.
+    """
 
 
 class Region(DescribableMixin):
@@ -265,6 +271,12 @@ class Region(DescribableMixin):
         transform
             Coordinate transform to apply (in the forward direction).
 
+        Raises
+        ------
+        RegionDomainError
+            Raised if any transformed vertex is not finite, as happens when
+            the region lies outside the domain of a projection.
+
         Notes
         -----
         This applies the transform to all vertices, assuming that the
@@ -273,7 +285,10 @@ class Region(DescribableMixin):
         """
 
         def wrapper(x: np.ndarray, y: np.ndarray) -> XY[np.ndarray]:
-            return transform.apply_forward(x=x, y=y)
+            result = transform.apply_forward(x=x, y=y)
+            if not (np.isfinite(result.x).all() and np.isfinite(result.y).all()):
+                raise RegionDomainError(f"Region {self} transforms to non-finite coordinates.")
+            return result
 
         return Region(
             # Shapely overloads don't seem to have been annotated rigorously
