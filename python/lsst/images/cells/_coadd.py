@@ -39,7 +39,7 @@ from .._mask import (
 from .._masked_image import MaskedImage, MaskedImageSerializationModel
 from .._transforms import SkyProjection, SkyProjectionSerializationModel, TractFrame
 from ..describe import DescribeOptions, FieldRole, Report, ReportField
-from ..fields import BaseField
+from ..fields import BaseField, field_from_legacy_photo_calib
 from ..serialization import InputArchive, InvalidParameterError, OutputArchive
 from ._aperture_corrections import (
     CellApertureCorrectionMapSerializationModel,
@@ -680,8 +680,10 @@ class CellCoadd(MaskedImage):
         evaluating them at cell centers and assuming they are valid for the
         entirety of the cell.
 
-        Provenance is converted only if the legacy image has
-        `lsst.afw.image.CoaddInputs` and at least one of them overlaps it.
+        The legacy image's pixels must already be calibrated to nJy (i.e. its
+        `lsst.afw.image.PhotoCalib` must be an identity), as is the case for
+        all pipeline coadds.  Provenance is converted only if the legacy image
+        has `lsst.afw.image.CoaddInputs` and at least one of them overlaps it.
 
         Parameters
         ----------
@@ -727,6 +729,12 @@ class CellCoadd(MaskedImage):
             pixel_bounds=tract_bbox,
         )
         image = Image.from_legacy(legacy.image, unit=astropy.units.nJy)
+        if (legacy_photo_calib := legacy.getPhotoCalib()) is not None and (
+            field_from_legacy_photo_calib(legacy_photo_calib, image.bbox) is not None
+        ):
+            raise ValueError(
+                "Legacy coadd pixels must already be calibrated to nJy (an identity PhotoCalib)."
+            )
         mask = Mask.from_legacy(legacy.mask, plane_map=plane_map)
         variance = Image.from_legacy(legacy.variance, unit=astropy.units.nJy**2)
         patch_definition = PatchDefinition.from_legacy_patch_info(tract_info[patch])

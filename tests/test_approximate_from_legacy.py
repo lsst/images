@@ -46,7 +46,7 @@ try:
     from lsst.afw.detection import InvalidPsfError
     from lsst.afw.geom import makeCdMatrix, makeSkyWcs
     from lsst.afw.image import Exposure as LegacyExposure
-    from lsst.afw.image import ExposureFitsReader
+    from lsst.afw.image import ExposureFitsReader, PhotoCalib
     from lsst.afw.math import ChebyshevBoundedField as LegacyChebyshevBoundedField
     from lsst.afw.table import ExposureCatalog as LegacyExposureCatalog
     from lsst.geom import Box2D as LegacyBox2D
@@ -554,3 +554,18 @@ def test_from_legacy_lazy_coadd_without_coadd_inputs(legacy_test_coadd: _LegacyT
     )
     with pytest.raises(AttributeError):
         cell_coadd.provenance
+
+
+def test_from_legacy_lazy_coadd_requires_njy_pixels(legacy_test_coadd: _LegacyTestCoadd) -> None:
+    """Test that a legacy coadd whose pixels are not already in nJy is
+    rejected rather than mislabeled.
+    """
+    coadd = legacy_test_coadd.coadd.clone()
+    coadd.setPhotoCalib(PhotoCalib(2.0))
+    with pytest.raises(ValueError, match="nJy"):
+        CellCoadd.from_legacy_lazy_coadd(
+            coadd,
+            instrument="LSSTCam",
+            tract_info=legacy_test_coadd.tract_info,
+            patch=DP2_COADD_DATA_ID["patch"],
+        )
