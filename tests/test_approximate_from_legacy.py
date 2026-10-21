@@ -56,6 +56,7 @@ try:
     from lsst.meas.algorithms import CoaddBoundedFieldElement as LegacyCoaddBoundedFieldElement
     from lsst.meas.algorithms import CoaddPsf as LegacyCoaddPsf
     from lsst.pex.exceptions import DomainError
+    from lsst.skymap import PatchInfo as LegacyPatchInfo
     from lsst.skymap import TractInfo as LegacyTractInfo
 
     HAVE_LEGACY = True
@@ -68,6 +69,7 @@ except ImportError:
     type LegacyCoaddBoundedFieldElement = Any  # type: ignore[no-redef]
     type LegacyCoaddBoundedField = Any  # type: ignore[no-redef]
     type LegacyCoaddPsf = Any  # type: ignore[no-redef]
+    type LegacyPatchInfo = Any  # type: ignore[no-redef]
     type LegacyTractInfo = Any  # type: ignore[no-redef]
     HAVE_LEGACY = False
 
@@ -569,3 +571,35 @@ def test_from_legacy_lazy_coadd_requires_njy_pixels(legacy_test_coadd: _LegacyTe
             tract_info=legacy_test_coadd.tract_info,
             patch=DP2_COADD_DATA_ID["patch"],
         )
+
+
+def test_from_legacy_patch_info_geometry(legacy_test_coadd: _LegacyTestCoadd) -> None:
+    """Test that legacy patches whose cells cannot be represented by a
+    `CellGrid` are rejected, and that the DP2 patch round-trips.
+    """
+    patch_info = legacy_test_coadd.tract_info[DP2_COADD_DATA_ID["patch"]]
+    inner = patch_info.getInnerBBox()
+    outer = patch_info.getOuterBBox()
+    cell_extent = patch_info.getCellInnerDimensions()
+    common: dict[str, Any] = {
+        "index": patch_info.getIndex(),
+        "innerBBox": inner,
+        "outerBBox": outer,
+        "sequentialIndex": patch_info.getSequentialIndex(),
+        "tractWcs": legacy_test_coadd.tract_info.getWcs(),
+    }
+    cells: dict[str, Any] = {
+        "cellInnerDimensions": cell_extent,
+        "numCellsPerPatchInner": inner.getWidth() // cell_extent.x,
+        "numCellsInPatchBorder": (outer.getWidth() - inner.getWidth()) // (2 * cell_extent.x),
+    }
+    with pytest.raises(ValueError, match="does not define a cell grid"):
+        PatchDefinition.from_legacy_patch_info(LegacyPatchInfo(**common))
+    with pytest.raises(ValueError, match="cell border"):
+        PatchDefinition.from_legacy_patch_info(LegacyPatchInfo(**common, cellBorder=50, **cells))
+    grown = LegacyBox2I(outer)
+    grown.grow(1)
+    with pytest.raises(ValueError, match="does not hold exactly"):
+        PatchDefinition.from_legacy_patch_info(LegacyPatchInfo(**(common | {"outerBBox": grown}), **cells))
+    converted = PatchDefinition.from_legacy_patch_info(LegacyPatchInfo(**common, **cells))
+    assert converted == legacy_test_coadd.patch
