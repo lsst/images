@@ -43,6 +43,7 @@ from lsst.images.tests import (
 
 try:
     from lsst.afw.detection import InvalidPsfError
+    from lsst.afw.geom import makeCdMatrix, makeSkyWcs
     from lsst.afw.image import Exposure as LegacyExposure
     from lsst.afw.image import ExposureFitsReader
     from lsst.afw.math import ChebyshevBoundedField as LegacyChebyshevBoundedField
@@ -98,6 +99,20 @@ class _LegacyTestCoadd:
     tract_info: LegacyTractInfo
     patch: PatchDefinition
     bounds: CellGridBounds
+
+    @property
+    def sky_projection(self) -> SkyProjection[TractFrame]:
+        """The coadd's sky projection in its tract frame."""
+        tract_bbox = Box.from_legacy(self.tract_info.getBBox())
+        return SkyProjection.from_legacy(
+            self.coadd.getWcs(),
+            TractFrame(
+                skymap=DP2_COADD_DATA_ID["skymap"],
+                tract=DP2_COADD_DATA_ID["tract"],
+                bbox=tract_bbox,
+            ),
+            pixel_bounds=tract_bbox,
+        )
 
     @property
     def sparse_cell_index(self) -> CellIJ:
@@ -433,22 +448,12 @@ def test_provenance_skips_missing_cells_and_matches_trimmed_inputs(
     cell_a = legacy_test_coadd.sparse_cell_index
     assert cell_a in bounds.missing
 
-    tract_bbox = Box.from_legacy(legacy_test_coadd.tract_info.getBBox())
-    sky_projection = SkyProjection.from_legacy(
-        legacy_test_coadd.coadd.getWcs(),
-        TractFrame(
-            skymap=DP2_COADD_DATA_ID["skymap"],
-            tract=DP2_COADD_DATA_ID["tract"],
-            bbox=tract_bbox,
-        ),
-        pixel_bounds=tract_bbox,
-    )
     provenance = CoaddProvenance.from_legacy_lazy(
         # from_legacy_lazy takes a CoaddInputs-like object and reads only
         # its .ccds attribute (lsst/images/cells/_provenance.py).
         types.SimpleNamespace(ccds=trim_missing.ccds),
         bounds=bounds,
-        sky_projection=sky_projection,
+        sky_projection=legacy_test_coadd.sky_projection,
         instrument="LSSTCam",
     )
 
@@ -470,3 +475,45 @@ def test_provenance_skips_missing_cells_and_matches_trimmed_inputs(
         getWcs=lambda: legacy_test_coadd.coadd.getWcs(),
     )
     compare_cell_coadd_provenance_to_legacy_lazy(provenance, trimmed_legacy, bounds)
+
+
+def _move_record_far_away(record: Any, coadd_wcs: Any) -> None:
+    """Give a coadd-input record a WCS centered on the far side of the sky
+    from the coadd's tangent point, outside the coadd projection's domain.
+    """
+    from lsst.geom import Point2D, SpherePoint, degrees
+
+    origin = coadd_wcs.getSkyOrigin()
+    antipode = SpherePoint(origin.getLongitude() + 180.0 * degrees, -origin.getLatitude())
+    cd_matrix = makeCdMatrix(scale=record.getWcs().getPixelScale())
+    record.setWcs(makeSkyWcs(crpix=Point2D(0.0, 0.0), crval=antipode, cdMatrix=cd_matrix))
+
+
+def _provenance_keys(provenance: CoaddProvenance) -> set[tuple[int, int]]:
+    return {(int(row["visit"]), int(row["detector"])) for row in provenance.inputs}
+
+
+def test_provenance_skips_inputs_outside_projection_domain(legacy_test_coadd: _LegacyTestCoadd) -> None:
+    """Test that an input whose footprint cannot be projected onto the coadd
+    is dropped rather than aborting the conversion.
+    """
+    ccds = legacy_test_coadd.coadd.info.getCoaddInputs().ccds
+    expected = CoaddProvenance.from_legacy_lazy(
+        types.SimpleNamespace(ccds=ccds),
+        bounds=legacy_test_coadd.bounds,
+        sky_projection=legacy_test_coadd.sky_projection,
+        instrument="LSSTCam",
+    )
+    moved = ccds.copy(deep=True)
+    # Move an input that does overlap the test region, so the drop is visible.
+    moved_key = next(iter(sorted(_provenance_keys(expected))))
+    for record in moved:
+        if (int(record.get("visit")), int(record.get("ccd"))) == moved_key:
+            _move_record_far_away(record, legacy_test_coadd.coadd.getWcs())
+    provenance = CoaddProvenance.from_legacy_lazy(
+        types.SimpleNamespace(ccds=moved),
+        bounds=legacy_test_coadd.bounds,
+        sky_projection=legacy_test_coadd.sky_projection,
+        instrument="LSSTCam",
+    )
+    assert _provenance_keys(provenance) == _provenance_keys(expected) - {moved_key}

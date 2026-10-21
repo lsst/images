@@ -23,7 +23,7 @@ import pydantic
 
 from .._cell_grid import CellGridBounds, CellIJ
 from .._geom import XY, Box, NoOverlapError
-from .._polygon import Polygon, Region
+from .._polygon import Polygon, Region, RegionDomainError
 from .._transforms import GeneralFrame, SkyProjection
 from ..describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
 from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive, TableModel
@@ -438,7 +438,13 @@ class CoaddProvenance(DescribableMixin):
             detector_to_coadd = detector_proj.pixel_to_sky_transform.then(
                 sky_projection.sky_to_pixel_transform
             )
-            detector_coadd_region = detector_region.transform(detector_to_coadd)
+            try:
+                detector_coadd_region = detector_region.transform(detector_to_coadd)
+            except RegionDomainError:
+                # This input is outside the domain of the coadd's projection
+                # (e.g. on the far side of the sky from its tangent point),
+                # so it cannot overlap the coadd.
+                continue
             try:
                 detector_patch_region = detector_coadd_region.intersection(bounds.bbox)
             except NoOverlapError:
