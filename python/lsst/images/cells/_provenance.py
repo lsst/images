@@ -441,6 +441,7 @@ class CoaddProvenance(DescribableMixin):
         contributions = CoaddProvenance.make_empty_contribution_table(bounds.n_cells * len(ccd_catalog))
         contributions["instrument"] = instrument
         contributions["unmasked_fraction"] = np.nan
+        cell_boxes = {cell: bounds.grid.bbox_of(cell) for cell in bounds.cell_indices()}
         m = 0
         n = 0
         for ccd_record in ccd_catalog:
@@ -473,8 +474,10 @@ class CoaddProvenance(DescribableMixin):
             inputs["day_obs"][n] = _extract_day_obs_from_visit(visit_id)
             inputs["polygon"][n] = _as_polygon(detector_patch_region)
             weight = ccd_record.get("weight")
-            for cell in bounds.cell_indices():
-                cell_box = bounds.grid.bbox_of(cell)
+            # Only cells that overlap the footprint's bounding box can
+            # overlap the footprint.
+            for cell in bounds[bounds.bbox.intersection(detector_patch_region.bbox)].cell_indices():
+                cell_box = cell_boxes[cell]
                 try:
                     cell_region = detector_patch_region.intersection(cell_box)
                 except NoOverlapError:
