@@ -27,6 +27,7 @@ from lsst.images import (
     NoOverlapError,
     Polygon,
     Region,
+    RegionDomainError,
     RegionSerializationModel,
     Transform,
 )
@@ -132,6 +133,18 @@ def test_transform() -> None:
     # vertex.
     assert_values_equal(tp.x_vertices[: len(xyt.x)], xyt.x, rtol=1e-14)
     assert_values_equal(tp.y_vertices[: len(xyt.y)], xyt.y, rtol=1e-14)
+
+
+def test_transform_outside_domain() -> None:
+    """Test that a transform yielding non-finite vertices raises a
+    `RegionDomainError` instead of producing a broken region.
+    """
+    polygon = _make_polygon()
+    matrix = np.array([[1e308, 0.0], [0.0, 1e308]])
+    t = Transform.affine(GeneralFrame(unit=u.pix), GeneralFrame(unit=u.pix), matrix)
+    assert not np.isfinite(t.apply_forward(x=polygon.x_vertices, y=polygon.y_vertices).x).all()
+    with pytest.raises(RegionDomainError):
+        polygon.transform(t)
 
 
 def test_contains_points() -> None:
@@ -250,6 +263,18 @@ def test_difference() -> None:
     assert regions.c.difference(regions.d).area == regions.c.area - regions.d.area
     # RHS fully contains LHS -> region is empty.
     assert regions.d.difference(regions.d).area == 0
+
+
+def test_region_convex_hull() -> None:
+    """Test that the convex hull of a multi-polygon region is a polygon
+    covering it.
+    """
+    region = Region.from_wkt("MULTIPOLYGON (((0 0, 1 0, 1 1, 0 1, 0 0)), ((2 0, 3 0, 3 1, 2 1, 2 0)))")
+    assert not isinstance(region, Polygon)
+    hull = region.convex_hull
+    assert isinstance(hull, Polygon)
+    assert hull == Polygon(x_vertices=[0.0, 3.0, 3.0, 0.0], y_vertices=[0.0, 0.0, 1.0, 1.0])
+    assert region.intersection(hull) == region
 
 
 def test_region_io() -> None:

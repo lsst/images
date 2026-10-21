@@ -25,6 +25,7 @@ import numpy as np
 from astro_metadata_translator import ObservationInfo
 
 from lsst.images import (
+    YX,
     BackgroundMap,
     Box,
     DifferenceImage,
@@ -33,9 +34,12 @@ from lsst.images import (
     get_legacy_difference_image_mask_planes,
     obs_info_from_legacy,
 )
+from lsst.images.cells import CellCoadd
 from lsst.images.convolution_kernels import ConvolutionKernel
 from lsst.images.tests import (
     assert_obs_metadata_fields_equal,
+    cell_center_points,
+    compare_cell_coadd_to_legacy_lazy,
     compare_masked_image_to_legacy,
     compare_visit_image_to_legacy,
 )
@@ -98,6 +102,17 @@ def _check_backgrounds(backgrounds: BackgroundMap, bbox: Box, *, expected: Seque
         assert subtracted.name in present, "subtracted background designation not in map"
 
 
+def _spot_check_points(points: YX[np.ndarray], n: int, rng: random.Random) -> YX[np.ndarray]:
+    """Sample up to ``n`` of the given points without replacement, keeping
+    x/y pairs together.
+
+    ``rng`` makes the sampling reproducible across runs.
+    """
+    n = min(n, len(points.y))
+    indices = rng.sample(range(len(points.y)), n)
+    return YX(y=points.y[indices], x=points.x[indices])
+
+
 @click.command("verify-rewrite")
 @click.argument("repo")
 @click.argument("dataset_type")
@@ -125,6 +140,24 @@ def _check_backgrounds(backgrounds: BackgroundMap, bbox: Box, *, expected: Seque
         "exposure and the repo's exposure dimension record."
     ),
 )
+@click.option(
+    "--pixel-atol-factor",
+    default=0.0,
+    help=(
+        "CellCoadd image pixel atol is this times the legacy noise level (the square root of the median "
+        "variance), and the variance pixel atol is this times the std of the legacy variance plane, to "
+        "allow for a rewrite that re-quantizes pixel values.  The default of zero requires exact equality, "
+        "as for other dataset types."
+    ),
+)
+@click.option(
+    "--coadd-check-points",
+    default=4,
+    help=(
+        "Cell centers per coadd used to spot-check PSF and aperture corrections."
+        "  Ignored for other dataset types."
+    ),
+)
 def verify_rewrite(
     *,
     repo: str,
@@ -138,6 +171,8 @@ def verify_rewrite(
     check_templates: bool,
     check_backgrounds: bool,
     check_obs_info: bool,
+    pixel_atol_factor: float,
+    coadd_check_points: int,
 ) -> None:  # numpydoc ignore=PR01
     """Compare rewritten images in COLLECTION against the originals in
     COLLECTION of REPO.
@@ -149,7 +184,14 @@ def verify_rewrite(
         err.add_note("verify-rewrite requires a full Rubin development environment.")
         raise
     with Butler.from_config(repo, collections=[collection]) as butler:
-        verifier = RewriteVerifier(butler, dataset_type, old_prefix=old_prefix, new_prefix=new_prefix)
+        verifier = RewriteVerifier(
+            butler,
+            dataset_type,
+            old_prefix=old_prefix,
+            new_prefix=new_prefix,
+            pixel_atol_factor=pixel_atol_factor,
+            coadd_check_points=coadd_check_points,
+        )
         # Query for and compare datasets.
         for data_id in verifier.process(where):
             # Test visit_image vs. future_visit_image.
@@ -175,14 +217,19 @@ class RewriteVerifier:
         *,
         old_prefix: str,
         new_prefix: str,
+        pixel_atol_factor: float = 0.0,
+        coadd_check_points: int = 4,
     ) -> None:
         self.butler = butler
         self.base_dataset_type = base_dataset_type
         self.old_prefix = old_prefix
         self.new_prefix = new_prefix
+        self.pixel_atol_factor = pixel_atol_factor
+        self.coadd_check_points = coadd_check_points
         self._progress: tqdm.tqdm | None = None
         self._n_problems = 0
         self._exposure_records: dict[int, DimensionRecord] = {}
+        self._skymaps: dict[str, Any] = {}
 
     def _report_problem(self) -> None:
         self._n_problems += 1
@@ -207,12 +254,14 @@ class RewriteVerifier:
             new_count = query.datasets(f"{self.new_prefix}{self.base_dataset_type}").where(where).count()
             assert len(data_ids) == new_count, f"Count mismatch: new ({new_count}) != old ({len(data_ids)})."
             # Fetch the exposure dimension records for all of these data IDs
-            # up front.  Assume there's only one instrument in play.
-            visit_data_ids = {d.subset(visit_group) for d in data_ids}
-            self._exposure_records = {
-                record.id: record
-                for record in query.join_data_coordinates(visit_data_ids).dimension_records("exposure")
-            }
+            # up front.  Assume there's only one instrument in play.  Coadd
+            # (patch/band) data IDs have no visits, and nothing to fetch.
+            if "visit" in dimension_group:
+                visit_data_ids = {d.subset(visit_group) for d in data_ids}
+                self._exposure_records = {
+                    record.id: record
+                    for record in query.join_data_coordinates(visit_data_ids).dimension_records("exposure")
+                }
         random.shuffle(data_ids)
         self._progress = tqdm.tqdm(data_ids)
         yield from self._progress
@@ -228,7 +277,7 @@ class RewriteVerifier:
     ) -> None:
         old = self.butler.get(f"{self.old_prefix}{self.base_dataset_type}", data_id)
         new = self.butler.get(f"{self.new_prefix}{self.base_dataset_type}", data_id)
-        if check_obs_info:
+        if check_obs_info and "visit" in data_id.dimensions:
             try:
                 self._check_obs_info(new, old, data_id)
             except Exception as err:
@@ -236,6 +285,27 @@ class RewriteVerifier:
                 return
         expected_backgrounds = None
         plane_map = None
+        if isinstance(new, CellCoadd):
+            rng = random.Random(f"{self.base_dataset_type} {data_id}")
+            points = _spot_check_points(cell_center_points(new.bounds), self.coadd_check_points, rng)
+            try:
+                skymap_name = str(data_id["skymap"])
+                image_atol, variance_atol = self._coadd_pixel_atols(old.getVariance().array)
+                compare_cell_coadd_to_legacy_lazy(
+                    new,
+                    old,
+                    skymap=skymap_name,
+                    tract=int(data_id["tract"]),
+                    patch=int(data_id["patch"]),
+                    band=str(data_id["band"]),
+                    tract_info=self._get_skymap(skymap_name)[int(data_id["tract"])],
+                    image_atol=image_atol,
+                    variance_atol=variance_atol,
+                    psf_points=points,
+                )
+            except Exception as err:
+                self.print_error(data_id, err)
+            return
         if isinstance(new, DifferenceImage):
             expected_backgrounds = DIFFERENCE_IMAGE_BACKGROUNDS
             plane_map = get_legacy_difference_image_mask_planes()
@@ -273,6 +343,32 @@ class RewriteVerifier:
                 return
         if check_backgrounds and expected_backgrounds is not None:
             _check_backgrounds(new.backgrounds, new.bbox, expected=expected_backgrounds)
+
+    def _get_skymap(self, name: str) -> Any:
+        """Return the repo's `lsst.skymap.BaseSkyMap` with the given name,
+        reading it on first use.
+        """
+        if (skymap := self._skymaps.get(name)) is None:
+            skymap = self.butler.get("skyMap", skymap=name)
+            self._skymaps[name] = skymap
+        return skymap
+
+    def _coadd_pixel_atols(self, legacy_variance: np.ndarray) -> tuple[float, float]:
+        """Return the absolute tolerances for a coadd's image and variance
+        pixel comparisons, scaled from the legacy variance plane by
+        ``pixel_atol_factor``.
+
+        A plane with no finite pixels gives zero tolerances rather than NaN.
+        """
+        if not self.pixel_atol_factor:
+            return 0.0, 0.0
+        finite = legacy_variance[np.isfinite(legacy_variance)]
+        if not finite.size:
+            return 0.0, 0.0
+        return (
+            self.pixel_atol_factor * float(np.sqrt(np.median(finite))),
+            self.pixel_atol_factor * float(np.std(finite)),
+        )
 
     def _check_obs_info(self, new: Any, old: Any, data_id: DataCoordinate) -> None:
         """Compare the new dataset's ObservationInfo against one re-derived

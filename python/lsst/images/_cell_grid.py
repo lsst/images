@@ -39,9 +39,11 @@ if TYPE_CHECKING:
     try:
         from lsst.cell_coadds import UniformGrid as LegacyUniformGrid
         from lsst.skymap import Index2D as LegacyIndex2D
+        from lsst.skymap import PatchInfo as LegacyPatchInfo
     except ImportError:
         type LegacyUniformGrid = Any  # type: ignore[no-redef]
         type LegacyIndex2D = Any  # type: ignore[no-redef]
+        type LegacyPatchInfo = Any  # type: ignore[no-redef]
 
 
 @dataclasses.dataclass(frozen=True, order=True)
@@ -237,6 +239,13 @@ class CellGridBounds(pydantic.BaseModel, frozen=True):
         """
         return self.subgrid_stop - self.subgrid_start
 
+    @property
+    def n_cells(self) -> int:
+        """Return the number of cells within this bounds, accounting for
+        `missing`.
+        """
+        return self.subgrid_size.i * self.subgrid_size.j - len(self.missing)
+
     @overload
     def contains(self, point: XY[int | float] | YX[int | float], /) -> bool: ...
 
@@ -386,6 +395,46 @@ class PatchDefinition(pydantic.BaseModel, frozen=True):
     def outer_bbox(self) -> Box:
         """The outer bounding box of this patch (`.Box`)."""
         return self.cells.bbox
+
+    @staticmethod
+    def from_legacy_patch_info(patch_info: LegacyPatchInfo) -> PatchDefinition:
+        """Convert from a legacy `lsst.skymap.PatchInfo` object.
+
+        Parameters
+        ----------
+        patch_info
+            Legacy patch definition to convert.
+
+        Raises
+        ------
+        ValueError
+            Raised if the patch has no cells, or if its cells have a nonzero
+            border, since `CellGrid` cannot represent overlapping cells.
+        """
+        num_cells = patch_info.getNumCells()
+        if num_cells.x == 0 or num_cells.y == 0:
+            raise ValueError("Legacy patch does not define a cell grid.")
+        if patch_info.getCellBorder():
+            raise ValueError("Only cell grids with no cell border (padding) are supported.")
+        index = patch_info.getIndex()
+        cell_extent = patch_info.getCellInnerDimensions()
+        # The legacy patch border is the border cells plus the cell border,
+        # so with no cell border the outer bbox is exactly the cell grid.
+        cell_grid = CellGrid(
+            bbox=Box.from_legacy(patch_info.getOuterBBox()),
+            cell_shape=YX(y=cell_extent.y, x=cell_extent.x),
+        )
+        if cell_grid.bbox.shape != YX(y=num_cells.y * cell_extent.y, x=num_cells.x * cell_extent.x):
+            raise ValueError(
+                f"Legacy patch outer bbox {patch_info.getOuterBBox()} does not hold exactly "
+                f"{num_cells} cells of {cell_extent} pixels."
+            )
+        return PatchDefinition(
+            id=patch_info.getSequentialIndex(),
+            index=YX(y=index.y, x=index.x),
+            inner_bbox=Box.from_legacy(patch_info.getInnerBBox()),
+            cells=cell_grid,
+        )
 
 
 if TYPE_CHECKING:
