@@ -22,7 +22,7 @@ import numpy as np
 import pydantic
 
 from .._cell_grid import CellGridBounds, CellIJ
-from .._geom import XY, Bounds, Box, NoOverlapError
+from .._geom import Bounds, Box, NoOverlapError
 from .._polygon import Polygon, Region, RegionDomainError
 from .._transforms import GeneralFrame, SkyProjection
 from ..describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
@@ -427,9 +427,13 @@ class CoaddProvenance(DescribableMixin):
 
         Notes
         -----
-        A footprint whose overlap with the coadd is not a simple polygon
-        (possible only with a nonconvex valid polygon) is stored as its convex
-        hull.
+        Input footprints are transformed to coadd coordinates vertex by
+        vertex, so the stored polygons and overlap fractions assume straight
+        edges in coadd coordinates.  Whether an input overlaps a cell center
+        is instead tested in that input's own pixel coordinates, as the
+        legacy ``ExposureCatalog.subsetContaining`` method does.  A footprint
+        whose overlap with the coadd is not a simple polygon (possible only
+        with a nonconvex valid polygon) is stored as its convex hull.
         """
         ccd_catalog = legacy_coadd_inputs.ccds
         inputs = CoaddProvenance.make_empty_input_table(len(ccd_catalog))
@@ -471,7 +475,6 @@ class CoaddProvenance(DescribableMixin):
             weight = ccd_record.get("weight")
             for cell in bounds.cell_indices():
                 cell_box = bounds.grid.bbox_of(cell)
-                cell_center = XY(x=cell_box.x.center, y=cell_box.y.center)
                 try:
                     cell_region = detector_patch_region.intersection(cell_box)
                 except NoOverlapError:
@@ -480,7 +483,9 @@ class CoaddProvenance(DescribableMixin):
                 contributions["cell_j"][m] = cell.j
                 contributions["visit"][m] = visit_id
                 contributions["detector"][m] = detector_id
-                contributions["overlaps_center"][m] = cell_region.contains(cell_center)
+                contributions["overlaps_center"][m] = detector_region.contains(
+                    detector_to_coadd.apply_inverse(cell_box.center)
+                )
                 contributions["overlap_fraction"][m] = cell_region.area / cell_box.area
                 contributions["weight"][m] = weight
                 # PSFs are expensive to evaluate; not clear if these columns
