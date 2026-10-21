@@ -540,3 +540,19 @@ def test_compare_psf_to_legacy_approximate_kernel_bbox(legacy_test_coadd: _Legac
     corrupted = CellPointSpreadFunction(corrupted_array, bounds=psf.bounds)
     with pytest.raises(AssertionError):
         compare_psf_to_legacy(corrupted, legacy_psf, points=points, rtol=1e-5)
+
+
+def test_compare_psf_to_legacy_exact_mode_propagates_invalid_psf(
+    legacy_test_coadd: _LegacyTestCoadd, trim_missing: _TrimmedLegacyCoaddComponents
+) -> None:
+    """Test that a legacy PSF that cannot be evaluated at a comparison point
+    fails an exact comparison, and is only skipped by an approximate one.
+    """
+    psf = CellPointSpreadFunction.approximate_from_legacy(
+        legacy_test_coadd.coadd.getPsf(), legacy_test_coadd.bounds
+    )
+    center = legacy_test_coadd.sparse_cell_box.center
+    points = XY(x=np.array([center.x]), y=np.array([center.y]))
+    with pytest.raises(InvalidPsfError):
+        compare_psf_to_legacy(psf, trim_missing.psf, points=points)
+    assert compare_psf_to_legacy(psf, trim_missing.psf, points=points, rtol=1e-5) == 0
