@@ -1329,13 +1329,14 @@ def compare_cell_coadd_to_legacy_lazy(
         cell_coadd.psf, legacy_exposure.getPsf(), points=psf_points, rtol=1e-5
     )
     assert n_psf_points > 0, "The legacy PSF could not be evaluated at any of the PSF comparison points."
-    compare_aperture_corrections_to_legacy(
+    n_field_points = compare_aperture_corrections_to_legacy(
         cell_coadd.aperture_corrections,
         legacy_exposure.info.getApCorrMap(),
         cell_coadd.bbox,
         eval_points=psf_points,
         expect_subset_bounds=True,
     )
+    assert n_field_points > 0, "No legacy aperture correction is usable at any of the comparison points."
     compare_cell_coadd_provenance_to_legacy_lazy(cell_coadd.provenance, legacy_exposure, cell_coadd.bounds)
     if alternates:
         if sky_projection := alternates.get("sky_projection"):
@@ -1349,13 +1350,14 @@ def compare_cell_coadd_to_legacy_lazy(
         if psf := alternates.get("psf"):
             assert compare_psf_to_legacy(psf, legacy_exposure.getPsf(), points=psf_points, rtol=1e-5) > 0
         if aperture_corrections := alternates.get("aperture_corrections"):
-            compare_aperture_corrections_to_legacy(
+            n_field_points = compare_aperture_corrections_to_legacy(
                 aperture_corrections,
                 legacy_exposure.info.getApCorrMap(),
                 cell_coadd.bbox,
                 eval_points=psf_points,
                 expect_subset_bounds=True,
             )
+            assert n_field_points > 0
         if provenance := alternates.get("provenance"):
             compare_cell_coadd_provenance_to_legacy_lazy(provenance, legacy_exposure, cell_coadd.bounds)
 
@@ -1533,7 +1535,8 @@ def compare_field_to_legacy(
     expect_subset_bounds: bool = False,
     *,
     rtol: float = 1e-5,
-) -> None:
+    default_is_missing: bool = True,
+) -> int:
     """Test a Field object by comparing it to an equivalent
     `lsst.afw.math.BoundedField`.
 
@@ -1547,13 +1550,23 @@ def compare_field_to_legacy(
         Bounding box for full-image tests.
     eval_points
         Points at which to compare field values, instead of testing over a
-        grid covering ``field.bounds``.  This also disables image-rendering
-        comparison checks.
+        grid covering ``field.bounds``.  Points outside ``field.bounds`` and
+        points where the legacy field has no usable value are skipped.  This
+        also disables image-rendering comparison checks.
     expect_subset_bounds
         If `True`, expect ``field.bounds`` to be contained by
         ``legacy_field.getBBox()``, not equal to it.
     rtol
         Relative tolerance for the evaluation-point field-value comparison.
+    default_is_missing
+        If `True`, treat legacy values equal to the field's missing-data
+        default (for fields that return one instead of raising) as unusable
+        when ``eval_points`` is given, as approximate conversions do.
+
+    Returns
+    -------
+    `int`
+        The number of points at which field values were compared.
     """
     from lsst.afw.math import BoundedField as LegacyBoundedField
 
@@ -1561,17 +1574,31 @@ def compare_field_to_legacy(
         assert Box.from_legacy(legacy_field.getBBox()).contains(field.bounds.bbox)
     else:
         assert field.bounds.bbox == Box.from_legacy(legacy_field.getBBox())
+    legacy_values: np.ndarray
     if eval_points is not None:
         pixel_xy = eval_points.map(np.ravel)
+        mask = np.asarray(field.bounds.contains(x=pixel_xy.x, y=pixel_xy.y), dtype=bool)
+        pixel_xy = pixel_xy.map(lambda v: v[mask])
+        legacy_values = np.array(
+            [
+                _evaluate_legacy_field_if_usable(legacy_field, x, y, default_is_missing=default_is_missing)
+                for x, y in zip(pixel_xy.x, pixel_xy.y)
+            ],
+            dtype=np.float64,
+        )
+        mask = np.isfinite(legacy_values)
+        pixel_xy = pixel_xy.map(lambda v: v[mask])
+        legacy_values = legacy_values[mask]
     else:
         pixel_xy = field.bounds.bbox.meshgrid(n=5).map(np.ravel)
         if not isinstance(field.bounds, Box):
             mask = field.bounds.contains(x=pixel_xy.x, y=pixel_xy.y)
             pixel_xy = pixel_xy.map(lambda v: v[mask])
+        legacy_values = legacy_field.evaluate(pixel_xy.x, pixel_xy.y)
     try:
         assert_values_equal(
             field(x=pixel_xy.x, y=pixel_xy.y),
-            legacy_field.evaluate(pixel_xy.x, pixel_xy.y),
+            legacy_values,
             # The field coefficients come from a numerical fit, so this can
             # be bigger than just round-off error epsilon.
             rtol=rtol,
@@ -1579,17 +1606,46 @@ def compare_field_to_legacy(
     except AssertionError as err:
         err.add_note(f"evaluated at {pixel_xy}")
         raise
+    n_points_compared = len(legacy_values)
     if not isinstance(legacy_field, LegacyBoundedField):
         # Legacy StitchedApertureCorrection objects are not true BoundedFields
         # and don't have addToImage.
-        return
+        return n_points_compared
     if eval_points is not None:
-        return
+        return n_points_compared
     legacy_image_1 = Image(0, bbox=subimage_bbox, dtype=np.float64).to_legacy()
     legacy_field.addToImage(legacy_image_1, overlapOnly=True)
     assert_images_equal(
         field.render(subimage_bbox), Image.from_legacy(legacy_image_1, unit=field.unit), rtol=1e-13
     )
+    return n_points_compared
+
+
+def _evaluate_legacy_field_if_usable(
+    legacy_field: Any, x: float, y: float, *, default_is_missing: bool
+) -> float:
+    """Evaluate a legacy `lsst.afw.math.BoundedField` at a point, returning
+    NaN where it has no usable value.
+
+    A `lsst.meas.algorithms.CoaddBoundedField` either raises at points no
+    input covers or returns a default value there; approximate conversions
+    treat the former as missing data, and the latter too when
+    ``default_is_missing`` is `True`.
+    """
+    from lsst.pex.exceptions import DomainError
+
+    try:
+        value = float(np.asarray(legacy_field.evaluate(float(x), float(y))).item())
+    except DomainError:
+        return np.nan
+    if not np.isfinite(value):
+        return np.nan
+    if default_is_missing:
+        get_throw_on_missing = getattr(legacy_field, "getThrowOnMissing", None)
+        if get_throw_on_missing is not None and not get_throw_on_missing():
+            if value == legacy_field.getDefault():
+                return np.nan
+    return value
 
 
 def compare_aperture_corrections_to_legacy(
@@ -1600,7 +1656,7 @@ def compare_aperture_corrections_to_legacy(
     eval_points: XY[np.ndarray] | YX[np.ndarray] | None = None,
     expect_subset_bounds: bool = False,
     rtol: float = 1e-5,
-) -> None:
+) -> int:
     """Test an aperture correction `dict` by comparing it to an equivalent
     `lsst.afw.image.ApCorrMap`.
 
@@ -1622,17 +1678,29 @@ def compare_aperture_corrections_to_legacy(
     rtol
         Relative tolerance for the evaluation-point field-value comparison,
         forwarded to `compare_field_to_legacy`.
+
+    Returns
+    -------
+    `int`
+        The total number of points at which field values were compared, over
+        all fields.
     """
     assert aperture_corrections.keys() == set(legacy_ap_corr_map.keys())
+    n_points_compared = 0
     for name, field in aperture_corrections.items():
-        compare_field_to_legacy(
+        n_points_compared += compare_field_to_legacy(
             field,
             legacy_ap_corr_map[name],
             subimage_bbox,
             eval_points=eval_points,
             expect_subset_bounds=expect_subset_bounds,
             rtol=rtol,
+            # Approximate conversions keep a flux error field's default
+            # (zero) as a value, since zero is a valid error, but treat a
+            # flux field's default as missing data.
+            default_is_missing=not name.endswith("_instFluxErr"),
         )
+    return n_points_compared
 
 
 def compare_observation_summary_stats_to_legacy(
