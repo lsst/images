@@ -142,8 +142,13 @@ def _spot_check_points(points: YX[np.ndarray], n: int, rng: random.Random) -> YX
 )
 @click.option(
     "--pixel-atol-factor",
-    default=0.5,
-    help="CellCoadd pixel atol is this times std() of the legacy plane.",
+    default=0.0,
+    help=(
+        "CellCoadd image pixel atol is this times the legacy noise level (the square root of the median "
+        "variance), and the variance pixel atol is this times the std of the legacy variance plane, to "
+        "allow for a rewrite that re-quantizes pixel values.  The default of zero requires exact equality, "
+        "as for other dataset types."
+    ),
 )
 @click.option(
     "--coadd-check-points",
@@ -212,7 +217,7 @@ class RewriteVerifier:
         *,
         old_prefix: str,
         new_prefix: str,
-        pixel_atol_factor: float = 0.5,
+        pixel_atol_factor: float = 0.0,
         coadd_check_points: int = 4,
     ) -> None:
         self.butler = butler
@@ -224,6 +229,7 @@ class RewriteVerifier:
         self._progress: tqdm.tqdm | None = None
         self._n_problems = 0
         self._exposure_records: dict[int, DimensionRecord] = {}
+        self._skymaps: dict[str, Any] = {}
 
     def _report_problem(self) -> None:
         self._n_problems += 1
@@ -283,16 +289,18 @@ class RewriteVerifier:
             rng = random.Random(f"{self.base_dataset_type} {data_id}")
             points = _spot_check_points(cell_center_points(new.bounds), self.coadd_check_points, rng)
             try:
+                skymap_name = str(data_id["skymap"])
+                image_atol, variance_atol = self._coadd_pixel_atols(old.getVariance().array)
                 compare_cell_coadd_to_legacy_lazy(
                     new,
                     old,
-                    skymap=str(data_id["skymap"]),
+                    skymap=skymap_name,
                     tract=int(data_id["tract"]),
                     patch=int(data_id["patch"]),
                     band=str(data_id["band"]),
-                    tract_bbox=new.sky_projection.pixel_frame.bbox,
-                    image_atol=self.pixel_atol_factor * float(np.nanstd(old.getImage().array)),
-                    variance_atol=self.pixel_atol_factor * float(np.nanstd(old.getVariance().array)),
+                    tract_info=self._get_skymap(skymap_name)[int(data_id["tract"])],
+                    image_atol=image_atol,
+                    variance_atol=variance_atol,
                     psf_points=points,
                 )
             except Exception as err:
@@ -335,6 +343,32 @@ class RewriteVerifier:
                 return
         if check_backgrounds and expected_backgrounds is not None:
             _check_backgrounds(new.backgrounds, new.bbox, expected=expected_backgrounds)
+
+    def _get_skymap(self, name: str) -> Any:
+        """Return the repo's `lsst.skymap.BaseSkyMap` with the given name,
+        reading it on first use.
+        """
+        if (skymap := self._skymaps.get(name)) is None:
+            skymap = self.butler.get("skyMap", skymap=name)
+            self._skymaps[name] = skymap
+        return skymap
+
+    def _coadd_pixel_atols(self, legacy_variance: np.ndarray) -> tuple[float, float]:
+        """Return the absolute tolerances for a coadd's image and variance
+        pixel comparisons, scaled from the legacy variance plane by
+        ``pixel_atol_factor``.
+
+        A plane with no finite pixels gives zero tolerances rather than NaN.
+        """
+        if not self.pixel_atol_factor:
+            return 0.0, 0.0
+        finite = legacy_variance[np.isfinite(legacy_variance)]
+        if not finite.size:
+            return 0.0, 0.0
+        return (
+            self.pixel_atol_factor * float(np.sqrt(np.median(finite))),
+            self.pixel_atol_factor * float(np.std(finite)),
+        )
 
     def _check_obs_info(self, new: Any, old: Any, data_id: DataCoordinate) -> None:
         """Compare the new dataset's ObservationInfo against one re-derived

@@ -52,10 +52,6 @@ class _LazyCoaddTestData:
     legacy_exposure: Any
     cell_coadd: CellCoadd
 
-    @property
-    def tract_bbox(self) -> Box:
-        return Box.from_legacy(self.tract_info.getBBox())
-
 
 @pytest.fixture
 def legacy_test_data(reset_afw_mask_planes: None) -> _LazyCoaddTestData:  # noqa: F811
@@ -102,7 +98,7 @@ def test_from_legacy_lazy_coadd(legacy_test_data: _LazyCoaddTestData) -> None:
     compare_cell_coadd_to_legacy_lazy(
         legacy_test_data.cell_coadd,
         legacy_test_data.legacy_exposure,
-        tract_bbox=legacy_test_data.tract_bbox,
+        tract_info=legacy_test_data.tract_info,
         **DP2_COADD_DATA_ID,
     )
     assert legacy_test_data.cell_coadd.bbox == Box.from_legacy(legacy_test_data.legacy_exposure.getBBox())
@@ -138,7 +134,7 @@ def test_roundtrip(legacy_test_data: _LazyCoaddTestData) -> None:
         compare_cell_coadd_to_legacy_lazy(
             roundtrip.result,
             legacy_test_data.legacy_exposure,
-            tract_bbox=legacy_test_data.tract_bbox,
+            tract_info=legacy_test_data.tract_info,
             alternates=alternates,
             **DP2_COADD_DATA_ID,
         )
@@ -179,13 +175,13 @@ def test_compare_lazy_coadd_image_atol(legacy_test_data: _LazyCoaddTestData) -> 
         compare_cell_coadd_to_legacy_lazy(
             legacy_test_data.cell_coadd,
             perturbed,
-            tract_bbox=legacy_test_data.tract_bbox,
+            tract_info=legacy_test_data.tract_info,
             **DP2_COADD_DATA_ID,
         )
     compare_cell_coadd_to_legacy_lazy(
         legacy_test_data.cell_coadd,
         perturbed,
-        tract_bbox=legacy_test_data.tract_bbox,
+        tract_info=legacy_test_data.tract_info,
         image_atol=1.0,
         **DP2_COADD_DATA_ID,
     )
@@ -202,13 +198,13 @@ def test_compare_lazy_coadd_variance_atol(legacy_test_data: _LazyCoaddTestData) 
         compare_cell_coadd_to_legacy_lazy(
             legacy_test_data.cell_coadd,
             perturbed,
-            tract_bbox=legacy_test_data.tract_bbox,
+            tract_info=legacy_test_data.tract_info,
             **DP2_COADD_DATA_ID,
         )
     compare_cell_coadd_to_legacy_lazy(
         legacy_test_data.cell_coadd,
         perturbed,
-        tract_bbox=legacy_test_data.tract_bbox,
+        tract_info=legacy_test_data.tract_info,
         variance_atol=1.0,
         **DP2_COADD_DATA_ID,
     )

@@ -77,7 +77,7 @@ from .._observation_summary_stats import ObservationSummaryStats
 from .._transforms import DetectorFrame, Frame, SkyFrame, SkyProjection, TractFrame, Transform
 from .._visit_image import VisitImage
 from ..cameras import Amplifier, Detector, DetectorType, ReadoutCorner
-from ..cells import CellCoadd, CellGridBounds, CellIJ, CoaddProvenance
+from ..cells import CellCoadd, CellGridBounds, CellIJ, CoaddProvenance, PatchDefinition
 from ..fields import BaseField, ChebyshevField
 from ..psfs import PointSpreadFunction
 from ..serialization import ArchiveTree
@@ -1244,7 +1244,7 @@ def compare_cell_coadd_to_legacy_lazy(
     tract: int,
     patch: int,
     band: str,
-    tract_bbox: Box,
+    tract_info: Any,
     plane_map: Mapping[str, MaskPlane] | None = None,
     unit: u.UnitBase = u.nJy,
     expect_view: bool | None = None,
@@ -1271,8 +1271,9 @@ def compare_cell_coadd_to_legacy_lazy(
         Expected patch sequential ID.
     band
         Expected band name.
-    tract_bbox
-        Bounding box of the full tract.
+    tract_info
+        Legacy `lsst.skymap.TractInfo` for the coadd's tract, which the
+        legacy exposure does not carry.
     plane_map
         Mapping between new and legacy mask planes; defaults to the planes
         used by legacy (non-cell) coadds like DP2's ``template_coadd``.
@@ -1313,6 +1314,8 @@ def compare_cell_coadd_to_legacy_lazy(
     assert cell_coadd.patch.id == patch
     assert cell_coadd.band == band
     assert cell_coadd.unit == unit
+    tract_bbox = Box.from_legacy(tract_info.getBBox())
+    assert cell_coadd.patch == PatchDefinition.from_legacy_patch_info(tract_info[patch])
     _check_cell_coadd_geometry(cell_coadd, tract_bbox)
     assert cell_coadd.sky_projection is cell_coadd.mask.sky_projection
     assert cell_coadd.sky_projection is cell_coadd.variance.sky_projection

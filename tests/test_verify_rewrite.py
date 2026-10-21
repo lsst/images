@@ -179,7 +179,7 @@ def test_rewrite_verifier_stores_coadd_options() -> None:
     assert verifier.pixel_atol_factor == 0.25
     assert verifier.coadd_check_points == 7
     default = RewriteVerifier(None, "template_coadd", old_prefix="legacy_", new_prefix="")
-    assert default.pixel_atol_factor == 0.5
+    assert default.pixel_atol_factor == 0.0
     assert default.coadd_check_points == 4
 
 
@@ -372,6 +372,11 @@ def _make_dp2_coadd_rewrite_repo(repo: str, testdata_dir: str, *, tamper: bool =
         new_dt = DatasetType("template_coadd", dims, "CellCoadd", universe=butler.dimensions)
         reg.registerDatasetType(legacy_dt)
         reg.registerDatasetType(new_dt)
+        # verify-rewrite reads the skymap to check the coadd's tract and
+        # patch geometry.
+        skymap_dt = DatasetType("skyMap", ("skymap",), "SkyMap", universe=butler.dimensions)
+        reg.registerDatasetType(skymap_dt)
+        butler.put(skymap, skymap_dt, skymap=DP2_COADD_DATA_ID["skymap"])
 
         src = os.path.join(testdata_dir, "dp2", "legacy", "template_coadd.fits")
         butler.put(ExposureFitsReader(src).read(), legacy_dt, data_id)
