@@ -265,6 +265,18 @@ def test_difference() -> None:
     assert regions.d.difference(regions.d).area == 0
 
 
+def test_region_convex_hull() -> None:
+    """Test that the convex hull of a multi-polygon region is a polygon
+    covering it.
+    """
+    region = Region.from_wkt("MULTIPOLYGON (((0 0, 1 0, 1 1, 0 1, 0 0)), ((2 0, 3 0, 3 1, 2 1, 2 0)))")
+    assert not isinstance(region, Polygon)
+    hull = region.convex_hull
+    assert isinstance(hull, Polygon)
+    assert hull == Polygon(x_vertices=[0.0, 3.0, 3.0, 0.0], y_vertices=[0.0, 0.0, 1.0, 1.0])
+    assert region.intersection(hull) == region
+
+
 def test_region_io() -> None:
     """Test serialization and stringification of non-polygon regions."""
     regions = _TestRegions()

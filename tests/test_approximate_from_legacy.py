@@ -25,7 +25,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from lsst.images import XY, YX, BoundsError, Box, Image, SkyProjection, TractFrame
+from lsst.images import XY, YX, BoundsError, Box, Image, Polygon, Region, SkyProjection, TractFrame
 from lsst.images.cells import (
     CellCoadd,
     CellField,
@@ -35,7 +35,7 @@ from lsst.images.cells import (
     CoaddProvenance,
     PatchDefinition,
 )
-from lsst.images.cells._provenance import _extract_day_obs_from_visit
+from lsst.images.cells._provenance import _as_polygon, _extract_day_obs_from_visit
 from lsst.images.tests import (
     DP2_COADD_DATA_ID,
     assert_values_equal,
@@ -651,3 +651,13 @@ def test_extract_day_obs_from_visit() -> None:
     for bad_visit_id in (1234567, 20250000123, 20251301123, 20250132123, 18991231123):
         with pytest.raises(NotImplementedError):
             _extract_day_obs_from_visit(bad_visit_id)
+
+
+def test_as_polygon() -> None:
+    """Test normalization of provenance regions to simple polygons."""
+    box = Box.factory[2:5, 3:9]
+    assert _as_polygon(box) == box.to_polygon()
+    polygon = Polygon(x_vertices=[0.0, 2.0, 1.0], y_vertices=[0.0, 0.0, 2.0])
+    assert _as_polygon(polygon) is polygon
+    region = Region.from_wkt("MULTIPOLYGON (((0 0, 1 0, 1 1, 0 1, 0 0)), ((2 0, 3 0, 3 1, 2 1, 2 0)))")
+    assert _as_polygon(region) == region.convex_hull

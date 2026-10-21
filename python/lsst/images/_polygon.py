@@ -259,6 +259,14 @@ class Region(DescribableMixin):
             return self.bbox
         return self
 
+    @property
+    def convex_hull(self) -> Polygon:
+        """The convex hull of the region (`Polygon`)."""
+        impl = self._impl.convex_hull
+        assert isinstance(impl, shapely.Polygon), "The convex hull of a region with area is a polygon."
+        vertices = np.array(impl.exterior.coords)
+        return Polygon(x_vertices=vertices[:, 0], y_vertices=vertices[:, 1])
+
     def to_shapely(self) -> shapely.Polygon | shapely.MultiPolygon:
         """Convert to a `shapely.Polygon` or `shapely.MultiPolygon` object."""
         return self._impl

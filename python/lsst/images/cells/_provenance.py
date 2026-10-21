@@ -22,7 +22,7 @@ import numpy as np
 import pydantic
 
 from .._cell_grid import CellGridBounds, CellIJ
-from .._geom import XY, Box, NoOverlapError
+from .._geom import XY, Bounds, Box, NoOverlapError
 from .._polygon import Polygon, Region, RegionDomainError
 from .._transforms import GeneralFrame, SkyProjection
 from ..describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
@@ -424,6 +424,12 @@ class CoaddProvenance(DescribableMixin):
         -------
         `CoaddProvenance` or `None`
             Converted provenance, or `None` if no input overlaps ``bounds``.
+
+        Notes
+        -----
+        A footprint whose overlap with the coadd is not a simple polygon
+        (possible only with a nonconvex valid polygon) is stored as its convex
+        hull.
         """
         ccd_catalog = legacy_coadd_inputs.ccds
         inputs = CoaddProvenance.make_empty_input_table(len(ccd_catalog))
@@ -461,7 +467,7 @@ class CoaddProvenance(DescribableMixin):
             inputs["detector"][n] = detector_id
             inputs["physical_filter"][n] = ccd_record.get("filter")
             inputs["day_obs"][n] = _extract_day_obs_from_visit(visit_id)
-            inputs["polygon"][n] = detector_patch_region
+            inputs["polygon"][n] = _as_polygon(detector_patch_region)
             weight = ccd_record.get("weight")
             for cell in bounds.cell_indices():
                 cell_box = bounds.grid.bbox_of(cell)
@@ -645,13 +651,9 @@ class CoaddProvenanceSerializationModel(ArchiveTree):
             A copy of the in-memory coadd inputs table to modify in-place into
             its serialization form.
         """
-        # Region intersections are sometimes represented as boxes rather
-        # than polygons, so normalize to polygons before writing vertex
-        # columns.
-        polygons = [p.to_polygon() if isinstance(p, Box) else p for p in inputs["polygon"]]
-        max_n_vertices = max((p.n_vertices for p in polygons), default=0)
+        max_n_vertices = max(p.n_vertices for p in inputs["polygon"])
         inputs["n_vertices"] = astropy.table.Column(
-            [p.n_vertices for p in polygons],
+            [p.n_vertices for p in inputs["polygon"]],
             name="n_vertices",
             dtype=np.uint8,
             description="Number of polygon vertices.",
@@ -672,7 +674,7 @@ class CoaddProvenanceSerializationModel(ArchiveTree):
             description="Y coordinates of polygon vertices, in tract coordinates.",
         )
         inputs["y_vertices"][:, :] = np.nan
-        for i, polygon in enumerate(polygons):
+        for i, polygon in enumerate(inputs["polygon"]):
             inputs["n_vertices"][i] = polygon.n_vertices
             inputs["x_vertices"][i][: polygon.n_vertices] = polygon.x_vertices
             inputs["y_vertices"][i][: polygon.n_vertices] = polygon.y_vertices
@@ -699,6 +701,27 @@ class CoaddProvenanceSerializationModel(ArchiveTree):
         del inputs["x_vertices"]
         del inputs["y_vertices"]
         inputs["polygon"] = astropy.table.Column(polygons, name="polygon", dtype=np.object_)
+
+
+def _as_polygon(region: Bounds) -> Polygon:
+    """Return the given region as a simple polygon, approximating regions
+    that are not simple polygons by their convex hull.
+
+    Parameters
+    ----------
+    region
+        A `Polygon`, `Box`, or other `Region` (as returned by `Region`
+        intersections).
+    """
+    match region:
+        case Polygon():
+            return region
+        case Box():
+            return region.to_polygon()
+        case Region():
+            return region.convex_hull
+        case _:
+            raise TypeError(f"Unexpected provenance region type: {region!r}.")
 
 
 def _extract_day_obs_from_visit(visit_id: int) -> int:
