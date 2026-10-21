@@ -1480,28 +1480,40 @@ def compare_psf_to_legacy(
                     legacy_psf.computeKernelImage(p)
             continue
         try:
-            legacy_kernel_image = legacy_psf.computeKernelImage(p)
+            legacy_kernel = Image.from_legacy(legacy_psf.computeKernelImage(p))
         except InvalidPsfError:
             # The legacy PSF has no opinion here; the conversion should have
             # built this cell's stamp from corner samples instead.
             continue
-        assert psf.kernel_bbox == Box.from_legacy(legacy_psf.computeKernelBBox(p))
-        kernel = psf.compute_kernel_image(x=p.x, y=p.y)
-        if approximate:
-            assert_values_equal(
-                kernel.array, legacy_kernel_image.array, rtol=rtol, atol=atol, label="psf kernel"
-            )
-        else:
-            assert kernel == Image.from_legacy(legacy_kernel_image)
-        assert psf.compute_stellar_bbox(x=p.x, y=p.y) == Box.from_legacy(legacy_psf.computeImageBBox(p))
-        stellar = psf.compute_stellar_image(x=p.x, y=p.y)
+        legacy_kernel_bbox = Box.from_legacy(legacy_psf.computeKernelBBox(p))
+        legacy_stellar_bbox = Box.from_legacy(legacy_psf.computeImageBBox(p))
         legacy_stellar = Image.from_legacy(legacy_psf.computeImage(p))
+        kernel = psf.compute_kernel_image(x=p.x, y=p.y)
+        stellar_bbox = psf.compute_stellar_bbox(x=p.x, y=p.y)
+        stellar = psf.compute_stellar_image(x=p.x, y=p.y)
         if approximate:
-            assert stellar.bbox == legacy_stellar.bbox
+            # An approximate conversion stores every cell's stamp in one
+            # kernel bbox large enough for the legacy kernel at every sampled
+            # point, so the legacy kernel must match the stamp's sub-box and
+            # the rest of the stamp must be empty.  Resampling the stamp into
+            # the stellar image spreads flux into that padding, so only the
+            # sub-box is comparable there.
+            assert psf.kernel_bbox.contains(legacy_kernel_bbox)
+            expected_kernel = Image(0.0, bbox=kernel.bbox, dtype=np.float64)
+            expected_kernel[legacy_kernel.bbox] = legacy_kernel
+            assert_values_equal(kernel.array, expected_kernel.array, rtol=rtol, atol=atol, label="psf kernel")
+            assert stellar_bbox.contains(legacy_stellar_bbox)
             assert_values_equal(
-                stellar.array, legacy_stellar.array, rtol=rtol, atol=atol, label="psf stellar image"
+                stellar[legacy_stellar.bbox].array,
+                legacy_stellar.array,
+                rtol=rtol,
+                atol=atol,
+                label="psf stellar image",
             )
         else:
+            assert psf.kernel_bbox == legacy_kernel_bbox
+            assert kernel == legacy_kernel
+            assert stellar_bbox == legacy_stellar_bbox
             assert stellar == legacy_stellar
         n_points_tested += 1
     return n_points_tested

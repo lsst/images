@@ -38,7 +38,9 @@ from lsst.images.cells import (
 from lsst.images.tests import (
     DP2_COADD_DATA_ID,
     assert_values_equal,
+    cell_center_points,
     compare_cell_coadd_provenance_to_legacy_lazy,
+    compare_psf_to_legacy,
     reset_afw_mask_planes,  # noqa: F401
 )
 
@@ -603,3 +605,24 @@ def test_from_legacy_patch_info_geometry(legacy_test_coadd: _LegacyTestCoadd) ->
         PatchDefinition.from_legacy_patch_info(LegacyPatchInfo(**(common | {"outerBBox": grown}), **cells))
     converted = PatchDefinition.from_legacy_patch_info(LegacyPatchInfo(**common, **cells))
     assert converted == legacy_test_coadd.patch
+
+
+def test_compare_psf_to_legacy_approximate_kernel_bbox(legacy_test_coadd: _LegacyTestCoadd) -> None:
+    """Test that the approximate PSF comparison accepts a stored kernel bbox
+    larger than the legacy kernel bbox at a point (as the shared bbox of a
+    converted cell PSF generally is), while the exact comparison does not.
+    """
+    legacy_psf = legacy_test_coadd.coadd.getPsf()
+    psf = CellPointSpreadFunction.approximate_from_legacy(legacy_psf, legacy_test_coadd.bounds)
+    padded = CellPointSpreadFunction(np.pad(psf._array, [(0, 0), (0, 0), (1, 1), (1, 1)]), bounds=psf.bounds)
+    assert padded.kernel_bbox != psf.kernel_bbox
+    points = cell_center_points(psf.bounds)
+    assert compare_psf_to_legacy(padded, legacy_psf, points=points, rtol=1e-5) == psf.bounds.n_cells
+    with pytest.raises(AssertionError):
+        compare_psf_to_legacy(padded, legacy_psf, points=points)
+    # A stamp with flux outside the legacy kernel bbox is still rejected.
+    corrupted_array = padded._array.copy()
+    corrupted_array[:, :, 0, 0] = 1.0
+    corrupted = CellPointSpreadFunction(corrupted_array, bounds=psf.bounds)
+    with pytest.raises(AssertionError):
+        compare_psf_to_legacy(corrupted, legacy_psf, points=points, rtol=1e-5)
