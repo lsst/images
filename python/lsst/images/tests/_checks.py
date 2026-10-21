@@ -1325,7 +1325,10 @@ def compare_cell_coadd_to_legacy_lazy(
     )
     if psf_points is None:
         psf_points = cell_center_points(cell_coadd.bounds)
-    compare_psf_to_legacy(cell_coadd.psf, legacy_exposure.getPsf(), points=psf_points, rtol=1e-5)
+    n_psf_points = compare_psf_to_legacy(
+        cell_coadd.psf, legacy_exposure.getPsf(), points=psf_points, rtol=1e-5
+    )
+    assert n_psf_points > 0, "The legacy PSF could not be evaluated at any of the PSF comparison points."
     compare_aperture_corrections_to_legacy(
         cell_coadd.aperture_corrections,
         legacy_exposure.info.getApCorrMap(),
@@ -1344,7 +1347,7 @@ def compare_cell_coadd_to_legacy_lazy(
                 is_fits=True,
             )
         if psf := alternates.get("psf"):
-            compare_psf_to_legacy(psf, legacy_exposure.getPsf(), points=psf_points, rtol=1e-5)
+            assert compare_psf_to_legacy(psf, legacy_exposure.getPsf(), points=psf_points, rtol=1e-5) > 0
         if aperture_corrections := alternates.get("aperture_corrections"):
             compare_aperture_corrections_to_legacy(
                 aperture_corrections,
@@ -1482,8 +1485,11 @@ def compare_psf_to_legacy(
         try:
             legacy_kernel = Image.from_legacy(legacy_psf.computeKernelImage(p))
         except InvalidPsfError:
-            # The legacy PSF has no opinion here; the conversion should have
-            # built this cell's stamp from corner samples instead.
+            if not approximate:
+                raise
+            # An approximate conversion samples a cell's corners when the
+            # legacy PSF cannot be evaluated at its center, so there is
+            # nothing to compare at this point.
             continue
         legacy_kernel_bbox = Box.from_legacy(legacy_psf.computeKernelBBox(p))
         legacy_stellar_bbox = Box.from_legacy(legacy_psf.computeImageBBox(p))
