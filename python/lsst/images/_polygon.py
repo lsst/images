@@ -271,6 +271,12 @@ class Region(DescribableMixin):
         transform
             Coordinate transform to apply (in the forward direction).
 
+        Returns
+        -------
+        `Region`
+            The transformed region, as a `Polygon` if it is a single polygon
+            with no holes.
+
         Raises
         ------
         RegionDomainError
