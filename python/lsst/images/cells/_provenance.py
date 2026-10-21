@@ -702,20 +702,23 @@ class CoaddProvenanceSerializationModel(ArchiveTree):
 
 
 def _extract_day_obs_from_visit(visit_id: int) -> int:
-    """If the given visit ID looks like an ISO date-as-integer concatenated
-    with a sequence number, extract and return the date part.
+    """Extract the observation day from a visit ID of the form
+    ``YYYYMMDDnnnnn``.
+
+    Legacy coadd inputs do not record the observation day, but the visit IDs
+    of all public LSST data begin with the eight-digit ``YYYYMMDD``
+    observation day, so it is recovered from the ID here.
 
     Raises
     ------
     NotImplementedError
-        Raised if the visit ID does not look date-based.
+        Raised if the visit ID does not start with a valid date.
     """
     id_str = str(visit_id)
-    if len(id_str) < 8:
-        raise NotImplementedError(f"visit ID {visit_id} does not start with a date.")
-    year = int(id_str[:4])
-    month = int(id_str[4:6])
-    day = int(id_str[6:8])
-    if year >= 1900 and year < 3000 and month <= 12 and day <= 31:
-        return (year * 100 + month) * 100 + day
-    raise NotImplementedError(f"visit ID {visit_id} does not start with a date.")
+    if len(id_str) >= 8:
+        year = int(id_str[:4])
+        month = int(id_str[4:6])
+        day = int(id_str[6:8])
+        if 1900 <= year < 3000 and 1 <= month <= 12 and 1 <= day <= 31:
+            return (year * 100 + month) * 100 + day
+    raise NotImplementedError(f"Visit ID {visit_id} does not start with a YYYYMMDD observation day.")

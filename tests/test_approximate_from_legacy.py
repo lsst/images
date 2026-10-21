@@ -35,6 +35,7 @@ from lsst.images.cells import (
     CoaddProvenance,
     PatchDefinition,
 )
+from lsst.images.cells._provenance import _extract_day_obs_from_visit
 from lsst.images.tests import (
     DP2_COADD_DATA_ID,
     assert_values_equal,
@@ -642,3 +643,11 @@ def test_compare_psf_to_legacy_exact_mode_propagates_invalid_psf(
     with pytest.raises(InvalidPsfError):
         compare_psf_to_legacy(psf, trim_missing.psf, points=points)
     assert compare_psf_to_legacy(psf, trim_missing.psf, points=points, rtol=1e-5) == 0
+
+
+def test_extract_day_obs_from_visit() -> None:
+    """Test extraction of the observation day from LSST-style visit IDs."""
+    assert _extract_day_obs_from_visit(2025052300165) == 20250523
+    for bad_visit_id in (1234567, 20250000123, 20251301123, 20250132123, 18991231123):
+        with pytest.raises(NotImplementedError):
+            _extract_day_obs_from_visit(bad_visit_id)
