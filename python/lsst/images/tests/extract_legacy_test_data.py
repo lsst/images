@@ -315,7 +315,12 @@ def extract_dp2(
     camera: bool,
     skymap: bool,
 ) -> None:  # numpydoc ignore=PR01
-    """Extract test data from a butler repository."""
+    """Extract test data from a butler repository.
+
+    All dataset options default to off, so at least one must be given.
+    """
+    if not any([visit_images, difference_images, deep_coadds, template_coadds, camera, skymap]):
+        raise click.UsageError("No datasets selected; pass at least one --<dataset> option.")
     try:
         # lsst.afw.image is imported only to confirm a full Rubin pipelines
         # environment is present: daf.butler and lsst.utils are available
