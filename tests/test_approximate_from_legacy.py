@@ -27,6 +27,7 @@ import pytest
 
 from lsst.images import XY, YX, BoundsError, Box, Image, SkyProjection, TractFrame
 from lsst.images.cells import (
+    CellCoadd,
     CellField,
     CellGridBounds,
     CellIJ,
@@ -456,6 +457,7 @@ def test_provenance_skips_missing_cells_and_matches_trimmed_inputs(
         sky_projection=legacy_test_coadd.sky_projection,
         instrument="LSSTCam",
     )
+    assert provenance is not None
 
     contribution_cells = {
         CellIJ(i=int(row["cell_i"]), j=int(row["cell_j"])) for row in provenance.contributions
@@ -504,6 +506,7 @@ def test_provenance_skips_inputs_outside_projection_domain(legacy_test_coadd: _L
         sky_projection=legacy_test_coadd.sky_projection,
         instrument="LSSTCam",
     )
+    assert expected is not None
     moved = ccds.copy(deep=True)
     # Move an input that does overlap the test region, so the drop is visible.
     moved_key = next(iter(sorted(_provenance_keys(expected))))
@@ -516,4 +519,38 @@ def test_provenance_skips_inputs_outside_projection_domain(legacy_test_coadd: _L
         sky_projection=legacy_test_coadd.sky_projection,
         instrument="LSSTCam",
     )
+    assert provenance is not None
     assert _provenance_keys(provenance) == _provenance_keys(expected) - {moved_key}
+
+
+def test_provenance_is_none_without_overlapping_inputs(legacy_test_coadd: _LegacyTestCoadd) -> None:
+    """Test that provenance conversion yields `None`, not an error, when no
+    input overlaps the coadd.
+    """
+    moved = legacy_test_coadd.coadd.info.getCoaddInputs().ccds.copy(deep=True)
+    for record in moved:
+        _move_record_far_away(record, legacy_test_coadd.coadd.getWcs())
+    provenance = CoaddProvenance.from_legacy_lazy(
+        types.SimpleNamespace(ccds=moved),
+        bounds=legacy_test_coadd.bounds,
+        sky_projection=legacy_test_coadd.sky_projection,
+        instrument="LSSTCam",
+    )
+    assert provenance is None
+
+
+def test_from_legacy_lazy_coadd_without_coadd_inputs(legacy_test_coadd: _LegacyTestCoadd) -> None:
+    """Test that a legacy coadd with no coadd-inputs component converts to a
+    coadd with no provenance.
+    """
+    coadd = legacy_test_coadd.coadd.clone()
+    coadd.info.setCoaddInputs(None)
+    assert coadd.info.getCoaddInputs() is None
+    cell_coadd = CellCoadd.from_legacy_lazy_coadd(
+        coadd,
+        instrument="LSSTCam",
+        tract_info=legacy_test_coadd.tract_info,
+        patch=DP2_COADD_DATA_ID["patch"],
+    )
+    with pytest.raises(AttributeError):
+        cell_coadd.provenance

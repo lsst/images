@@ -680,6 +680,9 @@ class CellCoadd(MaskedImage):
         evaluating them at cell centers and assuming they are valid for the
         entirety of the cell.
 
+        Provenance is converted only if the legacy image has
+        `lsst.afw.image.CoaddInputs` and at least one of them overlaps it.
+
         Parameters
         ----------
         legacy
@@ -734,12 +737,14 @@ class CellCoadd(MaskedImage):
         aperture_corrections = approximate_aperture_corrections_from_legacy(
             legacy.info.getApCorrMap(), psf.bounds
         )
-        provenance = CoaddProvenance.from_legacy_lazy(
-            legacy.info.getCoaddInputs(),
-            bounds=psf.bounds,
-            sky_projection=sky_projection,
-            instrument=instrument,
-        )
+        provenance = None
+        if (legacy_coadd_inputs := legacy.info.getCoaddInputs()) is not None:
+            provenance = CoaddProvenance.from_legacy_lazy(
+                legacy_coadd_inputs,
+                bounds=psf.bounds,
+                sky_projection=sky_projection,
+                instrument=instrument,
+            )
         return CellCoadd(
             image=image,
             mask=mask,

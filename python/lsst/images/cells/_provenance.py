@@ -405,7 +405,7 @@ class CoaddProvenance(DescribableMixin):
         bounds: CellGridBounds,
         sky_projection: SkyProjection,
         instrument: str,
-    ) -> CoaddProvenance:
+    ) -> CoaddProvenance | None:
         """Convert provenance from a legacy
         `lsst.afw.image.CoaddInputs` object.
 
@@ -419,6 +419,11 @@ class CoaddProvenance(DescribableMixin):
             The projection the coadd pixel grid to the sky.
         instrument
             Name of the instrument (for all inputs).
+
+        Returns
+        -------
+        `CoaddProvenance` or `None`
+            Converted provenance, or `None` if no input overlaps ``bounds``.
         """
         ccd_catalog = legacy_coadd_inputs.ccds
         inputs = CoaddProvenance.make_empty_input_table(len(ccd_catalog))
@@ -480,9 +485,9 @@ class CoaddProvenance(DescribableMixin):
                 contributions["psf_shape_xy"][m] = np.nan
                 m += 1
             n += 1
-        contributions = contributions[:m].copy()
-        inputs = inputs[:n].copy()
-        return CoaddProvenance(inputs, contributions)
+        if n == 0:
+            return None
+        return CoaddProvenance(inputs[:n].copy(), contributions[:m].copy())
 
 
 class CoaddProvenanceSerializationModel(ArchiveTree):
