@@ -66,7 +66,7 @@ except ImportError:
     type LegacyCoaddBoundedFieldElement = Any  # type: ignore[no-redef]
     type LegacyCoaddBoundedField = Any  # type: ignore[no-redef]
     type LegacyCoaddPsf = Any  # type: ignore[no-redef]
-    type LegacyTractinfo = Any  # type: ignore[no-redef]
+    type LegacyTractInfo = Any  # type: ignore[no-redef]
     HAVE_LEGACY = False
 
 
