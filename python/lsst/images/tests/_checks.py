@@ -1416,8 +1416,9 @@ def compare_cell_coadd_provenance_to_legacy_lazy(
         )
     overlap = np.asarray(provenance.contributions["overlap_fraction"], dtype=np.float64)
     assert np.all((overlap > 0.0) & (overlap <= 1.0)), "Overlap fractions must be valid cell fractions."
-    valid_cells = set(bounds.cell_indices()) - set(bounds.missing)
-    assert set(contributions_by_cell) <= valid_cells, "Contributions must be on non-missing cells."
+    assert set(contributions_by_cell) <= set(bounds.cell_indices()), (
+        "Contributions must be on non-missing cells."
+    )
     for cell, rows in contributions_by_cell.items():
         bbox = bounds.grid.bbox_of(cell)
         overlapping = {
