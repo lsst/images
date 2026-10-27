@@ -1,3 +1,74 @@
+lsst-images v30.0.12 (2026-10-27)
+=================================
+
+New Features
+------------
+
+- Made the header cards of the file an image was read from available by name through ``GeneralizedImage.metadata``.
+  Lookups check the image's own metadata first and then fall back to a case-insensitive lookup in ``MetadataView.external``, which is read-only and omits ``COMMENT`` and ``HISTORY`` cards.
+  Use ``MetadataView.get_all`` to obtain every value of a repeated keyword. (`DM-54770 <https://rubinobs.atlassian.net/browse/DM-54770>`_)
+- Improved the reports ``DifferenceImage``, ``VisitImage`` and ``BackgroundMap`` produce for ``describe``, ``rich`` and Jupyter.
+
+  * ``DifferenceImage`` now describes its templates as a table and its convolution kernel as a child report; neither appeared before.
+  * ``ConvolutionKernel`` is now describable, so it also has a readable ``repr`` and ``str``.
+  * A full-frame ``VisitImage`` no longer repeats the sky corners its ``SkyProjection`` already tabulates more readably.
+    A cutout keeps them, since its summary statistics still describe the whole image they were measured on.
+  * ``BackgroundMap`` marks the background that was subtracted with a highlighted ``[SUBTRACTED]``, which a background merely *named* ``subtracted`` cannot be mistaken for.
+  * Describing a ``VisitImage`` whose PSF could not be read now names it unreadable and describes the rest, instead of raising.
+    A PSF model can need an optional package such as ``piff`` that the reader does not have installed. (`DM-55956 <https://rubinobs.atlassian.net/browse/DM-55956>`_)
+- Added ``get_legacy_template_mask_planes`` for image differencing templates and ``get_legacy_optional_mask_planes`` for source injection planes.
+  Conversions from legacy masks add an optional plane when the legacy mask has pixels set in it.
+  ``Mask.to_legacy`` writes schema planes the plane map does not name under their own names.
+
+  Added ``DifferenceImageTemplateInfo.from_legacy_psf``, which builds template provenance from a legacy template PSF and butler information held by the caller.
+
+  Added ``psfs.GaussianPointSpreadFunction.to_legacy`` and ``psfs.GaussianPointSpreadFunction.from_legacy``, and ``VisitImage.to_legacy`` now also converts a Gaussian PSF.
+  ``psfs.PointSpreadFunction.from_legacy`` converts an ``lsst.afw.detection.GaussianPsf`` to a ``psfs.GaussianPointSpreadFunction``.
+
+  Made ``VisitImage.psf`` settable. (`DM-56116 <https://rubinobs.atlassian.net/browse/DM-56116>`_)
+- Added an ``instrument`` field to ``DifferenceImageTemplateInfo``, set through a new ``instrument`` argument of ``DifferenceImageTemplateInfo.from_legacy`` and ``DifferenceImageTemplateInfo.from_legacy_psf``; it is ``"UNKNOWN"`` when the instrument could not be determined.
+-  The ``difference_image`` schema is now version 1.2.0; files written with earlier versions read with ``instrument`` set to ``"UNKNOWN"``. (`DM-56663 <https://rubinobs.atlassian.net/browse/DM-56663>`_)
+- ``VisitImage.from_legacy``, ``VisitImage.read_legacy``, and the ``DifferenceImage`` equivalents now use an ``ObservationInfo`` embedded in the legacy metadata as flat ``OBS_INFO`` FITS cards (as written by the ``lsst.obs.base`` raw formatter) instead of reconstructing one from the ``VisitInfo`` and the ``exposure`` dimension record.
+  The embedded cards are stripped from the metadata attached to the converted image.
+  ``obs_info_from_legacy`` gained a ``header`` parameter for this. (`DM-56697 <https://rubinobs.atlassian.net/browse/DM-56697>`_)
+
+- Added ``CellCoadd.from_legacy_lazy`` which constructs a ``CellCoadd`` by converting a legacy ``lsst.afw.image.ExposureF`` by approximating the latters' lazy-evaluated coadd PSF and aperture corrections as piecewise constant on the cell grid.
+
+
+API Changes
+-----------
+
+- ``GeneralizedImage.metadata`` now returns a ``MetadataView`` instead of a plain ``dict``.
+  The view behaves as a mutable mapping over the image's own metadata, with read-only external metadata such as the primary FITS header layered underneath.
+  Code that needs a plain ``dict`` should use ``metadata.copy()``.
+  Adding a new key that case-insensitively matches an external key now raises `KeyError`.
+  Assigning to ``GeneralizedImage.metadata`` now stores a copy of the assigned mapping instead of sharing it, so ``image.metadata = image.metadata`` disconnects an image's metadata from any subimages sharing it while keeping its contents, and ``image.metadata = {}`` disconnects it and starts empty. (`DM-54770 <https://rubinobs.atlassian.net/browse/DM-54770>`_)
+- ``VisitImage.from_legacy``, ``VisitImage.read_legacy``,
+  ``DifferenceImage.from_legacy`` and ``DifferenceImage.read_legacy`` now require an ``exposure_record`` keyword argument.
+
+  In the equivalent butler conversions, ``exposure_record`` is a new _required_
+  parameter.
+  Note that if the header includes the ``ObservationInfo`` flat dict form (see above) that will be used directly and the exposure record will only be used for validation.
+
+  In both cases, `None` can be passed explicitly to get a converted image
+  without some ``ObservationInfo`` fields.
+
+  Using butler metadata, or the new special ``ObservationInfo`` header serialization, instead of trying to re-translate a FITS header is a lot
+  safer, because in almost all cases ``afw`` will have stripped and/or rewritten
+  the FITS header with conventions the raw translators do not expect. (`DM-56143 <https://rubinobs.atlassian.net/browse/DM-56143>`_)
+- Made ``AmplifierRawGeometry.prescan_bbox`` optional, so an amplifier with no prescan region (DECam, MegaPrime) keeps the rest of its raw geometry instead of failing to convert.
+  The ``detector``, ``visit_image`` and ``difference_image`` schemas are now at version 1.1.0; files written at 1.0.0 can still be read, since the prescan box they carry is kept. (`DM-56146 <https://rubinobs.atlassian.net/browse/DM-56146>`_)
+
+
+Bug Fixes
+---------
+
+- - ``Image.read_legacy``, ``Mask.read_legacy`` and ``MaskedImage.read_legacy`` now restore metadata saved in ``LSST IMAGES KEY`` / ``VALUE`` header cards, and no legacy reader keeps those cards as header metadata.
+  - Reading uncompressed FITS images and FITS tables now returns arrays in native byte order, so an image read from an uncompressed file can be converted with ``to_legacy``. (`DM-54770 <https://rubinobs.atlassian.net/browse/DM-54770>`_)
+- Skip legacy difference image templates with no actual overlap instead of failing to convert the entire difference image from legacy. (`DM-55829 <https://rubinobs.atlassian.net/browse/DM-55829>`_)
+- Fixed some minor bugs relating to subsetting, partial background subtraction and missing validations. (`DM-55843 <https://rubinobs.atlassian.net/browse/DM-55843>`_)
+
+
 lsst-images v30.0.11 (2026-08-13)
 =================================
 
