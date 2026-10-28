@@ -544,6 +544,44 @@ def test_repeated_metadata_keys_legacy_round_trip(
     assert [card.value for card in round_tripped_header.cards if card.keyword == "DUMMYVAR"] == [0.5, 1.5]
 
 
+def test_non_finite_metadata_legacy_round_trip(
+    visit_image_components: dict[str, Any],
+    reset_afw_mask_planes: None,  # noqa: F811
+    tmp_path: Path,
+) -> None:
+    """Verify that non-finite float values in legacy metadata survive
+    conversion to a VisitImage, a FITS write, and conversion back.
+    """
+    from lsst.afw.detection import GaussianPsf
+
+    visit_image = VisitImage(
+        visit_image_components["image"],
+        variance=visit_image_components["variance"],
+        psf=PointSpreadFunction.from_legacy(GaussianPsf(33, 33, 2.5), bounds=Box.factory[0:1024, 0:1024]),
+        mask_schema=visit_image_components["mask_schema"],
+        sky_projection=visit_image_components["sky_projection"],
+        detector=visit_image_components["detector"],
+        obs_info=visit_image_components["obs_info"],
+        band="r",
+    )
+    legacy_exposure = visit_image.to_legacy()
+    legacy_metadata = legacy_exposure.getMetadata()
+    legacy_metadata.add("NANVAL", math.nan)
+    legacy_metadata.add("INFVAL", -math.inf)
+
+    converted = VisitImage.from_legacy(
+        legacy_exposure,
+        exposure_record=get_dp2_exposure_record(DimensionUniverse()),
+    )
+    path = tmp_path / "visit_image.fits"
+    images_fits.write(converted, path)
+    result = read_archive(path, VisitImage)
+
+    legacy_metadata = result.to_legacy().getMetadata()
+    assert math.isnan(legacy_metadata.getScalar("NANVAL"))
+    assert legacy_metadata.getScalar("INFVAL") == -math.inf
+
+
 def test_external_metadata_legacy_round_trip(
     visit_image_components: dict[str, Any],
     reset_afw_mask_planes: None,  # noqa: F811
