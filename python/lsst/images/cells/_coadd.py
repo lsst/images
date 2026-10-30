@@ -28,13 +28,24 @@ from .._backgrounds import BackgroundMap, BackgroundMapSerializationModel
 from .._cell_grid import CellGrid, CellGridBounds, PatchDefinition
 from .._geom import YX, Box
 from .._image import Image, ImageSerializationModel
-from .._mask import Mask, MaskPlane, MaskSchema, MaskSerializationModel, get_legacy_deep_coadd_mask_planes
+from .._mask import (
+    Mask,
+    MaskPlane,
+    MaskSchema,
+    MaskSerializationModel,
+    get_legacy_deep_coadd_mask_planes,
+    get_legacy_non_cell_coadd_mask_planes,
+)
 from .._masked_image import MaskedImage, MaskedImageSerializationModel
 from .._transforms import SkyProjection, SkyProjectionSerializationModel, TractFrame
 from ..describe import DescribeOptions, FieldRole, Report, ReportField
-from ..fields import BaseField
+from ..fields import BaseField, field_from_legacy_photo_calib
 from ..serialization import InputArchive, InvalidParameterError, OutputArchive
-from ._aperture_corrections import CellApertureCorrectionMapSerializationModel, CellField
+from ._aperture_corrections import (
+    CellApertureCorrectionMapSerializationModel,
+    CellField,
+    approximate_aperture_corrections_from_legacy,
+)
 from ._provenance import CoaddProvenance, CoaddProvenanceSerializationModel
 from ._psf import CellPointSpreadFunction, CellPointSpreadFunctionSerializationModel
 
@@ -649,6 +660,104 @@ class CellCoadd(MaskedImage):
             psf_image_size=self.psf.kernel_bbox.shape.to_legacy_int_extent(),
             common=legacy_common,
             inner_bbox=self.bbox.to_legacy(),
+        )
+
+    @staticmethod
+    def from_legacy_lazy_coadd(
+        legacy: LegacyExposure,
+        *,
+        instrument: str,
+        plane_map: Mapping[str, MaskPlane] | None = None,
+        tract_info: TractInfo,
+        skymap: str | None = None,
+        patch: int | None = None,
+        band: str | None = None,
+    ) -> CellCoadd:
+        """Convert from a `lsst.afw.image.Exposure` instance with a lazy
+        PSF and/or aperture corrections.
+
+        This approximates the given image's PSF and aperture corrections by
+        evaluating them at cell centers and assuming they are valid for the
+        entirety of the cell.
+
+        Parameters
+        ----------
+        legacy
+            A `lsst.afw.image.Exposure` instance to convert.
+        instrument
+            Name of the instrument that produced all inputs to this coadd.
+        plane_map
+            A mapping from legacy mask plane name to the new plane name and
+            description.
+        tract_info
+            Information about the full tract.
+        skymap
+            Name of the skymap.
+        patch
+            ID of the patch this coadd belongs to.
+        band
+            Name of the bandpass filter.
+        """
+        if plane_map is None:
+            plane_map = get_legacy_non_cell_coadd_mask_planes()
+        legacy_md = legacy.getMetadata()
+        if skymap is None:
+            skymap = legacy_md.get("LSST BUTLER DATAID SKYMAP")
+            if skymap is None:
+                raise ValueError("No skymap name provided and no skymap name found in header.")
+        if patch is None:
+            patch = legacy_md.get("LSST BUTLER DATAID PATCH")
+            if patch is None:
+                raise ValueError("No patch ID provided and no patch ID found in header.")
+        if band is None:
+            band = legacy_md.get("LSST BUTLER DATAID BAND")
+            if band is None:
+                raise ValueError("No band name provided and no band name found in header.")
+        tract_bbox = Box.from_legacy(tract_info.getBBox())
+        sky_projection = SkyProjection.from_legacy(
+            legacy.wcs,
+            TractFrame(
+                skymap=skymap,
+                tract=tract_info.getId(),
+                bbox=tract_bbox,
+            ),
+            pixel_bounds=tract_bbox,
+        )
+        image = Image.from_legacy(legacy.image, unit=astropy.units.nJy)
+        if (legacy_photo_calib := legacy.getPhotoCalib()) is not None and (
+            field_from_legacy_photo_calib(legacy_photo_calib, image.bbox) is not None
+        ):
+            raise ValueError(
+                "Legacy coadd pixels must already be calibrated to nJy (an identity PhotoCalib)."
+            )
+        mask = Mask.from_legacy(legacy.mask, plane_map=plane_map)
+        variance = Image.from_legacy(legacy.variance, unit=astropy.units.nJy**2)
+        patch_definition = PatchDefinition.from_legacy_patch_info(tract_info[patch])
+        psf_bounds = CellGridBounds(grid=patch_definition.cells, bbox=patch_definition.cells.bbox)[
+            Box.from_legacy(legacy.getBBox())
+        ]
+        psf = CellPointSpreadFunction.approximate_from_legacy(legacy.psf, psf_bounds)
+        aperture_corrections = approximate_aperture_corrections_from_legacy(
+            legacy.info.getApCorrMap(), psf.bounds
+        )
+        provenance = CoaddProvenance.from_legacy_lazy(
+            legacy.info.getCoaddInputs(),
+            bounds=psf.bounds,
+            sky_projection=sky_projection,
+            instrument=instrument,
+        )
+        return CellCoadd(
+            image=image,
+            mask=mask,
+            variance=variance,
+            mask_fractions={},
+            noise_realizations=[],
+            sky_projection=sky_projection,
+            band=band,
+            psf=psf,
+            aperture_corrections=aperture_corrections,
+            patch=patch_definition,
+            provenance=provenance,
         )
 
     def to_legacy(

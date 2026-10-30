@@ -22,13 +22,16 @@ import numpy as np
 import pydantic
 
 from .._cell_grid import CellGridBounds, CellIJ
-from .._polygon import Polygon
+from .._geom import XY, Box, NoOverlapError
+from .._polygon import Polygon, Region, RegionDomainError
+from .._transforms import GeneralFrame, SkyProjection
 from ..describe import DescribableMixin, DescribeOptions, FieldRole, Report, ReportField
 from ..serialization import ArchiveTree, InputArchive, InvalidParameterError, OutputArchive, TableModel
 
 if TYPE_CHECKING:
     try:
         from lsst.afw.geom import Polygon as LegacyPolygon
+        from lsst.afw.image import CoaddInputs as LegacyCoaddInputs
         from lsst.cell_coadds import CoaddInputs as LegacyCellCoaddInputs
         from lsst.cell_coadds import MultipleCellCoadd as LegacyMultipleCellCoadd
         from lsst.cell_coadds import ObservationIdentifiers as LegacyObservationIdentifiers
@@ -36,6 +39,7 @@ if TYPE_CHECKING:
     except ImportError:
         type LegacyIndex2D = Any  # type: ignore[no-redef]
         type LegacyCellCoaddInputs = Any  # type: ignore[no-redef]
+        type LegacyCoaddInputs = Any  # type: ignore[no-redef]
         type LegacyPolygon = Any  # type: ignore[no-redef]
         type LegacyMultipleCellCoadd = Any  # type: ignore[no-redef]
         type LegacyObservationIdentifiers = Any  # type: ignore[no-redef]
@@ -180,6 +184,9 @@ class CoaddProvenance(DescribableMixin):
             names=["cell_i", "cell_j"],
             dtype=[np.uint16, np.uint16],
         )
+        if not len(cells_to_keep):
+            # astropy.table.join rejects an empty operand outright.
+            return None
         contributions = astropy.table.join(self._contributions, cells_to_keep)
         assert contributions.columns.keys() == {name for name, _, _, _ in self._CONTRIBUTION_TABLE_COLUMNS}
         if not len(contributions):
@@ -369,7 +376,7 @@ class CoaddProvenance(DescribableMixin):
             in the `inputs` table.
         """
         from lsst.afw.geom.ellipses import Quadrupole
-        from lsst.cell_coadds import CoaddInputs as LegacyCoaddInputs
+        from lsst.cell_coadds import CoaddInputs as LegacyCellCoaddInputs
         from lsst.skymap import Index2D as LegacyIndex2D
 
         if observations is None:
@@ -377,12 +384,12 @@ class CoaddProvenance(DescribableMixin):
         observations_by_key: dict[tuple[str, int, int], LegacyObservationIdentifiers] = {
             (obs.instrument, obs.visit, obs.detector): obs for obs in observations
         }
-        result: dict[LegacyIndex2D, dict[LegacyObservationIdentifiers, LegacyCoaddInputs]] = {}
+        result: dict[LegacyIndex2D, dict[LegacyObservationIdentifiers, LegacyCellCoaddInputs]] = {}
         for row in self.contributions:
             obs_key = (str(row["instrument"]), int(row["visit"]), int(row["detector"]))
             obs = observations_by_key[obs_key]
             cell_inputs = result.setdefault(LegacyIndex2D(x=int(row["cell_j"]), y=int(row["cell_i"])), {})
-            cell_inputs[obs] = LegacyCoaddInputs(
+            cell_inputs[obs] = LegacyCellCoaddInputs(
                 overlaps_center=bool(row["overlaps_center"]),
                 overlap_fraction=float(row["overlap_fraction"]),
                 unmasked_overlap_fraction=float(row["unmasked_fraction"]),
@@ -391,6 +398,91 @@ class CoaddProvenance(DescribableMixin):
                 psf_shape_flag=bool(row["psf_shape_flag"]),
             )
         return result
+
+    @staticmethod
+    def from_legacy_lazy(
+        legacy_coadd_inputs: LegacyCoaddInputs,
+        bounds: CellGridBounds,
+        sky_projection: SkyProjection,
+        instrument: str,
+    ) -> CoaddProvenance:
+        """Convert provenance from a legacy
+        `lsst.afw.image.CoaddInputs` object.
+
+        Parameters
+        ----------
+        legacy_coadd_inputs
+            Legacy coadd-input provenance to convert.
+        bounds
+            The cell grid and known-missing cells.
+        sky_projection
+            The projection the coadd pixel grid to the sky.
+        instrument
+            Name of the instrument (for all inputs).
+        """
+        ccd_catalog = legacy_coadd_inputs.ccds
+        inputs = CoaddProvenance.make_empty_input_table(len(ccd_catalog))
+        inputs["instrument"] = instrument
+        contributions = CoaddProvenance.make_empty_contribution_table(bounds.n_cells * len(ccd_catalog))
+        contributions["instrument"] = instrument
+        contributions["unmasked_fraction"] = np.nan
+        m = 0
+        n = 0
+        for ccd_record in ccd_catalog:
+            visit_id = ccd_record.get("visit")
+            detector_id = ccd_record.get("ccd")
+            detector_region: Region = Polygon.from_box(Box.from_legacy(ccd_record.getBBox()))
+            if (legacy_polygon := ccd_record.getValidPolygon()) is not None:
+                detector_region = detector_region.intersection(Polygon.from_legacy(legacy_polygon))
+            detector_proj = SkyProjection.from_legacy(ccd_record.getWcs(), GeneralFrame(unit=u.pix))
+            detector_to_coadd = detector_proj.pixel_to_sky_transform.then(
+                sky_projection.sky_to_pixel_transform
+            )
+            try:
+                detector_coadd_region = detector_region.transform(detector_to_coadd)
+            except RegionDomainError:
+                # This input is outside the domain of the coadd's projection
+                # (e.g. on the far side of the sky from its tangent point),
+                # so it cannot overlap the coadd.
+                continue
+            try:
+                detector_patch_region = detector_coadd_region.intersection(bounds.bbox)
+            except NoOverlapError:
+                # This input does not overlap this coadd's bounds at all, as
+                # happens when converting from a larger (e.g. whole-tract
+                # template) CoaddInputs to a smaller (e.g. postage) coadd.
+                continue
+            inputs["visit"][n] = visit_id
+            inputs["detector"][n] = detector_id
+            inputs["physical_filter"][n] = ccd_record.get("filter")
+            inputs["day_obs"][n] = _extract_day_obs_from_visit(visit_id)
+            inputs["polygon"][n] = detector_patch_region
+            weight = ccd_record.get("weight")
+            for cell in bounds.cell_indices():
+                cell_box = bounds.grid.bbox_of(cell)
+                cell_center = XY(x=cell_box.x.center, y=cell_box.y.center)
+                try:
+                    cell_region = detector_patch_region.intersection(cell_box)
+                except NoOverlapError:
+                    continue
+                contributions["cell_i"][m] = cell.i
+                contributions["cell_j"][m] = cell.j
+                contributions["visit"][m] = visit_id
+                contributions["detector"][m] = detector_id
+                contributions["overlaps_center"][m] = cell_region.contains(cell_center)
+                contributions["overlap_fraction"][m] = cell_region.area / cell_box.area
+                contributions["weight"][m] = weight
+                # PSFs are expensive to evaluate; not clear if these columns
+                # are useful enough to be worth the cost.
+                contributions["psf_shape_flag"][m] = True
+                contributions["psf_shape_xx"][m] = np.nan
+                contributions["psf_shape_yy"][m] = np.nan
+                contributions["psf_shape_xy"][m] = np.nan
+                m += 1
+            n += 1
+        contributions = contributions[:m].copy()
+        inputs = inputs[:n].copy()
+        return CoaddProvenance(inputs, contributions)
 
 
 class CoaddProvenanceSerializationModel(ArchiveTree):
@@ -548,9 +640,13 @@ class CoaddProvenanceSerializationModel(ArchiveTree):
             A copy of the in-memory coadd inputs table to modify in-place into
             its serialization form.
         """
-        max_n_vertices = max(p.n_vertices for p in inputs["polygon"])
+        # Region intersections are sometimes represented as boxes rather
+        # than polygons, so normalize to polygons before writing vertex
+        # columns.
+        polygons = [p.to_polygon() if isinstance(p, Box) else p for p in inputs["polygon"]]
+        max_n_vertices = max((p.n_vertices for p in polygons), default=0)
         inputs["n_vertices"] = astropy.table.Column(
-            [p.n_vertices for p in inputs["polygon"]],
+            [p.n_vertices for p in polygons],
             name="n_vertices",
             dtype=np.uint8,
             description="Number of polygon vertices.",
@@ -571,7 +667,7 @@ class CoaddProvenanceSerializationModel(ArchiveTree):
             description="Y coordinates of polygon vertices, in tract coordinates.",
         )
         inputs["y_vertices"][:, :] = np.nan
-        for i, polygon in enumerate(inputs["polygon"]):
+        for i, polygon in enumerate(polygons):
             inputs["n_vertices"][i] = polygon.n_vertices
             inputs["x_vertices"][i][: polygon.n_vertices] = polygon.x_vertices
             inputs["y_vertices"][i][: polygon.n_vertices] = polygon.y_vertices
@@ -598,3 +694,23 @@ class CoaddProvenanceSerializationModel(ArchiveTree):
         del inputs["x_vertices"]
         del inputs["y_vertices"]
         inputs["polygon"] = astropy.table.Column(polygons, name="polygon", dtype=np.object_)
+
+
+def _extract_day_obs_from_visit(visit_id: int) -> int:
+    """If the given visit ID looks like an ISO date-as-integer concatenated
+    with a sequence number, extract and return the date part.
+
+    Raises
+    ------
+    NotImplementedError
+        Raised if the visit ID does not look date-based.
+    """
+    id_str = str(visit_id)
+    if len(id_str) < 8:
+        raise NotImplementedError(f"visit ID {visit_id} does not start with a date.")
+    year = int(id_str[:4])
+    month = int(id_str[4:6])
+    day = int(id_str[6:8])
+    if year >= 1900 and year < 3000 and month <= 12 and day <= 31:
+        return (year * 100 + month) * 100 + day
+    raise NotImplementedError(f"visit ID {visit_id} does not start with a date.")

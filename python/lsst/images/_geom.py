@@ -993,6 +993,11 @@ class Box:
         return self._intervals[-2]
 
     @property
+    def center(self) -> XY[float]:
+        """The center of the box (`XY` [`float`])."""
+        return XY(x=self.x.center, y=self.y.center)
+
+    @property
     def area(self) -> int:
         """The number of pixels in the box (`int`)."""
         return self.x.size * self.y.size

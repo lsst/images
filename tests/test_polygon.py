@@ -27,6 +27,7 @@ from lsst.images import (
     NoOverlapError,
     Polygon,
     Region,
+    RegionDomainError,
     RegionSerializationModel,
     Transform,
 )
@@ -132,6 +133,18 @@ def test_transform() -> None:
     # vertex.
     assert_values_equal(tp.x_vertices[: len(xyt.x)], xyt.x, rtol=1e-14)
     assert_values_equal(tp.y_vertices[: len(xyt.y)], xyt.y, rtol=1e-14)
+
+
+def test_transform_outside_domain() -> None:
+    """Test that a transform yielding non-finite vertices raises a
+    `RegionDomainError` instead of producing a broken region.
+    """
+    polygon = _make_polygon()
+    matrix = np.array([[1e308, 0.0], [0.0, 1e308]])
+    t = Transform.affine(GeneralFrame(unit=u.pix), GeneralFrame(unit=u.pix), matrix)
+    assert not np.isfinite(t.apply_forward(x=polygon.x_vertices, y=polygon.y_vertices).x).all()
+    with pytest.raises(RegionDomainError):
+        polygon.transform(t)
 
 
 def test_contains_points() -> None:
