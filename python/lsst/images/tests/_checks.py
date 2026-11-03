@@ -1022,8 +1022,11 @@ def _check_cell_coadd_geometry(cell_coadd: CellCoadd, tract_bbox: Box) -> None:
     assert tract_bbox.contains(cell_coadd.patch.outer_bbox)
     assert cell_coadd.patch.outer_bbox.contains(cell_coadd.patch.inner_bbox)
     assert cell_coadd.patch.outer_bbox.contains(cell_coadd.bbox)
-    # bounds.bbox is snapped to cell boundaries, cell_coadd.bbox is not.
-    assert cell_coadd.bounds.bbox.contains(cell_coadd.bbox)
+    # bounds.bbox is snapped to cell boundaries while cell_coadd.bbox is not,
+    # but bounds.bbox can also shrink if one or more rows or columns of cells
+    # are missing around the outside.  So the only guaranteed relationship is
+    # that they overlap (i.e. intersection does not raise).
+    cell_coadd.bounds.bbox.intersection(cell_coadd.bbox)
     assert cell_coadd.grid.bbox.contains(cell_coadd.bbox)
 
 
