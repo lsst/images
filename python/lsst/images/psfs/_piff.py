@@ -350,6 +350,9 @@ class _ArchivePiffWriter:
             case _:
                 raise NotImplementedError("PSFs with complex embedded WCSs are not supported.")
 
+    def write_bandpass(self, name: str, bandpass: galsim.Bandpass) -> None:
+        raise NotImplementedError("PSFs with embedded bandpasses are not supported.")
+
     @contextmanager
     def nested(self, name: str) -> Iterator[_ArchivePiffWriter]:
         nested = _ArchivePiffWriter(self.get_full_name(name))
@@ -445,6 +448,9 @@ class _ArchivePiffReader:
                 raise serialization.ArchiveReadError(
                     f"{self.get_full_name(name)} should be a WCS or WCS map, not {unexpected!r}."
                 )
+
+    def read_bandpass(self, name: str) -> galsim.Bandpass | None:
+        return None
 
     @contextmanager
     def nested(self, name: str) -> Iterator[_ArchivePiffReader]:

@@ -21,7 +21,7 @@ import pytest
 from lsst.images import Box, Image
 from lsst.images.describe import DescribableMixin, Report
 from lsst.images.psfs import GaussianPointSpreadFunction, PiffWrapper, PointSpreadFunction, PSFExWrapper
-from lsst.images.psfs._piff import _ArchivePiffWriter
+from lsst.images.psfs._piff import PiffObjectModel, _ArchivePiffReader, _ArchivePiffWriter
 from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
@@ -229,6 +229,23 @@ def test_piff_writer_normalizes_tuple_metadata():  # intentionally untyped
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         model.model_dump_json()
+
+
+def test_piff_writer_rejects_bandpass() -> None:
+    """Test that a Piff PSF with a bandpass is rejected on write."""
+    galsim = pytest.importorskip("galsim")
+    writer = _ArchivePiffWriter()
+    bandpass = galsim.Bandpass("wave/1000", wave_type="nm", blue_limit=400.0, red_limit=800.0)
+    with pytest.raises(NotImplementedError, match="bandpass"):
+        writer.write_bandpass("bandpass", bandpass)
+
+
+def test_piff_reader_reports_no_bandpass() -> None:
+    """Test that we can read serialized Piff PSFs with a Piff library
+    that expects a bandpass.
+    """
+    reader = _ArchivePiffReader(PiffObjectModel(), None)  # type: ignore[arg-type]
+    assert reader.read_bandpass("bandpass") is None
 
 
 def test_piff(legacy_piff_psf_and_bbox: tuple[LegacyPsf, Box]) -> None:
