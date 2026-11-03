@@ -1035,6 +1035,9 @@ class VisitImageSerializationModel[P: pydantic.BaseModel](MaskedImageSerializati
     sky_projection: SkyProjectionSerializationModel[P] = pydantic.Field(
         description="Projection that maps the pixel grid to the sky.",
     )
+    # TODO[DM-56939]: the Any below turns a validation failure into an
+    # AttributeError later, not an ArchiveReadError, so it doesn't quite get
+    # the "read everything else if you can't read the PSF" behavior we want.
     psf: PiffSerializationModel | PSFExSerializationModel | GaussianPSFSerializationModel | Any = (
         pydantic.Field(union_mode="left_to_right", description="PSF model for the image.")
     )
