@@ -595,8 +595,6 @@ class CellCoadd(MaskedImage):
             plane_map = get_legacy_deep_coadd_mask_planes()
         if self.unit != astropy.units.nJy:
             raise ValueError("CellCoadd.to_legacy requires nJy pixel units.")
-        if self.bbox != self.bounds.bbox:
-            raise ValueError("MultipleCellCoadd requires its bounding box to lie on the cell grid.")
         legacy_grid = self.grid.to_legacy()
         visit_polygons = self.provenance.to_legacy_polygon_map()
         legacy_common = LegacyCommonComponents(
@@ -615,6 +613,11 @@ class CellCoadd(MaskedImage):
         cells: list[LegacySingleCellCoadd] = []
         for cell_index in self.bounds.cell_indices():
             cell_bbox = self.grid.bbox_of(cell_index)
+            if not self.bbox.contains(cell_bbox):
+                raise ValueError(
+                    f"MultipleCellCoadd requires full cells; cell {cell_index} "
+                    f"with bbox {cell_bbox} is not within {self.bbox}."
+                )
             # Legacy type only has room for one mask_fractions plane.
             legacy_mask_fractions = (
                 next(iter(self.mask_fractions.values()))[cell_bbox].to_legacy(copy=copy)
