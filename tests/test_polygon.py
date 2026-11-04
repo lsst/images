@@ -265,6 +265,47 @@ def test_difference() -> None:
     assert regions.d.difference(regions.d).area == 0
 
 
+def test_dilated_by() -> None:
+    """Test padding a region."""
+    regions = _TestRegions()
+    # The polygon of a box pads to the polygon of the padded box, both ways.
+    box = Box.factory[0:6, 6:12]
+    assert regions.c.dilated_by(2.0) == Polygon.from_box(box.dilated_by(2))
+    assert regions.c.dilated_by(-1.0) == Polygon.from_box(box.dilated_by(-1))
+    # A tilted quadrilateral keeps its sharp corners, so padding it inward
+    # again gives it back.
+    polygon = _make_polygon()
+    padded = polygon.dilated_by(0.5)
+    assert isinstance(padded, Polygon)
+    assert padded.contains(polygon)
+    assert shapely.hausdorff_distance(padded.dilated_by(-0.5).to_shapely(), polygon.to_shapely()) < 1e-12
+    # Padding closes the gap between disjoint operands.
+    assert not isinstance(regions.a.union(regions.c), Polygon)
+    assert isinstance(regions.a.union(regions.c).dilated_by(1.0), Polygon)
+    # Padding inward by half the width or more leaves nothing.
+    assert regions.d.dilated_by(-0.5).area == 0
+
+
+def test_convex_hull() -> None:
+    """Test the convex hull of a region."""
+    regions = _TestRegions()
+    # A convex polygon is its own hull.
+    polygon = _make_polygon()
+    assert polygon.convex_hull() == polygon
+    # Disjoint pieces have a single polygon as their hull.
+    union = regions.a.union(regions.c)
+    hull = union.convex_hull()
+    assert isinstance(hull, Polygon)
+    assert hull.contains(regions.a)
+    assert hull.contains(regions.c)
+    assert hull.bbox == union.bbox
+    # The hull of a region with a hole fills the hole.
+    assert regions.c.difference(regions.d).convex_hull() == regions.c
+    # An empty region has no hull.
+    with pytest.raises(ValueError, match="no area"):
+        regions.d.difference(regions.d).convex_hull()
+
+
 def test_region_io() -> None:
     """Test serialization and stringification of non-polygon regions."""
     regions = _TestRegions()
