@@ -68,6 +68,13 @@ if TYPE_CHECKING:
 
 _UNKNOWN_INSTRUMENT = "UNKNOWN"
 
+_BOUNDS_MARGIN = 32.0
+"""Distance, in coadd pixels, by which the detector's footprint in a coadd is
+grown before a patch is clipped to it.  It must exceed twice the distance by
+which a distorted detector edge curves away from the straight line between its
+corners, and it limits how far outside the detector its WCS is evaluated.
+"""
+
 
 class DifferenceImage(VisitImage):
     """An image that is the PSF-matched difference of two other images.
@@ -674,22 +681,25 @@ class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constant
             )
             coadd_to_detector = detector_to_coadd.inverted()
             try:
-                # We transform the detector bbox to each coadd frame, do the
-                # intersection there, and then transform the intersection back
-                # to the detector frame, because we do not trust detector WCSs
-                # beyond the detector bounding box; they can be polynomials
-                # that extrapolate badly. Coadd WCSs in contrast are simple
-                # projections.
-                tmp_bounds = (
-                    Polygon.from_box(detector_frame.bbox)
-                    .transform(detector_to_coadd)
-                    .intersection(patch_bbox)
-                ).transform(coadd_to_detector)
-                # Unfortunately doing the intersection in the coadd coordinate
-                # system means the transformed intersection might not quite be
-                # contained by the detector bounding box, due to floating-point
-                # round-off error.  Intersect one more time to tidy it up.
-                bounds = tmp_bounds.intersection(detector_frame.bbox)
+                # We clip the patch to the detector's footprint in the coadd
+                # frame before transforming it to the detector frame, because
+                # detector WCSs can be polynomials that extrapolate badly far
+                # beyond the detector bounding box. Coadd WCSs in contrast are
+                # simple projections.  The footprint has straight edges between
+                # the detector corners, which a distorted detector edge curves
+                # away from, so it is grown to contain the whole detector.
+                # Intersecting with the detector box in its own frame then
+                # gives exact detector edges, and patches that meet along an
+                # edge transform the same vertices, so no part of the detector
+                # falls between them.
+                footprint = detector_frame.bbox.transform(detector_to_coadd).dilated_by(_BOUNDS_MARGIN)
+                bounds = (
+                    footprint.intersection(patch_bbox)
+                    .transform(coadd_to_detector)
+                    .intersection(detector_frame.bbox)
+                )
+                if isinstance(bounds, Box):
+                    bounds = Polygon.from_box(bounds)
                 assert isinstance(bounds, Polygon), (
                     "The operations above should not change the region's fundamental topology."
                 )
