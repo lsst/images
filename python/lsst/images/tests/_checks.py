@@ -669,8 +669,8 @@ def assert_cell_coadds_equal(
     """Assert that two `.CellCoadd` instances carry the same persistent state.
 
     Extends the masked-image-style equality check with the
-    CellCoadd-specific attributes (PSF, cell grid, missing cells,
-    backgrounds, patch/tract, band) so a round-trip check does not
+    CellCoadd-specific attributes (PSF, cell grid, missing cells, aperture
+    corrections, backgrounds, patch/tract, band) so a round-trip check does not
     silently miss differences in any of them.
 
     Parameters
@@ -691,6 +691,13 @@ def assert_cell_coadds_equal(
     assert a.bounds.missing == b.bounds.missing
     assert dict(a.backgrounds) == dict(b.backgrounds)
     assert a.backgrounds.subtracted == b.backgrounds.subtracted
+    assert a.aperture_corrections.keys() == b.aperture_corrections.keys()
+    for name, field in a.aperture_corrections.items():
+        other_field = b.aperture_corrections[name]
+        assert (field is None) == (other_field is None), f"Aperture correction {name} is None in only one"
+        if field is not None and other_field is not None:
+            assert field.bounds == other_field.bounds, f"Bounds differ for aperture correction {name}"
+            assert_values_equal(field._array, other_field._array, label=f"aperture_corrections/{name}")
     assert_psfs_equal(a.psf, b.psf)
 
 
@@ -1597,7 +1604,7 @@ def compare_field_to_legacy(
 
 
 def compare_aperture_corrections_to_legacy(
-    aperture_corrections: Mapping[str, BaseField],
+    aperture_corrections: Mapping[str, BaseField | None],
     legacy_ap_corr_map: Any,
     subimage_bbox: Box,
     *,
@@ -1611,7 +1618,8 @@ def compare_aperture_corrections_to_legacy(
     Parameters
     ----------
     aperture_corrections
-        Dictionary to test.
+        Dictionary to test.  A name that maps to `None` is expected to have no
+        usable value anywhere in the equivalent legacy field.
     legacy_ap_corr_map : ``lsst.afw.image.ApCorrMap``
         Equivalent legacy aperture correction map.
     subimage_bbox
@@ -1627,11 +1635,23 @@ def compare_aperture_corrections_to_legacy(
         Relative tolerance for the evaluation-point field-value comparison,
         forwarded to `compare_field_to_legacy`.
     """
+    from lsst.pex.exceptions import DomainError
+
     assert aperture_corrections.keys() == set(legacy_ap_corr_map.keys())
     for name, field in aperture_corrections.items():
+        legacy_field = legacy_ap_corr_map[name]
+        if field is None:
+            points = Box.from_legacy(legacy_field.getBBox()).meshgrid(n=3).map(np.ravel)
+            for p in arrays_to_legacy_points(points.x, points.y):
+                try:
+                    value = legacy_field.evaluate(p)
+                except DomainError:
+                    continue
+                assert not np.isfinite(value), f"Aperture correction {name} is unusable but not in legacy"
+            continue
         compare_field_to_legacy(
             field,
-            legacy_ap_corr_map[name],
+            legacy_field,
             subimage_bbox,
             eval_points=eval_points,
             expect_subset_bounds=expect_subset_bounds,

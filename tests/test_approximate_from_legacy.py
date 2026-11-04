@@ -437,6 +437,17 @@ def test_field_missing_cells_marked_and_nan(
             field.value_in_cell(legacy_test_coadd.sparse_cell_index)
 
 
+def test_approximate_from_legacy_returns_none_without_usable_values(
+    legacy_test_coadd: _LegacyTestCoadd,
+) -> None:
+    """A legacy field that cannot be sampled in any cell converts to `None`."""
+    unusable = LegacyChebyshevBoundedField(
+        legacy_test_coadd.bounds.bbox.to_legacy(),
+        np.full(legacy_test_coadd.bounds.subgrid_size.as_tuple(), np.nan),
+    )
+    assert CellField.approximate_from_legacy(unusable, legacy_test_coadd.bounds) is None
+
+
 def test_provenance_skips_missing_cells_and_matches_trimmed_inputs(
     legacy_test_coadd: _LegacyTestCoadd,
     trim_missing: _TrimmedLegacyCoaddComponents,

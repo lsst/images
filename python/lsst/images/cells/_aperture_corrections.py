@@ -168,7 +168,7 @@ class CellField(BaseField):
     @staticmethod
     def from_legacy_aperture_correction(
         legacy: LegacyStitchedApertureCorrection, bounds: CellGridBounds
-    ) -> CellField:
+    ) -> CellField | None:
         """Convert from a legacy `lsst.cell_coadds.StitchedApertureCorrection`.
 
         Parameters
@@ -177,6 +177,11 @@ class CellField(BaseField):
             Legacy field to convert.
         bounds
             The grid and bounds of the returned field.
+
+        Returns
+        -------
+        field : `CellField` or `None`
+            The converted field, or `None` if no cell has a usable value.
         """
         array = np.full(bounds.subgrid_size.as_tuple(), np.nan, dtype=np.float64)
         new_missing: set[CellIJ] = set()
@@ -187,7 +192,13 @@ class CellField(BaseField):
             except KeyError:
                 value = np.nan
                 new_missing.add(cell_index)
+            else:
+                if not np.isfinite(value):
+                    value = np.nan
+                    new_missing.add(cell_index)
             array[array_index.i, array_index.j] = value
+        if not set(bounds.cell_indices()) - new_missing:
+            return None
         if new_missing:
             bounds = CellGridBounds(
                 grid=bounds.grid, missing=frozenset(bounds.missing | new_missing), bbox=bounds.bbox
@@ -209,7 +220,7 @@ class CellField(BaseField):
     @staticmethod
     def approximate_from_legacy(
         legacy: LegacyBoundedField, bounds: CellGridBounds, default_is_missing: bool = True
-    ) -> CellField:
+    ) -> CellField | None:
         """Convert from a legacy bounded field by evaluating it at cell
         centers and assuming variation within a cell is approximately
         constant.
@@ -231,6 +242,11 @@ class CellField(BaseField):
             missing.  This covers some confusing
             `lsst.meas.algorithms.CoaddBoundedField` behavior for backwards
             compatibility.
+
+        Returns
+        -------
+        field : `CellField` or `None`
+            The converted field, or `None` if no cell has a usable value.
         """
         from lsst.pex.exceptions import DomainError
 
@@ -273,6 +289,8 @@ class CellField(BaseField):
                     value = np.mean(corner_values)
             array_index = cell_index - bounds.subgrid_start
             array[array_index.i, array_index.j] = value
+        if not set(bounds.cell_indices()) - missing:
+            return None
         if missing:
             bounds = CellGridBounds(
                 grid=bounds.grid, missing=frozenset(bounds.missing | missing), bbox=bounds.bbox
@@ -285,7 +303,7 @@ def approximate_aperture_corrections_from_legacy(
     bounds: CellGridBounds,
     flux_suffix: str = "_instFlux",
     err_suffix: str = "_instFluxErr",
-) -> dict[str, CellField]:
+) -> dict[str, CellField | None]:
     """Convert a mapping of legacy aperture-correction bounded fields to
     `CellField` instances by approximating them on a cell grid.
 
@@ -303,8 +321,9 @@ def approximate_aperture_corrections_from_legacy(
 
     Returns
     -------
-    `dict` [`str`, `CellField`]
-        Mapping with the same keys, holding the converted fields.
+    `dict` [`str`, `CellField` | `None`]
+        Mapping with the same keys, holding the converted fields.  A name whose
+        legacy field has no usable value in any cell maps to `None`.
 
     Notes
     -----
@@ -315,7 +334,7 @@ def approximate_aperture_corrections_from_legacy(
     evaluation represents bad data, but a zero ``*_instFluxErr`` is bad data
     only if the corresponding ``*_instFlux`` evaluation is also bad data.
     """
-    converted: dict[str, CellField] = {}
+    converted: dict[str, CellField | None] = {}
     for name, legacy_field in legacy_map.items():
         if name.endswith(err_suffix):
             continue
@@ -353,17 +372,37 @@ class CellApertureCorrectionMapSerializationModel(ArchiveTree):
 
     @staticmethod
     def serialize(
-        aperture_correction_map: Mapping[str, CellField], archive: OutputArchive[Any]
+        aperture_correction_map: Mapping[str, CellField | None], archive: OutputArchive[Any]
     ) -> CellApertureCorrectionMapSerializationModel | None:
-        if not aperture_correction_map:
+        """Serialize an aperture-correction map, one table column per name.
+
+        Names that map to `None` are written as columns that are entirely NaN.
+        A map whose every name is `None` is written as no aperture
+        corrections (top-level `None`).
+
+        Parameters
+        ----------
+        aperture_correction_map
+            Aperture corrections to write, keyed by name.  A name with no
+            usable value in any cell maps to `None`.
+        archive
+            Archive to add the cell-value table to.
+
+        Returns
+        -------
+        model : `CellApertureCorrectionMapSerializationModel` or `None`
+            The serialized model, or `None` if no name has a usable value.
+        """
+        usable = {name: field for name, field in aperture_correction_map.items() if field is not None}
+        if not usable:
             return None
-        bounds = next(iter(aperture_correction_map.values())).bounds
-        for field in aperture_correction_map.values():
+        bounds = next(iter(usable.values())).bounds
+        for field in usable.values():
             if field.bounds.grid != bounds.grid:
                 raise ValueError("Cell aperture corrections do not have a consistent grid.")
             if field.bounds.bbox != bounds.bbox:
                 raise ValueError("Cell aperture corrections do not have a consistent bounding box.")
-        if not all(field.bounds == bounds for field in aperture_correction_map.values()):
+        if not all(field.bounds == bounds for field in usable.values()):
             # In rare cases some field can have more missing cells from the
             # others. This isn't worth a full denormalization into full
             # per-field bounds (especially since that's a schema change).
@@ -372,10 +411,10 @@ class CellApertureCorrectionMapSerializationModel(ArchiveTree):
             # there's no data), and we restore the per-field missing cells in
             # deserialized.
             always_missing: set[CellIJ] = set(bounds.missing)
-            for field in aperture_correction_map.values():
+            for field in usable.values():
                 always_missing &= field.bounds.missing
             bounds = CellGridBounds(grid=bounds.grid, missing=frozenset(always_missing), bbox=bounds.bbox)
-        if any(field.unit is not None for field in aperture_correction_map.values()):
+        if any(field.unit is not None for field in usable.values()):
             raise ValueError("Aperture corrections should be dimensionless.")
         table = astropy.table.Table(
             rows=[cell_index.as_tuple() for cell_index in bounds.cell_indices()], names=["cell_i", "cell_j"]
@@ -384,13 +423,37 @@ class CellApertureCorrectionMapSerializationModel(ArchiveTree):
         for cell_index in bounds.missing:
             array_index = cell_index - bounds.subgrid_start
             good_cell_mask[array_index.i, array_index.j] = False
-        for name, field in aperture_correction_map.items():
-            table.add_column(field._array[good_cell_mask], name=name, copy=False)
+        for name, ap_corr in aperture_correction_map.items():
+            column = (
+                ap_corr._array[good_cell_mask]
+                if ap_corr is not None
+                else np.full(good_cell_mask.sum(), np.nan)
+            )
+            table.add_column(column, name=name, copy=False)
         return CellApertureCorrectionMapSerializationModel(
             table=archive.add_table(table, name="table"), bounds=bounds
         )
 
-    def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> dict[str, CellField]:
+    def deserialize(self, archive: InputArchive[Any], **kwargs: Any) -> dict[str, CellField | None]:
+        """Read an aperture-correction map from a table with one column per
+        name.
+
+        A column that is entirely NaN denotes a name with no usable value in
+        any cell, which becomes `None`.  Cells that are missing for just one
+        name (recorded as NaN) become missing cells of that field's bounds.
+
+        Parameters
+        ----------
+        archive
+            Archive to read the cell-value table from.
+        **kwargs
+            Must be empty.
+
+        Returns
+        -------
+        aperture_corrections : `dict` [`str`, `CellField` | `None`]
+            Aperture corrections, keyed by name.
+        """
         if kwargs:
             raise InvalidParameterError(
                 f"Unrecognized parameters for cell aperture correction map: {set(kwargs.keys())}."
@@ -406,11 +469,14 @@ class CellApertureCorrectionMapSerializationModel(ArchiveTree):
                 )
             array_index = cell_index - self.bounds.subgrid_start
             good_cell_mask[array_index.i, array_index.j] = True
-        result: dict[str, CellField] = {}
+        result: dict[str, CellField | None] = {}
         for name, column in table.columns.items():
             if name in ("cell_i", "cell_j"):
                 continue
             extra_missing_mask = np.isnan(column)
+            if extra_missing_mask.all():
+                result[name] = None
+                continue
             # If there are any NaN entries in this column, make a custom
             # CellGridBounds with additional missing cells for this field.
             bounds = self.bounds
