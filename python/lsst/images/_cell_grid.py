@@ -27,7 +27,7 @@ import dataclasses
 import math
 from collections.abc import Iterator
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, assert_type, overload
+from typing import TYPE_CHECKING, Any, Self, assert_type, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -211,6 +211,9 @@ class CellGridBounds(pydantic.BaseModel, frozen=True):
     with just the cells that overlap that box.  As always,
     `CellGridBounds.bbox` will be snapped to the outer boundaries of those
     cells, so it will contain (and not generally equal) the given box.
+
+    Like most other `Bounds` implementations, a `CellGridBounds` cannot be
+    empty.
     """
 
     grid: CellGrid = pydantic.Field(description="Definition of the grid that defines the cells.")
@@ -221,6 +224,15 @@ class CellGridBounds(pydantic.BaseModel, frozen=True):
             "Indices of cells that are missing, where (i=0, j=0) is the cell that starts at grid.bbox.start."
         ),
     )
+
+    @pydantic.model_validator(mode="after")
+    def _check_has_cells(self) -> Self:
+        """Reject bounds that have no cells."""
+        if self.n_cells == 0:
+            raise ValueError(
+                f"Cell grid bounds over {self.bbox} in grid {self.grid} contains only missing cells missing."
+            )
+        return self
 
     def __str__(self) -> str:
         text = f"{self.bbox} in grid ({self.grid})"

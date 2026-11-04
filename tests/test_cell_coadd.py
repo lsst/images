@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pydantic
 import pytest
 
 from lsst.images import YX, BoundsError, Box, Interval, MaskPlane, get_legacy_deep_coadd_mask_planes
@@ -477,6 +478,28 @@ def test_cell_shape_accepts_both_spellings() -> None:
     assert isinstance(tree, CellPointSpreadFunctionSerializationModel)
     assert tree.bounds.grid.cell_shape.y == 4
     assert tree.bounds.grid.cell_shape.x == 4
+
+
+def test_cell_grid_bounds_cannot_be_empty() -> None:
+    """Test that empty CellGridBounds cannot be constructed."""
+    grid = CellGrid(bbox=Box.from_shape((20, 20)), cell_shape=YX(10, 10))
+    all_cells = {CellIJ(i=i, j=j) for i in range(2) for j in range(2)}
+    with pytest.raises(pydantic.ValidationError):
+        CellGridBounds(grid=grid, bbox=Box.factory[0:20, 0:20], missing=frozenset(all_cells))
+    fixture = json.loads(current_fixture_path(FIXTURE_DIR, "cell_psf").read_text())
+    fixture["bounds"]["missing"] = [{"i": i, "j": j} for i in range(2) for j in range(2)]
+    with pytest.raises(pydantic.ValidationError):
+        CellGridBounds.model_validate(fixture["bounds"])
+    bounds = CellGridBounds(grid=grid, bbox=Box.factory[0:20, 0:20], missing=frozenset({CellIJ(i=0, j=0)}))
+    with pytest.raises(pydantic.ValidationError):
+        bounds[Box.factory[0:10, 0:10]]
+
+
+def test_cell_coadd_slice_of_only_missing_cell_raises(minified_cell_coadd: CellCoadd) -> None:
+    """Test that slicing a coadd down to a single missing cell raises."""
+    box = minified_cell_coadd.grid.bbox_of(next(iter(minified_cell_coadd.bounds.missing)))
+    with pytest.raises(pydantic.ValidationError):
+        minified_cell_coadd[box]
 
 
 def test_cell_psf_rejects_index_below_bounds(minified_cell_coadd: CellCoadd) -> None:

@@ -94,10 +94,7 @@ class CellField(BaseField):
     @property
     def is_constant(self) -> bool:
         indices = iter(self._bounds.cell_indices())
-        try:
-            first = self.value_in_cell(next(indices))
-        except StopIteration:
-            return True
+        first = self.value_in_cell(next(indices))
         for other_index in indices:
             if self.value_in_cell(other_index) != first:
                 return False
