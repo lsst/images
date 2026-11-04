@@ -502,6 +502,65 @@ def test_cell_coadd_slice_of_only_missing_cell_raises(minified_cell_coadd: CellC
         minified_cell_coadd[box]
 
 
+def test_cell_grid_bounds_drops_missing_outer_ring() -> None:
+    """Test that an outer ring of missing cells is trimmed from
+    `CellGridBounds.bbox`.
+    """
+    grid = CellGrid(bbox=Box.from_shape((30, 30)), cell_shape=YX(10, 10))
+    ring = {
+        CellIJ(i=0, j=0),
+        CellIJ(i=0, j=1),
+        CellIJ(i=0, j=2),
+        CellIJ(i=1, j=0),
+        CellIJ(i=2, j=0),
+    }
+    bounds = CellGridBounds(grid=grid, bbox=Box.factory[0:30, 0:30], missing=frozenset(ring))
+    assert bounds.bbox == Box.factory[10:30, 10:30]
+    assert bounds.missing == frozenset()
+    assert set(bounds.cell_indices()) == {
+        CellIJ(i=1, j=1),
+        CellIJ(i=1, j=2),
+        CellIJ(i=2, j=1),
+        CellIJ(i=2, j=2),
+    }
+
+    holed = CellGridBounds(grid=grid, bbox=Box.factory[0:30, 0:30], missing=frozenset({CellIJ(i=1, j=1)}))
+    assert holed.bbox == Box.factory[0:30, 0:30]
+    assert holed.missing == frozenset({CellIJ(i=1, j=1)})
+
+
+def test_cell_grid_bounds_drops_missing_cells_outside_bbox() -> None:
+    """Test that cells that are both explicitly missing and outside the bbox
+    are dropped.
+    """
+    grid = CellGrid(bbox=Box.from_shape((30, 30)), cell_shape=YX(10, 10))
+    bounds = CellGridBounds(grid=grid, bbox=Box.factory[0:10, 0:10], missing=frozenset({CellIJ(i=2, j=2)}))
+    assert bounds.bbox == Box.factory[0:10, 0:10]
+    assert bounds.missing == frozenset()
+
+
+def test_cell_psf_slice_drops_missing_edge_cells(minified_cell_coadd: CellCoadd) -> None:
+    """Test that slicing a PSF to a box whose outer cells are missing tightens
+    the bounds and the array read for them together.
+    """
+    subset = minified_cell_coadd.psf[Box.factory[48:54, 36:48]]
+    assert subset.bounds.bbox == Box.factory[48:54, 42:48]
+    assert subset.bounds.missing == frozenset()
+    assert subset._array.shape[:2] == subset.bounds.subgrid_size.as_tuple()
+
+
+def test_cell_coadd_slice_drops_missing_edge_cells(minified_cell_coadd: CellCoadd) -> None:
+    """The pixels a slice was asked for and the cells it covers are separate:
+    the image keeps the requested box while the bounds tighten to the cells
+    that have data.
+    """
+    subbox = Box.factory[48:54, 36:48]
+    subset = minified_cell_coadd[subbox]
+    assert subset.bbox == subbox
+    assert subset.bounds.bbox == Box.factory[48:54, 42:48]
+    assert subset.bounds.missing == frozenset()
+
+
 def test_cell_psf_rejects_index_below_bounds(minified_cell_coadd: CellCoadd) -> None:
     """An index below the PSF bounds must not wrap around its array."""
     start = minified_cell_coadd.psf.bounds.subgrid_start

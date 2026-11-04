@@ -352,19 +352,23 @@ def test_psf_missing_cells_marked_and_nan(
     array slice is NaN (the documented convention), and that pre-existing
     missing cells survive the bounds reconstruction.
     """
+    # The cell diagonal from the sparse one, so that no row or column of the
+    # region ends up entirely missing and tightening leaves both holes in the
+    # bounds instead of trimming them away.
+    unusable = legacy_test_coadd.sparse_cell_index + CellIJ(i=1, j=1)
     pre_existing = CellGridBounds(
         grid=legacy_test_coadd.bounds.grid,
         bbox=legacy_test_coadd.bounds.bbox,
-        missing=frozenset({legacy_test_coadd.control_cell_index}),
+        missing=frozenset({unusable}),
     )
     psf = CellPointSpreadFunction.approximate_from_legacy(trim_missing.psf, pre_existing)
-    assert legacy_test_coadd.sparse_cell_index in psf.bounds.missing
-    assert legacy_test_coadd.control_cell_index in psf.bounds.missing
+    assert psf.bounds.bbox == legacy_test_coadd.bounds.bbox
+    assert psf.bounds.missing == frozenset({legacy_test_coadd.sparse_cell_index, unusable})
     # We have to access the private array to see that it's NaN (public
-    # interface
-    # raises).
-    index = legacy_test_coadd.sparse_cell_index - psf.bounds.subgrid_start
-    assert np.isnan(psf._array[index.i, index.j]).all()
+    # interface raises).
+    for cell_index in psf.bounds.missing:
+        index = cell_index - psf.bounds.subgrid_start
+        assert np.isnan(psf._array[index.i, index.j]).all()
 
 
 def test_psf_raises_when_no_cell_is_valid(

@@ -77,6 +77,11 @@ class CellPointSpreadFunction(PointSpreadFunction):
         self._array = array
         self._bounds: CellGridBounds = bounds
         self._resampling_kernel = resampling_kernel
+        if self._array.shape[:2] != self._bounds.subgrid_size.as_tuple():
+            raise ValueError(
+                f"Array shape ({self._array.shape[:2]}) differs from "
+                f"subgrid size ({self._bounds.subgrid_size})."
+            )
 
     @property
     def grid(self) -> CellGrid:
@@ -180,23 +185,22 @@ class CellPointSpreadFunction(PointSpreadFunction):
         for legacy_index in legacy_psf.images.keys():
             legacy_bbox.include(legacy_psf.grid.bbox_of(legacy_index))
         bounds = bounds[Box.from_legacy(legacy_bbox)]
+        missing = {
+            cell_index
+            for cell_index in bounds.cell_indices()
+            if cell_index.to_legacy() not in legacy_psf.images
+        }
+        if missing:
+            bounds = CellGridBounds(grid=grid, bbox=bounds.bbox, missing=frozenset(missing))
         # Allocate and populate the array.
         psf_image_size_y, psf_image_size_x = legacy_psf.images.arbitrary.array.shape
-        array = np.zeros(
+        array = np.full(
             (bounds.subgrid_size.i, bounds.subgrid_size.j, psf_image_size_y, psf_image_size_x),
+            np.nan,
             dtype=np.float64,
         )
-        missing: set[CellIJ] = set()
         for cell_index in bounds.cell_indices():
-            legacy_index = cell_index.to_legacy()
-            array_index = cell_index - bounds.subgrid_start
-            if legacy_index in legacy_psf.images:
-                array[array_index.i, array_index.j] = legacy_psf.images[legacy_index].array
-            else:
-                array[array_index.i, array_index.j] = np.nan
-                missing.add(cell_index)
-        # Modify the bounds one last time to account for missing cells.
-        bounds = CellGridBounds(grid=grid, bbox=bounds.bbox, missing=frozenset(missing))
+            array[cell_index.within_subgrid_array(bounds)] = legacy_psf.images[cell_index.to_legacy()].array
         return cls(array, bounds=bounds)
 
     def to_legacy(self) -> LegacyStitchedPsf:
@@ -256,19 +260,19 @@ class CellPointSpreadFunction(PointSpreadFunction):
         if not stamps:
             raise ValueError("Given PSF could not be evaluated at any cell center or corner.")
         kernel_bbox = Box(y=Interval.hull(*y_intervals), x=Interval.hull(*x_intervals))
-        array = np.full(bounds.subgrid_size.as_tuple() + kernel_bbox.shape, np.nan, dtype=np.float64)
-        for cell_index, stamps_for_cell in stamps.items():
-            assert stamps_for_cell, "Should be guaranteed by append_stamp_at."
-            array_index = cell_index - bounds.subgrid_start
-            array[array_index.i, array_index.j, :, :] = 0.0
-            for stamp in stamps_for_cell:
-                slices = stamp.bbox.slice_within(kernel_bbox)
-                array[array_index.i, array_index.j, slices.y, slices.x] += stamp.array
-            array[array_index.i, array_index.j, :, :] /= len(stamps_for_cell)
         if missing:
             bounds = CellGridBounds(
                 grid=bounds.grid, bbox=bounds.bbox, missing=frozenset(bounds.missing | missing)
             )
+        array = np.full(bounds.subgrid_size.as_tuple() + kernel_bbox.shape, np.nan, dtype=np.float64)
+        for cell_index, stamps_for_cell in stamps.items():
+            assert stamps_for_cell, "Should be guaranteed by append_stamp_at."
+            array_index = cell_index.within_subgrid_array(bounds)
+            array[array_index] = 0.0
+            for stamp in stamps_for_cell:
+                slices = stamp.bbox.slice_within(kernel_bbox)
+                array[*array_index, slices.y, slices.x] += stamp.array
+            array[array_index] /= len(stamps_for_cell)
         return CellPointSpreadFunction(array, bounds=bounds)
 
     @staticmethod

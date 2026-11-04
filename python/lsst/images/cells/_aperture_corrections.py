@@ -26,7 +26,7 @@ import numpy as np
 import pydantic
 
 from .._cell_grid import CellGridBounds, CellIJ
-from .._geom import BoundsError, Box
+from .._geom import BoundsError, Box, Interval
 from .._image import Image
 from ..fields import BaseField
 from ..serialization import (
@@ -180,26 +180,26 @@ class CellField(BaseField):
         field : `CellField` or `None`
             The converted field, or `None` if no cell has a usable value.
         """
-        array = np.full(bounds.subgrid_size.as_tuple(), np.nan, dtype=np.float64)
+        values: dict[CellIJ, float] = {}
         new_missing: set[CellIJ] = set()
         for cell_index in bounds.cell_indices():
-            array_index = cell_index - bounds.subgrid_start
             try:
                 value = legacy.gc[cell_index.to_legacy()]
             except KeyError:
                 value = np.nan
-                new_missing.add(cell_index)
+            if np.isfinite(value):
+                values[cell_index] = value
             else:
-                if not np.isfinite(value):
-                    value = np.nan
-                    new_missing.add(cell_index)
-            array[array_index.i, array_index.j] = value
-        if not set(bounds.cell_indices()) - new_missing:
+                new_missing.add(cell_index)
+        if not values:
             return None
         if new_missing:
             bounds = CellGridBounds(
                 grid=bounds.grid, missing=frozenset(bounds.missing | new_missing), bbox=bounds.bbox
             )
+        array = np.full(bounds.subgrid_size.as_tuple(), np.nan, dtype=np.float64)
+        for cell_index, value in values.items():
+            array[cell_index.within_subgrid_array(bounds)] = value
         return CellField(bounds, array)
 
     def to_legacy_aperture_correction(self) -> LegacyStitchedApertureCorrection:
@@ -261,7 +261,7 @@ class CellField(BaseField):
         def usable(value: float) -> bool:
             return np.isfinite(value) and (default is None or value != default)
 
-        array = np.full(bounds.subgrid_size.as_tuple(), np.nan, dtype=np.float64)
+        values: dict[CellIJ, float] = {}
         missing: set[CellIJ] = set()
         for cell_index in bounds.cell_indices():
             cell_bbox = bounds.grid.bbox_of(cell_index)
@@ -284,14 +284,16 @@ class CellField(BaseField):
                     continue
                 else:
                     value = np.mean(corner_values)
-            array_index = cell_index - bounds.subgrid_start
-            array[array_index.i, array_index.j] = value
-        if not set(bounds.cell_indices()) - missing:
+            values[cell_index] = value
+        if not values:
             return None
         if missing:
             bounds = CellGridBounds(
                 grid=bounds.grid, missing=frozenset(bounds.missing | missing), bbox=bounds.bbox
             )
+        array = np.full(bounds.subgrid_size.as_tuple(), np.nan, dtype=np.float64)
+        for cell_index, value in values.items():
+            array[cell_index.within_subgrid_array(bounds)] = value
         return CellField(bounds, array)
 
 
@@ -393,39 +395,32 @@ class CellApertureCorrectionMapSerializationModel(ArchiveTree):
         usable = {name: field for name, field in aperture_correction_map.items() if field is not None}
         if not usable:
             return None
-        bounds = next(iter(usable.values())).bounds
+        grid = next(iter(usable.values())).bounds.grid
         for field in usable.values():
-            if field.bounds.grid != bounds.grid:
+            if field.bounds.grid != grid:
                 raise ValueError("Cell aperture corrections do not have a consistent grid.")
-            if field.bounds.bbox != bounds.bbox:
-                raise ValueError("Cell aperture corrections do not have a consistent bounding box.")
-        if not all(field.bounds == bounds for field in usable.values()):
-            # In rare cases some field can have more missing cells from the
-            # others. This isn't worth a full denormalization into full
-            # per-field bounds (especially since that's a schema change).
-            # Instead, the shared, serialized 'bounds' only marks a cell as
-            # missing if it's absent from all fields (as is the case when
-            # there's no data), and we restore the per-field missing cells in
-            # deserialized.
-            always_missing: set[CellIJ] = set(bounds.missing)
-            for field in usable.values():
-                always_missing &= field.bounds.missing
-            bounds = CellGridBounds(grid=bounds.grid, missing=frozenset(always_missing), bbox=bounds.bbox)
         if any(field.unit is not None for field in usable.values()):
             raise ValueError("Aperture corrections should be dimensionless.")
+        # Fields differ only in which cells are missing, so their bounds differ
+        # if one has missing cells along a full row or column on the boundary.
+        # The table therefore covers the cells any field uses.  This avoids a
+        # schema change and makes reading older files easier.
+        pixel_bbox = Box(
+            y=Interval.hull(*(field.bounds.bbox.y for field in usable.values())),
+            x=Interval.hull(*(field.bounds.bbox.x for field in usable.values())),
+        )
+        present = {index for field in usable.values() for index in field.bounds.cell_indices()}
+        all_cells = set(CellGridBounds(grid=grid, bbox=pixel_bbox).cell_indices())
+        bounds = CellGridBounds(grid=grid, bbox=pixel_bbox, missing=frozenset(all_cells - present))
+        rows = {cell_index: row for row, cell_index in enumerate(bounds.cell_indices())}
         table = astropy.table.Table(
             rows=[cell_index.as_tuple() for cell_index in bounds.cell_indices()], names=["cell_i", "cell_j"]
         )
-        good_cell_mask = np.ones(bounds.subgrid_size.as_tuple(), dtype=bool)
-        for cell_index in bounds.missing:
-            array_index = cell_index - bounds.subgrid_start
-            good_cell_mask[array_index.i, array_index.j] = False
         for name, ap_corr in aperture_correction_map.items():
-            column = (
-                ap_corr._array[good_cell_mask]
-                if ap_corr is not None
-                else np.full(good_cell_mask.sum(), np.nan)
-            )
+            column = np.full(len(table), np.nan)
+            if ap_corr is not None:
+                for cell_index in ap_corr.bounds.cell_indices():
+                    column[rows[cell_index]] = ap_corr._array[cell_index.within_subgrid_array(ap_corr.bounds)]
             table.add_column(column, name=name, copy=False)
         return CellApertureCorrectionMapSerializationModel(
             table=archive.add_table(table, name="table"), bounds=bounds
@@ -455,17 +450,16 @@ class CellApertureCorrectionMapSerializationModel(ArchiveTree):
             raise InvalidParameterError(
                 f"Unrecognized parameters for cell aperture correction map: {set(kwargs.keys())}."
             )
-        good_cell_mask = np.zeros(self.bounds.subgrid_size.as_tuple(), dtype=bool)
         table = archive.get_table(self.table)
-        for tbl_ij, cell_index in zip(
-            table["cell_i", "cell_j"].iterrows(), self.bounds.cell_indices(), strict=True
+        rows: dict[CellIJ, int] = {}
+        for row, (tbl_ij, cell_index) in enumerate(
+            zip(table["cell_i", "cell_j"].iterrows(), self.bounds.cell_indices(), strict=True)
         ):
             if cell_index.as_tuple() != tbl_ij:
                 raise ArchiveReadError(
                     "Inconsistency between serialized aperture correction bounds and table."
                 )
-            array_index = cell_index - self.bounds.subgrid_start
-            good_cell_mask[array_index.i, array_index.j] = True
+            rows[cell_index] = row
         result: dict[str, CellField | None] = {}
         for name, column in table.columns.items():
             if name in ("cell_i", "cell_j"):
@@ -484,7 +478,8 @@ class CellApertureCorrectionMapSerializationModel(ArchiveTree):
                 bounds = CellGridBounds(
                     grid=self.bounds.grid, missing=self.bounds.missing | extra_missing, bbox=self.bounds.bbox
                 )
-            array = np.full(self.bounds.subgrid_size.as_tuple(), np.nan, dtype=np.float64)
-            array[good_cell_mask] = column
+            array = np.full(bounds.subgrid_size.as_tuple(), np.nan, dtype=np.float64)
+            for cell_index in bounds.cell_indices():
+                array[cell_index.within_subgrid_array(bounds)] = column[rows[cell_index]]
             result[name] = CellField(bounds, array)
         return result

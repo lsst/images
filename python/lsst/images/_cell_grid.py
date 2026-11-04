@@ -26,14 +26,13 @@ __all__ = (
 import dataclasses
 import math
 from collections.abc import Iterator
-from functools import cached_property
 from typing import TYPE_CHECKING, Any, Self, assert_type, overload
 
 import numpy as np
 import numpy.typing as npt
 import pydantic
 
-from ._geom import XY, YX, Bounds, Box, SerializableYX
+from ._geom import XY, YX, Bounds, Box, Interval, SerializableYX
 
 if TYPE_CHECKING:
     try:
@@ -207,10 +206,16 @@ class CellGridBounds(pydantic.BaseModel, frozen=True):
     rectangular region of the grid (the `bbox` attribute) is populated with
     only a few exceptions (the `missing` set).
 
+    In order to guarantee that equivalent instances have the same
+    representation, the ``bbox`` is always the smallest on that contains all
+    of the non-missing cells.
+
     Slicing a `CellGridBounds` with a `.Box` returns a new `CellGridBounds`
     with just the cells that overlap that box.  As always,
     `CellGridBounds.bbox` will be snapped to the outer boundaries of those
-    cells, so it will contain (and not generally equal) the given box.
+    cells, so it will *usually* contain the given box (it might not contain
+    the given box if a row or column of missing cells on the boundary causes
+    it to shrink).
 
     Like most other `Bounds` implementations, a `CellGridBounds` cannot be
     empty.
@@ -226,12 +231,23 @@ class CellGridBounds(pydantic.BaseModel, frozen=True):
     )
 
     @pydantic.model_validator(mode="after")
-    def _check_has_cells(self) -> Self:
-        """Reject bounds that have no cells."""
-        if self.n_cells == 0:
+    def _standardize_cells(self) -> Self:
+        """Shrink the bbox to include only non-missing cells, and reject
+        empty bounds.
+        """
+        cell_boxes = [self.grid.bbox_of(index) for index in self.cell_indices()]
+        if not cell_boxes:
             raise ValueError(
-                f"Cell grid bounds over {self.bbox} in grid {self.grid} contains only missing cells missing."
+                f"Cell grid bounds over {self.bbox} in grid {self.grid} contains only missing cells."
             )
+        y_hull = Interval.hull(*[box.y for box in cell_boxes])
+        x_hull = Interval.hull(*[box.x for box in cell_boxes])
+        bbox = Box(y=y_hull, x=x_hull)
+        missing = {cell_index for cell_index in self.missing if bbox.contains(self.grid.bbox_of(cell_index))}
+        if bbox != self.bbox:
+            object.__setattr__(self, "bbox", bbox)
+        if missing != self.missing:
+            object.__setattr__(self, "missing", frozenset(missing))
         return self
 
     def __str__(self) -> str:
@@ -241,21 +257,21 @@ class CellGridBounds(pydantic.BaseModel, frozen=True):
             text = f"{text}, missing={{{missing}}}"
         return text
 
-    @cached_property
+    @property
     def subgrid_start(self) -> CellIJ:
         """The index of the first cell in this bounds' bounding box within
         its grid.
         """
         return self.grid.index_of(y=self.bbox.y.start, x=self.bbox.x.start)
 
-    @cached_property
+    @property
     def subgrid_stop(self) -> CellIJ:
         """One-past-the-last indices for the cells in these bounds, within
         its grid.
         """
         return self.grid.index_of(y=self.bbox.y.stop, x=self.bbox.x.stop)
 
-    @cached_property
+    @property
     def subgrid_size(self) -> CellIJ:
         """Number of cells within these bounds in both dimensions, not
         accounting for `missing`.
