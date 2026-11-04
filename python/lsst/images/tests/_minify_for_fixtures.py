@@ -53,14 +53,18 @@ Per top-level type the subset rule is:
                150x150 planes per cell and produce multi-megabyte JSON,
                which defeats the purpose of a fixture.
 
-Run interactively (CellCoadd works with just this package installed;
-VisitImage needs a full Rubin environment so the real PSF can be read)::
+Run interactively; the input must be a native ``lsst.images`` archive, so
+legacy files under ``$TESTDATA_IMAGES_DIR`` are must be converted first::
 
+    lsst-images-admin convert \
+        "$TESTDATA_IMAGES_DIR/dp2/legacy/deep_coadd_cell_predetection.fits" \
+        native_cell_coadd.fits --type cell_coadd \
+        --skymap "$TESTDATA_IMAGES_DIR/dp2/legacy/skyMap.pickle"
     python -c "
     from lsst.images.tests._minify_for_fixtures import minify
     schemas = 'tests/data/schemas'
     minify(
-        'cell_example.fits',
+        'native_cell_coadd.fits',
         f'{schemas}/cell_coadd/cell_coadd-1.0.0-as_shipped.json',
     )
     minify('dp1.fits', f'{schemas}/visit_image/visit_image-1.0.0.dev-dp1.json')
@@ -102,6 +106,12 @@ from ._creation import make_random_sky_projection
 _CELL_SIZE = 6
 _KERNEL_SIZE = 5
 _MAX_INPUTS = 6
+
+# A real coadd's aperture-correction map is dozens of schema-identical names;
+# a couple of usable ones plus a single unusable (all-NaN column) name cover
+# the schema as well as the full map.
+_MAX_USABLE_APERTURE_CORRECTIONS = 2
+_MAX_UNUSABLE_APERTURE_CORRECTIONS = 1
 
 # Default trim parameters for VisitImage.  Amplifiers and aperture-correction
 # entries are homogeneous collections, so a couple of each cover the schema
@@ -484,18 +494,30 @@ def _subset_cell_coadd(
 
     # Aperture corrections are not subset when CellCoadd is subset with a
     # bounding box, because they're always tiny.  But that makes setting
-    # up a consistent new grid for them tricky.
-    aperture_corrections = {}
+    # up a consistent new grid for them tricky.  Names that carry no usable
+    # value anywhere (None, serialized as an all-NaN column) are kept, so the
+    # fixture exercises more code paths.
+    aperture_corrections: dict[str, CellField | None] = {}
     new_apcorr_bounds = None
-    for i, (name, field) in enumerate(block.aperture_corrections.items()):
-        if new_apcorr_bounds is None:
-            new_apcorr_bounds = CellGridBounds(
-                grid=new_grid,
-                bbox=_scale_box_to_grid(field.bounds.bbox, grid, cell_size),
-                missing=cell_coadd.bounds.missing,
-            )
-        aperture_corrections[name] = CellField(new_apcorr_bounds, field._array)
-        if i >= 2:
+    n_usable = 0
+    n_unusable = 0
+    for name, field in block.aperture_corrections.items():
+        if field is None:
+            if n_unusable < _MAX_UNUSABLE_APERTURE_CORRECTIONS:
+                aperture_corrections[name] = None
+                n_unusable += 1
+        elif n_usable < _MAX_USABLE_APERTURE_CORRECTIONS:
+            if new_apcorr_bounds is None:
+                new_apcorr_bounds = CellGridBounds(
+                    grid=new_grid,
+                    bbox=_scale_box_to_grid(field.bounds.bbox, grid, cell_size),
+                    missing=cell_coadd.bounds.missing,
+                )
+            aperture_corrections[name] = CellField(new_apcorr_bounds, field._array)
+            n_usable += 1
+        if n_usable >= _MAX_USABLE_APERTURE_CORRECTIONS and (
+            n_unusable >= _MAX_UNUSABLE_APERTURE_CORRECTIONS
+        ):
             break
 
     return CellCoadd(

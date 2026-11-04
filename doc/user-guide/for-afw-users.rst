@@ -188,7 +188,7 @@ The `~cells.CellCoadd` type has counterparts for only some of the components of 
 
 - ``wcs`` (`lsst.afw.geom.SkyWcs`) -> `~cells.CellCoadd.sky_projection` (`SkyProjection`)
 - ``psf`` (`lsst.afw.detection.Psf`) -> `~cells.CellCoadd.psf` (`~cells.CellPointSpreadFunction`)
-- ``apCorrMap`` (`lsst.afw.image.ApCorrMap`) -> `~cells.CellCoadd.aperture_corrections` (`dict` of `~cells.CellField`)
+- ``apCorrMap`` (`lsst.afw.image.ApCorrMap`) -> `~cells.CellCoadd.aperture_corrections` (`dict` of `~cells.CellField` or `None`)
 
 Cell coadds also have a `~cells.CellCoadd.bounds` attribute (`~cells.CellGridBounds`) that plays a similar role to the `VisitImage.bounds` attribute in that it represents the area where pixels and other objects (e.g. PSFs) are valid, by recording which cells do and do not have data.
 
