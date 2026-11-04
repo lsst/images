@@ -30,6 +30,7 @@ from lsst.images import (
     DetectorFrame,
     DifferenceImage,
     DifferenceImageTemplateInfo,
+    DifferenceImageTemplateInput,
     Image,
     MaskPlane,
     MaskSchema,
@@ -188,6 +189,34 @@ def test_roundtrip(legacy_test_data: _LegacyTestData) -> None:
     compare_kernel_to_legacy(roundtrip.result.kernel, legacy_test_data.kernel)
     _sanity_check_template_info(roundtrip.result.templates, legacy_test_data.detector_frame)
     assert all(info.instrument == "LSSTCam" for info in roundtrip.result.templates)
+    assert all(info.inputs == [] for info in roundtrip.result.templates)
+
+
+def test_roundtrip_template_inputs(legacy_test_data: _LegacyTestData) -> None:
+    """Test that the input images recorded for each template round-trip
+    through FITS.
+    """
+    difference_image = _make_difference_image(legacy_test_data)
+    for n, info in enumerate(difference_image.templates):
+        info.inputs = [
+            DifferenceImageTemplateInput(
+                visit=2025061200123 + n,
+                detector=94,
+                mid_mjd_tai=60838.13125 + n,
+                weight=0.75,
+                bounds=info.bounds,
+            )
+        ]
+    with RoundtripFits(difference_image, storage_class="DifferenceImage") as roundtrip:
+        pass
+    for original, result in zip(difference_image.templates, roundtrip.result.templates, strict=True):
+        assert len(result.inputs) == 1
+        assert result.inputs[0].visit == original.inputs[0].visit
+        assert result.inputs[0].detector == 94
+        assert result.inputs[0].mid_mjd_tai == original.inputs[0].mid_mjd_tai
+        assert result.inputs[0].weight == 0.75
+        np.testing.assert_array_equal(result.inputs[0].bounds.x_vertices, original.bounds.x_vertices)
+        np.testing.assert_array_equal(result.inputs[0].bounds.y_vertices, original.bounds.y_vertices)
 
 
 def test_kernel_component_read(legacy_test_data: _LegacyTestData) -> None:

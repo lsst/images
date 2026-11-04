@@ -11,7 +11,12 @@
 
 from __future__ import annotations
 
-__all__ = ("DifferenceImage", "DifferenceImageSerializationModel", "DifferenceImageTemplateInfo")
+__all__ = (
+    "DifferenceImage",
+    "DifferenceImageSerializationModel",
+    "DifferenceImageTemplateInfo",
+    "DifferenceImageTemplateInput",
+)
 
 import logging
 import math
@@ -479,6 +484,23 @@ class DifferenceImage(VisitImage):
         return result
 
 
+class DifferenceImageTemplateInput(pydantic.BaseModel, ser_json_inf_nan="constants"):
+    """Information about an image that was coadded into a template."""
+
+    visit: int = pydantic.Field(description="ID of the visit of the input image.")
+    detector: int = pydantic.Field(description="ID of the detector of the input image.")
+    mid_mjd_tai: float = pydantic.Field(
+        description="Mid-exposure time of the input image, as a Modified Julian Date (TAI)."
+    )
+    weight: float = pydantic.Field(description="Weight of the input image in the coadd.")
+    bounds: Polygon = pydantic.Field(
+        description=(
+            "The part of the science image covered by the input image's warp, in the science image's pixel "
+            "coordinate system."
+        )
+    )
+
+
 class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constants"):
     """Information about how a template image contributed to a difference
     image.
@@ -510,6 +532,13 @@ class DifferenceImageTemplateInfo(pydantic.BaseModel, ser_json_inf_nan="constant
         description=(
             "Name of the instrument whose observations were coadded to make this template, "
             "or 'UNKNOWN' if it could not be determined."
+        ),
+    )
+    inputs: list[DifferenceImageTemplateInput] = pydantic.Field(
+        default_factory=list,
+        description=(
+            "Information about the images coadded into the template that cover any part of the "
+            "science image; empty if they were not recorded."
         ),
     )
 
@@ -839,7 +868,7 @@ class DifferenceImageSerializationModel[P: pydantic.BaseModel](VisitImageSeriali
     """A Pydantic model used to represent a serialized `DifferenceImage`."""
 
     SCHEMA_NAME: ClassVar[str] = "difference_image"
-    SCHEMA_VERSION: ClassVar[str] = "1.2.0"
+    SCHEMA_VERSION: ClassVar[str] = "1.3.0"
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = DifferenceImage
 
