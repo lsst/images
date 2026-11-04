@@ -57,6 +57,7 @@ EXPECTED_TYPES: dict[tuple[str, str | None], str] = {
     ("color_image", None): "lsst.images.ColorImage",
     ("detector", None): "lsst.images.cameras.Detector",
     ("difference_image", "dp2"): "lsst.images.DifferenceImage",
+    ("difference_image", "template_inputs"): "lsst.images.DifferenceImage",
     ("gaussian_psf", None): "lsst.images.psfs.GaussianPointSpreadFunction",
     ("image", None): "lsst.images.Image",
     (

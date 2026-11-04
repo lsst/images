@@ -12,7 +12,7 @@ Run `lsst-images-admin fixtures refresh` after changing a development schema, an
 ## Variants
 
 A `-{variant}` suffix marks a further fixture of the same schema at the same version, so a composite model can cover more than one branch of its optional and union fields, and a fixture derived from a real file can sit beside a synthetic one.
-`visit_image` has `dp1` and `dp2`; `difference_image` has `dp2`.
+`visit_image` has `dp1` and `dp2`; `difference_image` has `dp2` and `template_inputs`.
 Each variant is checked, refreshed, frozen, and version-paired independently.
 
 Adding one means writing the file, listing its `(name, variant)` pair in `tests/test_serialization_io.py`, and canonicalizing it with `fixtures refresh` while the version is still in development.
