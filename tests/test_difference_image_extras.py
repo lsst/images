@@ -52,12 +52,23 @@ from lsst.images.tests import (
 )
 
 try:
+    import astshim
+    from lsst.afw.detection import GaussianPsf as LegacyGaussianPsf
+    from lsst.afw.geom import Polygon as LegacyPolygon
+    from lsst.afw.geom import TransformPoint2ToPoint2 as LegacyTransform
+    from lsst.afw.geom import makeCdMatrix, makeModifiedWcs, makeSkyWcs
     from lsst.afw.image import Exposure as LegacyExposure
     from lsst.afw.image import ImageD as LegacyImageD
     from lsst.afw.math import Kernel as LegacyKernel
     from lsst.afw.table import ExposureCatalog as LegacyExposureCatalog
     from lsst.daf.base import PropertyList as LegacyPropertyList
+    from lsst.geom import Box2D as LegacyBox2D
+    from lsst.geom import Box2I as LegacyBox2I
     from lsst.geom import Extent2I as LegacyExtent2I
+    from lsst.geom import Point2D as LegacyPoint2D
+    from lsst.geom import Point2I as LegacyPoint2I
+    from lsst.geom import SpherePoint as LegacySpherePoint
+    from lsst.geom import arcseconds, degrees
     from lsst.meas.algorithms import CoaddPsf as LegacyCoaddPsf
 except ImportError:
     type LegacyExposure = Any  # type: ignore[no-redef]
@@ -349,6 +360,79 @@ def test_template_info_instrument_defaults_to_unknown() -> None:
     written before the field existed, has the instrument ``"UNKNOWN"``.
     """
     assert _make_template().instrument == "UNKNOWN"
+
+
+@pytest.mark.parametrize("curvature", [-5e-7, 5e-7])
+def test_template_info_bounds_cover_distorted_detector(
+    reset_afw_mask_planes: None,  # noqa: F811
+    curvature: float,
+) -> None:
+    """Test that the bounds of two overlapping patches together cover a
+    distorted detector whose edges their shared boundary crosses.
+
+    The detector edges are distorted in the coadd frame by about 2 pixels, so
+    clipping each patch to the detector's corner-only footprint in the coadd
+    frame would leave a sliver along one edge outside both patches' bounds.
+    """
+    crval = LegacySpherePoint(150.0, 2.0, degrees)
+    coadd_wcs = makeSkyWcs(LegacyPoint2D(1023.5, 2047.5), crval, makeCdMatrix(0.2 * arcseconds))
+    # x' = x + curvature*(y - yc)**2 and y' = y, with its exact inverse.
+    yc = 2047.5
+    forward = np.array(
+        [
+            [1.0, 1, 1, 0],
+            [curvature, 1, 0, 2],
+            [-2 * curvature * yc, 1, 0, 1],
+            [curvature * yc**2, 1, 0, 0],
+            [1.0, 2, 0, 1],
+        ]
+    )
+    inverse = np.array(
+        [
+            [1.0, 1, 1, 0],
+            [-curvature, 1, 0, 2],
+            [2 * curvature * yc, 1, 0, 1],
+            [-curvature * yc**2, 1, 0, 0],
+            [1.0, 2, 0, 1],
+        ]
+    )
+    detector_wcs = makeModifiedWcs(LegacyTransform(astshim.PolyMap(forward, inverse)), coadd_wcs, False)
+    schema = LegacyExposureCatalog.Table.makeMinimalSchema()
+    schema.addField("weight", type="D")
+    schema.addField("tract", type="I")
+    schema.addField("patch", type="I")
+    catalog = LegacyExposureCatalog(schema)
+    patches = {
+        0: LegacyBox2I(LegacyPoint2I(-500, -500), LegacyPoint2I(2600, 2100)),
+        1: LegacyBox2I(LegacyPoint2I(-500, 2000), LegacyPoint2I(2600, 4600)),
+    }
+    for patch, patch_bbox in patches.items():
+        record = catalog.addNew()
+        record.setWcs(coadd_wcs)
+        record.setPsf(LegacyGaussianPsf(21, 21, 2.0))
+        record.setBBox(patch_bbox)
+        record.setValidPolygon(LegacyPolygon(LegacyBox2D(patch_bbox)))
+        record.set("weight", 1.0)
+        record.set("tract", 7)
+        record.set("patch", patch)
+    psf = LegacyCoaddPsf(catalog, detector_wcs, LegacyPoint2D(1023.5, 2047.5))
+    detector_frame = DetectorFrame(instrument="Inst", visit=1, detector=1, bbox=Box.factory[0:4096, 0:2048])
+
+    template_info = DifferenceImageTemplateInfo.from_legacy_psf(
+        detector_frame, psf, "skymap", {(7, patch): (uuid.uuid4(), "run") for patch in patches}
+    )
+
+    assert len(template_info) == 2
+    # The centers of the pixels along all four detector edges.
+    ys = np.arange(4096, dtype=float)
+    xs = np.arange(2048, dtype=float)
+    x = np.concatenate([np.zeros_like(ys), np.full_like(ys, 2047.0), xs, xs])
+    y = np.concatenate([ys, ys, np.zeros_like(xs), np.full_like(xs, 4095.0)])
+    covered = np.zeros(x.size, dtype=bool)
+    for info in template_info:
+        assert detector_frame.bbox.contains(info.bounds.bbox)
+        covered |= info.bounds.contains(x=x, y=y)
+    assert covered.all()
 
 
 def test_describe_templates_hoists_shared_values() -> None:
