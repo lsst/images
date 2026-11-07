@@ -234,6 +234,51 @@ class Region(DescribableMixin):
         )
         return Region(impl).try_to_polygon()
 
+    def dilated_by(self, padding: float) -> Region:
+        """Return a new region padded by the given distance on all sides.
+
+        Edges move parallel to themselves, so padding the polygon of a `Box`
+        gives the polygon of the padded box.
+
+        Parameters
+        ----------
+        padding
+            Distance to move the edges outward; a negative value moves them
+            inward.
+
+        Returns
+        -------
+        `Region`
+            The padded region, as a `Polygon` if it is a single polygon with
+            no holes.
+        """
+        impl = shapely.buffer(self._impl, padding, join_style="mitre")
+        assert isinstance(impl, shapely.Polygon | shapely.MultiPolygon), (
+            "Padding Polygons and MultiPolygons should give one of those."
+        )
+        return Region(impl).try_to_polygon()
+
+    def convex_hull(self) -> Polygon:
+        """Return the smallest convex polygon that contains the region.
+
+        Returns
+        -------
+        `Polygon`
+            The convex hull, a single polygon with no holes even when the
+            region has several pieces or holes.
+
+        Raises
+        ------
+        ValueError
+            Raised if the region has no area.
+        """
+        impl = shapely.convex_hull(self._impl)
+        if not isinstance(impl, shapely.Polygon):
+            raise ValueError(f"Region {self} has no area, so it has no convex hull.")
+        result = Region(impl).try_to_polygon()
+        assert isinstance(result, Polygon), "A convex hull should have no holes."
+        return result
+
     def try_to_polygon(self) -> Region:
         """If the underlying geometry is a single polygon with no holes,
         return a `Polygon` instance holding it.
