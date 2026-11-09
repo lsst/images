@@ -206,8 +206,8 @@ def test_coadd_provenance_repr_str_pinned(minified_cell_coadd: CellCoadd) -> Non
     descriptive form, and both report only what len() can answer.
     """
     provenance = minified_cell_coadd.provenance
-    assert str(provenance) == "CoaddProvenance(6 input images)"
-    assert repr(provenance) == "<CoaddProvenance(6 input images)>"
+    assert str(provenance) == "CoaddProvenance(2 input images)"
+    assert repr(provenance) == "<CoaddProvenance(2 input images)>"
 
 
 def test_coadd_provenance_brief_report_skips_column_scans(minified_cell_coadd: CellCoadd) -> None:
@@ -216,7 +216,7 @@ def test_coadd_provenance_brief_report_skips_column_scans(minified_cell_coadd: C
     """
     report = minified_cell_coadd.provenance._describe(DescribeOptions(brief=True))
     assert not report.fields
-    assert report.to_repr() == "<CoaddProvenance(6 input images)>"
+    assert report.to_repr() == "<CoaddProvenance(2 input images)>"
 
 
 def test_coadd_provenance_report_summarizes_its_tables(minified_cell_coadd: CellCoadd) -> None:
@@ -226,7 +226,7 @@ def test_coadd_provenance_report_summarizes_its_tables(minified_cell_coadd: Cell
     assert report_fields(report) == {
         "instrument": "LSSTCam",
         "physical_filter": "r_57",
-        "input images": "6 from 2 visits",
+        "input images": "2 from 2 visits",
         "day_obs": "20250520",
         "cells": "3 with contributions",
         "per cell": "2 input images",
@@ -303,6 +303,31 @@ def test_coadd_provenance_subset_without_contributions_is_none() -> None:
     assert len(populated.contributions) == 1
 
     assert provenance[CellIJ(1, 1)] is None
+
+
+def test_coadd_provenance_subset_inputs_are_unique() -> None:
+    """Test that CoaddProvenance.subset doesn't generate duplicates from the
+    same observation appearing in multiple cells.
+    """
+    inputs = CoaddProvenance.make_empty_input_table(2)
+    inputs["instrument"] = "LSSTCam"
+    inputs["physical_filter"] = "r_57"
+    inputs["visit"] = [101, 102]
+    inputs["detector"] = [1, 2]
+    inputs["day_obs"] = [20250520, 20250520]
+    contributions = CoaddProvenance.make_empty_contribution_table(4)
+    contributions["instrument"] = "LSSTCam"
+    contributions["visit"] = [101, 102, 101, 102]
+    contributions["detector"] = [1, 1, 2, 2]
+    contributions["cell_i"] = 0
+    contributions["cell_j"] = [0, 0, 1, 1]
+    provenance = CoaddProvenance(inputs=inputs, contributions=contributions)
+
+    subset = provenance.subset([CellIJ(0, 0), CellIJ(0, 1)])
+
+    assert len(subset.contributions) == 4
+    assert len(subset.inputs) == 2
+    assert set(zip(subset.inputs["visit"], subset.inputs["detector"])) == {(101, 1), (102, 2)}
 
 
 def test_coadd_provenance_report_counts_one_input_image_in_the_singular() -> None:
