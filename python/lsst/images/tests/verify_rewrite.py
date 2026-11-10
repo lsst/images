@@ -162,6 +162,14 @@ def _spot_check_points(points: YX[np.ndarray], n: int, rng: random.Random) -> YX
         "  Ignored for other dataset types."
     ),
 )
+@click.option(
+    "--apcorr-skip-uncovered/--no-apcorr-skip-uncovered",
+    default=False,
+    help=(
+        "Skip aperture-correction spot-check points where the legacy field does not"
+        " evaluate (no input covers the cell center).  Ignored for other dataset types."
+    ),
+)
 def verify_rewrite(
     *,
     repo: str,
@@ -178,6 +186,7 @@ def verify_rewrite(
     check_obs_info: bool,
     pixel_atol_factor: float,
     coadd_check_points: int,
+    apcorr_skip_uncovered: bool,
 ) -> None:  # numpydoc ignore=PR01
     """Compare rewritten images in COLLECTION against the originals in
     COLLECTION of REPO.
@@ -197,6 +206,7 @@ def verify_rewrite(
             converted_only=converted_only,
             pixel_atol_factor=pixel_atol_factor,
             coadd_check_points=coadd_check_points,
+            apcorr_skip_uncovered=apcorr_skip_uncovered,
         )
         # Query for and compare datasets.
         for data_id in verifier.process(where):
@@ -226,6 +236,7 @@ class RewriteVerifier:
         converted_only: bool = False,
         pixel_atol_factor: float = 0.5,
         coadd_check_points: int = 4,
+        apcorr_skip_uncovered: bool = False,
     ) -> None:
         self.butler = butler
         self.base_dataset_type = base_dataset_type
@@ -234,6 +245,7 @@ class RewriteVerifier:
         self.converted_only = converted_only
         self.pixel_atol_factor = pixel_atol_factor
         self.coadd_check_points = coadd_check_points
+        self.apcorr_skip_uncovered = apcorr_skip_uncovered
         self._progress: tqdm.tqdm | None = None
         self._n_problems = 0
         self._exposure_records: dict[int, DimensionRecord] = {}
@@ -321,6 +333,7 @@ class RewriteVerifier:
                     image_atol=self.pixel_atol_factor * float(np.nanstd(old.getImage().array)),
                     variance_atol=self.pixel_atol_factor * float(np.nanstd(old.getVariance().array)),
                     psf_points=points,
+                    apcorr_skip_uncovered=self.apcorr_skip_uncovered,
                 )
             except Exception as err:
                 self.print_error(data_id, err)

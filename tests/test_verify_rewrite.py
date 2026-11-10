@@ -193,14 +193,17 @@ def test_rewrite_verifier_stores_coadd_options() -> None:
         converted_only=True,
         pixel_atol_factor=0.25,
         coadd_check_points=7,
+        apcorr_skip_uncovered=True,
     )
     assert verifier.converted_only is True
     assert verifier.pixel_atol_factor == 0.25
     assert verifier.coadd_check_points == 7
+    assert verifier.apcorr_skip_uncovered is True
     default = RewriteVerifier(None, "template_coadd", old_prefix="legacy_", new_prefix="")
     assert default.converted_only is False
     assert default.pixel_atol_factor == 0.5
     assert default.coadd_check_points == 4
+    assert default.apcorr_skip_uncovered is False
 
 
 @pytest.fixture(scope="module")
@@ -471,7 +474,7 @@ def _make_dp2_coadd_rewrite_repo(repo: str, testdata_dir: str, *, tamper: bool =
         butler.put(new, new_dt, data_id)
 
 
-def _invoke_verify_coadd_rewrite(repo: str) -> Any:
+def _invoke_verify_coadd_rewrite(repo: str, *extra_args: str) -> Any:
     return CliRunner().invoke(
         main,
         [
@@ -485,6 +488,7 @@ def _invoke_verify_coadd_rewrite(repo: str) -> Any:
             # lossily RICE-compressed) FITS, so skip that leg, as in the
             # difference-image e2e test.
             "--no-require-compressed",
+            *extra_args,
         ],
     )
 
@@ -507,6 +511,27 @@ def test_verify_rewrite_coadd_end_to_end(
     repo = str(tmp_path / "repo")
     _make_dp2_coadd_rewrite_repo(repo, testdata_dir)
     result = _invoke_verify_coadd_rewrite(repo)
+    assert result.exit_code == 0, result.output
+
+
+def test_verify_rewrite_coadd_apcorr_skip_uncovered(
+    tmp_path: Path,
+    testdata_dir: str,
+    reset_afw_mask_planes,  # noqa: F811
+) -> None:
+    """Check that --apcorr-skip-uncovered is accepted and leaves a faithful
+    conversion passing.
+    """
+    try:
+        import lsst.afw.image
+        import lsst.daf.butler
+        import lsst.skymap  # noqa: F401
+    except ImportError:
+        pytest.skip("lsst.daf.butler, lsst.skymap, and lsst.afw could not be imported.")
+
+    repo = str(tmp_path / "repo")
+    _make_dp2_coadd_rewrite_repo(repo, testdata_dir)
+    result = _invoke_verify_coadd_rewrite(repo, "--apcorr-skip-uncovered")
     assert result.exit_code == 0, result.output
 
 

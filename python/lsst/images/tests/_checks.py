@@ -51,6 +51,7 @@ __all__ = (
 
 import dataclasses
 import re
+import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Generator, Iterator, Mapping
 from contextlib import contextmanager
@@ -1282,6 +1283,7 @@ def compare_cell_coadd_to_legacy_lazy(
     psf_points: XY[np.ndarray] | YX[np.ndarray] | None = None,
     image_atol: float = 0.0,
     variance_atol: float = 0.0,
+    apcorr_skip_uncovered: bool = False,
 ) -> None:
     """Compare a `.cells.CellCoadd` object to the legacy
     `lsst.afw.image.Exposure` instance it was converted from
@@ -1321,6 +1323,9 @@ def compare_cell_coadd_to_legacy_lazy(
         Absolute tolerance for the image pixel comparison.
     variance_atol
         Absolute tolerance for the variance pixel comparison.
+    apcorr_skip_uncovered
+        If `True`, skip aperture-correction comparisons at points where the
+        legacy field does not evaluate (no input covers the cell center).
     """
     if plane_map is None:
         plane_map = get_legacy_non_cell_coadd_mask_planes()
@@ -1377,6 +1382,7 @@ def compare_cell_coadd_to_legacy_lazy(
             cell_coadd.bbox,
             eval_points=psf_points,
             expect_subset_bounds=True,
+            skip_uncovered=apcorr_skip_uncovered,
         )
     with annotate_errors("provenance"):
         compare_cell_coadd_provenance_to_legacy_lazy(
@@ -1403,6 +1409,7 @@ def compare_cell_coadd_to_legacy_lazy(
                     cell_coadd.bbox,
                     eval_points=psf_points,
                     expect_subset_bounds=True,
+                    skip_uncovered=apcorr_skip_uncovered,
                 )
         if provenance := alternates.get("provenance"):
             with annotate_errors("provenance"):
@@ -1579,6 +1586,26 @@ def compare_psf_to_legacy(
     return n_points_tested
 
 
+def _legacy_evaluated_points(legacy_field: Any, values: Any) -> np.ndarray:
+    """Boolean mask of evaluation results where a legacy field actually
+    evaluated.
+
+    Mirrors the usable-sample filter of
+    ``CellField.approximate_from_legacy``: non-finite results count as
+    unevaluated, as do results equal to the field's default for fields that
+    return a default instead of raising where uncovered
+    (``lsst.meas.algorithms.CoaddBoundedField`` with ``throwOnMissing=False``
+    reports its default outside every element's coverage).
+    """
+    arr = np.asarray(values, dtype=np.float64)
+    evaluated = np.isfinite(arr)
+    get_throw_on_missing = getattr(legacy_field, "getThrowOnMissing", None)
+    get_default = getattr(legacy_field, "getDefault", None)
+    if get_throw_on_missing is not None and get_default is not None and not get_throw_on_missing():
+        evaluated &= arr != get_default()
+    return evaluated
+
+
 def compare_field_to_legacy(
     field: BaseField,
     legacy_field: Any,
@@ -1587,6 +1614,7 @@ def compare_field_to_legacy(
     expect_subset_bounds: bool = False,
     *,
     rtol: float = 1e-5,
+    skip_uncovered: bool = False,
 ) -> None:
     """Test a Field object by comparing it to an equivalent
     `lsst.afw.math.BoundedField`.
@@ -1608,6 +1636,11 @@ def compare_field_to_legacy(
         ``legacy_field.getBBox()``, not equal to it.
     rtol
         Relative tolerance for the evaluation-point field-value comparison.
+    skip_uncovered
+        If `True`, drop evaluation points where the legacy field does not
+        evaluate -- non-finite results, and results equal to
+        ``legacy_field.getDefault()`` for fields that report a default where
+        uncovered -- before comparing.
     """
     from lsst.afw.math import BoundedField as LegacyBoundedField
 
@@ -1623,7 +1656,20 @@ def compare_field_to_legacy(
             mask = field.bounds.contains(x=pixel_xy.x, y=pixel_xy.y)
             pixel_xy = pixel_xy.map(lambda v: v[mask])
     new_values = field(x=pixel_xy.x, y=pixel_xy.y)
-    legacy_values = legacy_field.evaluate(pixel_xy.x, pixel_xy.y)
+    with warnings.catch_warnings():
+        # Outside an element's tangent projection, the legacy vectorized
+        # CoaddBoundedField evaluator casts NaN sky-to-pixel results to
+        # integers and warns; its answer at covered points is unaffected.
+        warnings.filterwarnings(
+            "ignore", message="invalid value encountered in cast", category=RuntimeWarning
+        )
+        legacy_values = legacy_field.evaluate(pixel_xy.x, pixel_xy.y)
+    if skip_uncovered:
+        evaluated = _legacy_evaluated_points(legacy_field, legacy_values)
+        if not evaluated.all():
+            pixel_xy = pixel_xy.map(lambda v: v[evaluated])
+            new_values = new_values[evaluated]
+            legacy_values = legacy_values[evaluated]
     try:
         assert_values_equal(
             new_values,
@@ -1659,6 +1705,7 @@ def compare_aperture_corrections_to_legacy(
     eval_points: XY[np.ndarray] | YX[np.ndarray] | None = None,
     expect_subset_bounds: bool = False,
     rtol: float = 1e-5,
+    skip_uncovered: bool = False,
 ) -> None:
     """Test an aperture correction `dict` by comparing it to an equivalent
     `lsst.afw.image.ApCorrMap`.
@@ -1681,6 +1728,9 @@ def compare_aperture_corrections_to_legacy(
     rtol
         Relative tolerance for the evaluation-point field-value comparison,
         forwarded to `compare_field_to_legacy`.
+    skip_uncovered
+        If `True`, skip evaluation points where the legacy field does not
+        evaluate, forwarded to `compare_field_to_legacy`.
     """
     assert aperture_corrections.keys() == set(legacy_ap_corr_map.keys())
     for name, field in aperture_corrections.items():
@@ -1692,6 +1742,7 @@ def compare_aperture_corrections_to_legacy(
                 eval_points=eval_points,
                 expect_subset_bounds=expect_subset_bounds,
                 rtol=rtol,
+                skip_uncovered=skip_uncovered,
             )
 
 

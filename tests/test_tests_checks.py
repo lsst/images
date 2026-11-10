@@ -328,6 +328,67 @@ def test_compare_field_to_legacy_notes_operand_values() -> None:
     assert any("new=[5.0, 5.0]" in n and "legacy=[0.0, 0.0]" in n for n in notes)
 
 
+def test_compare_field_to_legacy_skip_uncovered() -> None:
+    """Assert skip_uncovered drops points with no legacy coverage."""
+    pytest.importorskip("lsst.afw.geom")
+    from lsst.images.fields import ChebyshevField
+    from lsst.images.tests import compare_field_to_legacy
+
+    class _FakeCoaddLikeField:
+        """Legacy field shape: reports a default where no element covers."""
+
+        def __init__(self, bbox: Box, values: list[float]) -> None:
+            self._bbox = bbox
+            self._values = np.asarray(values, dtype=np.float64)
+
+        def getBBox(self):
+            return self._bbox.to_legacy()
+
+        def getThrowOnMissing(self):
+            return False
+
+        def getDefault(self):
+            return 0.0
+
+        def evaluate(self, x, y):
+            return self._values
+
+    bbox = Box.factory[0:10, 0:10]
+    field = ChebyshevField(bbox, np.array([[5.0]]))
+    points = YX(y=np.array([5.0, 6.0, 7.0]), x=np.array([5.0, 6.0, 7.0]))
+    # The second point reports the uncovered default, the third is NaN.
+    legacy = _FakeCoaddLikeField(bbox, [5.0, 0.0, np.nan])
+    compare_field_to_legacy(field, legacy, bbox, eval_points=points, skip_uncovered=True)
+    with pytest.raises(AssertionError):
+        compare_field_to_legacy(field, legacy, bbox, eval_points=points)
+
+
+def test_compare_field_to_legacy_silences_cast_warning(recwarn: pytest.WarningsRecorder) -> None:
+    """Assert the checker swallows the legacy evaluator's NaN-cast warning."""
+    pytest.importorskip("lsst.afw.geom")
+    import warnings
+
+    from lsst.images.fields import ChebyshevField
+    from lsst.images.tests import compare_field_to_legacy
+
+    class _CastingLegacyField:
+        def __init__(self, bbox: Box) -> None:
+            self._bbox = bbox
+
+        def getBBox(self):
+            return self._bbox.to_legacy()
+
+        def evaluate(self, x, y):
+            warnings.warn("invalid value encountered in cast", RuntimeWarning, stacklevel=2)
+            return np.full(np.shape(x), 5.0)
+
+    bbox = Box.factory[0:10, 0:10]
+    field = ChebyshevField(bbox, np.array([[5.0]]))
+    points = YX(y=np.array([5.0]), x=np.array([5.0]))
+    compare_field_to_legacy(field, _CastingLegacyField(bbox), bbox, eval_points=points)
+    assert not [w for w in recwarn if issubclass(w.category, RuntimeWarning)]
+
+
 def test_assert_masks_equal_notes_plane_diff() -> None:
     """Assert that a mask mismatch adds a per-plane +/- note."""
     schema = MaskSchema([MaskPlane("A", "dA")], dtype=np.uint8)
