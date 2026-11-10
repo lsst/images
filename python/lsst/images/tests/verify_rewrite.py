@@ -14,6 +14,7 @@ from __future__ import annotations
 __all__ = ()
 
 import copy
+import linecache
 import random
 from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any, cast
@@ -438,6 +439,15 @@ class RewriteVerifier:
         self._report_problem()
         message = f"{err} ({type(err).__name__})"
         notes = getattr(err, "__notes__", ())
+        if not notes and not str(err) and (tb := err.__traceback__) is not None:
+            # A bare `assert` in an un-rewritten module carries no message;
+            # the raise site is the only context there is.
+            while tb.tb_next is not None:
+                tb = tb.tb_next
+            source = linecache.getline(tb.tb_frame.f_code.co_filename, tb.tb_lineno).strip()
+            message = f"{err} at {tb.tb_frame.f_code.co_filename}:{tb.tb_lineno} ({type(err).__name__})"
+            if source:
+                message += f": {source}"
         if notes:
             # The comparison utilities attach the failing component's name as
             # an exception note (a hierarchy from outer to inner when blocks

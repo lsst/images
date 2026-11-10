@@ -109,6 +109,23 @@ def test_print_error_no_note(capsys: pytest.CaptureFixture[str]) -> None:
     assert capsys.readouterr().out == "data_id: boom (AssertionError)\n"
 
 
+def test_print_error_message_less_error_shows_raise_site(capsys: pytest.CaptureFixture[str]) -> None:
+    """An error with no message and no notes reports its raise site."""
+    verifier = RewriteVerifier(None, "difference_image", old_prefix="legacy_", new_prefix="")
+
+    def raise_message_less() -> None:
+        raise AssertionError()
+
+    try:
+        raise_message_less()
+    except AssertionError as err:
+        verifier.print_error("data_id", err)
+    out = capsys.readouterr().out
+    assert out.startswith("data_id:  at ")
+    assert "test_verify_rewrite.py:" in out
+    assert "raise AssertionError()" in out
+
+
 def test_print_error_component_note(capsys: pytest.CaptureFixture[str]) -> None:
     """A component note is printed as a prefix on its own indented line."""
     verifier = RewriteVerifier(None, "difference_image", old_prefix="legacy_", new_prefix="")

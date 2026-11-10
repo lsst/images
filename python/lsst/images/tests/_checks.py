@@ -484,18 +484,26 @@ def assert_images_equal(
         If not `None`, also assert whether ``b`` shares memory with ``a``
         (i.e. is a view); ``"array"`` checks only the pixel arrays.
     """
-    assert a.bbox == b.bbox
-    assert a.unit == b.unit
+    assert a.bbox == b.bbox, f"bbox mismatch: {a.bbox} != {b.bbox}"
+    assert a.unit == b.unit, f"unit mismatch: {a.unit} != {b.unit}"
     assert_sky_projections_equal(a.sky_projection, b.sky_projection)
     if expect_view is not None:
-        assert np.may_share_memory(a.array, b.array) == bool(expect_view)
+        assert np.may_share_memory(a.array, b.array) == bool(expect_view), (
+            f"pixel array view mismatch: expected {expect_view}"
+        )
         if expect_view == "array":
-            assert a.metadata.native == b.metadata.native
+            assert a.metadata.native == b.metadata.native, (
+                f"metadata mismatch: {a.metadata.native!r} != {b.metadata.native!r}"
+            )
         else:
-            assert (a._metadata is b._metadata) == expect_view
+            assert (a._metadata is b._metadata) == expect_view, (
+                f"metadata identity mismatch: expected {expect_view}"
+            )
     if not expect_view:
         assert_values_equal(a.array, b.array, atol=atol, rtol=rtol)
-        assert a.metadata.native == b.metadata.native
+        assert a.metadata.native == b.metadata.native, (
+            f"metadata mismatch: {a.metadata.native!r} != {b.metadata.native!r}"
+        )
 
 
 def _note_mask_difference(
@@ -1026,12 +1034,22 @@ def _check_cell_coadd_geometry(cell_coadd: CellCoadd, tract_bbox: Box) -> None:
     tract_bbox
         Bounding box of the full tract.
     """
-    assert tract_bbox.contains(cell_coadd.patch.outer_bbox)
-    assert cell_coadd.patch.outer_bbox.contains(cell_coadd.patch.inner_bbox)
-    assert cell_coadd.patch.outer_bbox.contains(cell_coadd.bbox)
+    assert tract_bbox.contains(cell_coadd.patch.outer_bbox), (
+        f"patch outer bbox {cell_coadd.patch.outer_bbox} outside tract bbox {tract_bbox}"
+    )
+    assert cell_coadd.patch.outer_bbox.contains(cell_coadd.patch.inner_bbox), (
+        f"patch inner bbox {cell_coadd.patch.inner_bbox} outside outer bbox {cell_coadd.patch.outer_bbox}"
+    )
+    assert cell_coadd.patch.outer_bbox.contains(cell_coadd.bbox), (
+        f"coadd bbox {cell_coadd.bbox} outside patch outer bbox {cell_coadd.patch.outer_bbox}"
+    )
     # bounds.bbox is snapped to cell boundaries, cell_coadd.bbox is not.
-    assert cell_coadd.bounds.bbox.contains(cell_coadd.bbox)
-    assert cell_coadd.grid.bbox.contains(cell_coadd.bbox)
+    assert cell_coadd.bounds.bbox.contains(cell_coadd.bbox), (
+        f"cell bounds bbox {cell_coadd.bounds.bbox} does not contain coadd bbox {cell_coadd.bbox}"
+    )
+    assert cell_coadd.grid.bbox.contains(cell_coadd.bbox), (
+        f"grid bbox {cell_coadd.grid.bbox} does not contain coadd bbox {cell_coadd.bbox}"
+    )
 
 
 def cell_center_points(bounds: CellGridBounds) -> YX[np.ndarray]:
@@ -1316,18 +1334,27 @@ def compare_cell_coadd_to_legacy_lazy(
     )
     # A legacy (non-cell) coadd has no place for any of these components,
     # so a faithful conversion must not invent them.
-    assert cell_coadd.mask_fractions == {}
-    assert cell_coadd.noise_realizations == []
-    assert cell_coadd.backgrounds.keys() == set()
-    assert cell_coadd.backgrounds.subtracted is None
-    assert cell_coadd.skymap == skymap
-    assert cell_coadd.tract == tract
-    assert cell_coadd.patch.id == patch
-    assert cell_coadd.band == band
-    assert cell_coadd.unit == unit
-    _check_cell_coadd_geometry(cell_coadd, tract_bbox)
-    assert cell_coadd.sky_projection is cell_coadd.mask.sky_projection
-    assert cell_coadd.sky_projection is cell_coadd.variance.sky_projection
+    assert cell_coadd.mask_fractions == {}, f"unexpected mask_fractions: {list(cell_coadd.mask_fractions)}"
+    assert cell_coadd.noise_realizations == [], (
+        f"unexpected noise_realizations: {cell_coadd.noise_realizations}"
+    )
+    assert cell_coadd.backgrounds.keys() == set(), (
+        f"unexpected backgrounds: {sorted(cell_coadd.backgrounds.keys())}"
+    )
+    assert cell_coadd.backgrounds.subtracted is None, "unexpected subtracted background designation"
+    assert cell_coadd.skymap == skymap, f"skymap mismatch: {cell_coadd.skymap!r} != {skymap!r}"
+    assert cell_coadd.tract == tract, f"tract mismatch: {cell_coadd.tract} != {tract}"
+    assert cell_coadd.patch.id == patch, f"patch mismatch: {cell_coadd.patch.id} != {patch}"
+    assert cell_coadd.band == band, f"band mismatch: {cell_coadd.band!r} != {band!r}"
+    assert cell_coadd.unit == unit, f"unit mismatch: {cell_coadd.unit} != {unit}"
+    with annotate_errors("geometry"):
+        _check_cell_coadd_geometry(cell_coadd, tract_bbox)
+    assert cell_coadd.sky_projection is cell_coadd.mask.sky_projection, (
+        "mask sky_projection is not the coadd's own"
+    )
+    assert cell_coadd.sky_projection is cell_coadd.variance.sky_projection, (
+        "variance sky_projection is not the coadd's own"
+    )
     with annotate_errors("sky_projection"):
         compare_sky_projection_to_legacy_wcs(
             cell_coadd.sky_projection,
