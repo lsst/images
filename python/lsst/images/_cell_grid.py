@@ -64,6 +64,16 @@ class CellIJ:
     j: int
     """The x / column object."""
 
+    def __post_init__(self) -> None:
+        # Numpy-backed sources (provenance table columns) hand over numpy
+        # integer scalars; multiplying those and then adding a negative
+        # pixel offset raises OverflowError under NEP 50 value-based
+        # casting, which matters because patch outer rings put cell grids
+        # at negative pixel coordinates.  Python ints keep index
+        # arithmetic exact in all cases.
+        object.__setattr__(self, "i", int(self.i))
+        object.__setattr__(self, "j", int(self.j))
+
     def __add__(self, other: CellIJ) -> CellIJ:
         return CellIJ(i=self.i + other.i, j=self.j + other.j)
 

@@ -279,6 +279,20 @@ def test_empty_coadd_provenance_cannot_be_constructed() -> None:
         )
 
 
+def test_cell_indices_from_table_scalars_work_at_negative_bbox_starts() -> None:
+    """CellIJ built from numpy integer table scalars must survive grid
+    arithmetic at negative pixel coordinates, which patch outer rings put
+    cell grids over (a numpy uint16 index plus a negative pixel offset
+    raises OverflowError under NEP 50).
+    """
+    grid = CellGrid(bbox=Box.factory[-150:2850, -150:2850], cell_shape=YX(y=150, x=150))
+    cell = CellIJ(i=np.uint16(11), j=np.uint16(0))
+    assert isinstance(cell.i, int)
+    assert isinstance(cell.j, int)
+    assert cell == CellIJ(i=11, j=0)
+    assert grid.bbox_of(cell) == Box.from_shape(YX(y=150, x=150), start=YX(y=1500, x=-150))
+
+
 def test_coadd_provenance_subset_without_contributions_is_none() -> None:
     """Subsetting to cells that no image contributed to yields no provenance
     rather than an empty one.
