@@ -65,7 +65,7 @@ import numpy as np
 import pytest
 from astropy.coordinates import SkyCoord
 
-from .._geom import XY, YX, Bounds, Box
+from .._geom import XY, YX, Bounds, Box, NoOverlapError
 from .._image import Image
 from .._mask import (
     Mask,
@@ -1035,8 +1035,12 @@ def _check_cell_coadd_geometry(cell_coadd: CellCoadd, tract_bbox: Box) -> None:
     tract_bbox
         Bounding box of the full tract.
     """
-    assert tract_bbox.contains(cell_coadd.patch.outer_bbox), (
-        f"patch outer bbox {cell_coadd.patch.outer_bbox} outside tract bbox {tract_bbox}"
+    # The outer bbox grows the patch by a half-cell ring so that cells at
+    # the patch edge can be evaluated with neighboring inputs, so it
+    # legitimately extends past the tract bbox for patches at the tract
+    # edge.  The inner bbox tiles the tract.
+    assert tract_bbox.contains(cell_coadd.patch.inner_bbox), (
+        f"patch inner bbox {cell_coadd.patch.inner_bbox} outside tract bbox {tract_bbox}"
     )
     assert cell_coadd.patch.outer_bbox.contains(cell_coadd.patch.inner_bbox), (
         f"patch inner bbox {cell_coadd.patch.inner_bbox} outside outer bbox {cell_coadd.patch.outer_bbox}"
@@ -1474,9 +1478,28 @@ def compare_cell_coadd_provenance_to_legacy_lazy(
     assert set(contributions_by_cell) <= set(bounds.cell_indices()), (
         "Contributions must be on non-missing cells."
     )
+    # Legacy ``subsetContaining`` tests full-corner footprints while the
+    # converter's ``Polygon.from_box`` regions treat bbox limits as pixel
+    # centers (a half-pixel inset), and transforming a boundary through a
+    # WCS adds a little chord error, so agreement is required only outside
+    # this band around each input's projected edge.
+    boundary_tolerance = 1.0
+    polygons_by_key = {(row["visit"], row["detector"]): row["polygon"] for row in inputs}
     for cell, rows in contributions_by_cell.items():
         with annotate_errors(f"cell {cell}"):
             bbox = bounds.grid.bbox_of(cell)
+            center = XY(x=bbox.x.center, y=bbox.y.center)
+
+            def covered(key: tuple[int, int], *, padding: float) -> bool:
+                """Whether the input's coverage of this cell contains the
+                cell center with its region padded by ``padding`` pixels.
+                """
+                try:
+                    region = polygons_by_key[key].intersection(bbox).dilated_by(padding)
+                except NoOverlapError:
+                    return False
+                return region.contains(center)
+
             overlapping = {
                 (row["visit"], row["ccd"])
                 for row in coadd_inputs.ccds.subsetContaining(
@@ -1484,15 +1507,28 @@ def compare_cell_coadd_provenance_to_legacy_lazy(
                 )
             }
             keys = {(row["visit"], row["detector"]) for row in rows}
-            assert overlapping <= keys, (
-                f"Inputs overlapping a cell center must contribute to that cell: "
-                f"missing {sorted(overlapping - keys)}."
+            missing = [
+                k for k in sorted(overlapping - keys) if covered(k, padding=boundary_tolerance) is False
+            ]
+            assert not missing, (
+                f"Inputs overlapping a cell center must contribute to that cell: missing {missing}."
             )
             centered = {(row["visit"], row["detector"]) for row in rows if row["overlaps_center"]}
-            assert centered == overlapping, (
-                f"overlaps_center must match which inputs cover the cell center: "
-                f"flagged but not covering {sorted(centered - overlapping)}, "
-                f"covering but not flagged {sorted(overlapping - centered)}."
+            not_flagged = [
+                k for k in sorted(overlapping - centered) if covered(k, padding=boundary_tolerance) is False
+            ]
+            wrongly_flagged = [
+                k for k in sorted(centered - overlapping) if covered(k, padding=-boundary_tolerance)
+            ]
+            assert not wrongly_flagged, (
+                f"overlaps_center must not flag inputs that do not cover the cell center "
+                f"(disagreements within {boundary_tolerance} px of an input's projected "
+                f"edge are tolerated): {wrongly_flagged}."
+            )
+            assert not not_flagged, (
+                f"overlaps_center must flag every input covering the cell center "
+                f"(disagreements within {boundary_tolerance} px of an input's projected "
+                f"edge are tolerated): {not_flagged}."
             )
 
 

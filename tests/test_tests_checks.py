@@ -389,6 +389,31 @@ def test_compare_field_to_legacy_silences_cast_warning(recwarn: pytest.WarningsR
     assert not [w for w in recwarn if issubclass(w.category, RuntimeWarning)]
 
 
+def test_check_cell_coadd_geometry_allows_tract_edge_spill() -> None:
+    """Assert a tract-edge patch's outer bbox may spill past the tract."""
+    pytest.importorskip("lsst.afw.geom")
+    from types import SimpleNamespace
+
+    from lsst.images.tests._checks import _check_cell_coadd_geometry
+
+    # Tract 4546 patch 50 of lsst_cells_v2: leftmost patch, so the half-cell
+    # outer ring reaches 150 px past the tract's x minimum.
+    tract_bbox = Box.factory[0:30000, 0:30000]
+    cell_coadd = SimpleNamespace(
+        patch=SimpleNamespace(
+            inner_bbox=Box.factory[15000:18000, 0:3000],
+            outer_bbox=Box.factory[14850:18150, -150:3150],
+        ),
+        bbox=Box.factory[15000:18000, 0:3000],
+        bounds=SimpleNamespace(bbox=Box.factory[15000:18000, 0:3000]),
+        grid=SimpleNamespace(bbox=Box.factory[0:30000, 0:30000]),
+    )
+    _check_cell_coadd_geometry(cell_coadd, tract_bbox)
+    cell_coadd.patch.inner_bbox = Box.factory[15000:18000, -3000:0]
+    with pytest.raises(AssertionError, match="inner bbox"):
+        _check_cell_coadd_geometry(cell_coadd, tract_bbox)
+
+
 def test_assert_masks_equal_notes_plane_diff() -> None:
     """Assert that a mask mismatch adds a per-plane +/- note."""
     schema = MaskSchema([MaskPlane("A", "dA")], dtype=np.uint8)
