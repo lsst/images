@@ -173,12 +173,15 @@ def test_rewrite_verifier_stores_coadd_options() -> None:
         "template_coadd",
         old_prefix="legacy_",
         new_prefix="",
+        converted_only=True,
         pixel_atol_factor=0.25,
         coadd_check_points=7,
     )
+    assert verifier.converted_only is True
     assert verifier.pixel_atol_factor == 0.25
     assert verifier.coadd_check_points == 7
     default = RewriteVerifier(None, "template_coadd", old_prefix="legacy_", new_prefix="")
+    assert default.converted_only is False
     assert default.pixel_atol_factor == 0.5
     assert default.coadd_check_points == 4
 
@@ -191,13 +194,16 @@ def testdata_dir() -> str:
     return result
 
 
-def _make_dp2_rewrite_repo(repo: str, src: str) -> None:
+def _make_dp2_rewrite_repo(repo: str, src: str, *, partial: bool = False) -> None:
     """Build a repo holding a legacy DP2 difference image and its rewritten
     counterpart, ready for ``verify-rewrite``.
 
     The rewritten dataset is converted from the source file with the given
     (or the true DP2) exposure record; passing a tampered record produces a
     product that ``verify-rewrite``'s observation-info check should reject.
+
+    With ``partial``, an extra legacy-only dataset is registered under a
+    second detector, as in a repository that is still being converted.
     """
     from lsst.afw.image import ExposureF
     from lsst.daf.butler import Butler, DataCoordinate, DatasetType
@@ -279,8 +285,41 @@ def _make_dp2_rewrite_repo(repo: str, src: str) -> None:
         new = DifferenceImage.read_legacy(src, exposure_record=exposure_record)
         butler.put(new, new_dt, data_id)
 
+        if partial:
+            # A stand-in for a legacy dataset whose conversion has not run
+            # yet.  Its contents are never read: the default query fails the
+            # count check before fetching anything, and --converted-only
+            # never learns its data ID, so it reuses the same source file.
+            extra_detector = DP2_VISIT_DETECTOR_DATA_ID["detector"] + 1
+            reg.insertDimensionData(
+                "detector",
+                {
+                    "instrument": exposure_record.instrument,
+                    "id": extra_detector,
+                    "full_name": "R21_S12",
+                },
+            )
+            reg.insertDimensionData(
+                "visit_detector_region",
+                {
+                    "instrument": exposure_record.instrument,
+                    "visit": exposure_record.id,
+                    "detector": extra_detector,
+                    "region": None,
+                },
+            )
+            extra_data_id = DataCoordinate.standardize(
+                {
+                    "instrument": exposure_record.instrument,
+                    "visit": exposure_record.id,
+                    "detector": extra_detector,
+                },
+                universe=butler.dimensions,
+            )
+            butler.put(ExposureF(src), legacy_dt, extra_data_id)
 
-def _invoke_verify_rewrite(repo: str) -> Any:
+
+def _invoke_verify_rewrite(repo: str, *extra_args: str) -> Any:
     return CliRunner().invoke(
         main,
         [
@@ -291,12 +330,34 @@ def _invoke_verify_rewrite(repo: str) -> Any:
             "--no-check-kernel",
             "--no-check-templates",
             "--no-require-compressed",
+            *extra_args,
         ],
     )
 
 
-def test_verify_rewrite_end_to_end(tmp_path: Path, testdata_dir: str, reset_afw_mask_planes) -> None:  # noqa: F811
-    """Run verify-rewrite on a real difference image."""
+@pytest.mark.parametrize(
+    ("partial", "converted_only", "exit_code"),
+    [
+        (False, False, 0),
+        (False, True, 0),
+        (True, False, 1),
+        (True, True, 0),
+    ],
+)
+def test_verify_rewrite_end_to_end(
+    tmp_path: Path,
+    testdata_dir: str,
+    reset_afw_mask_planes,  # noqa: F811
+    partial: bool,
+    converted_only: bool,
+    exit_code: int,
+) -> None:
+    """Run verify-rewrite on a real difference image.
+
+    With ``partial`` the repo also holds a legacy-only dataset: the default
+    query rejects it on the count check, while ``--converted-only`` queries
+    the new datasets and processes just the converted data ID.
+    """
     try:
         import lsst.afw.image
         import lsst.daf.butler  # noqa: F401
@@ -305,9 +366,9 @@ def test_verify_rewrite_end_to_end(tmp_path: Path, testdata_dir: str, reset_afw_
 
     src = os.path.join(testdata_dir, "dp2", "legacy", "difference_image.fits")
     repo = str(tmp_path / "repo")
-    _make_dp2_rewrite_repo(repo, src)
-    result = _invoke_verify_rewrite(repo)
-    assert result.exit_code == 0, result.output
+    _make_dp2_rewrite_repo(repo, src, partial=partial)
+    result = _invoke_verify_rewrite(repo, *(["--converted-only"] if converted_only else []))
+    assert result.exit_code == exit_code, result.output
 
 
 def _make_dp2_coadd_rewrite_repo(repo: str, testdata_dir: str, *, tamper: bool = False) -> None:

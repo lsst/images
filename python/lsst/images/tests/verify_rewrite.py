@@ -121,6 +121,14 @@ def _spot_check_points(points: YX[np.ndarray], n: int, rng: random.Random) -> YX
 @click.option("--old-prefix", default="legacy_", help="Prefix for the old dataset type names.")
 @click.option("--new-prefix", default="", help="Prefix for the new dataset type names.")
 @click.option(
+    "--converted-only/--no-converted-only",
+    default=False,
+    help=(
+        "Query for the new datasets instead of the legacy ones, processing only "
+        "the data IDs that have already been converted."
+    ),
+)
+@click.option(
     "--require-compressed/--no-require-compressed",
     default=True,
     help="Check that the new data product is lossy-compressed.",
@@ -162,6 +170,7 @@ def verify_rewrite(
     require_compressed: bool,
     old_prefix: str,
     new_prefix: str,
+    converted_only: bool,
     check_kernel: bool,
     check_templates: bool,
     check_backgrounds: bool,
@@ -184,6 +193,7 @@ def verify_rewrite(
             dataset_type,
             old_prefix=old_prefix,
             new_prefix=new_prefix,
+            converted_only=converted_only,
             pixel_atol_factor=pixel_atol_factor,
             coadd_check_points=coadd_check_points,
         )
@@ -212,6 +222,7 @@ class RewriteVerifier:
         *,
         old_prefix: str,
         new_prefix: str,
+        converted_only: bool = False,
         pixel_atol_factor: float = 0.5,
         coadd_check_points: int = 4,
     ) -> None:
@@ -219,6 +230,7 @@ class RewriteVerifier:
         self.base_dataset_type = base_dataset_type
         self.old_prefix = old_prefix
         self.new_prefix = new_prefix
+        self.converted_only = converted_only
         self.pixel_atol_factor = pixel_atol_factor
         self.coadd_check_points = coadd_check_points
         self._progress: tqdm.tqdm | None = None
@@ -236,17 +248,31 @@ class RewriteVerifier:
         import tqdm
 
         old_dataset_type = self.butler.get_dataset_type(f"{self.old_prefix}{self.base_dataset_type}")
-        dimension_group = old_dataset_type.dimensions.union(self.butler.dimensions.conform(dimensions))
+        new_dataset_type = self.butler.get_dataset_type(f"{self.new_prefix}{self.base_dataset_type}")
+        queried_type = new_dataset_type if self.converted_only else old_dataset_type
+        dimension_group = queried_type.dimensions.union(self.butler.dimensions.conform(dimensions))
         visit_group = self.butler.dimensions["visit"].minimal_group
         with self.butler.query() as query:
             data_ids = list(
                 tqdm.tqdm(
-                    query.where(where).join_dataset_search(old_dataset_type.name).data_ids(dimension_group),
-                    desc=f"querying for {old_dataset_type.name}",
+                    query.where(where).join_dataset_search(queried_type.name).data_ids(dimension_group),
+                    desc=f"querying for {queried_type.name}",
                 )
             )
-            new_count = query.datasets(f"{self.new_prefix}{self.base_dataset_type}").where(where).count()
-            assert len(data_ids) == new_count, f"Count mismatch: new ({new_count}) != old ({len(data_ids)})."
+            if self.converted_only:
+                # Check the containment the other way: every queried dataset
+                # must have a legacy counterpart.  Legacy datasets without a
+                # converted counterpart are ignored.
+                if data_ids:
+                    old_count = query.join_data_coordinates(data_ids).datasets(old_dataset_type.name).count()
+                    assert old_count == len(data_ids), (
+                        f"Count mismatch: legacy ({old_count}) != new ({len(data_ids)})."
+                    )
+            else:
+                new_count = query.datasets(new_dataset_type.name).where(where).count()
+                assert len(data_ids) == new_count, (
+                    f"Count mismatch: new ({new_count}) != old ({len(data_ids)})."
+                )
             # Fetch the exposure dimension records for all of these data IDs
             # up front.  Assume there's only one instrument in play.  Coadd
             # (patch/band) data IDs have no visits, and nothing to fetch.
