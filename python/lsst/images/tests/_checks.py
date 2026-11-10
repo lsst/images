@@ -63,9 +63,11 @@ import astropy.units as u
 import astropy.wcs.wcsapi
 import numpy as np
 import pytest
+import shapely
+import shapely.geometry
 from astropy.coordinates import SkyCoord
 
-from .._geom import XY, YX, Bounds, Box, NoOverlapError
+from .._geom import XY, YX, Bounds, Box
 from .._image import Image
 from .._mask import (
     Mask,
@@ -75,6 +77,7 @@ from .._mask import (
 )
 from .._masked_image import MaskedImage
 from .._observation_summary_stats import ObservationSummaryStats
+from .._polygon import Region
 from .._transforms import DetectorFrame, Frame, SkyFrame, SkyProjection, TractFrame, Transform
 from .._visit_image import VisitImage
 from ..cameras import Amplifier, Detector, DetectorType, ReadoutCorner
@@ -1420,6 +1423,15 @@ def compare_cell_coadd_to_legacy_lazy(
                 compare_cell_coadd_provenance_to_legacy_lazy(provenance, legacy_exposure, cell_coadd.bounds)
 
 
+def _signed_boundary_distance(region: Region, point: XY[float]) -> float:
+    """Distance in pixels from a point to a region's boundary, negative
+    when the point is inside the region.
+    """
+    shape = shapely.geometry.shape(region.serialize().model_dump())
+    distance = float(shapely.distance(shape, shapely.Point(point.x, point.y)))
+    return -distance if region.contains(point) else distance
+
+
 def compare_cell_coadd_provenance_to_legacy_lazy(
     provenance: CoaddProvenance,
     legacy_exposure: Any,
@@ -1478,31 +1490,11 @@ def compare_cell_coadd_provenance_to_legacy_lazy(
     assert set(contributions_by_cell) <= set(bounds.cell_indices()), (
         "Contributions must be on non-missing cells."
     )
-    # Both libraries use pixel-center coordinates with whole-pixel polygon
-    # extents, so the converter's Polygon.from_box regions and the legacy
-    # subsetContaining footprints describe the same pixels.  Containment
-    # can still disagree for points grazing an input's projected edge:
-    # afw has no fixed convention for rounding half-integer pixel points
-    # (cell centers are always half-integer) and the converter tests
-    # against a WCS-transformed polygon rather than the on-sky footprint.
-    # Agreement is required only outside this band of each input's edge.
-    boundary_tolerance = 1.0
     polygons_by_key = {(row["visit"], row["detector"]): row["polygon"] for row in inputs}
     for cell, rows in contributions_by_cell.items():
         with annotate_errors(f"cell {cell}"):
             bbox = bounds.grid.bbox_of(cell)
             center = XY(x=bbox.x.center, y=bbox.y.center)
-
-            def covered(key: tuple[int, int], *, padding: float) -> bool:
-                """Whether the input's coverage of this cell contains the
-                cell center with its region padded by ``padding`` pixels.
-                """
-                try:
-                    region = polygons_by_key[key].intersection(bbox).dilated_by(padding)
-                except NoOverlapError:
-                    return False
-                return region.contains(center)
-
             overlapping = {
                 (row["visit"], row["ccd"])
                 for row in coadd_inputs.ccds.subsetContaining(
@@ -1510,28 +1502,31 @@ def compare_cell_coadd_provenance_to_legacy_lazy(
                 )
             }
             keys = {(row["visit"], row["detector"]) for row in rows}
-            missing = [
-                k for k in sorted(overlapping - keys) if covered(k, padding=boundary_tolerance) is False
-            ]
+
+            def with_edge_distances(
+                mismatched: set[tuple[int, int]],
+            ) -> list[tuple[tuple[int, int], float]]:
+                """Mismatching inputs paired with the cell center's signed
+                distance (pixels) to each input's projected edge, so a
+                sub-pixel disagreement (boundary grazing, containment-test
+                semantics) is distinguishable from a geometry error.
+                """
+                return [
+                    (k, _signed_boundary_distance(polygons_by_key[k], center)) for k in sorted(mismatched)
+                ]
+
+            missing = overlapping - keys
             assert not missing, (
-                f"Inputs overlapping a cell center must contribute to that cell: missing {missing}."
+                f"Inputs overlapping a cell center must contribute to that cell: "
+                f"missing {with_edge_distances(missing)}."
             )
             centered = {(row["visit"], row["detector"]) for row in rows if row["overlaps_center"]}
-            not_flagged = [
-                k for k in sorted(overlapping - centered) if covered(k, padding=boundary_tolerance) is False
-            ]
-            wrongly_flagged = [
-                k for k in sorted(centered - overlapping) if covered(k, padding=-boundary_tolerance)
-            ]
-            assert not wrongly_flagged, (
-                f"overlaps_center must not flag inputs that do not cover the cell center "
-                f"(disagreements within {boundary_tolerance} px of an input's projected "
-                f"edge are tolerated): {wrongly_flagged}."
-            )
-            assert not not_flagged, (
-                f"overlaps_center must flag every input covering the cell center "
-                f"(disagreements within {boundary_tolerance} px of an input's projected "
-                f"edge are tolerated): {not_flagged}."
+            assert centered == overlapping, (
+                f"overlaps_center must match which inputs cover the cell center: "
+                f"flagged but not covering {with_edge_distances(centered - overlapping)}, "
+                f"covering but not flagged {with_edge_distances(overlapping - centered)} "
+                f"(inputs paired with the cell center's distance to the input's "
+                f"projected edge in pixels, negative inside)."
             )
 
 
