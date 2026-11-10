@@ -1035,7 +1035,7 @@ def _check_cell_coadd_geometry(cell_coadd: CellCoadd, tract_bbox: Box) -> None:
     tract_bbox
         Bounding box of the full tract.
     """
-    # The outer bbox grows the patch by a half-cell ring so that cells at
+    # The outer bbox grows the patch by a one-cell ring so that cells at
     # the patch edge can be evaluated with neighboring inputs, so it
     # legitimately extends past the tract bbox for patches at the tract
     # edge.  The inner bbox tiles the tract.
@@ -1478,11 +1478,14 @@ def compare_cell_coadd_provenance_to_legacy_lazy(
     assert set(contributions_by_cell) <= set(bounds.cell_indices()), (
         "Contributions must be on non-missing cells."
     )
-    # Legacy ``subsetContaining`` tests full-corner footprints while the
-    # converter's ``Polygon.from_box`` regions treat bbox limits as pixel
-    # centers (a half-pixel inset), and transforming a boundary through a
-    # WCS adds a little chord error, so agreement is required only outside
-    # this band around each input's projected edge.
+    # Both libraries use pixel-center coordinates with whole-pixel polygon
+    # extents, so the converter's Polygon.from_box regions and the legacy
+    # subsetContaining footprints describe the same pixels.  Containment
+    # can still disagree for points grazing an input's projected edge:
+    # afw has no fixed convention for rounding half-integer pixel points
+    # (cell centers are always half-integer) and the converter tests
+    # against a WCS-transformed polygon rather than the on-sky footprint.
+    # Agreement is required only outside this band of each input's edge.
     boundary_tolerance = 1.0
     polygons_by_key = {(row["visit"], row["detector"]): row["polygon"] for row in inputs}
     for cell, rows in contributions_by_cell.items():

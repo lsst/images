@@ -396,8 +396,8 @@ def test_check_cell_coadd_geometry_allows_tract_edge_spill() -> None:
 
     from lsst.images.tests._checks import _check_cell_coadd_geometry
 
-    # Tract 4546 patch 50 of lsst_cells_v2: leftmost patch, so the half-cell
-    # outer ring reaches 150 px past the tract's x minimum.
+    # Tract 4546 patch 50 of lsst_cells_v2: leftmost patch, so the one-cell
+    # (150 px) outer ring reaches past the tract's x minimum.
     tract_bbox = Box.factory[0:30000, 0:30000]
     cell_coadd = SimpleNamespace(
         patch=SimpleNamespace(
