@@ -414,6 +414,70 @@ def test_check_cell_coadd_geometry_allows_tract_edge_spill() -> None:
         _check_cell_coadd_geometry(cell_coadd, tract_bbox)
 
 
+def test_compare_cell_coadd_provenance_tolerates_edge_grazing() -> None:
+    """Assert overlaps_center disagreements under the edge tolerance pass."""
+    pytest.importorskip("lsst.afw.geom")
+    from types import SimpleNamespace
+
+    from astropy.table import Table
+
+    from lsst.images import Polygon
+    from lsst.images.cells import CellGrid, CellGridBounds, CellIJ
+    from lsst.images.tests import compare_cell_coadd_provenance_to_legacy_lazy
+
+    grid = CellGrid(bbox=Box.factory[0:299, 0:299], cell_shape=YX(y=150, x=150))
+    bounds = CellGridBounds(grid=grid, bbox=Box.factory[0:299, 0:299], missing=frozenset())
+    cell_bbox = grid.bbox_of(CellIJ(0, 0))
+    cx, cy = cell_bbox.x.center, cell_bbox.y.center
+
+    def square(edge_x: float) -> Polygon:
+        """Region with its left edge at ``edge_x``, over the center."""
+        return Polygon(
+            x_vertices=[edge_x, edge_x, edge_x + 20, edge_x + 20],
+            y_vertices=[cy - 10, cy + 10, cy + 10, cy - 10],
+        )
+
+    def invoke(*, region: Polygon, flagged: bool, covering: bool) -> None:
+        """One input, one contribution to cell (0, 0); the fake ccds table
+        decides coverage independently of the stored polygon.
+        """
+        inputs = Table(
+            rows=[(1, 1, "LSSTCam", "r_57", region)],
+            names=["visit", "detector", "instrument", "physical_filter", "polygon"],
+        )
+        contributions = Table(
+            rows=[(0, 0, 1, 1, flagged, 0.5, 1.0)],
+            names=["cell_i", "cell_j", "visit", "detector", "overlaps_center", "overlap_fraction", "weight"],
+        )
+        ccds_table = Table(rows=[(1, 1, "r_57", 1.0)], names=["visit", "ccd", "filter", "weight"])
+
+        class _FakeCcds:
+            def __iter__(self):
+                return iter(ccds_table)
+
+            def subsetContaining(self, point, wcs, includeValidPolygon=True):
+                return ccds_table if covering else ccds_table[[]]
+
+        exposure = SimpleNamespace(
+            info=SimpleNamespace(getCoaddInputs=lambda: SimpleNamespace(ccds=_FakeCcds())),
+            getWcs=lambda: None,
+        )
+        provenance = SimpleNamespace(inputs=inputs, contributions=contributions)
+        compare_cell_coadd_provenance_to_legacy_lazy(provenance, exposure, bounds)
+
+    # Flag off, legacy covering, center 0.05 px outside the stored edge.
+    invoke(region=square(cx + 0.05), flagged=False, covering=True)
+    # Flag on, legacy not covering, center 0.05 px inside the stored edge.
+    invoke(region=square(cx - 0.05), flagged=True, covering=False)
+    # Flag on, legacy not covering, center exactly on the stored edge.
+    invoke(region=square(cx), flagged=True, covering=False)
+    # A half-pixel off-center disagreement is beyond boundary noise.
+    with pytest.raises(AssertionError, match="must flag every input"):
+        invoke(region=square(cx + 0.5), flagged=False, covering=True)
+    with pytest.raises(AssertionError, match="must not flag"):
+        invoke(region=square(cx - 0.5), flagged=True, covering=False)
+
+
 def test_assert_masks_equal_notes_plane_diff() -> None:
     """Assert that a mask mismatch adds a per-plane +/- note."""
     schema = MaskSchema([MaskPlane("A", "dA")], dtype=np.uint8)

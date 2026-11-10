@@ -113,6 +113,15 @@ _AST_RTOL = 1e-9
 # (e.g. RA/Dec ~ 0), where a relative tolerance provides no error floor.
 _AST_SKY_ATOL = 1e-7 * u.deg
 
+# Distance (pixels) from an input's projected edge within which legacy and
+# new containment tests may disagree about a cell center: the new side tests
+# a straight-chord transform of the detector boundary while the legacy side
+# tests the on-sky footprint, and half-integer cell centers landing on that
+# boundary hit each library's (loosely specified) boundary rounding.  DP2
+# production runs show disagreements up to ~0.07 px; this cuts that off with
+# margin while staying far below the resolution of anything downstream.
+_COVERAGE_EDGE_TOLERANCE = 0.1
+
 
 class _BaseCmpArg(ABC):
     """A helper base clas for `assert_values_equal` whose subclasses represent
@@ -1427,8 +1436,10 @@ def _signed_boundary_distance(region: Region, point: XY[float]) -> float:
     """Distance in pixels from a point to a region's boundary, negative
     when the point is inside the region.
     """
+    # shapely.distance between a polygon and an interior point is 0 (the
+    # geometries intersect), so measure against the boundary ring.
     shape = shapely.geometry.shape(region.serialize().model_dump())
-    distance = float(shapely.distance(shape, shapely.Point(point.x, point.y)))
+    distance = float(shapely.distance(shapely.boundary(shape), shapely.Point(point.x, point.y)))
     return -distance if region.contains(point) else distance
 
 
@@ -1503,30 +1514,39 @@ def compare_cell_coadd_provenance_to_legacy_lazy(
             }
             keys = {(row["visit"], row["detector"]) for row in rows}
 
-            def with_edge_distances(
-                mismatched: set[tuple[int, int]],
-            ) -> list[tuple[tuple[int, int], float]]:
-                """Mismatching inputs paired with the cell center's signed
-                distance (pixels) to each input's projected edge, so a
-                sub-pixel disagreement (boundary grazing, containment-test
-                semantics) is distinguishable from a geometry error.
+            def unexplained(mismatched: set[tuple[int, int]]) -> list[tuple[tuple[int, int], float]]:
+                """Mismatching inputs the cell's edge geometry cannot excuse:
+                each with the cell center's signed distance (pixels) to the
+                input's projected edge, which exceeds
+                `_COVERAGE_EDGE_TOLERANCE` in absolute value.
                 """
-                return [
-                    (k, _signed_boundary_distance(polygons_by_key[k], center)) for k in sorted(mismatched)
-                ]
+                result = []
+                for k in sorted(mismatched):
+                    distance = _signed_boundary_distance(polygons_by_key[k], center)
+                    if abs(distance) >= _COVERAGE_EDGE_TOLERANCE:
+                        result.append(((int(k[0]), int(k[1])), distance))
+                return result
 
-            missing = overlapping - keys
+            distances_note = (
+                "(inputs paired with the cell center's distance to the input's projected edge "
+                "in pixels, negative inside; disagreements under "
+                f"{_COVERAGE_EDGE_TOLERANCE} px are boundary noise and pass)"
+            )
+            missing = unexplained(overlapping - keys)
             assert not missing, (
                 f"Inputs overlapping a cell center must contribute to that cell: "
-                f"missing {with_edge_distances(missing)}."
+                f"missing {missing} {distances_note}."
             )
             centered = {(row["visit"], row["detector"]) for row in rows if row["overlaps_center"]}
-            assert centered == overlapping, (
-                f"overlaps_center must match which inputs cover the cell center: "
-                f"flagged but not covering {with_edge_distances(centered - overlapping)}, "
-                f"covering but not flagged {with_edge_distances(overlapping - centered)} "
-                f"(inputs paired with the cell center's distance to the input's "
-                f"projected edge in pixels, negative inside)."
+            wrongly_flagged = unexplained(centered - overlapping)
+            assert not wrongly_flagged, (
+                f"overlaps_center must not flag inputs that do not cover the cell center: "
+                f"{wrongly_flagged} {distances_note}."
+            )
+            not_flagged = unexplained(overlapping - centered)
+            assert not not_flagged, (
+                f"overlaps_center must flag every input covering the cell center: "
+                f"{not_flagged} {distances_note}."
             )
 
 
