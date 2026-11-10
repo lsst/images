@@ -449,7 +449,14 @@ def annotate_errors(note: str) -> Generator[None]:
     try:
         yield
     except Exception as err:
-        err.add_note(note)
+        # Prepend rather than append: a note added by a nested block must
+        # read after this block's name, keeping the joined path outer-to-
+        # inner.
+        notes = getattr(err, "__notes__", None)
+        if notes is None:
+            err.add_note(note)
+        else:
+            notes.insert(0, note)
         raise
 
 
@@ -1321,48 +1328,58 @@ def compare_cell_coadd_to_legacy_lazy(
     _check_cell_coadd_geometry(cell_coadd, tract_bbox)
     assert cell_coadd.sky_projection is cell_coadd.mask.sky_projection
     assert cell_coadd.sky_projection is cell_coadd.variance.sky_projection
-    compare_sky_projection_to_legacy_wcs(
-        cell_coadd.sky_projection,
-        legacy_exposure.getWcs(),
-        TractFrame(skymap=skymap, tract=tract, bbox=tract_bbox),
-        cell_coadd.bbox,
-        is_fits=True,
-    )
+    with annotate_errors("sky_projection"):
+        compare_sky_projection_to_legacy_wcs(
+            cell_coadd.sky_projection,
+            legacy_exposure.getWcs(),
+            TractFrame(skymap=skymap, tract=tract, bbox=tract_bbox),
+            cell_coadd.bbox,
+            is_fits=True,
+        )
     if psf_points is None:
         psf_points = cell_center_points(cell_coadd.bounds)
-    n_psf_points = compare_psf_to_legacy(
-        cell_coadd.psf, legacy_exposure.getPsf(), points=psf_points, rtol=1e-5
-    )
-    assert n_psf_points > 0, "The legacy PSF could not be evaluated at any of the PSF comparison points."
-    compare_aperture_corrections_to_legacy(
-        cell_coadd.aperture_corrections,
-        legacy_exposure.info.getApCorrMap(),
-        cell_coadd.bbox,
-        eval_points=psf_points,
-        expect_subset_bounds=True,
-    )
-    compare_cell_coadd_provenance_to_legacy_lazy(cell_coadd.provenance, legacy_exposure, cell_coadd.bounds)
+    with annotate_errors("psf"):
+        n_psf_points = compare_psf_to_legacy(
+            cell_coadd.psf, legacy_exposure.getPsf(), points=psf_points, rtol=1e-5
+        )
+        assert n_psf_points > 0, "The legacy PSF could not be evaluated at any of the PSF comparison points."
+    with annotate_errors("aperture_corrections"):
+        compare_aperture_corrections_to_legacy(
+            cell_coadd.aperture_corrections,
+            legacy_exposure.info.getApCorrMap(),
+            cell_coadd.bbox,
+            eval_points=psf_points,
+            expect_subset_bounds=True,
+        )
+    with annotate_errors("provenance"):
+        compare_cell_coadd_provenance_to_legacy_lazy(
+            cell_coadd.provenance, legacy_exposure, cell_coadd.bounds
+        )
     if alternates:
         if sky_projection := alternates.get("sky_projection"):
-            compare_sky_projection_to_legacy_wcs(
-                sky_projection,
-                legacy_exposure.getWcs(),
-                TractFrame(skymap=skymap, tract=tract, bbox=tract_bbox),
-                cell_coadd.bbox,
-                is_fits=True,
-            )
+            with annotate_errors("sky_projection"):
+                compare_sky_projection_to_legacy_wcs(
+                    sky_projection,
+                    legacy_exposure.getWcs(),
+                    TractFrame(skymap=skymap, tract=tract, bbox=tract_bbox),
+                    cell_coadd.bbox,
+                    is_fits=True,
+                )
         if psf := alternates.get("psf"):
-            assert compare_psf_to_legacy(psf, legacy_exposure.getPsf(), points=psf_points, rtol=1e-5) > 0
+            with annotate_errors("psf"):
+                assert compare_psf_to_legacy(psf, legacy_exposure.getPsf(), points=psf_points, rtol=1e-5) > 0
         if aperture_corrections := alternates.get("aperture_corrections"):
-            compare_aperture_corrections_to_legacy(
-                aperture_corrections,
-                legacy_exposure.info.getApCorrMap(),
-                cell_coadd.bbox,
-                eval_points=psf_points,
-                expect_subset_bounds=True,
-            )
+            with annotate_errors("aperture_corrections"):
+                compare_aperture_corrections_to_legacy(
+                    aperture_corrections,
+                    legacy_exposure.info.getApCorrMap(),
+                    cell_coadd.bbox,
+                    eval_points=psf_points,
+                    expect_subset_bounds=True,
+                )
         if provenance := alternates.get("provenance"):
-            compare_cell_coadd_provenance_to_legacy_lazy(provenance, legacy_exposure, cell_coadd.bounds)
+            with annotate_errors("provenance"):
+                compare_cell_coadd_provenance_to_legacy_lazy(provenance, legacy_exposure, cell_coadd.bounds)
 
 
 def compare_cell_coadd_provenance_to_legacy_lazy(
@@ -1410,30 +1427,39 @@ def compare_cell_coadd_provenance_to_legacy_lazy(
         contributions_by_input.setdefault(key, []).append(row)
         contributions_by_cell.setdefault(CellIJ(i=row["cell_i"], j=row["cell_j"]), []).append(row)
     for key, rows in contributions_by_input.items():
-        assert rows, f"Input (visit={key[0]}, detector={key[1]}) must contribute somewhere."
-        assert_values_equal(
-            np.array([row["weight"] for row in rows]),
-            np.full(len(rows), legacy_by_key[key]["weight"]),
-            rtol=1e-12,
-            label="contributions[weight]",
-        )
+        with annotate_errors(f"input (visit={key[0]}, detector={key[1]})"):
+            assert rows, f"Input (visit={key[0]}, detector={key[1]}) must contribute somewhere."
+            assert_values_equal(
+                np.array([row["weight"] for row in rows]),
+                np.full(len(rows), legacy_by_key[key]["weight"]),
+                rtol=1e-12,
+                label="contributions[weight]",
+            )
     overlap = np.asarray(provenance.contributions["overlap_fraction"], dtype=np.float64)
     assert np.all((overlap > 0.0) & (overlap <= 1.0)), "Overlap fractions must be valid cell fractions."
     assert set(contributions_by_cell) <= set(bounds.cell_indices()), (
         "Contributions must be on non-missing cells."
     )
     for cell, rows in contributions_by_cell.items():
-        bbox = bounds.grid.bbox_of(cell)
-        overlapping = {
-            (row["visit"], row["ccd"])
-            for row in coadd_inputs.ccds.subsetContaining(
-                bbox.center.to_legacy_float_point(), wcs, includeValidPolygon=True
+        with annotate_errors(f"cell {cell}"):
+            bbox = bounds.grid.bbox_of(cell)
+            overlapping = {
+                (row["visit"], row["ccd"])
+                for row in coadd_inputs.ccds.subsetContaining(
+                    bbox.center.to_legacy_float_point(), wcs, includeValidPolygon=True
+                )
+            }
+            keys = {(row["visit"], row["detector"]) for row in rows}
+            assert overlapping <= keys, (
+                f"Inputs overlapping a cell center must contribute to that cell: "
+                f"missing {sorted(overlapping - keys)}."
             )
-        }
-        keys = {(row["visit"], row["detector"]) for row in rows}
-        assert overlapping <= keys, "Inputs overlapping a cell center must contribute to that cell."
-        centered = {(row["visit"], row["detector"]) for row in rows if row["overlaps_center"]}
-        assert centered == overlapping, "overlaps_center must match which inputs cover the cell center."
+            centered = {(row["visit"], row["detector"]) for row in rows if row["overlaps_center"]}
+            assert centered == overlapping, (
+                f"overlaps_center must match which inputs cover the cell center: "
+                f"flagged but not covering {sorted(centered - overlapping)}, "
+                f"covering but not flagged {sorted(overlapping - centered)}."
+            )
 
 
 def compare_psf_to_legacy(
@@ -1569,16 +1595,21 @@ def compare_field_to_legacy(
         if not isinstance(field.bounds, Box):
             mask = field.bounds.contains(x=pixel_xy.x, y=pixel_xy.y)
             pixel_xy = pixel_xy.map(lambda v: v[mask])
+    new_values = field(x=pixel_xy.x, y=pixel_xy.y)
+    legacy_values = legacy_field.evaluate(pixel_xy.x, pixel_xy.y)
     try:
         assert_values_equal(
-            field(x=pixel_xy.x, y=pixel_xy.y),
-            legacy_field.evaluate(pixel_xy.x, pixel_xy.y),
+            new_values,
+            legacy_values,
             # The field coefficients come from a numerical fit, so this can
             # be bigger than just round-off error epsilon.
             rtol=rtol,
         )
     except AssertionError as err:
-        err.add_note(f"evaluated at {pixel_xy}")
+        note = f"evaluated at {pixel_xy}"
+        if np.size(new_values) <= 64:
+            note += f"; new={np.asarray(new_values).tolist()} legacy={np.asarray(legacy_values).tolist()}"
+        err.add_note(note)
         raise
     if not isinstance(legacy_field, LegacyBoundedField):
         # Legacy StitchedApertureCorrection objects are not true BoundedFields
@@ -1626,14 +1657,15 @@ def compare_aperture_corrections_to_legacy(
     """
     assert aperture_corrections.keys() == set(legacy_ap_corr_map.keys())
     for name, field in aperture_corrections.items():
-        compare_field_to_legacy(
-            field,
-            legacy_ap_corr_map[name],
-            subimage_bbox,
-            eval_points=eval_points,
-            expect_subset_bounds=expect_subset_bounds,
-            rtol=rtol,
-        )
+        with annotate_errors(name):
+            compare_field_to_legacy(
+                field,
+                legacy_ap_corr_map[name],
+                subimage_bbox,
+                eval_points=eval_points,
+                expect_subset_bounds=expect_subset_bounds,
+                rtol=rtol,
+            )
 
 
 def compare_observation_summary_stats_to_legacy(

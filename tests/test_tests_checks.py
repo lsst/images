@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 from astropy.coordinates import SkyCoord
 
-from lsst.images import Box, Mask, MaskPlane, MaskSchema
+from lsst.images import YX, Box, Mask, MaskPlane, MaskSchema
 from lsst.images.tests import annotate_errors, assert_masks_equal, assert_values_equal
 
 
@@ -293,6 +293,39 @@ def test_label_assertions_passthrough_on_success():
     """Assert a passing block is not re-raised."""
     with annotate_errors("psf"):
         pass  # must not raise
+
+
+def test_annotate_errors_nested_reads_outer_to_inner():
+    """Assert nested annotation notes are ordered outer-to-inner."""
+    with pytest.raises(AssertionError) as exc_info:
+        with annotate_errors("aperture_corrections"), annotate_errors("base_PsfFlux_instFlux"):
+            raise AssertionError("inner")
+    assert exc_info.value.__notes__ == ["aperture_corrections", "base_PsfFlux_instFlux"]
+
+
+def test_compare_field_to_legacy_notes_operand_values() -> None:
+    """Assert a field-value mismatch at few points notes both operands."""
+    pytest.importorskip("lsst.afw.geom")
+    from lsst.images.fields import ChebyshevField
+    from lsst.images.tests import compare_field_to_legacy
+
+    class _FakeLegacyField:
+        def __init__(self, bbox: Box) -> None:
+            self._bbox = bbox
+
+        def getBBox(self):
+            return self._bbox.to_legacy()
+
+        def evaluate(self, x, y):
+            return np.zeros_like(np.asarray(x, dtype=np.float64))
+
+    bbox = Box.factory[0:10, 0:10]
+    field = ChebyshevField(bbox, np.array([[5.0]]))
+    points = YX(y=np.array([5.0, 6.0]), x=np.array([5.0, 6.0]))
+    with pytest.raises(AssertionError) as exc_info:
+        compare_field_to_legacy(field, _FakeLegacyField(bbox), bbox, eval_points=points)
+    notes = exc_info.value.__notes__ or []
+    assert any("new=[5.0, 5.0]" in n and "legacy=[0.0, 0.0]" in n for n in notes)
 
 
 def test_assert_masks_equal_notes_plane_diff() -> None:
