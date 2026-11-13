@@ -390,46 +390,6 @@ def _check_one(fixture: SchemaFixture) -> list[str]:
     return problems
 
 
-def _check_as_shipped_pairs(fixtures: list[SchemaFixture]) -> list[str]:
-    """Return the problems found in as_shipped / canonical fixture pairs.
-
-    A retired fixture is excluded from both directions: it is checked only
-    for being rejected, and (being retired) it no longer validates, so
-    running it through `read_fixture_tree` here would always fail.
-    """
-    problems: list[str] = []
-    twins = {(f.name, f.version): f for f in fixtures if f.is_canonical_twin and not f.retired}
-    for shipped in fixtures:
-        if shipped.retired or not shipped.is_as_shipped or shipped.tree_cls is None:
-            continue
-        key = (shipped.name, shipped.version)
-        twin = twins.get(key)
-        expected = _fixture_filename(shipped.name, shipped.version, _CANONICAL_VARIANT)
-        if twin is None:
-            problems.append(shipped.problem(f"canonical twin {expected} is missing"))
-            continue
-        try:
-            text = canonical_fixture_text(read_fixture_tree(shipped))
-        except Exception as exc:
-            problems.append(shipped.problem(f"cannot be canonicalized: {exc}"))
-            continue
-        if twin.path.read_text() != text:
-            problems.append(
-                twin.problem(
-                    "does not match the canonical read of its as_shipped sibling; "
-                    "how a shipped file is read has changed, which is a compatibility "
-                    "change and not a fixture to refresh",
-                )
-            )
-    for twin in fixtures:
-        if twin.retired or not twin.is_canonical_twin:
-            continue
-        sibling = twin.path.with_name(_fixture_filename(twin.name, twin.version, _AS_SHIPPED_VARIANT))
-        if not sibling.exists():
-            problems.append(twin.problem(f"has no as_shipped sibling {sibling.name}"))
-    return problems
-
-
 def check_schema_fixtures(
     directory: Path,
     *,
@@ -464,16 +424,15 @@ def check_schema_fixtures(
     Notes
     -----
     A ``retired`` fixture is checked only for being rejected; it cannot be
-    validated, so the canonical and pairing checks do not apply to it.  An
-    ``as_shipped`` fixture is exempt from the canonical check, and its
-    ``canonical`` twin carries the stronger pairwise check in its place.
+    validated, so the canonical check does not apply to it.  An ``as_shipped``
+    fixture is exempt from the canonical check: its bytes are preserved as
+    shipped, so only acceptance is asserted for it.
     """
     exempt = frozenset(exempt)
     fixtures = list(iter_schema_fixtures(directory))
     problems: list[str] = []
     for fixture in fixtures:
         problems.extend(_check_one(fixture))
-    problems.extend(_check_as_shipped_pairs(fixtures))
     live: set[tuple[str, str]] = set()
     scope: set[str] = set()
     for tree_cls in available_schema_classes(package):
@@ -576,8 +535,8 @@ def refresh_schema_fixtures(directory: Path, *, package: str = "lsst.images") ->
 
     Canonical twins are regenerated from their ``as_shipped`` siblings only
     while their schema version is in development.  At a finalized version the
-    twin pins how shipped bytes normalize on read, so changing or creating it
-    is a reviewed, manual operation rather than something ``refresh`` may do.
+    twin is a historical artifact, so changing or creating it is a reviewed,
+    manual operation rather than something ``refresh`` may do.
     A retired ``as_shipped`` fixture is excluded, since it no longer validates
     and has no twin to regenerate.
 
@@ -637,7 +596,7 @@ def refresh_schema_fixtures(directory: Path, *, package: str = "lsst.images") ->
             if not shipped.version.endswith(".dev"):
                 raise SchemaFixtureError(
                     f"{twin.name} is at a finalized version and would change; "
-                    "how shipped bytes normalize is a compatibility contract, so bump "
+                    "finalized fixtures are historical artifacts, so bump "
                     "SCHEMA_VERSION rather than refreshing this twin."
                 )
             twin.write_text(text)

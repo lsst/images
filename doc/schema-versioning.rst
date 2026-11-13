@@ -353,7 +353,7 @@ That check cannot police the payload itself: it compares a fixture against what 
 For a version older than the current one that check cannot apply at all, since one model class serves every version and re-serializing always emits the current shape; instead the older fixture's read is compared against the current-version fixture on every path the older file actually expresses, with later-born fields ignored.
 When a migration renames or restructures a path, that version pair must be listed in the test's explicit expected-divergence mapping with a reason, and the migration's dedicated test must assert the transformed value directly.
 This makes every place where the generic projection oracle cannot apply a reviewed declaration rather than a silent omission.
-What pins the actual payload data is, instead, the ``as_shipped``/``canonical`` pairwise check described below, the cross-version projection check just described, and git history; none of those three is satisfied by a value that merely happens to round-trip.
+What pins the actual payload data is, instead, the cross-version projection check just described, the ``as_shipped`` fixtures — bytes a real writer produced that must keep validating under every later model — and git history; none of those is satisfied by a value that merely happens to round-trip.
 
 Variants
 --------
@@ -391,10 +391,11 @@ The report measures reach, not judgement — a path counted as expressed only pr
 Reserved variants
 -----------------
 
-Two variant names are reserved, and they come as a pair.
-``as_shipped`` marks a fixture whose bytes are preserved exactly as a real shipped file produced them; it is never canonicalized or rewritten.
-``canonical`` is its generated twin, and comparing the two pins how a shipped file is normalized on read.
-``fixtures refresh`` may regenerate that twin only while its version is in development; at a finalized version a mismatch is a compatibility failure that requires a schema-version bump, not an artifact the command may overwrite.
+Two variant names are reserved.
+``as_shipped`` marks a fixture whose bytes are preserved exactly as a real shipped file produced them; it is never canonicalized or rewritten, and the machinery asserts only that it still validates under the current models.
+How those bytes deserialize is the business of targeted tests rather than fixture comparison: a file written by an older writer normalizes the way the current code says it does, and pinning the older normalization byte for byte would make every read-behavior decision a fixture rewrite.
+``canonical`` is the same tree as its ``as_shipped`` sibling's canonical read; ``fixtures refresh`` generates and regenerates it only while the version is in development, and refuses to overwrite it at a finalized version, where it stands as a historical artifact.
+Superseded pairs stay committed and stay acceptance-checked forever, without a byte contract against the current code.
 
 ``cell_coadd`` 1.0.0 is the only schema that is both finalized and shipped, and it shipped before validated schema management existed, so shipped files spell an XY pair as ``[4, 4]`` where the code now writes ``{"y": 4, "x": 4}``.
 Both spellings must keep reading, and the ``as_shipped`` fixture is what records that requirement.

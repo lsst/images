@@ -190,14 +190,13 @@ def test_fixture_is_canonical(fixture: SchemaFixture) -> None:
     """Verify a same-version fixture round-trips byte for byte.
 
     An as_shipped fixture is exempt: re-serializing would rewrite the shipped
-    spelling it exists to preserve, and its canonical twin carries the
-    pairwise check instead.
+    spelling it exists to preserve.
     """
     assert fixture.tree_cls is not None, f"{fixture.name} is not registered"
     if fixture.is_as_shipped:
         pytest.skip("as_shipped fixtures preserve real bytes and are not canonicalized")
     if fixture.version != fixture_version(fixture.tree_cls.SCHEMA_VERSION):
-        pytest.skip("older retained version; covered by the projection check")
+        pytest.skip("older retained version; the byte contract applies only to the live version")
     assert fixture.path.read_text() == canonical_fixture_text(read_fixture_tree(fixture))
 
 
@@ -281,11 +280,19 @@ yet.
 
 
 def _older_fixtures() -> list[SchemaFixture]:
-    """Return every retained fixture at less than its schema's live version."""
+    """Return every retained fixture at less than its schema's live version.
+
+    Reserved-variant fixtures (``as_shipped`` and its ``canonical`` twin) are
+    excluded: they pin the bytes of one shipped artifact rather than
+    advancing an exemplar lineage, and a superseded pair has no same-variant
+    successor at the live version to project onto.
+    """
     return [
         f
         for f in _READABLE
-        if f.tree_cls is not None and f.version != fixture_version(f.tree_cls.SCHEMA_VERSION)
+        if f.tree_cls is not None
+        and f.version != fixture_version(f.tree_cls.SCHEMA_VERSION)
+        and not (f.is_as_shipped or f.is_canonical_twin)
     ]
 
 

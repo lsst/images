@@ -388,9 +388,15 @@ def test_check_reports_an_unexpected_retired_read_exception(
     assert any("unexpected RuntimeError: reader bug" in problem for problem in problems)
 
 
-def test_check_binds_the_as_shipped_pair(tmp_path: Path) -> None:
-    """Verify an as_shipped fixture needs a twin matching its canonical
-    read.
+def test_check_does_not_pair_reserved_variants(tmp_path: Path) -> None:
+    """Verify reserved-variant fixtures carry no pair requirement.
+
+    An ``as_shipped`` fixture needs no ``canonical`` twin, and a twin needs no
+    ``as_shipped`` sibling.  Each reserved-variant fixture is checked for
+    acceptance (and canonical form, for a twin at the live version) on its
+    own, so a superseded pair can stay committed after a version bump without
+    a byte contract against the current code — one no bump can satisfy, since
+    every read re-stamps to the live version.
     """
     directory = tmp_path / "fixture_machinery_frozen"
     _write(
@@ -405,21 +411,12 @@ def test_check_binds_the_as_shipped_pair(tmp_path: Path) -> None:
         json.dumps(shipped, indent=2) + "\n",
     )
     exempt = _SIBLING_SCHEMAS
-    problems = check_schema_fixtures(tmp_path, package=_FrozenDouble.__module__, exempt=exempt)
-    assert any("canonical" in p and "missing" in p for p in problems)
+    assert check_schema_fixtures(tmp_path, package=_FrozenDouble.__module__, exempt=exempt) == []
 
     _write(
         directory,
         "fixture_machinery_frozen-1.2.3-canonical.json",
-        canonical_fixture_text(_FrozenDouble(label="something else")),
-    )
-    problems = check_schema_fixtures(tmp_path, package=_FrozenDouble.__module__, exempt=exempt)
-    assert any("does not match" in p for p in problems)
-
-    _write(
-        directory,
-        "fixture_machinery_frozen-1.2.3-canonical.json",
-        canonical_fixture_text(_FrozenDouble(label="shipped")),
+        canonical_fixture_text(_FrozenDouble(label="twin-without-shipped")),
     )
     assert check_schema_fixtures(tmp_path, package=_FrozenDouble.__module__, exempt=exempt) == []
 
@@ -490,53 +487,16 @@ def test_check_does_not_flag_a_retired_fixture_as_unfrozen(tmp_path: Path) -> No
     assert problems == []
 
 
-def test_check_does_not_canonicalize_a_retired_as_shipped_fixture(tmp_path: Path) -> None:
-    """Verify a retired as_shipped fixture is not run through
-    canonicalization.
-
-    A retired fixture no longer validates by design, so passing it to
-    `_check_as_shipped_pairs` would always fail to canonicalize; that
-    pairing check must skip retired fixtures just as the single-fixture
-    check does.
-    """
-    directory = tmp_path / "fixture_machinery_frozen"
-    _write(
-        directory,
-        "fixture_machinery_frozen-1.2.3.json",
-        canonical_fixture_text(_FrozenDouble()),
-    )
-    retired = json.loads(canonical_fixture_text(_FrozenDouble()))
-    retired["schema_version"] = "1.0.0"
-    retired["schema_url"] = "https://images.lsst.io/schemas/fixture_machinery_frozen-1.0.0"
-    retired["min_read_version"] = 999
-    # Both halves of the retired pair, so the bug being guarded against
-    # (reaching read_fixture_tree(shipped) instead of short-circuiting on a
-    # missing twin) is exercised precisely.
-    _write(
-        directory / "retired",
-        "fixture_machinery_frozen-1.0.0-as_shipped.json",
-        json.dumps(retired, indent=2) + "\n",
-    )
-    _write(
-        directory / "retired",
-        "fixture_machinery_frozen-1.0.0-canonical.json",
-        json.dumps(retired, indent=2) + "\n",
-    )
-    problems = check_schema_fixtures(tmp_path, package=_FrozenDouble.__module__, exempt=_SIBLING_SCHEMAS)
-    assert problems == []
-
-
 def test_check_reports_a_non_retired_as_shipped_fixture_that_fails_to_validate(
     tmp_path: Path,
 ) -> None:
     """Verify a non-retired as_shipped fixture that fails to validate is
     reported rather than raising.
 
-    `_check_as_shipped_pairs` reads each as_shipped fixture through its live
-    model to canonicalize it for comparison against its twin; unlike a
-    retired fixture, this one is expected to validate, so a failure here is
-    a genuine defect that must be reported, not an exception that escapes
-    `check_schema_fixtures`.
+    Reserved variants carry no pair requirement, but acceptance still does:
+    ``as_shipped`` bytes must keep validating under the live models, and a
+    fixture that no longer does is a genuine defect the check reports rather
+    than an exception that escapes `check_schema_fixtures`.
     """
     directory = tmp_path / "fixture_machinery_strict"
     tree = json.loads(canonical_fixture_text(_StrictDouble(required="x")))
@@ -546,13 +506,8 @@ def test_check_reports_a_non_retired_as_shipped_fixture_that_fails_to_validate(
         "fixture_machinery_strict-1.0.0-as_shipped.json",
         json.dumps(tree, indent=2) + "\n",
     )
-    _write(
-        directory,
-        "fixture_machinery_strict-1.0.0-canonical.json",
-        canonical_fixture_text(_StrictDouble(required="x")),
-    )
     problems = check_schema_fixtures(tmp_path, package=_StrictDouble.__module__)
-    assert any("cannot be canonicalized" in p for p in problems)
+    assert any("does not validate" in p for p in problems)
 
 
 def test_check_reports_a_validation_failure_without_raising(tmp_path: Path) -> None:
@@ -714,7 +669,7 @@ def test_refresh_seeds_from_a_frozen_release_over_a_stale_dev_residual(tmp_path:
 
 
 def test_refresh_refuses_to_change_a_canonical_twin_at_a_frozen_version(tmp_path: Path) -> None:
-    """Verify refresh cannot erase a shipped-file compatibility failure."""
+    """Verify refresh cannot overwrite a finalized twin's historical bytes."""
     directory = tmp_path / "fixture_machinery_frozen"
     _write(
         directory,
@@ -732,7 +687,7 @@ def test_refresh_refuses_to_change_a_canonical_twin_at_a_frozen_version(tmp_path
         canonical_fixture_text(_FrozenDouble(label="new normalization")),
     )
     before = twin.read_text()
-    with pytest.raises(SchemaFixtureError, match="compatibility contract"):
+    with pytest.raises(SchemaFixtureError, match="historical artifacts"):
         refresh_schema_fixtures(tmp_path, package=_FrozenDouble.__module__)
     assert twin.read_text() == before
 
