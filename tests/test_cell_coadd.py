@@ -30,6 +30,7 @@ from lsst.images.cells import (
     CellGrid,
     CellGridBounds,
     CellIJ,
+    CellPointSpreadFunction,
     CellPointSpreadFunctionSerializationModel,
     CoaddProvenance,
     PatchDefinition,
@@ -37,7 +38,9 @@ from lsst.images.cells import (
 from lsst.images.describe import DescribeOptions, Report
 from lsst.images.fields import ChebyshevField
 from lsst.images.fits import FitsCompressionOptions
+from lsst.images.json import JsonInputArchive
 from lsst.images.serialization import (
+    ArchiveReadError,
     JsonRef,
     class_for_schema,
     parameterize_tree,
@@ -80,6 +83,7 @@ except ImportError:
 
 EXTERNAL_DATA_DIR = os.environ.get("TESTDATA_IMAGES_DIR", None)
 FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
+COMPAT_DIR = Path(__file__).parent / "data" / "compat"
 
 skip_no_h5py = pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed")
 skip_no_legacy = pytest.mark.skipif(not HAVE_LEGACY, reason="lsst.afw (etc) could not be imported.")
@@ -152,7 +156,7 @@ def legacy_test_data(reset_afw_mask_planes: None) -> _LegacyTestData:  # noqa: F
 @pytest.fixture
 def minified_cell_coadd() -> CellCoadd:
     """Return a tiny CellCoadd from JSON data stored in this package."""
-    path = current_fixture_path(FIXTURE_DIR, "cell_coadd", variant="as_shipped")
+    path = current_fixture_path(FIXTURE_DIR, "cell_coadd")
     return read_archive(path, CellCoadd)
 
 
@@ -478,6 +482,300 @@ def test_cell_shape_accepts_both_spellings() -> None:
     assert isinstance(tree, CellPointSpreadFunctionSerializationModel)
     assert tree.bounds.grid.cell_shape.y == 4
     assert tree.bounds.grid.cell_shape.x == 4
+
+
+_PSF_GRID = CellGrid(bbox=Box.from_shape((20, 20)), cell_shape=YX(4, 4))
+"""A grid with a cell of slack around the ``cell_psf`` fixture's bounds, which
+is where a border cell missing from the PSF can sit."""
+
+_PSF_CORE_BBOX = Box.factory[8:16, 8:16]
+"""The canonical (`CellGridBounds` standard) bounds of the fixture's array."""
+
+
+def _box_dict(box: Box) -> dict[str, dict[str, int]]:
+    """Return the serialized spelling of a `Box`."""
+    return {"y": {"start": box.y.start, "stop": box.y.stop}, "x": {"start": box.x.start, "stop": box.x.stop}}
+
+
+def _pre_standardization_psf_payload(raw_bbox: Box, missing: frozenset[CellIJ]) -> dict[str, Any]:
+    """Return the committed ``cell_psf`` payload spelled the way archives were
+    written before `CellGridBounds` became canonical: the bbox as the writer's
+    caller gave it, so still covering the missing border cells, and an array
+    indexed by that bbox with NaN in the slots those cells occupy.
+
+    Parameters
+    ----------
+    raw_bbox
+        As-stored bounds bbox, wider than `_PSF_CORE_BBOX` on the sides where
+        cells are missing.
+    missing
+        Cells of ``raw_bbox``'s subgrid that have no data.
+    """
+    payload = json.loads(current_fixture_path(FIXTURE_DIR, "cell_psf").read_text())
+    core = CellGridBounds(grid=_PSF_GRID, bbox=raw_bbox, missing=frozenset(missing))
+    assert core.bbox == _PSF_CORE_BBOX, "Test bounds must canonicalize to the fixture's own."
+    data = np.array(payload["array"]["data"])
+    stored_start = _PSF_GRID.index_of(y=raw_bbox.y.start, x=raw_bbox.x.start)
+    stored_size = _PSF_GRID.index_of(y=raw_bbox.y.stop, x=raw_bbox.x.stop) - stored_start
+    stored = np.full(stored_size.as_tuple() + data.shape[2:], np.nan)
+    start = core.subgrid_start - stored_start
+    stored[start.i : start.i + data.shape[0], start.j : start.j + data.shape[1]] = data
+    payload["array"]["data"] = stored.tolist()
+    payload["bounds"] = {
+        "grid": json.loads(_PSF_GRID.model_dump_json()),
+        "bbox": _box_dict(raw_bbox),
+        "missing": [{"i": c.i, "j": c.j} for c in sorted(missing)],
+    }
+    return payload
+
+
+_PRE_STANDARDIZATION_CASES = [
+    pytest.param(Box.factory[4:16, 8:16], [(1, 2), (1, 3)], id="missing-low-y-row"),
+    pytest.param(Box.factory[8:20, 8:16], [(4, 2), (4, 3)], id="missing-high-y-row"),
+    pytest.param(Box.factory[8:16, 4:16], [(2, 1), (3, 1)], id="missing-low-x-column"),
+    pytest.param(Box.factory[8:16, 8:20], [(2, 4), (3, 4)], id="missing-high-x-column"),
+    pytest.param(
+        Box.factory[4:16, 8:20],
+        [(1, 2), (1, 3), (1, 4), (2, 4), (3, 4)],
+        id="missing-low-y-row-and-high-x-column",
+    ),
+]
+
+
+@pytest.mark.parametrize(("raw_bbox", "missing"), _PRE_STANDARDIZATION_CASES)
+def test_cell_psf_read_trims_pre_standardization_bbox(
+    tmp_path: Path, raw_bbox: Box, missing: list[tuple[int, int]]
+) -> None:
+    """Verify pre-standardization ``cell_psf`` archives still read, and read
+    as the same PSF their canonical equivalent does.
+
+    Such a file indexes its array by a bbox that covers cells with no data;
+    reading it must canonicalize the bounds and take the array's cells from
+    matching slots, on both sides of the subgrid.
+    """
+    missing_cells = frozenset(CellIJ(i=i, j=j) for i, j in missing)
+    truth = CellPointSpreadFunction(
+        np.array(json.loads(current_fixture_path(FIXTURE_DIR, "cell_psf").read_text())["array"]["data"]),
+        CellGridBounds(grid=_PSF_GRID, bbox=raw_bbox, missing=missing_cells),
+    )
+    path = tmp_path / "cell_psf.json"
+    path.write_text(json.dumps(_pre_standardization_psf_payload(raw_bbox, missing_cells)))
+    psf = read_archive(path, CellPointSpreadFunction)
+    assert psf.bounds == truth.bounds
+    assert np.array_equal(psf._array, truth._array)
+
+    # A read of part of the PSF addresses the stored array from the same
+    # offset, landing on the cells the requested box covers.
+    subset = read_archive(path, CellPointSpreadFunction, bbox=Box.factory[12:16, 12:16])
+    assert subset.bounds.bbox == Box.factory[12:16, 12:16]
+    assert np.array_equal(subset._array, truth._array[1:2, 1:2])
+
+
+def test_cell_psf_read_slices_the_stored_array(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify the trim of a pre-standardization array happens as an array
+    slice, and that a canonical archive is still read whole.
+    """
+    calls: list[object] = []
+    archive = JsonInputArchive()
+    read_array = archive.get_array
+
+    def spy(model: Any, *, slices: Any = ..., **kwargs: Any) -> np.ndarray:
+        calls.append(slices)
+        return read_array(model, slices=slices, **kwargs)
+
+    monkeypatch.setattr(archive, "get_array", spy)
+    missing = frozenset({CellIJ(i=1, j=2), CellIJ(i=1, j=3)})
+    payload = _pre_standardization_psf_payload(Box.factory[4:16, 8:16], missing)
+    CellPointSpreadFunctionSerializationModel.model_validate(payload).deserialize(archive)
+    canonical = json.loads(json.dumps(payload))
+    canonical["array"]["data"] = np.array(payload["array"]["data"])[1:, :2].tolist()
+    canonical["bounds"]["bbox"] = _box_dict(_PSF_CORE_BBOX)
+    canonical["bounds"]["missing"] = []
+    CellPointSpreadFunctionSerializationModel.model_validate(canonical).deserialize(archive)
+    assert calls == [(slice(1, 3), slice(0, 2)), ...]
+
+
+def test_cell_psf_read_rejects_array_inconsistent_with_stored_bbox(tmp_path: Path) -> None:
+    """An array whose size does not match the bbox it is indexed by is a
+    corrupt file, not a canonicalization the reader may guess at.
+    """
+    payload = _pre_standardization_psf_payload(
+        Box.factory[4:16, 8:16], frozenset({CellIJ(i=1, j=2), CellIJ(i=1, j=3)})
+    )
+    payload["bounds"]["missing"] = []
+    payload["bounds"]["bbox"] = _box_dict(_PSF_CORE_BBOX)
+    path = tmp_path / "cell_psf.json"
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ArchiveReadError, match="inconsistent with"):
+        read_archive(path, CellPointSpreadFunction)
+
+
+def test_cell_psf_pre_standardization_bbox_is_a_read_detail() -> None:
+    """The bbox a pre-standardization file stores guides the array read and
+    nothing else: the serialized form carries the canonical bounds, and both
+    validation paths — the JSON one is what `read_archive` takes — capture it
+    the same way.
+    """
+    payload = _pre_standardization_psf_payload(
+        Box.factory[8:16, 4:16], frozenset({CellIJ(i=2, j=1), CellIJ(i=3, j=1)})
+    )
+    assert json.loads(CellPointSpreadFunctionSerializationModel.model_validate(payload).model_dump_json())[
+        "bounds"
+    ]["bbox"] == _box_dict(_PSF_CORE_BBOX)
+    psfs = [
+        tree.deserialize(JsonInputArchive())
+        for tree in (
+            CellPointSpreadFunctionSerializationModel.model_validate(payload),
+            CellPointSpreadFunctionSerializationModel.model_validate_json(json.dumps(payload)),
+        )
+    ]
+    assert psfs[0].bounds == psfs[1].bounds == CellGridBounds(grid=_PSF_GRID, bbox=_PSF_CORE_BBOX)
+    assert np.array_equal(psfs[0]._array, psfs[1]._array)
+
+
+_PRE_STANDARDIZATION_COADDS: dict[str, dict[str, Any]] = {
+    "high-x": {
+        "bbox": Box.factory[48:60, 36:54],
+        "strip": Box.factory[48:60, 48:54],
+        "ap_bbox": Box.factory[42:66, 30:54],
+        "ap_missing": {(8, 8), (9, 8)},
+    },
+    "high-y": {
+        "bbox": Box.factory[48:66, 36:48],
+        "strip": Box.factory[60:66, 36:48],
+        "ap_bbox": Box.factory[42:66, 30:48],
+        "ap_missing": {(10, 6), (10, 7)},
+    },
+    "low-x": {
+        "bbox": Box.factory[48:60, 30:48],
+        "strip": Box.factory[48:60, 30:36],
+        "ap_bbox": Box.factory[42:66, 30:48],
+        "ap_missing": {(8, 5), (9, 5)},
+    },
+    "low-y": {
+        "bbox": Box.factory[42:60, 36:48],
+        "strip": Box.factory[42:48, 36:48],
+        "ap_bbox": Box.factory[42:66, 30:48],
+        "ap_missing": {(7, 6), (7, 7)},
+    },
+}
+"""The pre-standardization coadd fixtures, by the side of the grown image that
+has no data: the grown image bbox, the cell-wide strip added to it, and the
+aperture-correction bounds that follow the growth."""
+
+
+def _slices_within(bbox: Box, part: Box) -> tuple[slice, slice]:
+    """Return the array slices of ``part`` within an array over ``bbox``."""
+    return (
+        slice(part.y.start - bbox.y.start, part.y.stop - bbox.y.start),
+        slice(part.x.start - bbox.x.start, part.x.stop - bbox.x.start),
+    )
+
+
+def _cells_in(grid: CellGrid, bbox: Box) -> set[CellIJ]:
+    """Return the cells of ``grid`` that ``bbox`` covers."""
+    start = grid.index_of(y=bbox.y.start, x=bbox.x.start)
+    stop = grid.index_of(y=bbox.y.stop, x=bbox.x.stop)
+    return {CellIJ(i=i, j=j) for i in range(start.i, stop.i) for j in range(start.j, stop.j)}
+
+
+@pytest.mark.parametrize("side", sorted(_PRE_STANDARDIZATION_COADDS))
+def test_cell_coadd_read_pre_standardization_border(side: str, minified_cell_coadd: CellCoadd) -> None:
+    """Verify that a coadd written before `CellGridBounds` became canonical
+    reads with canonical bounds while keeping the pixels it really has.
+
+    Each fixture under ``tests/data/compat`` was written by the code just
+    before the standardization (``eb8d302^``) from the as_shipped coadd
+    fixture, whose pixel components it grows by one cell on one side.  The
+    added cell is filled as the fixture's own missing cell is (zero image,
+    infinite variance, NO_DATA alone in the mask, zero mask fractions and
+    noise), the PSF bounds name the grown bbox with that cell missing, and the
+    aperture corrections mark every cell the coadd lacks as missing too.  The
+    file therefore indexes its PSF array by a bbox wider than the cells that
+    have data, and reading it must shrink the bounds without shrinking the
+    image.
+    """
+    spec = _PRE_STANDARDIZATION_COADDS[side]
+    path = COMPAT_DIR / f"cell_coadd-psf-border-missing-{side}.json"
+    coadd = read_archive(path, CellCoadd)
+    truth = minified_cell_coadd
+    assert coadd.bbox == spec["bbox"], "the border cell is part of the image the file describes"
+    assert coadd.bounds == truth.bounds
+    assert coadd.psf.bounds == truth.psf.bounds
+    assert np.array_equal(coadd.psf._array, truth.psf._array, equal_nan=True)
+
+    grown = _slices_within(coadd.bbox, truth.bbox)
+    assert np.array_equal(coadd.image.array[grown], truth.image.array)
+    assert np.array_equal(coadd.variance.array[grown], truth.variance.array)
+    assert np.array_equal(coadd.mask.array[grown], truth.mask.array)
+    assert coadd.mask_fractions.keys() == truth.mask_fractions.keys()
+    for name, fractions in coadd.mask_fractions.items():
+        assert np.array_equal(fractions.array[grown], truth.mask_fractions[name].array)
+    for noise, was in zip(coadd.noise_realizations, truth.noise_realizations):
+        assert np.array_equal(noise.array[grown], was.array)
+
+    border = _slices_within(coadd.bbox, spec["strip"])
+    assert np.all(coadd.image.array[border] == 0)
+    assert np.all(np.isinf(coadd.variance.array[border]))
+    assert coadd.mask.get("NO_DATA")[border].all()
+    other_planes = [name for name in coadd.mask.schema.names if name != "NO_DATA"]
+    assert not any(coadd.mask.get(name)[border].any() for name in other_planes)
+    for fractions in coadd.mask_fractions.values():
+        assert np.all(fractions.array[border] == 0)
+    for noise in coadd.noise_realizations:
+        assert np.all(noise.array[border] == 0)
+
+    assert coadd.patch == truth.patch
+    assert coadd.sky_projection == truth.sky_projection
+
+    # A read confined to the cells that have data recovers the shipped PSF.
+    subset = read_archive(path, CellCoadd, bbox=truth.bbox)
+    assert subset.bbox == truth.bbox
+    assert subset.bounds == truth.bounds
+    assert np.array_equal(subset.psf._array, truth.psf._array, equal_nan=True)
+
+
+@pytest.mark.parametrize("side", sorted(_PRE_STANDARDIZATION_COADDS))
+def test_cell_coadd_read_aperture_corrections_of_pre_standardization_border(
+    side: str, minified_cell_coadd: CellCoadd
+) -> None:
+    """Verify that a pre-standardization coadd's aperture corrections stay a
+    map over cells as their written bounds shrink.
+
+    The corrections follow the grown image: their bounds cover the added border
+    cell and mark it missing, since a cell whose pixels have no data cannot
+    have a matched aperture correction, and every cell they do claim a value
+    for has one.
+    """
+    spec = _PRE_STANDARDIZATION_COADDS[side]
+    path = COMPAT_DIR / f"cell_coadd-psf-border-missing-{side}.json"
+    coadd = read_archive(path, CellCoadd)
+    truth = minified_cell_coadd
+    no_data = coadd.mask.get("NO_DATA")
+    for name, was in truth.aperture_corrections.items():
+        field = coadd.aperture_corrections[name]
+        assert field.bounds.bbox == spec["ap_bbox"]
+        assert field.bounds.missing == was.bounds.missing | {CellIJ(i=i, j=j) for i, j in spec["ap_missing"]}
+        assert all(np.isfinite(field.value_in_cell(cell)) for cell in field.bounds.cell_indices())
+        shared = set(was.bounds.cell_indices()) & set(field.bounds.cell_indices())
+        assert all(field.value_in_cell(cell) == was.value_in_cell(cell) for cell in shared)
+        for cell in _cells_in(coadd.grid, coadd.bbox.intersection(field.bounds.bbox)):
+            cell_pixels = no_data[_slices_within(coadd.bbox, coadd.grid.bbox_of(cell))]
+            if cell_pixels.all():
+                assert cell in field.bounds.missing, f"{name} corrects cell {cell}, which has no data"
+
+
+@pytest.mark.parametrize("side", sorted(_PRE_STANDARDIZATION_COADDS))
+def test_cell_coadd_read_pre_standardization_border_only_fails(side: str) -> None:
+    """A bbox read that lands entirely on border cells with no data has no
+    cells to read, and is rejected.
+    """
+    with pytest.raises(ValueError, match="does not contain"):
+        read_archive(
+            COMPAT_DIR / f"cell_coadd-psf-border-missing-{side}.json",
+            CellCoadd,
+            bbox=_PRE_STANDARDIZATION_COADDS[side]["strip"],
+        )
 
 
 def test_cell_grid_bounds_cannot_be_empty() -> None:

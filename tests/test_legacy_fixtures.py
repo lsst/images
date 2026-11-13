@@ -38,6 +38,10 @@ from lsst.images.tests import current_fixture_path
 
 FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
 
+# An as_shipped fixture keeps the version its bytes were written at, so the
+# shipped coadd is named here rather than resolved through the live schema.
+SHIPPED_CELL_COADD = FIXTURE_DIR / "cell_coadd" / "cell_coadd-1.0.0-as_shipped.json"
+
 try:
     import piff  # noqa: F401
 
@@ -51,7 +55,7 @@ def test_cell_coadd() -> None:
 
     Also verifies it can be subset down to a single cell.
     """
-    path = current_fixture_path(FIXTURE_DIR, "cell_coadd", variant="as_shipped")
+    path = SHIPPED_CELL_COADD
     assert path.exists(), f"{path} is a committed fixture and must not go missing"
 
     coadd = read_archive(path, CellCoadd)

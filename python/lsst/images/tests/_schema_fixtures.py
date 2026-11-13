@@ -537,6 +537,9 @@ def refresh_schema_fixtures(directory: Path, *, package: str = "lsst.images") ->
     while their schema version is in development.  At a finalized version the
     twin is a historical artifact, so changing or creating it is a reviewed,
     manual operation rather than something ``refresh`` may do.
+    Only the live version's pair is considered at all: a read restamps to the
+    live schema version, so a superseded twin can never match the canonical
+    dump of its sibling's bytes, and both files stand as artifacts.
     A retired ``as_shipped`` fixture is excluded, since it no longer validates
     and has no twin to regenerate.
 
@@ -588,6 +591,12 @@ def refresh_schema_fixtures(directory: Path, *, package: str = "lsst.images") ->
                     )
         for shipped in fixtures:
             if shipped.name != name or shipped.retired or not shipped.is_as_shipped:
+                continue
+            if shipped.version != live_version:
+                # A superseded pair has no byte contract with the current code:
+                # a read restamps to the live schema version, so its twin can
+                # never match the canonical dump of the shipped bytes once the
+                # schema has moved on.  Both files stand as artifacts.
                 continue
             twin = shipped.path.with_name(_fixture_filename(name, shipped.version, _CANONICAL_VARIANT))
             text = canonical_fixture_text(read_fixture_tree(shipped))

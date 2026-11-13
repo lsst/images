@@ -692,6 +692,34 @@ def test_refresh_refuses_to_change_a_canonical_twin_at_a_frozen_version(tmp_path
     assert twin.read_text() == before
 
 
+def test_refresh_leaves_a_superseded_canonical_twin_alone(tmp_path: Path) -> None:
+    """Verify refresh does not ask a superseded pair to match the current code.
+
+    A read restamps to the live schema version, so once a schema has moved on,
+    no twin can match the canonical dump of its sibling's shipped bytes.  Both
+    files stand as artifacts of the version they were written for.
+    """
+    directory = tmp_path / "fixture_machinery_frozen"
+    _write(directory, "fixture_machinery_frozen-1.2.3.json", canonical_fixture_text(_FrozenDouble()))
+    shipped = json.loads(canonical_fixture_text(_FrozenDouble(label="shipped")))
+    shipped["schema_version"] = "1.0.0"
+    shipped_path = _write(
+        directory,
+        "fixture_machinery_frozen-1.0.0-as_shipped.json",
+        json.dumps(shipped, indent=2) + "\n",
+    )
+    twin = json.loads(canonical_fixture_text(_FrozenDouble(label="a normalization that has since passed")))
+    twin["schema_version"] = "1.0.0"
+    twin_path = _write(
+        directory,
+        "fixture_machinery_frozen-1.0.0-canonical.json",
+        json.dumps(twin, indent=2) + "\n",
+    )
+    before = (shipped_path.read_text(), twin_path.read_text())
+    assert refresh_schema_fixtures(tmp_path, package=_FrozenDouble.__module__) == []
+    assert (shipped_path.read_text(), twin_path.read_text()) == before
+
+
 def test_refresh_regenerates_a_development_canonical_twin(tmp_path: Path) -> None:
     """Verify a development twin remains derived refreshable data."""
     directory = tmp_path / "fixture_machinery_dev"

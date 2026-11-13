@@ -49,6 +49,7 @@ EXPECTED_TYPES: dict[tuple[str, str | None], str] = {
     ("background_map", None): "lsst.images.BackgroundMap",
     ("camera_frame_set", None): "lsst.images.cameras.CameraFrameSet",
     ("cell_aperture_correction_map", None): "dict",
+    ("cell_coadd", None): "lsst.images.cells.CellCoadd",
     ("cell_coadd", "as_shipped"): "lsst.images.cells.CellCoadd",
     ("cell_coadd", "canonical"): "lsst.images.cells.CellCoadd",
     ("cell_psf", None): "lsst.images.cells.CellPointSpreadFunction",
@@ -166,14 +167,25 @@ def test_expected_types_enumerates_every_committed_fixture_variant() -> None:
 
 @pytest.mark.parametrize("entry", _SWEEP_ENTRIES)
 def test_fixture_sweep(entry: tuple[str, str | None]) -> None:
-    """Verify every schema fixture reads to its pinned Python type."""
+    """Verify every schema fixture reads to its pinned Python type.
+
+    Fixtures are found by name and variant rather than at the live schema
+    version, so a variant that survives only at a superseded version — a
+    shipped file's preserved bytes, say — is swept at the version it actually
+    has instead of being reported missing.
+    """
     name, variant = entry
     if name == "piff_psf" and not PIFF_AVAILABLE:
         pytest.skip("piff not available")
-    path = current_fixture_path(FIXTURE_DIR, name, variant=variant)
-    assert path.exists(), f"{path} is a committed fixture and must not go missing"
-    result = read_archive(path)
-    assert get_full_type_name(type(result)) == EXPECTED_TYPES[entry], entry
+    paths = [
+        fixture.path
+        for fixture in iter_schema_fixtures(FIXTURE_DIR)
+        if not fixture.retired and fixture.name == name and fixture.variant == variant
+    ]
+    assert paths, f"{name} ({variant}) has no committed fixture and must not go missing"
+    for path in paths:
+        result = read_archive(path)
+        assert get_full_type_name(type(result)) == EXPECTED_TYPES[entry], path.name
 
 
 def _make_image() -> Image:

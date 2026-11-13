@@ -355,7 +355,7 @@ class CellApertureCorrectionMapSerializationModel(ArchiveTree):
     """
 
     SCHEMA_NAME: ClassVar[str] = "cell_aperture_correction_map"
-    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    SCHEMA_VERSION: ClassVar[str] = "1.1.0"
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = dict
 

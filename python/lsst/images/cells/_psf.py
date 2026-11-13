@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("CellPointSpreadFunction", "CellPointSpreadFunctionSerializationModel")
 
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self, overload
 
 import numpy as np
 import pydantic
@@ -24,6 +24,7 @@ from .._geom import XY, YX, Bounds, BoundsError, Box, Interval
 from .._image import Image
 from ..psfs import PointSpreadFunction
 from ..serialization import (
+    ArchiveReadError,
     ArchiveTree,
     ArrayReferenceModel,
     InlineArrayModel,
@@ -287,7 +288,7 @@ class CellPointSpreadFunctionSerializationModel(ArchiveTree):
     """Model used to serialize CellPointSpreadFunction objects."""
 
     SCHEMA_NAME: ClassVar[str] = "cell_psf"
-    SCHEMA_VERSION: ClassVar[str] = "1.0.0"
+    SCHEMA_VERSION: ClassVar[str] = "1.1.0"
     MIN_READ_VERSION: ClassVar[int] = 1
     PUBLIC_TYPE: ClassVar[type] = CellPointSpreadFunction
 
@@ -304,6 +305,28 @@ class CellPointSpreadFunctionSerializationModel(ArchiveTree):
         )
     )
 
+    # CellGridBounds validation shrinks the bbox to the hull of the cells that
+    # are not missing; archives written before it did so store the wider bbox
+    # beside an array indexed by it.  The stored bbox is kept here, as a pure
+    # function of the payload so that equal trees still compare equal, and
+    # deserialize uses it to find the canonical subgrid inside that array.
+    # A tree built without validation leaves this None: nothing to trim.
+    _stored_bbox: Box | None = pydantic.PrivateAttr(default=None)
+
+    @pydantic.model_validator(mode="wrap")
+    @classmethod
+    def _capture_stored_bbox(cls, value: Any, handler: Any) -> Self:
+        tree = handler(value)
+        if isinstance(value, dict):
+            bounds_data = value.get("bounds")
+            if isinstance(bounds_data, dict):
+                tree._stored_bbox = Box._validate(bounds_data["bbox"])
+            elif isinstance(bounds_data, CellGridBounds):
+                tree._stored_bbox = bounds_data.bbox
+        elif isinstance(value, CellPointSpreadFunctionSerializationModel):
+            tree._stored_bbox = value.bounds.bbox
+        return tree
+
     def deserialize(
         self, archive: InputArchive[Any], *, bbox: Box | None = None, **kwargs: Any
     ) -> CellPointSpreadFunction:
@@ -312,9 +335,27 @@ class CellPointSpreadFunctionSerializationModel(ArchiveTree):
                 f"Unrecognized parameters for CellPointSpreadFunction: {set(kwargs.keys())}."
             )
         bounds = self.bounds
+        stored_bbox = self._stored_bbox if self._stored_bbox is not None else bounds.bbox
+        # Both index ranges come from CellGrid.index_of, so their difference
+        # locates the canonical subgrid within the array the stored bbox
+        # indexes.
+        stored_start = bounds.grid.index_of(y=stored_bbox.y.start, x=stored_bbox.x.start)
+        stored_size = bounds.grid.index_of(y=stored_bbox.y.stop, x=stored_bbox.x.stop) - stored_start
+        if tuple(self.array.shape[:2]) != stored_size.as_tuple():
+            raise ArchiveReadError(
+                f"Array shape {tuple(self.array.shape[:2])} is inconsistent with the "
+                f"{stored_size.as_tuple()} cells of the stored bbox {stored_bbox}."
+            )
         if bbox is not None:
-            bounds, slices = CellPointSpreadFunction._subset_impl(bounds, bbox)
-            array = archive.get_array(self.array, slices=slices)
-        else:
+            bounds, _ = CellPointSpreadFunction._subset_impl(bounds, bbox)
+        start = bounds.subgrid_start - stored_start
+        stop = bounds.subgrid_stop - stored_start
+        # Current-form archives ask for the array as a whole, and stay on the
+        # unslliced read path.
+        if start.i == 0 and start.j == 0 and stop == stored_size:
             array = archive.get_array(self.array)
+        else:
+            array = archive.get_array(
+                self.array, slices=YX(y=slice(start.i, stop.i), x=slice(start.j, stop.j))
+            )
         return CellPointSpreadFunction(array, bounds)

@@ -11,7 +11,9 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -26,6 +28,8 @@ from lsst.images.cells import (
     CellIJ,
 )
 from lsst.images.json import JsonInputArchive, JsonOutputArchive
+from lsst.images.serialization import read_archive
+from lsst.images.tests import current_fixture_path
 
 try:
     from lsst.cell_coadds import StitchedApertureCorrection as LegacyStitchedApertureCorrection
@@ -46,6 +50,14 @@ GRID = CellGrid(bbox=Box.from_shape((30, 30)), cell_shape=YX(10, 10))
 BASE_BOUNDS = CellGridBounds(grid=GRID, bbox=Box.factory[0:30, 0:30])
 CELL_X = CellIJ(i=0, j=0)
 CELL_Y = CellIJ(i=1, j=1)
+
+FIXTURE_DIR = Path(__file__).parent / "data" / "schemas"
+COMPAT_DIR = Path(__file__).parent / "data" / "compat"
+
+# One name of the pre-standardization map has no value for this cell, while
+# the others do.
+_BORDER_MISSING_NAME = "ext_convolved_ConvolvedFlux_2_3_3_instFlux"
+_BORDER_MISSING_CELL = CellIJ(i=10, j=7)
 
 
 def _make_field(missing: frozenset[CellIJ]) -> CellField:
@@ -202,3 +214,68 @@ def test_serialize_without_any_usable_name_is_none() -> None:
     """
     assert CellApertureCorrectionMapSerializationModel.serialize({}, JsonOutputArchive()) is None
     assert CellApertureCorrectionMapSerializationModel.serialize({"A": None}, JsonOutputArchive()) is None
+
+
+def test_read_pre_standardization_missing_border_column() -> None:
+    """Test that an aperture-correction map written before `CellGridBounds`
+    became canonical reads as the map it describes.
+
+    The fixture under ``tests/data/compat`` was written by the code just
+    before the standardization (``eb8d302^``) from the fixture of its own
+    schema.  Its region reaches one cell further in +x than that fixture's, as
+    a matched aperture correction covers the coadd it was stitched from rather
+    than the smaller coadd stored with it, and the column at its low-x edge has
+    no value for any name.  The old code stored that region as given; the
+    current code shrinks a bbox to the cells that have values.  The one name
+    that lacks a value the others have keeps that difference in its NaN cells
+    rather than in the shared bounds.
+
+    Because the table holds one row per cell with a value, shrinking the bbox
+    moves nothing: an aperture-correction map needs no special handling on read
+    the way a PSF, whose array is indexed by its bbox, does.
+    """
+    path = COMPAT_DIR / "cell_aperture_correction_map-border-missing-column.json"
+    stored = json.loads(path.read_text())
+    assert stored["bounds"]["bbox"] == {
+        "y": {"start": 42, "stop": 66},
+        "x": {"start": 30, "stop": 54},
+    }, "the fixture must still name the wider region the old code wrote"
+    stored_missing = {CellIJ(i=cell["i"], j=cell["j"]) for cell in stored["bounds"]["missing"]}
+    assert {CellIJ(i=i, j=5) for i in range(7, 11)} <= stored_missing, (
+        "the fixture must lack a whole column, which is what the shrink removes"
+    )
+
+    corrections = read_archive(path)
+    truth = read_archive(current_fixture_path(FIXTURE_DIR, "cell_aperture_correction_map"))
+    assert corrections.keys() == truth.keys()
+    for name, field in corrections.items():
+        was = truth[name]
+        assert field.bounds.bbox == Box.factory[42:66, 36:54]
+        expected_missing = set(was.bounds.missing)
+        if name == _BORDER_MISSING_NAME:
+            expected_missing.add(_BORDER_MISSING_CELL)
+        assert field.bounds.missing == frozenset(expected_missing)
+        assert all(np.isfinite(field.value_in_cell(cell)) for cell in field.bounds.cell_indices())
+        shared = set(was.bounds.cell_indices()) & set(field.bounds.cell_indices())
+        assert shared
+        assert all(field.value_in_cell(cell) == was.value_in_cell(cell) for cell in shared)
+        for cell in field.bounds.missing:
+            with pytest.raises(BoundsError):
+                field.value_in_cell(cell)
+
+    # The shared bounds do not know about the one name's missing cell, so the
+    # value the other names have for it survives in the table.
+    others = corrections["modelfit_CModel_initial_instFlux"]
+    assert _BORDER_MISSING_CELL not in others.bounds.missing
+    assert np.isfinite(others.value_in_cell(_BORDER_MISSING_CELL))
+
+    # Reading the file lands on the form the current code writes, so reading
+    # what we just wrote back changes nothing.
+    _, again = _roundtrip(corrections)
+    for name, field in corrections.items():
+        assert again[name] is not None
+        assert again[name].bounds == field.bounds
+        assert all(
+            again[name].value_in_cell(cell) == field.value_in_cell(cell)
+            for cell in field.bounds.cell_indices()
+        )
