@@ -98,7 +98,8 @@ class CellCoadd(MaskedImage):
         that cell as well (i.e. there is a PSF for a cell if and only if
         there is image data for that cell).
     aperture_corrections
-        Aperture corrections for different photometry algorithms.
+        Aperture corrections for different photometry algorithms.  A name that
+        maps to `None` has no usable value in any cell.
     patch
         Identifiers and geometry of the full patch, if the image is confined
         to a single patch.  When present, the cell grid of the PSF and
@@ -122,7 +123,7 @@ class CellCoadd(MaskedImage):
         sky_projection: SkyProjection[TractFrame] | None = None,
         band: str | None = None,
         psf: CellPointSpreadFunction,
-        aperture_corrections: Mapping[str, CellField] | None = None,
+        aperture_corrections: Mapping[str, CellField | None] | None = None,
         patch: PatchDefinition | None = None,
         provenance: CoaddProvenance | None = None,
         backgrounds: BackgroundMap | None = None,
@@ -148,7 +149,7 @@ class CellCoadd(MaskedImage):
         self._psf = psf
         self._aperture_corrections = dict(aperture_corrections) if aperture_corrections is not None else {}
         for ap_corr_name, ap_corr_field in self._aperture_corrections.items():
-            if ap_corr_field.bounds.grid != self.grid:
+            if ap_corr_field is not None and ap_corr_field.bounds.grid != self.grid:
                 raise ValueError(
                     f"Grids for cell PSF and {ap_corr_name} aperture corrections are not consistent."
                 )
@@ -217,9 +218,10 @@ class CellCoadd(MaskedImage):
         return self._psf
 
     @property
-    def aperture_corrections(self) -> Mapping[str, CellField]:
+    def aperture_corrections(self) -> Mapping[str, CellField | None]:
         """Aperture corrections for different photometry algorithms
-        (`dict` [`str`, `CellField`]).
+        (`dict` [`str`, `CellField` | `None`]).  A name that maps to `None`
+        has no usable value in any cell.
         """
         return self._aperture_corrections
 
@@ -595,8 +597,6 @@ class CellCoadd(MaskedImage):
             plane_map = get_legacy_deep_coadd_mask_planes()
         if self.unit != astropy.units.nJy:
             raise ValueError("CellCoadd.to_legacy requires nJy pixel units.")
-        if self.bbox != self.bounds.bbox:
-            raise ValueError("MultipleCellCoadd requires its bounding box to lie on the cell grid.")
         legacy_grid = self.grid.to_legacy()
         visit_polygons = self.provenance.to_legacy_polygon_map()
         legacy_common = LegacyCommonComponents(
@@ -615,6 +615,11 @@ class CellCoadd(MaskedImage):
         cells: list[LegacySingleCellCoadd] = []
         for cell_index in self.bounds.cell_indices():
             cell_bbox = self.grid.bbox_of(cell_index)
+            if not self.bbox.contains(cell_bbox):
+                raise ValueError(
+                    f"MultipleCellCoadd requires full cells; cell {cell_index} "
+                    f"with bbox {cell_bbox} is not within {self.bbox}."
+                )
             # Legacy type only has room for one mask_fractions plane.
             legacy_mask_fractions = (
                 next(iter(self.mask_fractions.values()))[cell_bbox].to_legacy(copy=copy)
@@ -631,7 +636,7 @@ class CellCoadd(MaskedImage):
             legacy_aperture_correction_map = frozendict(
                 {
                     name: field.value_in_cell(cell_index)
-                    if cell_index not in field.bounds.missing
+                    if field is not None and cell_index not in field.bounds.missing
                     else np.nan
                     for name, field in self.aperture_corrections.items()
                 }

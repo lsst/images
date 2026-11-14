@@ -193,7 +193,12 @@ class CoaddProvenance(DescribableMixin):
             # No inputs to derive either, and astropy.table.join rejects an
             # empty operand outright.
             return None
-        inputs = astropy.table.join(contributions["instrument", "visit", "detector"], self._inputs)
+        # We need to pass 'keys' below to avoid duplicate outputs coming from
+        # the same observation appearing in multiple cells.
+        inputs = astropy.table.unique(
+            astropy.table.join(contributions["instrument", "visit", "detector"], self._inputs),
+            keys=["instrument", "visit", "detector"],  # pass keys explicitly to avoid duplicates
+        )
         assert inputs.columns.keys() == {name for name, _, _ in self._INPUT_TABLE_COLUMNS}
         return CoaddProvenance(inputs=inputs, contributions=contributions)
 

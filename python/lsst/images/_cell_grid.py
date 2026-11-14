@@ -100,6 +100,17 @@ class CellIJ:
         """Convert to an (i, j) `tuple`."""
         return (self.i, self.j)
 
+    def within_subgrid_array(self, bounds: CellGridBounds) -> tuple[int, int]:
+        """Return the indices of this cell within an array sized to a
+        `CellBoundGrid`.
+
+        Parameters
+        ----------
+        bounds
+            Bounds whose subgrid corresponds to the array being indexes.
+        """
+        return (self - bounds.subgrid_start).as_tuple()
+
 
 class CellGrid(pydantic.BaseModel, frozen=True):
     """A grid of rectangular cells with no overlaps or space between cells.

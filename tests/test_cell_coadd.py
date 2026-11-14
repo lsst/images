@@ -25,6 +25,7 @@ import pytest
 from lsst.images import YX, BoundsError, Box, Interval, MaskPlane, get_legacy_deep_coadd_mask_planes
 from lsst.images.cells import (
     CellCoadd,
+    CellField,
     CellGrid,
     CellGridBounds,
     CellIJ,
@@ -206,8 +207,8 @@ def test_coadd_provenance_repr_str_pinned(minified_cell_coadd: CellCoadd) -> Non
     descriptive form, and both report only what len() can answer.
     """
     provenance = minified_cell_coadd.provenance
-    assert str(provenance) == "CoaddProvenance(6 input images)"
-    assert repr(provenance) == "<CoaddProvenance(6 input images)>"
+    assert str(provenance) == "CoaddProvenance(2 input images)"
+    assert repr(provenance) == "<CoaddProvenance(2 input images)>"
 
 
 def test_coadd_provenance_brief_report_skips_column_scans(minified_cell_coadd: CellCoadd) -> None:
@@ -216,7 +217,7 @@ def test_coadd_provenance_brief_report_skips_column_scans(minified_cell_coadd: C
     """
     report = minified_cell_coadd.provenance._describe(DescribeOptions(brief=True))
     assert not report.fields
-    assert report.to_repr() == "<CoaddProvenance(6 input images)>"
+    assert report.to_repr() == "<CoaddProvenance(2 input images)>"
 
 
 def test_coadd_provenance_report_summarizes_its_tables(minified_cell_coadd: CellCoadd) -> None:
@@ -226,7 +227,7 @@ def test_coadd_provenance_report_summarizes_its_tables(minified_cell_coadd: Cell
     assert report_fields(report) == {
         "instrument": "LSSTCam",
         "physical_filter": "r_57",
-        "input images": "6 from 2 visits",
+        "input images": "2 from 2 visits",
         "day_obs": "20250520",
         "cells": "3 with contributions",
         "per cell": "2 input images",
@@ -303,6 +304,31 @@ def test_coadd_provenance_subset_without_contributions_is_none() -> None:
     assert len(populated.contributions) == 1
 
     assert provenance[CellIJ(1, 1)] is None
+
+
+def test_coadd_provenance_subset_inputs_are_unique() -> None:
+    """Test that CoaddProvenance.subset doesn't generate duplicates from the
+    same observation appearing in multiple cells.
+    """
+    inputs = CoaddProvenance.make_empty_input_table(2)
+    inputs["instrument"] = "LSSTCam"
+    inputs["physical_filter"] = "r_57"
+    inputs["visit"] = [101, 102]
+    inputs["detector"] = [1, 2]
+    inputs["day_obs"] = [20250520, 20250520]
+    contributions = CoaddProvenance.make_empty_contribution_table(4)
+    contributions["instrument"] = "LSSTCam"
+    contributions["visit"] = [101, 102, 101, 102]
+    contributions["detector"] = [1, 1, 2, 2]
+    contributions["cell_i"] = 0
+    contributions["cell_j"] = [0, 0, 1, 1]
+    provenance = CoaddProvenance(inputs=inputs, contributions=contributions)
+
+    subset = provenance.subset([CellIJ(0, 0), CellIJ(0, 1)])
+
+    assert len(subset.contributions) == 4
+    assert len(subset.inputs) == 2
+    assert set(zip(subset.inputs["visit"], subset.inputs["detector"])) == {(101, 1), (102, 2)}
 
 
 def test_coadd_provenance_report_counts_one_input_image_in_the_singular() -> None:
@@ -606,10 +632,80 @@ def test_to_legacy_cell_coadd(legacy_test_data: _LegacyTestData) -> None:
         plane_map=legacy_test_data.plane_map,
         psf_points=legacy_test_data.make_psf_points(),
     )
-    with pytest.raises(
-        ValueError, match="MultipleCellCoadd requires its bounding box to lie on the cell grid."
-    ):
+    with pytest.raises(ValueError, match="MultipleCellCoadd requires"):
         legacy_test_data.cell_coadd[make_subbox(legacy_test_data.cell_coadd.bbox)].to_legacy_cell_coadd()
+
+
+def make_coadd_missing_last_column(coadd: CellCoadd) -> CellCoadd:
+    """Return a copy of a coadd whose last column of cells is missing."""
+    last_column = max(cell.j for cell in coadd.bounds.cell_indices())
+    survivors = [cell for cell in coadd.bounds.cell_indices() if cell.j < last_column]
+    cell_boxes = [coadd.grid.bbox_of(cell) for cell in survivors]
+    result_bbox = Box(
+        Interval(min(b.y.start for b in cell_boxes), max(b.y.stop for b in cell_boxes)),
+        Interval(min(b.x.start for b in cell_boxes), max(b.x.stop for b in cell_boxes)),
+    )
+    result_bounds = CellGridBounds(
+        grid=coadd.grid, bbox=result_bbox, missing=coadd.bounds[result_bbox].missing
+    )
+    tmp = coadd.copy()
+    holes = Box(coadd.bbox.y, Interval(coadd.bbox.x.stop - coadd.grid.cell_shape.x, coadd.bbox.x.stop))
+    where = holes.slice_within(coadd.bbox)
+    tmp.image.array[where.y, where.x] = 0.0
+    tmp.variance.array[where.y, where.x] = np.inf
+    column = np.zeros(tmp.mask.array.shape[:2], dtype=bool)
+    column[where.y, where.x] = True
+    tmp.mask.clear(None, column)
+    tmp.mask.set("NO_DATA", column)
+    for fraction in tmp.mask_fractions.values():
+        fraction.array[where.y, where.x] = 0.0
+    for noise in tmp.noise_realizations:
+        noise.array[where.y, where.x] = 0.0
+
+    def adjust_ap_corr(field: CellField) -> CellField:
+        bounds: CellGridBounds = result_bounds.intersection(field.bounds)
+        array = np.full(bounds.subgrid_size.as_tuple(), np.nan, dtype=float)
+        for cell_index in bounds.cell_indices():
+            array[cell_index.within_subgrid_array(bounds)] = field.value_in_cell(cell_index)
+        return CellField(bounds, array, unit=field.unit)
+
+    result = CellCoadd(
+        tmp.image,
+        mask=tmp.mask,
+        variance=tmp.variance,
+        mask_fractions=tmp.mask_fractions,
+        noise_realizations=tmp.noise_realizations,
+        band=tmp.band,
+        psf=coadd.psf[result_bbox],
+        aperture_corrections={
+            name: adjust_ap_corr(field) for name, field in coadd.aperture_corrections.items()
+        },
+        patch=tmp.patch,
+        provenance=coadd.provenance.subset(survivors),
+        backgrounds=tmp.backgrounds,
+    )
+    assert result_bounds == result.bounds
+    return result
+
+
+@skip_no_legacy
+def test_to_legacy_cell_coadd_missing_last_column(minified_cell_coadd: CellCoadd) -> None:
+    """Verify converting a coadd whose cells stop short of its bounding box.
+
+    Legacy ``MultipleCellCoadd`` accepts an ``inner_bbox`` that spans cells it
+    does not have, so a bounding box that is aligned with the cell grid while
+    its outermost cells are missing is convertible.
+    """
+    coadd = make_coadd_missing_last_column(minified_cell_coadd)
+    assert coadd.bbox != coadd.bounds.bbox
+    legacy_cell_coadd = coadd.to_legacy_cell_coadd()
+    assert Box.from_legacy(legacy_cell_coadd.inner_bbox) == coadd.bbox
+    assert set(legacy_cell_coadd.cells.keys()) == {cell.to_legacy() for cell in coadd.bounds.cell_indices()}
+    compare_cell_coadd_to_legacy(
+        coadd,
+        legacy_cell_coadd,
+        tract_bbox=coadd.sky_projection.pixel_frame.bbox,
+    )
 
 
 @skip_no_legacy
