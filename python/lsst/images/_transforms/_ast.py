@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 import numpy as np
@@ -32,6 +32,7 @@ __all__ = (
     "StringStream",
     "UnitMap",
     "ZoomMap",
+    "tran_grid",
 )
 
 if TYPE_CHECKING:
@@ -428,3 +429,61 @@ if USING_STARLINK_PYAST:
 
         def write(self, obj: Object) -> int:
             return self._impl.write(obj._impl)
+
+
+def tran_grid(
+    mapping: Any,
+    lbnd: Sequence[int],
+    ubnd: Sequence[int],
+    *,
+    tol: float,
+    maxpix: int,
+    forward: bool,
+) -> np.ndarray:
+    """Transform a lattice of grid points through an AST mapping.
+
+    Parameters
+    ----------
+    mapping
+        AST mapping whose forward direction (or inverse) is applied.
+    lbnd
+        Coordinates of the first grid point along each axis of the
+        mapped-from coordinate system.
+    ubnd
+        Coordinates of the last grid point along each axis of the mapped-from
+        coordinate system.
+    tol
+        Maximum tolerated deviation from the exact mapping, in units of the
+        mapped-to coordinate system.  Zero disables the piecewise-linear
+        approximation entirely.
+    maxpix
+        Initial size of the linear-approximation panels, in grid points of
+        the mapped-from coordinate system.
+    forward
+        Whether to apply the mapping (`True`) or its inverse (`False`).
+
+    Returns
+    -------
+    grid : `numpy.ndarray`
+        Array of shape ``(nAxes, nPts)``, with the transformed coordinates of
+        the lattice points and the first mapped-from axis varying fastest.
+        Contains NaN where the mapping is undefined.
+    """
+    if USING_STARLINK_PYAST:
+        # starlink-pyast returns (nAxes, nPts), but leaves AST's bad-value
+        # sentinel in place where the mapping is undefined; astshim NaNs
+        # those points instead.
+        grid = np.asarray(mapping._impl.trangrid(lbnd, ubnd, tol, maxpix, forward), dtype=np.float64)
+        grid[grid == starlink.Ast.BAD] = np.nan
+        return grid
+    # AST writes its output axes-outer, as (nAxes, nPts), while astshim
+    # labels the same buffer (nPts, nAxes); this reshapes, it does not
+    # transpose.  The point count must match AST's grid exactly: astTranGrid
+    # raises when given less room than it needs and mis-strides the output
+    # when given more.
+    n_points = int(np.prod([hi - lo + 1 for lo, hi in zip(lbnd, ubnd)]))
+    if forward:
+        grid = mapping.tranGridForward(lbnd, ubnd, tol, maxpix, n_points)
+    else:
+        grid = mapping.tranGridInverse(lbnd, ubnd, tol, maxpix, n_points)
+    return np.asarray(grid).reshape(grid.shape[1], n_points)

@@ -1037,3 +1037,113 @@ def test_sky_projection_describe_extent_is_measured_at_the_box() -> None:
 
     value = next(f.value for f in projection.describe(bbox=bbox).fields if f.label == "Image extent")
     assert value.endswith(f"@ {round(at_center) % 360} deg E of N")
+
+
+def _wide_field_wcs() -> astropy.wcs.WCS:
+    """Return a wide-field TAN WCS.
+
+    The ~0.05 deg pixel scale is large enough that the
+    piecewise-linear approximation over 25-pixel panels has a
+    measurable (but boundable) error.
+    """
+    wcs = astropy.wcs.WCS(naxis=2)
+    wcs.wcs.ctype = ["RA---TAN", "DEC--TAN"]
+    wcs.wcs.crpix = [151.0, 151.0]
+    wcs.wcs.crval = [30.0, 20.0]
+    wcs.wcs.cdelt = [-0.05, 0.05]
+    return wcs
+
+
+@pytest.fixture
+def wide_field_grid() -> tuple[Transform[Any, Any], Box]:
+    """Return a wide-field pixel-to-sky transform and a non-square grid box."""
+    pixel_frame = DetectorFrame(instrument="Inst", visit=1, detector=1, bbox=Box.factory[0:300, 0:350])
+    transform = Transform.from_fits_wcs(_wide_field_wcs(), pixel_frame, ICRS)
+    # Deliberately non-square, so a transposed result cannot alias
+    # a correct one.
+    return transform, Box.factory[10:160, 30:241]
+
+
+def test_apply_forward_grid_matches_apply_forward(wide_field_grid: tuple[Transform[Any, Any], Box]) -> None:
+    """Test that the default-tolerance grid matches ``apply_forward``.
+
+    The comparison is point-by-point over the same lattice, with the
+    same ``(y, x)`` indexing.  AST evaluates the two through different
+    code paths, so equality is at the few-ulp level, not bitwise.
+    """
+    transform, bbox = wide_field_grid
+    grid = transform.apply_forward_grid(bbox)
+    assert grid.x.shape == tuple(bbox.shape)
+    xs, ys = bbox.meshgrid()
+    exact = transform.apply_forward(x=xs, y=ys)
+    np.testing.assert_allclose(grid.x, exact.x, rtol=1e-13, atol=1e-15)
+    np.testing.assert_allclose(grid.y, exact.y, rtol=1e-13, atol=1e-15)
+
+
+def test_apply_inverse_grid_matches_apply_inverse() -> None:
+    """Test that the inverse grid matches ``apply_inverse`` point-by-point.
+
+    The output box lies in the pixel (mapped-from) frame, and both paths
+    evaluate the same affine inverse.
+    """
+    affine = Transform.affine(
+        GeneralFrame(unit=u.pix), GeneralFrame(unit=u.pix), np.array([[2.0, 0.5], [-0.3, 1.5]])
+    )
+    bbox = Box.factory[10:160, 30:241]
+    grid = affine.apply_inverse_grid(bbox)
+    assert grid.x.shape == tuple(bbox.shape)
+    xs, ys = bbox.meshgrid()
+    exact = affine.apply_inverse(x=xs, y=ys)
+    np.testing.assert_array_equal(grid.x, exact.x)
+    np.testing.assert_array_equal(grid.y, exact.y)
+
+
+def test_apply_forward_grid_atol(wide_field_grid: tuple[Transform[Any, Any], Box]) -> None:
+    """Test that a nonzero tolerance engages a bounded approximation.
+
+    The deviation from the exact grid must be nonzero and bounded by the
+    tolerance in output-frame units.  A Quantity tolerance converts to
+    the output frame's units; a dimensionless one is taken as-is,
+    matching the plain float.
+    """
+    transform, bbox = wide_field_grid
+    xs, ys = bbox.meshgrid()
+    exact = transform.apply_forward(x=xs, y=ys)
+    grid = transform.apply_forward_grid(bbox, out_atol=1e-4)
+    deviation = np.max(np.abs(grid.x - exact.x))
+    assert 0.0 < deviation < 1e-4
+    # A Quantity tolerance converts to the output frame's units; a
+    # dimensionless one is taken as-is, matching the plain float.
+    np.testing.assert_array_equal(transform.apply_forward_grid(bbox, out_atol=1e-4 * u.rad).x, grid.x)
+    np.testing.assert_array_equal(transform.apply_forward_grid(bbox, out_atol=u.Quantity(1e-4)).x, grid.x)
+
+
+def test_apply_forward_grid_step_invariance(wide_field_grid: tuple[Transform[Any, Any], Box]) -> None:
+    """Test that ``in_step`` cannot change results without a tolerance.
+
+    ``in_step`` seeds the approximation paneling only.
+    """
+    transform, bbox = wide_field_grid
+    fine = transform.apply_forward_grid(bbox, in_step=13)
+    coarse = transform.apply_forward_grid(bbox, in_step=1000)
+    np.testing.assert_array_equal(fine.x, coarse.x)
+    np.testing.assert_array_equal(fine.y, coarse.y)
+
+
+def test_apply_inverse_grid_nan(wide_field_grid: tuple[Transform[Any, Any], Box]) -> None:
+    """Test that unevaluable grid points come back as NaN.
+
+    The NaN pattern must match ``apply_inverse`` at the same sky lattice
+    points.
+    """
+    transform, _ = wide_field_grid
+    # Sky coordinates are in radians (the sky frame's unit); points more than
+    # ~90 deg from the tangent point of projection have no pixel position.
+    sky_bbox = Box.factory[0:2, -2:0]
+    grid = transform.apply_inverse_grid(sky_bbox)
+    assert np.isnan(grid.x).any()
+    assert np.isfinite(grid.x).any()
+    np.testing.assert_array_equal(np.isnan(grid.x), np.isnan(grid.y))
+    xs, ys = sky_bbox.meshgrid()
+    exact = transform.apply_inverse(x=xs, y=ys)
+    np.testing.assert_array_equal(np.isnan(grid.x), np.isnan(exact.x))

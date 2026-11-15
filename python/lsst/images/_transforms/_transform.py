@@ -504,6 +504,93 @@ class Transform[I: Frame, O: Frame](DescribableMixin):
         xy = self.apply_inverse(x=x.to_value(self._out_frame.unit), y=y.to_value(self._out_frame.unit))
         return XY(xy.x * self._in_frame.unit, xy.y * self._in_frame.unit)
 
+    def apply_forward_grid(
+        self, in_bbox: Box, *, out_atol: float | u.Quantity = 0.0, in_step: int = 25
+    ) -> XY[np.ndarray]:
+        """Apply the forward transform on a grid of input points.
+
+        The transform is first evaluated on a grid with ``in_step`` spacing,
+        and linearly interpolated.  If deviations larger than ``out_atol``
+        are detected, that region is subdivided.
+
+        Parameters
+        ----------
+        in_bbox
+            Box that defines the grid in the input frame.
+        out_atol
+            Absolute error tolerated (in the output frame) before subdividing.
+            If unitless, assumed to be in the output frame's units.
+        in_step
+            Initial step size for the evaluation grid.  Ignored if ``out_atol``
+            is exactly ``0``.
+
+        Returns
+        -------
+        `XY` [`numpy.ndarray`]
+            The transformed points.  Each array has shape ``in_bbox.shape``.
+            Invalid points evaluate to NaN.
+
+        Notes
+        -----
+        The tolerance-based subdivision algorithm may be slower than just
+        evaluating at every pixel with ``out_atol=0``, especially if the
+        ultimate evaluation scale is smaller than 20 pixels or so.
+        """
+        return self._apply_grid(in_bbox, out_atol, in_step, forward=True)
+
+    def apply_inverse_grid(
+        self, out_bbox: Box, *, in_atol: float | u.Quantity = 0.0, out_step: int = 25
+    ) -> XY[np.ndarray]:
+        """Apply the inverse transform on a grid of output points.
+
+        The transform is first evaluated on a grid with ``out_step`` spacing,
+        and linearly interpolated.  If deviations larger than ``in_atol``
+        are detected, that region is subdivided.
+
+        Parameters
+        ----------
+        out_bbox
+            Box that defines the grid in the output frame.
+        in_atol
+            Absolute error tolerated (in the input frame) before subdividing.
+            If unitless, assumed to be in the input frame's units.
+        out_step
+            Initial step size for the evaluation grid.  Ignored if ``in_atol``
+            is exactly ``0``.
+
+        Returns
+        -------
+        `XY` [`numpy.ndarray`]
+            The transformed points.  Each array has shape ``out_bbox.shape``.
+            Invalid points evaluate to NaN.
+
+        Notes
+        -----
+        The tolerance-based subdivision algorithm may be slower than just
+        evaluating at every pixel with ``in_atol=0``, especially if the
+        ultimate evaluation scale is smaller than 20 pixels or so.
+        """
+        return self._apply_grid(out_bbox, in_atol, out_step, forward=False)
+
+    def _apply_grid(self, bbox: Box, atol: float | u.Quantity, step: int, *, forward: bool) -> XY[np.ndarray]:
+        to_frame = self._out_frame if forward else self._in_frame
+        if isinstance(atol, u.Quantity) and atol.unit.physical_type != "dimensionless":
+            atol_value = atol.to_value(to_frame.unit)
+        else:
+            atol_value = float(atol)
+        grid = astshim.tran_grid(
+            self._ast_mapping,
+            (bbox.x.min, bbox.y.min),
+            (bbox.x.max, bbox.y.max),
+            tol=atol_value,
+            maxpix=step,
+            forward=forward,
+        )
+        return XY(
+            x=to_frame.standardize_x(grid[0].reshape(bbox.shape)),
+            y=to_frame.standardize_y(grid[1].reshape(bbox.shape)),
+        )
+
     def decompose(self) -> list[Transform[Any, Any]]:
         """Deconstruct a composed transform into its constituent parts.
 
