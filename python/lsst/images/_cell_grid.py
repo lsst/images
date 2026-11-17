@@ -130,6 +130,15 @@ class CellGrid(pydantic.BaseModel, frozen=True):
         """The number of cells in each dimension (`CellIJ`)."""
         return CellIJ(i=self.bbox.y.size // self.cell_shape.y, j=self.bbox.x.size // self.cell_shape.x)
 
+    def __iter__(self) -> Iterator[CellIJ]:
+        """Iterate over the indices of the cells in this grid."""
+        for i in range(self.grid_size.i):
+            for j in range(self.grid_size.j):
+                yield CellIJ(i=i, j=j)
+
+    def __len__(self) -> int:
+        return self.grid_size.i * self.grid_size.j
+
     def index_of(self, *, y: int, x: int) -> CellIJ:
         """Return the 2-d index of the cell that contains the given pixel.
 
