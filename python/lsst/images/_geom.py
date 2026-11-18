@@ -1307,6 +1307,27 @@ class Box:
 
         return Polygon.from_box(self)
 
+    def segmentize(self, max_length: float | None = None) -> Polygon:
+        """Return an equivalent polygon with any segments longer than the
+        given size subdivided.
+
+        Parameters
+        ----------
+        max_length
+            Maximum length of any segment in the returned region.  If `None`,
+            this call is equivalent to `to_polygon`.
+
+        Notes
+        -----
+        Because the integer min and max coordinates of a box are
+        interpreted as pixel centers, these are expanded by 0.5 on all sides
+        before using them to form the polygon vertices.
+        """
+        result = self.to_polygon()
+        if max_length is not None:
+            result = result.segmentize(max_length)
+        return result
+
     def transform(self, transform: Transform[Any, Any]) -> Polygon:
         """Apply a coordinate transform to the box, returning a polygon.
 

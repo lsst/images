@@ -13,7 +13,7 @@ from __future__ import annotations
 
 __all__ = ("Polygon", "Region", "RegionDomainError", "RegionSerializationModel")
 
-from typing import TYPE_CHECKING, Any, Literal, assert_type, overload
+from typing import TYPE_CHECKING, Any, Literal, Self, assert_type, final, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -279,6 +279,25 @@ class Region(DescribableMixin):
         assert isinstance(result, Polygon), "A convex hull should have no holes."
         return result
 
+    def segmentize(self, max_length: float) -> Self:
+        """Return an equivalent region with any segments longer than the given
+        size subdivided.
+
+        Parameters
+        ----------
+        max_length
+            Maximum length of any segment in the returned region.
+        """
+        return Region(self._impl.segmentize(max_length)).try_to_polygon()
+
+    def prepare(self) -> Self:
+        """Optimize this object for repeated comparisons with other regions.
+
+        This method operates in-place and returns ``self`` as a convenience.
+        """
+        shapely.prepare(self._impl)
+        return self
+
     def try_to_polygon(self) -> Region:
         """If the underlying geometry is a single polygon with no holes,
         return a `Polygon` instance holding it.
@@ -377,6 +396,7 @@ class Region(DescribableMixin):
         return handler(RegionSerializationModel.__pydantic_core_schema__)
 
 
+@final
 class Polygon(Region):
     """A simple 2-d polygon in Euclidean coordinates, with no holes.
 
