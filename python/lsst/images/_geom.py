@@ -27,7 +27,7 @@ __all__ = (
 )
 
 import math
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -973,6 +973,31 @@ class Box:
             y_min=float(lbnd[1]),
             y_max=float(ubnd[1]),
         )
+
+    @classmethod
+    def hull(
+        cls,
+        first: Box | XY[int] | YX[int],
+        *args: Box | XY[int] | YX[int],
+        x: Iterable[int] = (),
+        y: Iterable[int] = (),
+    ) -> Box:
+        """Construct a box that includes all of the given boxes or points.
+
+        Parameters
+        ----------
+        first
+            First point or box to include in the hull.
+        *args
+            Additional points and/or boxes to include in the hull.
+        x
+            An iterable of x points to include.
+        y
+            An iterable of y points to include.
+        """
+        x_hull = Interval.hull(first.x, *[arg.x for arg in args], *x)
+        y_hull = Interval.hull(first.y, *[arg.y for arg in args], *y)
+        return Box(x=x_hull, y=y_hull)
 
     @property
     def min(self) -> YX[int]:
