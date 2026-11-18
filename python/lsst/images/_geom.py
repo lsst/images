@@ -1101,7 +1101,7 @@ class Box:
                 raise ValueError(f"Unexpected values for n ({n})")
         return XY(*np.meshgrid(ax, ay))
 
-    def padded(self, padding: int) -> Box:
+    def padded(self, padding: int | YX[int] | XY[int]) -> Box:
         """Return a new box expanded by the given padding on
         all sides.
 
@@ -1110,7 +1110,9 @@ class Box:
         padding
             Number of pixels to expand the box by on every side.
         """
-        return Box(y=self.y.padded(padding), x=self.x.padded(padding))
+        if isinstance(padding, int):
+            padding = XY(x=padding, y=padding)
+        return Box(y=self.y.padded(padding.y), x=self.x.padded(padding.x))
 
     def __eq__(self, other: object) -> bool:
         if type(other) is Box:
