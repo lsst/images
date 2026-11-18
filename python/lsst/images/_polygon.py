@@ -179,6 +179,17 @@ class Region(DescribableMixin):
                 raise TypeError(f"Unexpected positional argument type: {type(other)!r}.")
         return shapely.contains_xy(self._impl, x=x, y=y)
 
+    def intersects(self, other: Region) -> bool:
+        """Test whether the intersection of this region with another would
+        succeed.
+
+        Parameters
+        ----------
+        other
+            The other region to compare to.
+        """
+        return self._impl.intersects(other._impl)
+
     @overload
     def intersection(self, other: Region) -> Region: ...
 
