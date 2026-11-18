@@ -268,6 +268,37 @@ class Image(GeneralizedImage):
             copy=True,
         )
 
+    def padded_to(self, bbox: Box, fill: int | float = 0, *, always_copy: bool = False) -> Image:
+        """Return a copy or subimage with the the given bbox, padding if
+        necessary.
+
+        Parameters
+        ----------
+        bbox
+            Bounding box of the returned image.
+        fill
+            Value for padded pixels.
+        always_copy
+            If `True`, return a copy even if the ``bbox`` is strictly within
+            ``self.bbox``.
+
+        Raises
+        ------
+        NoOverlapError
+            Raised if there is no overlap between ``self.bbox`` and ``bbox``.
+        """
+        if self.bbox.contains(bbox):
+            if always_copy:
+                return self[bbox].copy()
+            return self[bbox]
+        result = self._transfer_metadata(
+            Image(fill, bbox=bbox, unit=self.unit, dtype=self.dtype, sky_projection=self.sky_projection),
+            copy=True,
+        )
+        overlap = bbox.intersection(self.bbox)
+        result[overlap].array = self[overlap].array
+        return result
+
     def view(
         self,
         *,
