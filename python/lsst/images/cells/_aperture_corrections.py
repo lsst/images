@@ -342,8 +342,15 @@ def approximate_aperture_corrections_from_legacy(
     for name, legacy_field in legacy_map.items():
         if not name.endswith(err_suffix):
             continue
-        partner = converted.get(name[: -len(err_suffix)] + flux_suffix)
-        err_bounds = partner.bounds if partner is not None else bounds
+        flux_name = name[: -len(err_suffix)] + flux_suffix
+        err_bounds = bounds
+        if flux_name in converted:
+            partner = converted[flux_name]
+            if partner is None:
+                # No usable flux anywhere, so every error value is bad data.
+                converted[name] = None
+                continue
+            err_bounds = partner.bounds
         converted[name] = CellField.approximate_from_legacy(
             legacy_field, err_bounds, default_is_missing=False
         )
