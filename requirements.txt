@@ -12,3 +12,8 @@ starlink-pyast >= 4.0.0
 scipy >= 1.13
 shapely >= 2.1
 rich
+# Optional test-environment deps: the [piff] extra, plus zstd stream
+# support on Python < 3.14 (compression.zstd is stdlib at 3.14+).
+piff >= 1.6
+galsim >= 2.7
+zstandard
