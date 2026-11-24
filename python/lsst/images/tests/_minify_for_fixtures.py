@@ -13,9 +13,11 @@
 
 Reads a FITS or NDF file via the appropriate input archive, takes a
 small subset of the in-memory object, and writes JSON via
-``JsonOutputArchive``. Used to populate the ``as_shipped`` and ``dp1`` /
-``dp2`` fixture variants under ``tests/data/schemas/`` with
-derived-from-real test data that exercises the full read path.
+``JsonOutputArchive``. Used to populate the ``dp1`` / ``dp2`` fixture
+variants under ``tests/data/schemas/`` with derived-from-real test data
+that exercises the full read path.  The ``cell_coadd`` ``as_shipped``
+fixture was also written by this helper, but it preserves the bytes of a
+shipped file and is never regenerated.
 
 Per top-level type the subset rule is:
 
@@ -65,10 +67,25 @@ legacy files under ``$TESTDATA_IMAGES_DIR`` are must be converted first::
     schemas = 'tests/data/schemas'
     minify(
         'native_cell_coadd.fits',
-        f'{schemas}/cell_coadd/cell_coadd-1.0.0-as_shipped.json',
+        f'{schemas}/cell_coadd/cell_coadd-1.0.0-dp2.json',
     )
     minify('dp1.fits', f'{schemas}/visit_image/visit_image-1.0.0.dev-dp1.json')
     minify('dp2.fits', f'{schemas}/visit_image/visit_image-1.0.0.dev-dp2.json')
+    "
+
+Fixtures must then be put in canonical form.  ``lsst-images-admin fixtures
+refresh`` does that for a fixture at a development version, but refuses to
+rewrite one at a finalized version such as ``cell_coadd`` 1.0.0, which has
+to be canonicalized directly::
+
+    python -c "
+    from pathlib import Path
+    from lsst.images.tests import (
+        canonical_fixture_text, iter_schema_fixtures, read_fixture_tree,
+    )
+    for fixture in iter_schema_fixtures(Path('tests/data/schemas')):
+        if (fixture.name, fixture.variant) == ('cell_coadd', 'dp2'):
+            fixture.path.write_text(canonical_fixture_text(read_fixture_tree(fixture)))
     "
 
 The helper is invoked manually by developers when they have a real

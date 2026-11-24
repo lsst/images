@@ -151,7 +151,7 @@ def legacy_test_data(reset_afw_mask_planes: None) -> _LegacyTestData:  # noqa: F
 @pytest.fixture
 def minified_cell_coadd() -> CellCoadd:
     """Return a tiny CellCoadd from JSON data stored in this package."""
-    path = current_fixture_path(FIXTURE_DIR, "cell_coadd", variant="as_shipped")
+    path = current_fixture_path(FIXTURE_DIR, "cell_coadd", variant="dp2")
     return read_archive(path, CellCoadd)
 
 
@@ -207,8 +207,8 @@ def test_coadd_provenance_repr_str_pinned(minified_cell_coadd: CellCoadd) -> Non
     descriptive form, and both report only what len() can answer.
     """
     provenance = minified_cell_coadd.provenance
-    assert str(provenance) == "CoaddProvenance(2 input images)"
-    assert repr(provenance) == "<CoaddProvenance(2 input images)>"
+    assert str(provenance) == "CoaddProvenance(6 input images)"
+    assert repr(provenance) == "<CoaddProvenance(6 input images)>"
 
 
 def test_coadd_provenance_brief_report_skips_column_scans(minified_cell_coadd: CellCoadd) -> None:
@@ -217,7 +217,7 @@ def test_coadd_provenance_brief_report_skips_column_scans(minified_cell_coadd: C
     """
     report = minified_cell_coadd.provenance._describe(DescribeOptions(brief=True))
     assert not report.fields
-    assert report.to_repr() == "<CoaddProvenance(2 input images)>"
+    assert report.to_repr() == "<CoaddProvenance(6 input images)>"
 
 
 def test_coadd_provenance_report_summarizes_its_tables(minified_cell_coadd: CellCoadd) -> None:
@@ -227,10 +227,10 @@ def test_coadd_provenance_report_summarizes_its_tables(minified_cell_coadd: Cell
     assert report_fields(report) == {
         "instrument": "LSSTCam",
         "physical_filter": "r_57",
-        "input images": "2 from 2 visits",
+        "input images": "6 from 6 visits",
         "day_obs": "20250520",
         "cells": "3 with contributions",
-        "per cell": "2 input images",
+        "per cell": "6 input images",
     }
     assert list(report_fields(report)) == [
         "instrument",
@@ -663,7 +663,9 @@ def make_coadd_missing_last_column(coadd: CellCoadd) -> CellCoadd:
     for noise in tmp.noise_realizations:
         noise.array[where.y, where.x] = 0.0
 
-    def adjust_ap_corr(field: CellField) -> CellField:
+    def adjust_ap_corr(field: CellField | None) -> CellField | None:
+        if field is None:
+            return None
         bounds: CellGridBounds = result_bounds.intersection(field.bounds)
         array = np.full(bounds.subgrid_size.as_tuple(), np.nan, dtype=float)
         for cell_index in bounds.cell_indices():

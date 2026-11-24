@@ -51,6 +51,7 @@ EXPECTED_TYPES: dict[tuple[str, str | None], str] = {
     ("cell_aperture_correction_map", None): "dict",
     ("cell_coadd", "as_shipped"): "lsst.images.cells.CellCoadd",
     ("cell_coadd", "canonical"): "lsst.images.cells.CellCoadd",
+    ("cell_coadd", "dp2"): "lsst.images.cells.CellCoadd",
     ("cell_psf", None): "lsst.images.cells.CellPointSpreadFunction",
     ("chebyshev_field", None): "lsst.images.fields.ChebyshevField",
     ("coadd_provenance", None): "lsst.images.cells.CoaddProvenance",
