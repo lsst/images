@@ -550,11 +550,35 @@ def test_from_legacy_adds_optional_planes_in_use(reset_afw_mask_planes: None) ->
 
 
 def test_legacy_template_plane_map() -> None:
-    """Verify the template map has the coadd planes and HIGH_VARIANCE."""
+    """Verify the template map has the coadd planes, HIGH_VARIANCE and
+    REJECTED_TEMPLATE.
+    """
     plane_map = get_legacy_template_mask_planes()
     non_cell_coadd = get_legacy_non_cell_coadd_mask_planes()
     assert non_cell_coadd.keys() < plane_map.keys()
     assert plane_map["HIGH_VARIANCE"].name == "HIGH_VARIANCE"
+    assert plane_map["REJECTED_TEMPLATE"].name == "REJECTED_TEMPLATE"
+
+
+def test_rejected_template_plane_round_trip(reset_afw_mask_planes: None) -> None:  # noqa: F811
+    """Verify REJECTED_TEMPLATE pixels survive conversion from and back to a
+    legacy mask with the template and difference image maps.
+    """
+    # reset_afw_mask_planes will have already skipped if afw is not available.
+    from lsst.afw.image import Mask as LegacyMask
+
+    rejected = np.arange(20).reshape(4, 5) % 3 == 0
+    for plane_map in (get_legacy_template_mask_planes(), get_legacy_difference_image_mask_planes()):
+        legacy = LegacyMask(5, 4)
+        legacy.addMaskPlane("REJECTED_TEMPLATE")
+        legacy.array[rejected] |= legacy.getPlaneBitMask("REJECTED_TEMPLATE")
+        mask = Mask.from_legacy(legacy, plane_map=plane_map)
+        np.testing.assert_array_equal(mask.get("REJECTED_TEMPLATE"), rejected)
+        round_tripped = mask.to_legacy(plane_map)
+        np.testing.assert_array_equal(
+            (round_tripped.array & round_tripped.getPlaneBitMask("REJECTED_TEMPLATE")).astype(bool),
+            rejected,
+        )
 
 
 def test_guess_legacy_plane_map_coadd_discriminator() -> None:

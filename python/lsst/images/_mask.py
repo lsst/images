@@ -1432,6 +1432,11 @@ def get_legacy_difference_image_mask_planes() -> dict[str, MaskPlane]:
     result["STREAK"] = MaskPlane(
         "STREAK", "An extended streak (probably an artificial satellite) affected this pixel."
     )
+    result["REJECTED_TEMPLATE"] = MaskPlane(
+        "REJECTED_TEMPLATE",
+        "Pixel is in a region of the template that can't be psf-matched to the science image. "
+        "DiaSources detected here are likely subtraction artifacts.",
+    )
     return result
 
 
@@ -1516,6 +1521,11 @@ def get_legacy_template_mask_planes() -> dict[str, MaskPlane]:
     result = get_legacy_non_cell_coadd_mask_planes()
     result["HIGH_VARIANCE"] = MaskPlane(
         "HIGH_VARIANCE", "Template pixel had fewer-than-usual input epochs and hence high noise."
+    )
+    result["REJECTED_TEMPLATE"] = MaskPlane(
+        "REJECTED_TEMPLATE",
+        "Pixel is in a region of the template that can't be psf-matched to the science image. "
+        "DiaSources detected here are likely subtraction artifacts.",
     )
     return result
 
