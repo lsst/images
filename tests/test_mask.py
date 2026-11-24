@@ -25,6 +25,7 @@ from lsst.images import (
     Mask,
     MaskPlane,
     MaskSchema,
+    NoOverlapError,
     get_legacy_difference_image_mask_planes,
     get_legacy_non_cell_coadd_mask_planes,
     get_legacy_optional_mask_planes,
@@ -770,3 +771,65 @@ def test_compare_mask_to_legacy_notes_plane_diff(reset_afw_mask_planes: None) ->
         compare_mask_to_legacy(mask2, legacy)
     notes = excinfo.value.__notes__ or []
     assert any("mask[A]: +1 -0" in n for n in notes)
+
+
+def _random_mask(rng: np.random.Generator, schema: MaskSchema, bbox: Box) -> Mask:
+    """Return a mask with roughly a third of each plane's pixels set."""
+    mask = Mask(0, schema=schema, bbox=bbox)
+    for name in schema.names:
+        mask.set(name, rng.random(bbox.shape) < 0.3)
+    return mask
+
+
+def _reference_update(lhs: Mask, rhs: Mask) -> Mask:
+    """Return a copy of ``lhs`` updated from ``rhs`` one plane at a time."""
+    result = lhs.copy()
+    try:
+        bbox = result.bbox.intersection(rhs.bbox)
+    except NoOverlapError:
+        return result
+    for name in result.schema.names & rhs.schema.names:
+        result[bbox].set(name, rhs[bbox].get(name))
+    return result
+
+
+@pytest.mark.parametrize(
+    ("lhs_dtype", "rhs_dtype"),
+    [
+        (np.uint8, np.int32),
+        (np.int32, np.uint8),
+        (np.uint8, np.uint16),
+        (np.uint16, np.uint8),
+        (np.uint8, np.uint8),
+        (np.int64, np.int32),
+    ],
+)
+@pytest.mark.parametrize(
+    "rhs_bbox",
+    [Box.factory[0:6, 0:7], Box.factory[2:9, -3:4], Box.factory[10:12, 10:12]],
+    ids=["same", "partial", "disjoint"],
+)
+def test_update_matches_per_plane(lhs_dtype: type, rhs_dtype: type, rhs_bbox: Box) -> None:
+    """Test that Mask.update ORs in exactly the shared planes over the
+    overlap, whatever the two schemas' layouts.
+    """
+    rng = np.random.default_rng(42)
+    lhs_planes = make_mask_planes(rng, 20, 4)
+    # M3 is only in lhs; M20-M23 are only in rhs.
+    rhs_planes = [p for p in make_mask_planes(rng, 24, 3) if p is None or p.name != "M3"]
+    lhs = _random_mask(rng, MaskSchema(lhs_planes, dtype=lhs_dtype), Box.factory[0:6, 0:7])
+    rhs = _random_mask(rng, MaskSchema(rhs_planes, dtype=rhs_dtype), rhs_bbox)
+    expected = _reference_update(lhs, rhs)
+    lhs.update(rhs)
+    np.testing.assert_array_equal(lhs.array, expected.array)
+
+
+def test_update_through_view() -> None:
+    """Test that updating a subimage view writes into the parent mask."""
+    rng = np.random.default_rng(7)
+    planes = make_mask_planes(rng, 10, 0)
+    parent = Mask(0, schema=MaskSchema(planes, dtype=np.uint8), bbox=Box.factory[0:8, 0:8])
+    rhs = _random_mask(rng, MaskSchema(planes, dtype=np.int32), Box.factory[2:5, 3:6])
+    expected = _reference_update(parent, rhs)
+    parent[Box.factory[2:5, 3:6]].update(rhs)
+    np.testing.assert_array_equal(parent.array, expected.array)

@@ -728,8 +728,30 @@ class Mask(GeneralizedImage):
                 return
             lhs = self[bbox]
             rhs = other[bbox]
+        # Planes that move between the same pair of array elements by the
+        # same bit shift are copied together with one shift-and-OR over the
+        # whole array, instead of a separate boolean-indexed pass per plane.
+        # When the two schemas list planes in the same order (as when a mask
+        # is read back from its serialized form) this is one pass per
+        # destination element.
+        groups: dict[tuple[int, int, int], int] = {}
         for name in self.schema.names & other.schema.names:
-            lhs.set(name, rhs.get(name))
+            lhs_bit = lhs.schema.bit(name)
+            rhs_bit = rhs.schema.bit(name)
+            rhs_position = int(rhs_bit.mask).bit_length() - 1
+            shift = rhs_position - (int(lhs_bit.mask).bit_length() - 1)
+            key = (lhs_bit.index, rhs_bit.index, shift)
+            groups[key] = groups.get(key, 0) | (1 << rhs_position)
+        # Shift in an unsigned type wide enough for either operand, so that
+        # no selected bit is lost or sign-extended.
+        work_dtype = np.dtype(f"u{max(lhs._array.dtype.itemsize, rhs._array.dtype.itemsize)}")
+        for (lhs_index, rhs_index, shift), rhs_mask in groups.items():
+            bits = rhs._array[..., rhs_index].astype(work_dtype) & work_dtype.type(rhs_mask)
+            if shift > 0:
+                bits >>= shift
+            elif shift < 0:
+                bits <<= -shift
+            lhs._array[..., lhs_index] |= bits.astype(lhs._array.dtype)
 
     def get(self, plane: str) -> np.ndarray:
         """Return a 2-d boolean array for the given mask plane.
