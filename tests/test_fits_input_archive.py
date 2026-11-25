@@ -144,82 +144,107 @@ def test_compressed_arrays_decompress_concurrently(tmp_path: Path, monkeypatch: 
         np.testing.assert_array_equal(result, array)
 
 
-def _write_two_arrays(tmp_path: Path, **kwargs: Any) -> tuple[Path, list[ArrayReferenceModel]]:
-    """Write two 128x128 arrays, each to its own HDU of a new archive."""
-    arrays = [np.full((128, 128), n, dtype=np.float32) for n in range(2)]
+def _write_three_arrays(tmp_path: Path, **kwargs: Any) -> tuple[Path, list[ArrayReferenceModel]]:
+    """Write three 128x128 arrays, each to its own HDU of a new archive."""
+    arrays = [np.full((128, 128), n, dtype=np.float32) for n in range(3)]
     return _write_arrays(arrays, tmp_path, **kwargs)
 
 
-def _tasks_run_together(filename: Path, models: list[ArrayReferenceModel]) -> bool:
-    """Return whether two tasks given to the executor for ``models``, by an
-    archive opened for multithreaded reading, are both running at the same
-    time.
+def _most_tasks_at_once(
+    filename: Path, models: list[ArrayReferenceModel], *, multithreaded: bool = True, subset: bool = False
+) -> int:
+    """Return the largest number of tasks running at the same time when one
+    task for each of three arrays is given to the executor for ``models``.
     """
-    both_running = threading.Barrier(2, timeout=2)
+    lock = threading.Lock()
+    running = 0
+    most = 0
 
-    def task() -> bool:
-        try:
-            both_running.wait()
-        except threading.BrokenBarrierError:
-            return False
-        return True
+    def task() -> None:
+        nonlocal running, most
+        with lock:
+            running += 1
+            most = max(most, running)
+        # Long enough for every thread the executor will use to have started.
+        time.sleep(0.05)
+        with lock:
+            running -= 1
 
     with (
-        FitsInputArchive.open(filename, multithreaded=True) as archive,
-        archive.make_executor(models) as executor,
+        FitsInputArchive.open(filename, multithreaded=multithreaded) as archive,
+        archive.make_executor(models, subset=subset) as executor,
     ):
-        futures = [executor.submit(task) for _ in range(2)]
-    return all(future.result() for future in futures)
+        for _ in range(3):
+            executor.submit(task)
+    return most
 
 
 def test_executor_runs_tasks_in_calling_thread_by_default(tmp_path: Path) -> None:
     """Verify that an archive that was not opened for multithreaded reading
     runs the tasks given to its executor in the calling thread.
     """
-    filename, models = _write_two_arrays(tmp_path, tile_shape=(128, 128))
+    filename, models = _write_three_arrays(tmp_path, tile_shape=(128, 128))
     with FitsInputArchive.open(filename) as archive, archive.make_executor(models) as executor:
         future = executor.submit(threading.get_ident)
     assert future.result() == threading.get_ident()
+    assert _most_tasks_at_once(filename, models, multithreaded=False) == 1
 
 
 def test_default_executor_reports_task_failure_from_result(tmp_path: Path) -> None:
     """Verify that a task that fails in the calling thread raises when its
     result is requested, as it would had it run in another thread.
     """
-    filename, models = _write_two_arrays(tmp_path)
+    filename, models = _write_three_arrays(tmp_path)
     with FitsInputArchive.open(filename) as archive, archive.make_executor(models) as executor:
         future = executor.submit(int, "not a number")
     with pytest.raises(ValueError, match="not a number"):
         future.result()
 
 
-def test_executor_runs_tasks_together_for_arrays_in_large_tiles(tmp_path: Path) -> None:
-    """Verify that tasks run at the same time when the arrays they read
-    are compressed in large tiles.
+@pytest.mark.parametrize("subset", [False, True])
+def test_executor_gives_each_array_in_large_tiles_a_thread(tmp_path: Path, subset: bool) -> None:
+    """Verify that every task runs at the same time when the arrays they
+    read are compressed in large tiles, for whole and subset reads.
     """
-    filename, models = _write_two_arrays(tmp_path, tile_shape=(128, 128))
-    assert _tasks_run_together(filename, models)
+    filename, models = _write_three_arrays(tmp_path, tile_shape=(128, 128))
+    assert _most_tasks_at_once(filename, models, subset=subset) == 3
+
+
+def test_executor_reads_whole_arrays_in_medium_tiles_in_two_threads(tmp_path: Path) -> None:
+    """Verify that two tasks, but not three, run at the same time when they
+    read all of arrays that are compressed in medium-sized tiles.
+    """
+    filename, models = _write_three_arrays(tmp_path, tile_shape=(64, 64))
+    assert _most_tasks_at_once(filename, models) == 2
+
+
+def test_executor_reads_subsets_of_arrays_in_medium_tiles_in_turn(tmp_path: Path) -> None:
+    """Verify that tasks run one after another when they read parts of
+    arrays that are compressed in medium-sized tiles.
+    """
+    filename, models = _write_three_arrays(tmp_path, tile_shape=(64, 64))
+    assert _most_tasks_at_once(filename, models, subset=True) == 1
 
 
 def test_executor_runs_tasks_in_turn_for_arrays_in_small_tiles(tmp_path: Path) -> None:
     """Verify that tasks run one after another when the arrays they read
     are compressed in small tiles.
     """
-    filename, models = _write_two_arrays(tmp_path, tile_shape=(1, 128))
-    assert not _tasks_run_together(filename, models)
+    filename, models = _write_three_arrays(tmp_path, tile_shape=(1, 128))
+    assert _most_tasks_at_once(filename, models) == 1
 
 
 def test_executor_runs_tasks_in_turn_for_uncompressed_arrays(tmp_path: Path) -> None:
     """Verify that tasks run one after another when the arrays they read
     are not compressed.
     """
-    filename, models = _write_two_arrays(tmp_path, compressed=False)
-    assert not _tasks_run_together(filename, models)
+    filename, models = _write_three_arrays(tmp_path, compressed=False)
+    assert _most_tasks_at_once(filename, models) == 1
 
 
 def test_executor_runs_tasks_in_turn_for_a_single_array(tmp_path: Path) -> None:
     """Verify that tasks run one after another when there is only one
     compressed array for them to read.
     """
-    filename, models = _write_two_arrays(tmp_path, tile_shape=(128, 128))
-    assert not _tasks_run_together(filename, models[:1])
+    filename, models = _write_three_arrays(tmp_path, tile_shape=(128, 128))
+    assert _most_tasks_at_once(filename, models[:1]) == 1

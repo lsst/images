@@ -328,13 +328,17 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         """
         return None
 
-    def make_executor(self, arrays: Iterable[ArrayReferenceModel | InlineArrayModel]) -> Executor:
+    def make_executor(
+        self, arrays: Iterable[ArrayReferenceModel | InlineArrayModel], *, subset: bool = False
+    ) -> Executor:
         """Return a new executor for tasks that read arrays from this archive.
 
         Parameters
         ----------
         arrays
             Models of the arrays that the tasks will read.
+        subset
+            Whether the tasks will read only part of each array.
 
         Returns
         -------

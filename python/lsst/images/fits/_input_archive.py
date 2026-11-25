@@ -108,14 +108,25 @@ implicit default of ``32 * block_size``.
 """
 
 _MIN_THREADED_TILE_SIZE = 8000
-"""Smallest compression tile, in pixels, whose arrays are read in threads.
+"""Smallest compression tile, in pixels, whose arrays are each read in a
+thread of their own.
 
 Decompressing a tile releases the GIL, but only for as long as that one tile
-takes.  With small tiles the threads spend longer passing the GIL between
-them than they save, so reading in threads is slower than reading in turn.
-This is a heuristic measured on LSSTCam images, where threads slowed reads of
-tiles of about 4000 pixels and sped up reads of tiles of 8000 pixels or more,
-whatever the shape of the tiles.
+takes.  The smaller the tiles, the more of the time threads spend passing the
+GIL between them instead of decompressing.  This is a heuristic measured on
+LSSTCam images, where a thread for each array made whole and subimage reads
+faster for tiles of 8000 pixels or more, whatever the shape of the tiles.
+"""
+
+_MIN_TWO_THREAD_TILE_SIZE = 3000
+"""Smallest compression tile, in pixels, whose arrays are read whole in two
+threads.
+
+This is a heuristic measured on LSSTCam images.  For tiles between this size
+and `_MIN_THREADED_TILE_SIZE` a second thread made reading whole arrays 15 to
+20 percent faster and a third gained nothing more, while reading subimages
+in threads was slower.  For smaller tiles reading in threads was always
+slower.
 """
 
 
@@ -446,22 +457,24 @@ class FitsInputArchive(InputArchive[PointerModel]):
         # Docstring inherited.
         return self._opaque_metadata
 
-    def make_executor(self, arrays: Iterable[ArrayReferenceModel | InlineArrayModel]) -> Executor:
+    def make_executor(
+        self, arrays: Iterable[ArrayReferenceModel | InlineArrayModel], *, subset: bool = False
+    ) -> Executor:
         # Docstring inherited.
         arrays = list(arrays)
-        if self._multithreaded and self._suit_threads(arrays):
-            # Allow a thread for each array; a thread is only started when a
-            # task needs one.
-            return ThreadPoolExecutor(max_workers=len(arrays))
-        return super().make_executor(arrays)
+        if self._multithreaded and (max_workers := self._count_useful_threads(arrays, subset)) > 1:
+            return ThreadPoolExecutor(max_workers=max_workers)
+        return super().make_executor(arrays, subset=subset)
 
-    def _suit_threads(self, arrays: Iterable[ArrayReferenceModel | InlineArrayModel]) -> bool:
-        """Return whether reading the given arrays at the same time is
-        expected to be faster than reading them in turn.
+    def _count_useful_threads(
+        self, arrays: list[ArrayReferenceModel | InlineArrayModel], subset: bool
+    ) -> int:
+        """Return the number of threads expected to read the given arrays
+        fastest, which is one if they are best read in turn.
 
-        Only decompression runs in parallel, so this needs at least two
-        compressed arrays, all of them in tiles of at least
-        `_MIN_THREADED_TILE_SIZE` pixels.
+        Only decompression runs in parallel, so more than one thread needs at
+        least two compressed arrays, and the number then depends on the
+        smallest compression tile among them.
         """
         tile_sizes = []
         for model in arrays:
@@ -469,7 +482,15 @@ class FitsInputArchive(InputArchive[PointerModel]):
                 _, reader = self._get_source_reader(model.source, is_table=False)
                 if (tile_size := reader.tile_size) is not None:
                     tile_sizes.append(tile_size)
-        return len(tile_sizes) > 1 and min(tile_sizes) >= _MIN_THREADED_TILE_SIZE
+        if len(tile_sizes) < 2:
+            return 1
+        if min(tile_sizes) >= _MIN_THREADED_TILE_SIZE:
+            # A thread for each array; one is only started when a task needs
+            # it.
+            return len(arrays)
+        if min(tile_sizes) >= _MIN_TWO_THREAD_TILE_SIZE and not subset:
+            return 2
+        return 1
 
     def _get_source_reader(self, source: str | int, is_table: bool) -> tuple[ExtensionKey, _ExtensionReader]:
         """Get a reader for the extension referenced by a serialiation model's

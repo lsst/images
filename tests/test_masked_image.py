@@ -535,15 +535,24 @@ def test_sky_circle_bbox() -> None:
         )
 
 
-def _track_array_reads(
-    monkeypatch: pytest.MonkeyPatch, *, at_once: int = 1
-) -> tuple[set[int], threading.Event]:
-    """Record the threads that read arrays from FITS archives.
+class _ArrayReads:
+    """What was seen of the reads of arrays from FITS archives."""
 
-    Each read is held back, for a limited time, until ``at_once`` reads are
-    in progress together, and the returned event is set when that happens.
+    def __init__(self) -> None:
+        self.threads: set[int] = set()
+        """Identifiers of the threads that read arrays."""
+        self.most_at_once = 0
+        """The largest number of reads in progress at the same time."""
+
+
+def _track_array_reads(monkeypatch: pytest.MonkeyPatch, *, hold_until: int = 1) -> _ArrayReads:
+    """Record how arrays are read from FITS archives.
+
+    Each read is held back, for a limited time, until ``hold_until`` reads
+    are in progress together, so that reads made in different threads are
+    certain to overlap.
     """
-    threads: set[int] = set()
+    reads = _ArrayReads()
     reached = threading.Event()
     lock = threading.Lock()
     in_progress = 0
@@ -552,9 +561,10 @@ def _track_array_reads(
     def tracked_get_array(archive: FitsInputArchive, *args: Any, **kwargs: Any) -> np.ndarray:
         nonlocal in_progress
         with lock:
-            threads.add(threading.get_ident())
+            reads.threads.add(threading.get_ident())
             in_progress += 1
-            if in_progress >= at_once:
+            reads.most_at_once = max(reads.most_at_once, in_progress)
+            if in_progress >= hold_until:
                 reached.set()
         try:
             reached.wait(timeout=5)
@@ -564,15 +574,24 @@ def _track_array_reads(
                 in_progress -= 1
 
     monkeypatch.setattr(FitsInputArchive, "get_array", tracked_get_array)
-    return threads, reached
+    return reads
 
 
-def _write_in_large_tiles(masked_image: MaskedImage, path: Path) -> None:
-    """Write a masked image to FITS in compression tiles that are large
-    enough for its planes to be read in threads.
+def _write_in_tiles(masked_image: MaskedImage, path: Path, tile_shape: tuple[int, int]) -> None:
+    """Write a masked image to FITS with every plane compressed in tiles of
+    the given shape.
     """
-    options = FitsCompressionOptions(tile_shape=(128, 128))
+    options = FitsCompressionOptions(tile_shape=tile_shape)
     masked_image.write(str(path), compression_options=dict.fromkeys(("image", "mask", "variance"), options))
+
+
+LARGE_TILES = (128, 128)
+"""A tile shape with enough pixels for every plane to be read in a thread."""
+
+MEDIUM_TILES = (64, 64)
+"""A tile shape with enough pixels for whole planes to be read in two
+threads, but too few for a thread each or for subimages to use threads.
+"""
 
 
 def test_planes_in_large_tiles_read_together_from_multithreaded_archive(
@@ -584,12 +603,43 @@ def test_planes_in_large_tiles_read_together_from_multithreaded_archive(
     """
     mi = make_masked_image()
     path = tmp_path / "mi.fits"
-    _write_in_large_tiles(mi, path)
-    _, all_reading = _track_array_reads(monkeypatch, at_once=3)
+    _write_in_tiles(mi, path, LARGE_TILES)
+    reads = _track_array_reads(monkeypatch, hold_until=3)
     with FitsInputArchive.open_tree(path, multithreaded=True) as (archive, tree, _):
         result = tree.deserialize(archive)
-    assert all_reading.is_set()
+    assert reads.most_at_once == 3
     assert_masked_images_equal(result, mi, expect_view=False)
+
+
+def test_whole_planes_in_medium_tiles_read_two_at_a_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that a multithreaded read of all of a masked image compressed
+    in medium-sized tiles reads two of its planes at once, but not three.
+    """
+    mi = make_masked_image()
+    path = tmp_path / "mi.fits"
+    _write_in_tiles(mi, path, MEDIUM_TILES)
+    reads = _track_array_reads(monkeypatch, hold_until=2)
+    result = MaskedImage.read(path, multithreaded=True)
+    assert reads.most_at_once == 2
+    assert_masked_images_equal(result, mi, expect_view=False)
+
+
+def test_subimage_in_medium_tiles_read_in_calling_thread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that a multithreaded read of part of a masked image compressed
+    in medium-sized tiles reads every plane in the calling thread.
+    """
+    mi = make_masked_image()
+    path = tmp_path / "mi.fits"
+    _write_in_tiles(mi, path, MEDIUM_TILES)
+    bbox = Box.factory[11:20, 25:30]
+    reads = _track_array_reads(monkeypatch)
+    result = MaskedImage.read(path, bbox=bbox, multithreaded=True)
+    assert reads.threads == {threading.get_ident()}
+    assert_masked_images_equal(result, mi[bbox], expect_view=False)
 
 
 def test_planes_in_small_tiles_read_in_calling_thread(
@@ -603,10 +653,10 @@ def test_planes_in_small_tiles_read_in_calling_thread(
     path = tmp_path / "mi.fits"
     # The default tiles are single rows of the 251-pixel-wide image.
     mi.write(str(path))
-    threads, _ = _track_array_reads(monkeypatch)
+    reads = _track_array_reads(monkeypatch)
     with FitsInputArchive.open_tree(path, multithreaded=True) as (archive, tree, _):
         result = tree.deserialize(archive)
-    assert threads == {threading.get_ident()}
+    assert reads.threads == {threading.get_ident()}
     assert_masked_images_equal(result, mi, expect_view=False)
 
 
@@ -632,10 +682,10 @@ def test_multithreaded_read_reads_planes_together(
     """
     mi = make_masked_image()
     path = tmp_path / "mi.fits"
-    _write_in_large_tiles(mi, path)
-    _, all_reading = _track_array_reads(monkeypatch, at_once=3)
+    _write_in_tiles(mi, path, LARGE_TILES)
+    reads = _track_array_reads(monkeypatch, hold_until=3)
     result = read(path)
-    assert all_reading.is_set()
+    assert reads.most_at_once == 3
     assert_masked_images_equal(result, mi, expect_view=False)
 
 
@@ -645,10 +695,10 @@ def test_read_uses_only_calling_thread_by_default(tmp_path: Path, monkeypatch: p
     """
     mi = make_masked_image()
     path = tmp_path / "mi.fits"
-    _write_in_large_tiles(mi, path)
-    threads, _ = _track_array_reads(monkeypatch)
+    _write_in_tiles(mi, path, LARGE_TILES)
+    reads = _track_array_reads(monkeypatch)
     result = MaskedImage.read(path)
-    assert threads == {threading.get_ident()}
+    assert reads.threads == {threading.get_ident()}
     assert_masked_images_equal(result, mi, expect_view=False)
 
 
@@ -678,11 +728,11 @@ def test_multithreaded_read_returns_written_pixels(
     """
     mi = make_masked_image()
     path = tmp_path / "mi.fits"
-    _write_in_large_tiles(mi, path)
-    _, all_reading = _track_array_reads(monkeypatch, at_once=3)
+    _write_in_tiles(mi, path, LARGE_TILES)
+    reads = _track_array_reads(monkeypatch, hold_until=3)
     with open_archive(path, MaskedImage, partial=partial, multithreaded=True) as reader:
         result = reader.read() if bbox is None else reader.read(bbox=bbox)
-    assert all_reading.is_set()
+    assert reads.most_at_once == 3
     assert_masked_images_equal(result, mi if bbox is None else mi[bbox], expect_view=False)
 
 
@@ -699,7 +749,7 @@ def test_butler_get_reads_planes_together(monkeypatch: pytest.MonkeyPatch) -> No
     )
     with TemporaryButler(masked_image="MaskedImageV2") as helper:
         helper.butler.put(mi, helper.masked_image)
-        _, all_reading = _track_array_reads(monkeypatch, at_once=3)
+        reads = _track_array_reads(monkeypatch, hold_until=3)
         result = helper.butler.get(helper.masked_image)
-    assert all_reading.is_set()
+    assert reads.most_at_once == 3
     assert_masked_images_equal(result, mi, expect_view=False)
