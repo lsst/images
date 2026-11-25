@@ -627,8 +627,9 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for MaskedImage: {set(kwargs.keys())}.")
         # The planes are separate arrays, so an archive opened with more than
-        # one worker reads them at the same time.
-        with archive.make_executor() as executor:
+        # one worker can read them at the same time.
+        arrays = [self.image.array_model, *self.mask.data, self.variance.array_model]
+        with archive.make_executor(arrays) as executor:
             image = executor.submit(self.image.deserialize, archive, bbox=bbox)
             mask = executor.submit(self.mask.deserialize, archive, bbox=bbox)
             variance = executor.submit(self.variance.deserialize, archive, bbox=bbox)

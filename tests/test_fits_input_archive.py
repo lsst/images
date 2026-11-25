@@ -59,14 +59,21 @@ class _YieldingStream(io.BytesIO):
 
 
 def _write_arrays(
-    arrays: list[np.ndarray], tmp_path: Path, *, compressed: bool = True
+    arrays: list[np.ndarray],
+    tmp_path: Path,
+    *,
+    compressed: bool = True,
+    tile_shape: tuple[int, ...] | None = None,
 ) -> tuple[Path, list[ArrayReferenceModel]]:
     """Write each array to its own HDU of a new archive."""
     filename = tmp_path / "arrays.fits"
     names = [f"array{n}" for n in range(len(arrays))]
     compression_options = None if compressed else dict.fromkeys(names)
     with FitsOutputArchive.open(filename, compression_options=compression_options) as archive:
-        models = [archive.add_array(array, name=name) for name, array in zip(names, arrays, strict=True)]
+        models = [
+            archive.add_array(array, name=name, tile_shape=tile_shape)
+            for name, array in zip(names, arrays, strict=True)
+        ]
         archive.add_tree(_TinyTree())
     return filename, models
 
@@ -137,12 +144,39 @@ def test_compressed_arrays_decompress_concurrently(tmp_path: Path, monkeypatch: 
         np.testing.assert_array_equal(result, array)
 
 
+def _write_two_arrays(tmp_path: Path, **kwargs: Any) -> tuple[Path, list[ArrayReferenceModel]]:
+    """Write two 128x128 arrays, each to its own HDU of a new archive."""
+    arrays = [np.full((128, 128), n, dtype=np.float32) for n in range(2)]
+    return _write_arrays(arrays, tmp_path, **kwargs)
+
+
+def _tasks_run_together(filename: Path, models: list[ArrayReferenceModel], *, num_workers: int) -> bool:
+    """Return whether two tasks given to the executor for ``models`` are
+    both running at the same time.
+    """
+    both_running = threading.Barrier(2, timeout=2)
+
+    def task() -> bool:
+        try:
+            both_running.wait()
+        except threading.BrokenBarrierError:
+            return False
+        return True
+
+    with (
+        FitsInputArchive.open(filename, num_workers=num_workers) as archive,
+        archive.make_executor(models) as executor,
+    ):
+        futures = [executor.submit(task) for _ in range(2)]
+    return all(future.result() for future in futures)
+
+
 def test_executor_runs_tasks_in_calling_thread_by_default(tmp_path: Path) -> None:
     """Verify that an archive opened without extra workers runs the tasks
     given to its executor in the calling thread.
     """
-    filename, _ = _write_arrays([np.zeros((2, 2), dtype=np.float32)], tmp_path)
-    with FitsInputArchive.open(filename) as archive, archive.make_executor() as executor:
+    filename, models = _write_two_arrays(tmp_path, tile_shape=(128, 128))
+    with FitsInputArchive.open(filename) as archive, archive.make_executor(models) as executor:
         future = executor.submit(threading.get_ident)
     assert future.result() == threading.get_ident()
 
@@ -151,20 +185,40 @@ def test_default_executor_reports_task_failure_from_result(tmp_path: Path) -> No
     """Verify that a task that fails in the calling thread raises when its
     result is requested, as it would had it run in another thread.
     """
-    filename, _ = _write_arrays([np.zeros((2, 2), dtype=np.float32)], tmp_path)
-    with FitsInputArchive.open(filename) as archive, archive.make_executor() as executor:
+    filename, models = _write_two_arrays(tmp_path)
+    with FitsInputArchive.open(filename) as archive, archive.make_executor(models) as executor:
         future = executor.submit(int, "not a number")
     with pytest.raises(ValueError, match="not a number"):
         future.result()
 
 
-def test_executor_runs_tasks_at_the_same_time_when_given_workers(tmp_path: Path) -> None:
-    """Verify that an archive opened with several workers runs the tasks
-    given to its executor at the same time.
+def test_executor_runs_tasks_together_for_arrays_in_large_tiles(tmp_path: Path) -> None:
+    """Verify that an archive opened with several workers runs tasks at the
+    same time when the arrays they read are compressed in large tiles.
     """
-    filename, _ = _write_arrays([np.zeros((2, 2), dtype=np.float32)], tmp_path)
-    # Each task returns only once both are running.
-    both_running = threading.Barrier(2, timeout=10)
-    with FitsInputArchive.open(filename, num_workers=2) as archive, archive.make_executor() as executor:
-        futures = [executor.submit(both_running.wait) for _ in range(2)]
-    assert sorted(future.result() for future in futures) == [0, 1]
+    filename, models = _write_two_arrays(tmp_path, tile_shape=(128, 128))
+    assert _tasks_run_together(filename, models, num_workers=2)
+
+
+def test_executor_runs_tasks_in_turn_for_arrays_in_small_tiles(tmp_path: Path) -> None:
+    """Verify that tasks run one after another, whatever the number of
+    workers, when the arrays they read are compressed in small tiles.
+    """
+    filename, models = _write_two_arrays(tmp_path, tile_shape=(1, 128))
+    assert not _tasks_run_together(filename, models, num_workers=2)
+
+
+def test_executor_runs_tasks_in_turn_for_uncompressed_arrays(tmp_path: Path) -> None:
+    """Verify that tasks run one after another, whatever the number of
+    workers, when the arrays they read are not compressed.
+    """
+    filename, models = _write_two_arrays(tmp_path, compressed=False)
+    assert not _tasks_run_together(filename, models, num_workers=2)
+
+
+def test_executor_runs_tasks_in_turn_for_a_single_array(tmp_path: Path) -> None:
+    """Verify that tasks run one after another when there is only one
+    compressed array for them to read.
+    """
+    filename, models = _write_two_arrays(tmp_path, tile_shape=(128, 128))
+    assert not _tasks_run_together(filename, models[:1], num_workers=2)

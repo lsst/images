@@ -19,9 +19,10 @@ __all__ = (
 )
 
 import io
+import math
 import os
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import Executor, ThreadPoolExecutor
 from contextlib import contextmanager
 from functools import cached_property
@@ -104,6 +105,17 @@ fixed even when the block size is retuned.  Measured benefit saturates at two
 cached blocks for the access patterns we care about, so this budget is purely
 headroom plus a guard against unbounded growth; it is far below fsspec's
 implicit default of ``32 * block_size``.
+"""
+
+_MIN_THREADED_TILE_SIZE = 8000
+"""Smallest compression tile, in pixels, whose arrays are read in threads.
+
+Decompressing a tile releases the GIL, but only for as long as that one tile
+takes.  With small tiles the threads spend longer passing the GIL between
+them than they save, so reading in threads is slower than reading in turn.
+This is a heuristic measured on LSSTCam images, where threads slowed reads of
+tiles of about 4000 pixels and sped up reads of tiles of 8000 pixels or more,
+whatever the shape of the tiles.
 """
 
 
@@ -431,11 +443,27 @@ class FitsInputArchive(InputArchive[PointerModel]):
         # Docstring inherited.
         return self._opaque_metadata
 
-    def make_executor(self) -> Executor:
+    def make_executor(self, arrays: Iterable[ArrayReferenceModel | InlineArrayModel]) -> Executor:
         # Docstring inherited.
-        if self._num_workers > 1:
+        if self._num_workers > 1 and self._suit_threads(arrays):
             return ThreadPoolExecutor(max_workers=self._num_workers)
-        return super().make_executor()
+        return super().make_executor(arrays)
+
+    def _suit_threads(self, arrays: Iterable[ArrayReferenceModel | InlineArrayModel]) -> bool:
+        """Return whether reading the given arrays at the same time is
+        expected to be faster than reading them in turn.
+
+        Only decompression runs in parallel, so this needs at least two
+        compressed arrays, all of them in tiles of at least
+        `_MIN_THREADED_TILE_SIZE` pixels.
+        """
+        tile_sizes = []
+        for model in arrays:
+            if isinstance(model, ArrayReferenceModel):
+                _, reader = self._get_source_reader(model.source, is_table=False)
+                if (tile_size := reader.tile_size) is not None:
+                    tile_sizes.append(tile_size)
+        return len(tile_sizes) > 1 and min(tile_sizes) >= _MIN_THREADED_TILE_SIZE
 
     def _get_source_reader(self, source: str | int, is_table: bool) -> tuple[ExtensionKey, _ExtensionReader]:
         """Get a reader for the extension referenced by a serialiation model's
@@ -579,6 +607,15 @@ class _ExtensionReader:
     def data(self) -> np.ndarray:
         """The data for the HDU."""
         return self.hdu.data
+
+    @property
+    def tile_size(self) -> int | None:
+        """The number of pixels in each compression tile, or `None` if this
+        is not a tile-compressed image.
+        """
+        if self._hdu_cls is not astropy.io.fits.CompImageHDU:
+            return None
+        return math.prod(self.hdu.tile_shape)
 
     @property
     def section(self) -> astropy.io.fits.Section | astropy.io.fits.CompImageSection:

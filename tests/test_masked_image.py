@@ -567,19 +567,46 @@ def _track_array_reads(
     return threads, reached
 
 
-def test_planes_read_together_from_archive_with_workers(
+def _write_in_large_tiles(masked_image: MaskedImage, path: Path) -> None:
+    """Write a masked image to FITS in compression tiles that are large
+    enough for its planes to be read in threads.
+    """
+    options = FitsCompressionOptions(tile_shape=(128, 128))
+    masked_image.write(str(path), compression_options=dict.fromkeys(("image", "mask", "variance"), options))
+
+
+def test_planes_in_large_tiles_read_together_from_archive_with_workers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify that the image, mask and variance are all being read at once
-    when the FITS archive was opened with a worker for each of them.
+    when they are compressed in large tiles and the FITS archive was opened
+    with a worker for each of them.
     """
     mi = make_masked_image()
     path = tmp_path / "mi.fits"
-    mi.write(str(path))
+    _write_in_large_tiles(mi, path)
     _, all_reading = _track_array_reads(monkeypatch, at_once=3)
     with FitsInputArchive.open_tree(path, num_workers=3) as (archive, tree, _):
         result = tree.deserialize(archive)
     assert all_reading.is_set()
+    assert_masked_images_equal(result, mi, expect_view=False)
+
+
+def test_planes_in_small_tiles_read_in_calling_thread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that the image, mask and variance are read one after another
+    in the calling thread when they are compressed in small tiles, even if
+    the FITS archive was opened with a worker for each of them.
+    """
+    mi = make_masked_image()
+    path = tmp_path / "mi.fits"
+    # The default tiles are single rows of the 251-pixel-wide image.
+    mi.write(str(path))
+    threads, _ = _track_array_reads(monkeypatch)
+    with FitsInputArchive.open_tree(path, num_workers=3) as (archive, tree, _):
+        result = tree.deserialize(archive)
+    assert threads == {threading.get_ident()}
     assert_masked_images_equal(result, mi, expect_view=False)
 
 
@@ -605,7 +632,7 @@ def test_read_with_workers_reads_planes_together(
     """
     mi = make_masked_image()
     path = tmp_path / "mi.fits"
-    mi.write(str(path))
+    _write_in_large_tiles(mi, path)
     _, all_reading = _track_array_reads(monkeypatch, at_once=3)
     result = read(path)
     assert all_reading.is_set()
@@ -618,7 +645,7 @@ def test_read_uses_only_calling_thread_by_default(tmp_path: Path, monkeypatch: p
     """
     mi = make_masked_image()
     path = tmp_path / "mi.fits"
-    mi.write(str(path))
+    _write_in_large_tiles(mi, path)
     threads, _ = _track_array_reads(monkeypatch)
     result = MaskedImage.read(path)
     assert threads == {threading.get_ident()}
@@ -651,7 +678,7 @@ def test_read_with_workers_returns_written_pixels(
     """
     mi = make_masked_image()
     path = tmp_path / "mi.fits"
-    mi.write(str(path))
+    _write_in_large_tiles(mi, path)
     _, all_reading = _track_array_reads(monkeypatch, at_once=3)
     with open_archive(path, MaskedImage, partial=partial, num_workers=3) as reader:
         result = reader.read() if bbox is None else reader.read(bbox=bbox)
@@ -663,7 +690,13 @@ def test_butler_get_reads_planes_together(monkeypatch: pytest.MonkeyPatch) -> No
     """Verify that getting a whole masked image from a butler reads its
     image, mask and variance at the same time.
     """
-    mi = make_masked_image()
+    # A butler put compresses in single-row tiles, so the image is made wide
+    # enough for one row to be a large tile.
+    rng = np.random.default_rng(500)
+    mi = MaskedImage(
+        Image(rng.normal(100.0, 8.0, size=(4, 8192)), dtype=np.float64, unit=u.nJy),
+        mask_schema=MaskSchema([MaskPlane("BAD", "Pixel is very bad, possibly downright evil.")]),
+    )
     with TemporaryButler(masked_image="MaskedImageV2") as helper:
         helper.butler.put(mi, helper.masked_image)
         _, all_reading = _track_array_reads(monkeypatch, at_once=3)

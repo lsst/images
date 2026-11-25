@@ -14,7 +14,7 @@ from __future__ import annotations
 __all__ = ("ArchiveInfo", "DetachedArchive", "InputArchive")
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from concurrent.futures import Executor, Future
 from contextlib import AbstractContextManager
 from types import EllipsisType
@@ -328,8 +328,13 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         """
         return None
 
-    def make_executor(self) -> Executor:
-        """Return a new executor for tasks that read from this archive.
+    def make_executor(self, arrays: Iterable[ArrayReferenceModel | InlineArrayModel]) -> Executor:
+        """Return a new executor for tasks that read arrays from this archive.
+
+        Parameters
+        ----------
+        arrays
+            Models of the arrays that the tasks will read.
 
         Returns
         -------
@@ -340,8 +345,10 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         Notes
         -----
         Tasks run in other threads only if the archive was opened with more
-        than one worker and its backend can be read from several threads.
-        Otherwise each task runs in the calling thread as it is submitted.
+        than one worker, its backend can be read from several threads, and it
+        expects reading these arrays at the same time to be faster than
+        reading them in turn.  Otherwise each task runs in the calling thread
+        as it is submitted.
 
         Tasks that may run at the same time must read different arrays and
         tables, and must not deserialize pointers.
