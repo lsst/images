@@ -75,6 +75,14 @@ class GenericFormatter(FormatterV2):
     can_read_from_uri: ClassVar[bool] = True
     can_read_from_local_file: ClassVar[bool] = True
 
+    num_workers: ClassVar[int] = 3
+    """Number of threads used to read independent parts of a file, such as
+    the planes of a masked image, at the same time.
+
+    A formatter cannot tell how many threads its caller can spare, so this is
+    a fixed, small number: one for each plane of a masked image.
+    """
+
     butler_provenance: DatasetProvenance | None = None
 
     # Most recently read serialization tree, kept so that repeated component
@@ -349,7 +357,7 @@ class GenericFormatter(FormatterV2):
         if len(components_to_return) != len(component_kwargs):
             # Some components were not available in the cache, so open the file
             # to read the rest.
-            with ser.open_archive(uri, cls=pytype, partial=True) as reader:
+            with ser.open_archive(uri, cls=pytype, partial=True, num_workers=self.num_workers) as reader:
                 tree = reader.get_tree()
                 self._cache_tree(tree)
                 for comp, params in component_kwargs.items():
@@ -395,7 +403,9 @@ class GenericFormatter(FormatterV2):
         # If this is not a component read but a full read with parameters,
         # do that now before we focus on the component logic.
         if component is None:
-            with ser.open_archive(uri, cls=pytype, partial=bool(kwargs)) as reader:
+            with ser.open_archive(
+                uri, cls=pytype, partial=bool(kwargs), num_workers=self.num_workers
+            ) as reader:
                 tree = reader.get_tree()
                 self._cache_tree(tree)
                 # Cutout read.

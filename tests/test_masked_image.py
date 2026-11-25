@@ -41,6 +41,7 @@ from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
     RoundtripNdf,
+    TemporaryButler,
     assert_masked_images_equal,
     compare_masked_image_to_legacy,
     reset_afw_mask_planes,  # noqa: F401
@@ -656,3 +657,16 @@ def test_read_with_workers_returns_written_pixels(
         result = reader.read() if bbox is None else reader.read(bbox=bbox)
     assert all_reading.is_set()
     assert_masked_images_equal(result, mi if bbox is None else mi[bbox], expect_view=False)
+
+
+def test_butler_get_reads_planes_together(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that getting a whole masked image from a butler reads its
+    image, mask and variance at the same time.
+    """
+    mi = make_masked_image()
+    with TemporaryButler(masked_image="MaskedImageV2") as helper:
+        helper.butler.put(mi, helper.masked_image)
+        _, all_reading = _track_array_reads(monkeypatch, at_once=3)
+        result = helper.butler.get(helper.masked_image)
+    assert all_reading.is_set()
+    assert_masked_images_equal(result, mi, expect_view=False)
