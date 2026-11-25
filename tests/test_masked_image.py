@@ -575,18 +575,18 @@ def _write_in_large_tiles(masked_image: MaskedImage, path: Path) -> None:
     masked_image.write(str(path), compression_options=dict.fromkeys(("image", "mask", "variance"), options))
 
 
-def test_planes_in_large_tiles_read_together_from_archive_with_workers(
+def test_planes_in_large_tiles_read_together_from_multithreaded_archive(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Verify that the image, mask and variance are all being read at once
     when they are compressed in large tiles and the FITS archive was opened
-    with a worker for each of them.
+    for multithreaded reading.
     """
     mi = make_masked_image()
     path = tmp_path / "mi.fits"
     _write_in_large_tiles(mi, path)
     _, all_reading = _track_array_reads(monkeypatch, at_once=3)
-    with FitsInputArchive.open_tree(path, num_workers=3) as (archive, tree, _):
+    with FitsInputArchive.open_tree(path, multithreaded=True) as (archive, tree, _):
         result = tree.deserialize(archive)
     assert all_reading.is_set()
     assert_masked_images_equal(result, mi, expect_view=False)
@@ -597,38 +597,38 @@ def test_planes_in_small_tiles_read_in_calling_thread(
 ) -> None:
     """Verify that the image, mask and variance are read one after another
     in the calling thread when they are compressed in small tiles, even if
-    the FITS archive was opened with a worker for each of them.
+    the FITS archive was opened for multithreaded reading.
     """
     mi = make_masked_image()
     path = tmp_path / "mi.fits"
     # The default tiles are single rows of the 251-pixel-wide image.
     mi.write(str(path))
     threads, _ = _track_array_reads(monkeypatch)
-    with FitsInputArchive.open_tree(path, num_workers=3) as (archive, tree, _):
+    with FitsInputArchive.open_tree(path, multithreaded=True) as (archive, tree, _):
         result = tree.deserialize(archive)
     assert threads == {threading.get_ident()}
     assert_masked_images_equal(result, mi, expect_view=False)
 
 
 def _read_with_class_method(path: Path) -> MaskedImage:
-    return MaskedImage.read(path, num_workers=3)
+    return MaskedImage.read(path, multithreaded=True)
 
 
 def _read_with_read_archive(path: Path) -> MaskedImage:
-    return read_archive(path, MaskedImage, num_workers=3)
+    return read_archive(path, MaskedImage, multithreaded=True)
 
 
 def _read_with_open_archive(path: Path) -> MaskedImage:
-    with open_archive(path, MaskedImage, num_workers=3) as reader:
+    with open_archive(path, MaskedImage, multithreaded=True) as reader:
         return reader.read()
 
 
 @pytest.mark.parametrize("read", [_read_with_class_method, _read_with_read_archive, _read_with_open_archive])
-def test_read_with_workers_reads_planes_together(
+def test_multithreaded_read_reads_planes_together(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, read: Callable[[Path], MaskedImage]
 ) -> None:
-    """Verify that asking for a worker per plane when reading a FITS file
-    reads the image, mask and variance at the same time.
+    """Verify that a multithreaded read of a FITS file reads the image, mask
+    and variance at the same time.
     """
     mi = make_masked_image()
     path = tmp_path / "mi.fits"
@@ -640,8 +640,8 @@ def test_read_with_workers_reads_planes_together(
 
 
 def test_read_uses_only_calling_thread_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify that reading a FITS file without asking for workers reads every
-    plane in the calling thread.
+    """Verify that reading a FITS file without asking for threads reads
+    every plane in the calling thread.
     """
     mi = make_masked_image()
     path = tmp_path / "mi.fits"
@@ -656,23 +656,23 @@ def test_read_uses_only_calling_thread_by_default(tmp_path: Path, monkeypatch: p
     "extension",
     [".json", pytest.param(".sdf", marks=pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed"))],
 )
-def test_read_with_workers_from_format_not_read_in_threads(tmp_path: Path, extension: str) -> None:
-    """Verify that asking for workers is accepted, and changes nothing, when
-    reading a format that is not read in threads.
+def test_multithreaded_read_of_format_not_read_in_threads(tmp_path: Path, extension: str) -> None:
+    """Verify that asking for a multithreaded read is accepted, and changes
+    nothing, when reading a format that is not read in threads.
     """
     path = tmp_path / f"mi{extension}"
     make_masked_image().write(str(path))
     assert_masked_images_equal(
-        MaskedImage.read(path, num_workers=3), MaskedImage.read(path), expect_view=False
+        MaskedImage.read(path, multithreaded=True), MaskedImage.read(path), expect_view=False
     )
 
 
 @pytest.mark.parametrize("partial", [False, True])
 @pytest.mark.parametrize("bbox", [None, Box.factory[11:20, 25:30]])
-def test_read_with_workers_returns_written_pixels(
+def test_multithreaded_read_returns_written_pixels(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bbox: Box | None, partial: bool
 ) -> None:
-    """Verify that whole and subimage reads with workers return the written
+    """Verify that multithreaded whole and subimage reads return the written
     pixels, both when the file is read into memory first and when it is read
     incrementally through fsspec.
     """
@@ -680,7 +680,7 @@ def test_read_with_workers_returns_written_pixels(
     path = tmp_path / "mi.fits"
     _write_in_large_tiles(mi, path)
     _, all_reading = _track_array_reads(monkeypatch, at_once=3)
-    with open_archive(path, MaskedImage, partial=partial, num_workers=3) as reader:
+    with open_archive(path, MaskedImage, partial=partial, multithreaded=True) as reader:
         result = reader.read() if bbox is None else reader.read(bbox=bbox)
     assert all_reading.is_set()
     assert_masked_images_equal(result, mi if bbox is None else mi[bbox], expect_view=False)

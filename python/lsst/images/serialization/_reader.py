@@ -146,7 +146,7 @@ def open_archive[T](
     *,
     format: str | None = ...,
     partial: bool = ...,
-    num_workers: int = ...,
+    multithreaded: bool = ...,
     **backend_kwargs: Any,
 ) -> AbstractContextManager[Reader[T]]: ...
 @overload
@@ -156,7 +156,7 @@ def open_archive(
     *,
     format: str | None = ...,
     partial: bool = ...,
-    num_workers: int = ...,
+    multithreaded: bool = ...,
     **backend_kwargs: Any,
 ) -> AbstractContextManager[Reader[Any]]: ...
 @contextmanager
@@ -166,7 +166,7 @@ def open_archive(
     *,
     format: str | None = None,
     partial: bool = True,
-    num_workers: int = 1,
+    multithreaded: bool = False,
     **backend_kwargs: Any,
 ) -> Iterator[Reader]:
     """Open an ``lsst.images`` file for incremental, component-wise reads.
@@ -201,11 +201,13 @@ def open_archive(
         Forwarded to the backend ``open_tree``; defaults to `True` (a reader
         is for incremental access).
         A no-op for the JSON and NDF backends and for stream input.
-    num_workers
-        Maximum number of threads used to read independent parts of the
-        file, such as the image, mask and variance of a masked image, at the
-        same time.  The default of 1 reads everything in the calling thread.
-        Only the FITS backend reads in threads; the others ignore this.
+    multithreaded
+        Whether independent parts of the file, such as the image, mask and
+        variance of a masked image, may be read in separate threads.  The
+        backend then uses threads only where it expects them to be faster:
+        the FITS backend does for arrays compressed in large tiles, and the
+        other backends never do.  The default reads everything in the
+        calling thread.
     **backend_kwargs
         Backend-specific open options (e.g. ``page_size`` for FITS).
 
@@ -234,7 +236,7 @@ def open_archive(
             source = path
     try:
         with backend.input_archive.open_tree(
-            source, partial=partial, num_workers=num_workers, **backend_kwargs
+            source, partial=partial, multithreaded=multithreaded, **backend_kwargs
         ) as (
             archive,
             tree,

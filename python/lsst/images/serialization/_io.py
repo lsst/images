@@ -244,7 +244,7 @@ def read_archive[T](
     cls: type[T],
     *,
     format: str | None = ...,
-    num_workers: int = ...,
+    multithreaded: bool = ...,
     **kwargs: Any,
 ) -> T: ...
 @overload
@@ -253,7 +253,7 @@ def read_archive(
     cls: None = ...,
     *,
     format: str | None = ...,
-    num_workers: int = ...,
+    multithreaded: bool = ...,
     **kwargs: Any,
 ) -> Any: ...
 def read_archive(
@@ -261,7 +261,7 @@ def read_archive(
     cls: type[Any] | None = None,
     *,
     format: str | None = None,
-    num_workers: int = 1,
+    multithreaded: bool = False,
     **kwargs: Any,
 ) -> Any:
     """Read an archive whose in-memory type is inferred from its schema.
@@ -293,11 +293,13 @@ def read_archive(
         Optional backend name (``"fits"``, ``"ndf"``, or ``"json"``)
         forcing the backend, instead of dispatching on the path's extension
         or the stream's leading bytes.
-    num_workers
-        Maximum number of threads used to read independent parts of the
-        file, such as the image, mask and variance of a masked image, at the
-        same time.  The default of 1 reads everything in the calling thread.
-        Only the FITS backend reads in threads; the others ignore this.
+    multithreaded
+        Whether independent parts of the file, such as the image, mask and
+        variance of a masked image, may be read in separate threads.  The
+        backend then uses threads only where it expects them to be faster:
+        the FITS backend does for arrays compressed in large tiles, and the
+        other backends never do.  The default reads everything in the
+        calling thread.
     **kwargs
         Type-specific keyword arguments forwarded to the object's
         ``deserialize`` (e.g. ``bbox`` for an image subset read).
@@ -333,7 +335,7 @@ def read_archive(
     # a plain whole-object read may slurp the file up front.  This mirrors the
     # ``partial`` default the per-backend readers used.
     partial = any(value is not None for value in kwargs.values())
-    with open_archive(path, cls, format=format, partial=partial, num_workers=num_workers) as reader:
+    with open_archive(path, cls, format=format, partial=partial, multithreaded=multithreaded) as reader:
         return reader.read(**kwargs)
 
 

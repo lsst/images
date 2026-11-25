@@ -130,10 +130,11 @@ class FitsInputArchive(InputArchive[PointerModel]):
     ----------
     stream
         Open binary stream the archive reads from.
-    num_workers
-        Maximum number of threads that deserializers may use to read
-        different HDUs at the same time.  The default of 1 does all reading
-        in the calling thread.
+    multithreaded
+        Whether deserializers may read different HDUs in separate threads.
+        Threads are then used for arrays that are compressed in tiles large
+        enough for that to be faster.  The default does all reading in the
+        calling thread.
     """
 
     @classmethod
@@ -170,7 +171,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
         path: ResourcePathExpression | IO[bytes],
         *,
         partial: bool = True,
-        num_workers: int = 1,
+        multithreaded: bool = False,
         **backend_kwargs: Any,
     ) -> Iterator[tuple[Self, ArchiveTree, ArchiveInfo]]:
         """Open the FITS file and yield ``(archive, tree, info)``.
@@ -182,10 +183,11 @@ class FitsInputArchive(InputArchive[PointerModel]):
             containing the file's content.
         partial
             If `True` the file is opened without reading it all into memory.
-        num_workers
-            Maximum number of threads that deserializers may use to read
-            different HDUs at the same time.  The default of 1 does all
-            reading in the calling thread.
+        multithreaded
+            Whether deserializers may read different HDUs in separate threads.
+            Threads are then used for arrays that are compressed in tiles large
+            enough for that to be faster.  The default does all reading in the
+            calling thread.
         **backend_kwargs
             Optional parameters for this backend. Currently supports
             ``page_size`` which can be used to override the default
@@ -193,15 +195,15 @@ class FitsInputArchive(InputArchive[PointerModel]):
             `DEFAULT_PAGE_SIZE`).
         """
         page_size = backend_kwargs.pop("page_size", DEFAULT_PAGE_SIZE)
-        with cls.open(path, page_size=page_size, partial=partial, num_workers=num_workers) as archive:
+        with cls.open(path, page_size=page_size, partial=partial, multithreaded=multithreaded) as archive:
             info = archive.info
             tree_cls = tree_class_for_info(info, path)
             parameterized = parameterize_tree(tree_cls, PointerModel)
             tree = archive.get_tree(parameterized)
             yield archive, tree, info
 
-    def __init__(self, stream: IO[bytes], *, num_workers: int = 1) -> None:
-        self._num_workers = num_workers
+    def __init__(self, stream: IO[bytes], *, multithreaded: bool = False) -> None:
+        self._multithreaded = multithreaded
         self._primary_hdu = astropy.io.fits.PrimaryHDU.readfrom(stream)
         # Every file this class can open was written by FitsOutputArchive,
         # which stamps FMTVER before writing anything else -- the container
@@ -265,7 +267,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
         *,
         page_size: int = DEFAULT_PAGE_SIZE,
         partial: bool = False,
-        num_workers: int = 1,
+        multithreaded: bool = False,
     ) -> Iterator[Self]:
         """Create an output archive that writes to the given file.
 
@@ -284,10 +286,11 @@ class FitsInputArchive(InputArchive[PointerModel]):
             Whether we will be reading only some of the archive, or if memory
             pressure forces us to read it only a little at a time.  If `False`
             (default), the entire raw file may be read into memory up front.
-        num_workers
-            Maximum number of threads that deserializers may use to read
-            different HDUs at the same time.  The default of 1 does all
-            reading in the calling thread.
+        multithreaded
+            Whether deserializers may read different HDUs in separate threads.
+            Threads are then used for arrays that are compressed in tiles large
+            enough for that to be faster.  The default does all reading in the
+            calling thread.
 
         Returns
         -------
@@ -295,13 +298,13 @@ class FitsInputArchive(InputArchive[PointerModel]):
             A context manager that returns a `FitsInputArchive` when entered.
         """
         if _is_binary_stream(path):
-            yield cls(path, num_workers=num_workers)
+            yield cls(path, multithreaded=multithreaded)
             return
         path = ResourcePath(path)
         stream: IO[bytes]
         if not partial:
             stream = io.BytesIO(path.read())
-            yield cls(stream, num_workers=num_workers)
+            yield cls(stream, multithreaded=multithreaded)
         else:
             fs: fsspec.AbstractFileSystem
             fs, fp = path.to_fsspec()
@@ -315,7 +318,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
                 cache_type=_READ_CACHE_TYPE,
                 cache_options={"maxblocks": maxblocks},
             ) as stream:
-                yield cls(stream, num_workers=num_workers)
+                yield cls(stream, multithreaded=multithreaded)
 
     @property
     def info(self) -> ArchiveInfo:
@@ -445,8 +448,11 @@ class FitsInputArchive(InputArchive[PointerModel]):
 
     def make_executor(self, arrays: Iterable[ArrayReferenceModel | InlineArrayModel]) -> Executor:
         # Docstring inherited.
-        if self._num_workers > 1 and self._suit_threads(arrays):
-            return ThreadPoolExecutor(max_workers=self._num_workers)
+        arrays = list(arrays)
+        if self._multithreaded and self._suit_threads(arrays):
+            # Allow a thread for each array; a thread is only started when a
+            # task needs one.
+            return ThreadPoolExecutor(max_workers=len(arrays))
         return super().make_executor(arrays)
 
     def _suit_threads(self, arrays: Iterable[ArrayReferenceModel | InlineArrayModel]) -> bool:

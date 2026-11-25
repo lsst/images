@@ -150,9 +150,10 @@ def _write_two_arrays(tmp_path: Path, **kwargs: Any) -> tuple[Path, list[ArrayRe
     return _write_arrays(arrays, tmp_path, **kwargs)
 
 
-def _tasks_run_together(filename: Path, models: list[ArrayReferenceModel], *, num_workers: int) -> bool:
-    """Return whether two tasks given to the executor for ``models`` are
-    both running at the same time.
+def _tasks_run_together(filename: Path, models: list[ArrayReferenceModel]) -> bool:
+    """Return whether two tasks given to the executor for ``models``, by an
+    archive opened for multithreaded reading, are both running at the same
+    time.
     """
     both_running = threading.Barrier(2, timeout=2)
 
@@ -164,7 +165,7 @@ def _tasks_run_together(filename: Path, models: list[ArrayReferenceModel], *, nu
         return True
 
     with (
-        FitsInputArchive.open(filename, num_workers=num_workers) as archive,
+        FitsInputArchive.open(filename, multithreaded=True) as archive,
         archive.make_executor(models) as executor,
     ):
         futures = [executor.submit(task) for _ in range(2)]
@@ -172,8 +173,8 @@ def _tasks_run_together(filename: Path, models: list[ArrayReferenceModel], *, nu
 
 
 def test_executor_runs_tasks_in_calling_thread_by_default(tmp_path: Path) -> None:
-    """Verify that an archive opened without extra workers runs the tasks
-    given to its executor in the calling thread.
+    """Verify that an archive that was not opened for multithreaded reading
+    runs the tasks given to its executor in the calling thread.
     """
     filename, models = _write_two_arrays(tmp_path, tile_shape=(128, 128))
     with FitsInputArchive.open(filename) as archive, archive.make_executor(models) as executor:
@@ -193,27 +194,27 @@ def test_default_executor_reports_task_failure_from_result(tmp_path: Path) -> No
 
 
 def test_executor_runs_tasks_together_for_arrays_in_large_tiles(tmp_path: Path) -> None:
-    """Verify that an archive opened with several workers runs tasks at the
-    same time when the arrays they read are compressed in large tiles.
+    """Verify that tasks run at the same time when the arrays they read
+    are compressed in large tiles.
     """
     filename, models = _write_two_arrays(tmp_path, tile_shape=(128, 128))
-    assert _tasks_run_together(filename, models, num_workers=2)
+    assert _tasks_run_together(filename, models)
 
 
 def test_executor_runs_tasks_in_turn_for_arrays_in_small_tiles(tmp_path: Path) -> None:
-    """Verify that tasks run one after another, whatever the number of
-    workers, when the arrays they read are compressed in small tiles.
+    """Verify that tasks run one after another when the arrays they read
+    are compressed in small tiles.
     """
     filename, models = _write_two_arrays(tmp_path, tile_shape=(1, 128))
-    assert not _tasks_run_together(filename, models, num_workers=2)
+    assert not _tasks_run_together(filename, models)
 
 
 def test_executor_runs_tasks_in_turn_for_uncompressed_arrays(tmp_path: Path) -> None:
-    """Verify that tasks run one after another, whatever the number of
-    workers, when the arrays they read are not compressed.
+    """Verify that tasks run one after another when the arrays they read
+    are not compressed.
     """
     filename, models = _write_two_arrays(tmp_path, compressed=False)
-    assert not _tasks_run_together(filename, models, num_workers=2)
+    assert not _tasks_run_together(filename, models)
 
 
 def test_executor_runs_tasks_in_turn_for_a_single_array(tmp_path: Path) -> None:
@@ -221,4 +222,4 @@ def test_executor_runs_tasks_in_turn_for_a_single_array(tmp_path: Path) -> None:
     compressed array for them to read.
     """
     filename, models = _write_two_arrays(tmp_path, tile_shape=(128, 128))
-    assert not _tasks_run_together(filename, models[:1], num_workers=2)
+    assert not _tasks_run_together(filename, models[:1])

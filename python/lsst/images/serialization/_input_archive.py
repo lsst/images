@@ -161,7 +161,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         path: ResourcePathExpression | IO[bytes],
         *,
         partial: bool = True,
-        num_workers: int = 1,
+        multithreaded: bool = False,
         **backend_kwargs: Any,
     ) -> AbstractContextManager[tuple[InputArchive[P], ArchiveTree, ArchiveInfo]]:
         """Open ``path``, load and validate its top-level tree, and yield
@@ -175,10 +175,10 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         partial
             Whether the file should be opened for incremental reads or not.
             Can be ignored by a backend where not relevant.
-        num_workers
-            Maximum number of threads that deserializers may use to read
-            different parts of the file at the same time.  Can be ignored by
-            a backend that is not read in threads.
+        multithreaded
+            Whether deserializers may read different parts of the file in
+            separate threads.  Can be ignored by a backend that is not read in
+            threads.
         **backend_kwargs
             Any keyword parameters that should be forwarded to the backend
             open.
@@ -344,11 +344,11 @@ class InputArchive[P: pydantic.BaseModel](ABC):
 
         Notes
         -----
-        Tasks run in other threads only if the archive was opened with more
-        than one worker, its backend can be read from several threads, and it
-        expects reading these arrays at the same time to be faster than
-        reading them in turn.  Otherwise each task runs in the calling thread
-        as it is submitted.
+        Tasks run in other threads only if the archive was opened for
+        multithreaded reading, its backend can be read from several threads,
+        and it expects reading these arrays at the same time to be faster
+        than reading them in turn.  Otherwise each task runs in the calling
+        thread as it is submitted.
 
         Tasks that may run at the same time must read different arrays and
         tables, and must not deserialize pointers.
