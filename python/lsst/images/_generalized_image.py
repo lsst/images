@@ -260,7 +260,8 @@ class GeneralizedImage(DescribableMixin, ABC):
             File to read; convertible to `lsst.resources.ResourcePath`.
         **kwargs
             Forwarded to `~lsst.images.serialization.read_archive`
-            (e.g. ``bbox`` to read a subimage).
+            (e.g. ``bbox`` to read a subimage, or ``multithreaded`` to read
+            parts of the file in threads).
         """
         return read_archive(path, cls, **kwargs)
 

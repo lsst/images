@@ -14,7 +14,8 @@ from __future__ import annotations
 __all__ = ("ArchiveInfo", "DetachedArchive", "InputArchive")
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from concurrent.futures import Executor, Future
 from contextlib import AbstractContextManager
 from types import EllipsisType
 from typing import IO, TYPE_CHECKING, Any, TypeVar
@@ -111,6 +112,20 @@ class ArchiveInfo(pydantic.BaseModel, frozen=True):
         )
 
 
+class _SerialExecutor(Executor):
+    """An executor that runs each task in the calling thread as it is
+    submitted.
+    """
+
+    def submit[**A, R](self, fn: Callable[A, R], /, *args: A.args, **kwargs: A.kwargs) -> Future[R]:
+        future: Future[R] = Future()
+        try:
+            future.set_result(fn(*args, **kwargs))
+        except Exception as exc:
+            future.set_exception(exc)
+        return future
+
+
 class InputArchive[P: pydantic.BaseModel](ABC):
     """Abstract interface for reading from a file format.
 
@@ -146,6 +161,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         path: ResourcePathExpression | IO[bytes],
         *,
         partial: bool = True,
+        multithreaded: bool = False,
         **backend_kwargs: Any,
     ) -> AbstractContextManager[tuple[InputArchive[P], ArchiveTree, ArchiveInfo]]:
         """Open ``path``, load and validate its top-level tree, and yield
@@ -159,6 +175,10 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         partial
             Whether the file should be opened for incremental reads or not.
             Can be ignored by a backend where not relevant.
+        multithreaded
+            Whether deserializers may read different parts of the file in
+            separate threads.  Can be ignored by a backend that is not read in
+            threads.
         **backend_kwargs
             Any keyword parameters that should be forwarded to the backend
             open.
@@ -307,6 +327,37 @@ class InputArchive[P: pydantic.BaseModel](ABC):
             round-tripped if it is saved in the same format.
         """
         return None
+
+    def make_executor(
+        self, arrays: Iterable[ArrayReferenceModel | InlineArrayModel], *, subset: bool = False
+    ) -> Executor:
+        """Return a new executor for tasks that read arrays from this archive.
+
+        Parameters
+        ----------
+        arrays
+            Models of the arrays that the tasks will read.
+        subset
+            Whether the tasks will read only part of each array.
+
+        Returns
+        -------
+        `concurrent.futures.Executor`
+            An executor to use as a context manager, so that every task has
+            finished when the block exits.
+
+        Notes
+        -----
+        Tasks run in other threads only if the archive was opened for
+        multithreaded reading, its backend can be read from several threads,
+        and it expects reading these arrays at the same time to be faster
+        than reading them in turn.  Otherwise each task runs in the calling
+        thread as it is submitted.
+
+        Tasks that may run at the same time must read different arrays and
+        tables, and must not deserialize pointers.
+        """
+        return _SerialExecutor()
 
 
 class DetachedArchive(InputArchive[Any]):

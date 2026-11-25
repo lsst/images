@@ -603,6 +603,14 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
                 return self.data.unit
         return None
 
+    @property
+    def array_model(self) -> ArrayReferenceModel | InlineArrayModel:
+        """The model of the pixel array, without any units."""
+        match self.data:
+            case ArrayReferenceQuantityModel() | InlineArrayQuantityModel():
+                return self.data.value
+        return self.data
+
     def deserialize(
         self,
         archive: InputArchive[Any],
@@ -629,13 +637,8 @@ class ImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         """
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for Image: {set(kwargs.keys())}.")
-        array_model: ArrayReferenceModel | InlineArrayModel
-        unit: astropy.units.UnitBase | None = None
-        if isinstance(self.data, ArrayReferenceQuantityModel | InlineArrayQuantityModel):
-            array_model = self.data.value
-            unit = self.data.unit
-        else:
-            array_model = self.data
+        array_model = self.array_model
+        unit = self.unit
 
         def _strip_header(header: astropy.io.fits.Header) -> None:
             if unit is not None:

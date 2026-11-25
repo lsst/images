@@ -626,12 +626,16 @@ class MaskedImageSerializationModel[P: pydantic.BaseModel](ArchiveTree):
         """
         if kwargs:
             raise InvalidParameterError(f"Unrecognized parameters for MaskedImage: {set(kwargs.keys())}.")
-        image = self.image.deserialize(archive, bbox=bbox)
-        mask = self.mask.deserialize(archive, bbox=bbox)
-        variance = self.variance.deserialize(archive, bbox=bbox)
+        # The planes are separate arrays, so an archive opened for
+        # multithreaded reading can read them at the same time.
+        arrays = [self.image.array_model, *self.mask.data, self.variance.array_model]
+        with archive.make_executor(arrays, subset=bbox is not None) as executor:
+            image = executor.submit(self.image.deserialize, archive, bbox=bbox)
+            mask = executor.submit(self.mask.deserialize, archive, bbox=bbox)
+            variance = executor.submit(self.variance.deserialize, archive, bbox=bbox)
         sky_projection = self.sky_projection.deserialize(archive) if self.sky_projection is not None else None
         return MaskedImage(
-            image, mask=mask, variance=variance, sky_projection=sky_projection
+            image.result(), mask=mask.result(), variance=variance.result(), sky_projection=sky_projection
         )._finish_deserialize(self)
 
     def deserialize_component(self, component: str, archive: InputArchive[Any], **kwargs: Any) -> Any:

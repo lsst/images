@@ -19,8 +19,11 @@ __all__ = (
 )
 
 import io
+import math
 import os
-from collections.abc import Callable, Iterator
+import threading
+from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import Executor, ThreadPoolExecutor
 from contextlib import contextmanager
 from functools import cached_property
 from types import EllipsisType
@@ -104,6 +107,28 @@ headroom plus a guard against unbounded growth; it is far below fsspec's
 implicit default of ``32 * block_size``.
 """
 
+_MIN_THREADED_TILE_SIZE = 8000
+"""Smallest compression tile, in pixels, whose arrays are each read in a
+thread of their own.
+
+Decompressing a tile releases the GIL, but only for as long as that one tile
+takes.  The smaller the tiles, the more of the time threads spend passing the
+GIL between them instead of decompressing.  This is a heuristic measured on
+LSSTCam images, where a thread for each array made whole and subimage reads
+faster for tiles of 8000 pixels or more, whatever the shape of the tiles.
+"""
+
+_MIN_TWO_THREAD_TILE_SIZE = 3000
+"""Smallest compression tile, in pixels, whose arrays are read whole in two
+threads.
+
+This is a heuristic measured on LSSTCam images.  For tiles between this size
+and `_MIN_THREADED_TILE_SIZE` a second thread made reading whole arrays 15 to
+20 percent faster and a third gained nothing more, while reading subimages
+in threads was slower.  For smaller tiles reading in threads was always
+slower.
+"""
+
 
 class FitsInputArchive(InputArchive[PointerModel]):
     """An implementation of the `.serialization.InputArchive` interface that
@@ -116,6 +141,11 @@ class FitsInputArchive(InputArchive[PointerModel]):
     ----------
     stream
         Open binary stream the archive reads from.
+    multithreaded
+        Whether deserializers may read different HDUs in separate threads.
+        Threads are then used for arrays that are compressed in tiles large
+        enough for that to be faster.  The default does all reading in the
+        calling thread.
     """
 
     @classmethod
@@ -152,6 +182,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
         path: ResourcePathExpression | IO[bytes],
         *,
         partial: bool = True,
+        multithreaded: bool = False,
         **backend_kwargs: Any,
     ) -> Iterator[tuple[Self, ArchiveTree, ArchiveInfo]]:
         """Open the FITS file and yield ``(archive, tree, info)``.
@@ -163,6 +194,11 @@ class FitsInputArchive(InputArchive[PointerModel]):
             containing the file's content.
         partial
             If `True` the file is opened without reading it all into memory.
+        multithreaded
+            Whether deserializers may read different HDUs in separate threads.
+            Threads are then used for arrays that are compressed in tiles large
+            enough for that to be faster.  The default does all reading in the
+            calling thread.
         **backend_kwargs
             Optional parameters for this backend. Currently supports
             ``page_size`` which can be used to override the default
@@ -170,14 +206,15 @@ class FitsInputArchive(InputArchive[PointerModel]):
             `DEFAULT_PAGE_SIZE`).
         """
         page_size = backend_kwargs.pop("page_size", DEFAULT_PAGE_SIZE)
-        with cls.open(path, page_size=page_size, partial=partial) as archive:
+        with cls.open(path, page_size=page_size, partial=partial, multithreaded=multithreaded) as archive:
             info = archive.info
             tree_cls = tree_class_for_info(info, path)
             parameterized = parameterize_tree(tree_cls, PointerModel)
             tree = archive.get_tree(parameterized)
             yield archive, tree, info
 
-    def __init__(self, stream: IO[bytes]) -> None:
+    def __init__(self, stream: IO[bytes], *, multithreaded: bool = False) -> None:
+        self._multithreaded = multithreaded
         self._primary_hdu = astropy.io.fits.PrimaryHDU.readfrom(stream)
         # Every file this class can open was written by FitsOutputArchive,
         # which stamps FMTVER before writing anything else -- the container
@@ -219,8 +256,11 @@ class FitsInputArchive(InputArchive[PointerModel]):
         tail_data = stream.read(json_size + index_size)
         index_hdu = astropy.io.fits.BinTableHDU.fromstring(tail_data[json_size:])
         # Initialize lazy readers for all of the regular HDUs and the JSON HDU.
+        # The regular HDUs all read from the same stream, so they share a lock
+        # that lets different HDUs be read from different threads.
+        stream_lock = threading.Lock()
         self._readers = {
-            ExtensionKey.from_index_row(row): _ExtensionReader.from_index_row(row, stream)
+            ExtensionKey.from_index_row(row): _ExtensionReader.from_index_row(row, stream, stream_lock)
             for row in index_hdu.data
         }
         self._readers[ExtensionKey(JSON_COLUMN)] = _ExtensionReader.from_bytes(
@@ -238,6 +278,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
         *,
         page_size: int = DEFAULT_PAGE_SIZE,
         partial: bool = False,
+        multithreaded: bool = False,
     ) -> Iterator[Self]:
         """Create an output archive that writes to the given file.
 
@@ -256,6 +297,11 @@ class FitsInputArchive(InputArchive[PointerModel]):
             Whether we will be reading only some of the archive, or if memory
             pressure forces us to read it only a little at a time.  If `False`
             (default), the entire raw file may be read into memory up front.
+        multithreaded
+            Whether deserializers may read different HDUs in separate threads.
+            Threads are then used for arrays that are compressed in tiles large
+            enough for that to be faster.  The default does all reading in the
+            calling thread.
 
         Returns
         -------
@@ -263,13 +309,13 @@ class FitsInputArchive(InputArchive[PointerModel]):
             A context manager that returns a `FitsInputArchive` when entered.
         """
         if _is_binary_stream(path):
-            yield cls(path)
+            yield cls(path, multithreaded=multithreaded)
             return
         path = ResourcePath(path)
         stream: IO[bytes]
         if not partial:
             stream = io.BytesIO(path.read())
-            yield cls(stream)
+            yield cls(stream, multithreaded=multithreaded)
         else:
             fs: fsspec.AbstractFileSystem
             fs, fp = path.to_fsspec()
@@ -283,7 +329,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
                 cache_type=_READ_CACHE_TYPE,
                 cache_options={"maxblocks": maxblocks},
             ) as stream:
-                yield cls(stream)
+                yield cls(stream, multithreaded=multithreaded)
 
     @property
     def info(self) -> ArchiveInfo:
@@ -354,10 +400,10 @@ class FitsInputArchive(InputArchive[PointerModel]):
         if not isinstance(model, ArrayReferenceModel):
             raise ArchiveReadError("Inline array found where a reference array was expected.")
         key, reader = self._get_source_reader(model.source, is_table=False)
-        if slices is not ...:
-            array = reader.section[slices]
-        else:
-            array = reader.data
+        # Always read through the section, even for the full array: Astropy
+        # holds a lock shared by every HDU of the same type while it loads
+        # ``data``, which would make threads reading different HDUs take turns.
+        array = reader.section[slices]
         # FITS data is big-endian; uncompressed HDUs are returned that way.
         array = array.astype(array.dtype.newbyteorder("="), copy=False)
         if key not in self._opaque_metadata.headers:
@@ -410,6 +456,41 @@ class FitsInputArchive(InputArchive[PointerModel]):
     def get_opaque_metadata(self) -> FitsOpaqueMetadata:
         # Docstring inherited.
         return self._opaque_metadata
+
+    def make_executor(
+        self, arrays: Iterable[ArrayReferenceModel | InlineArrayModel], *, subset: bool = False
+    ) -> Executor:
+        # Docstring inherited.
+        arrays = list(arrays)
+        if self._multithreaded and (max_workers := self._count_useful_threads(arrays, subset)) > 1:
+            return ThreadPoolExecutor(max_workers=max_workers)
+        return super().make_executor(arrays, subset=subset)
+
+    def _count_useful_threads(
+        self, arrays: list[ArrayReferenceModel | InlineArrayModel], subset: bool
+    ) -> int:
+        """Return the number of threads expected to read the given arrays
+        fastest, which is one if they are best read in turn.
+
+        Only decompression runs in parallel, so more than one thread needs at
+        least two compressed arrays, and the number then depends on the
+        smallest compression tile among them.
+        """
+        tile_sizes = []
+        for model in arrays:
+            if isinstance(model, ArrayReferenceModel):
+                _, reader = self._get_source_reader(model.source, is_table=False)
+                if (tile_size := reader.tile_size) is not None:
+                    tile_sizes.append(tile_size)
+        if len(tile_sizes) < 2:
+            return 1
+        if min(tile_sizes) >= _MIN_THREADED_TILE_SIZE:
+            # A thread for each array; one is only started when a task needs
+            # it.
+            return len(arrays)
+        if min(tile_sizes) >= _MIN_TWO_THREAD_TILE_SIZE and not subset:
+            return 2
+        return 1
 
     def _get_source_reader(self, source: str | int, is_table: bool) -> tuple[ExtensionKey, _ExtensionReader]:
         """Get a reader for the extension referenced by a serialiation model's
@@ -466,7 +547,7 @@ class _ExtensionReader:
         self._stream = stream
 
     @classmethod
-    def from_index_row(cls, index_row: np.void, stream: IO[bytes]) -> _ExtensionReader:
+    def from_index_row(cls, index_row: np.void, stream: IO[bytes], lock: threading.Lock) -> _ExtensionReader:
         """Construct from a row of the binary table index HDU.
 
         Parameters
@@ -475,6 +556,8 @@ class _ExtensionReader:
             A record array row from the index HDU.
         stream
             The file-like object being used to read the full FITS file.
+        lock
+            Lock shared by every reader that reads from ``stream``.
 
         Returns
         -------
@@ -496,6 +579,7 @@ class _ExtensionReader:
             _RangeStreamProxy(
                 stream,
                 start=int(index_row["HDRADDR"]),
+                lock=lock,
             ),
         )
 
@@ -552,6 +636,15 @@ class _ExtensionReader:
         return self.hdu.data
 
     @property
+    def tile_size(self) -> int | None:
+        """The number of pixels in each compression tile, or `None` if this
+        is not a tile-compressed image.
+        """
+        if self._hdu_cls is not astropy.io.fits.CompImageHDU:
+            return None
+        return math.prod(self.hdu.tile_shape)
+
+    @property
     def section(self) -> astropy.io.fits.Section | astropy.io.fits.CompImageSection:
         """An Astropy expression object that reads a subset of the data when
         sliced.
@@ -570,6 +663,8 @@ class _RangeStreamProxy(IO[bytes]):
     start
         Offset into the base stream that will be considered the start of the
         proxy stream.
+    lock
+        Lock shared by every proxy for the same base stream.
 
     Notes
     -----
@@ -580,11 +675,32 @@ class _RangeStreamProxy(IO[bytes]):
     happens when Astropy is trying to see whether the file was opened for
     appending) that ``seek(0)`` will set the file-like object to the start of
     the HDU.
+
+    Each proxy keeps its own position and moves the base stream there, while
+    holding the shared lock, immediately before every read.  Astropy seeks and
+    reads in separate calls, so without this a thread reading one extension
+    could move the base stream between another thread's seek and its read.
+    Proxies for different extensions can be used from different threads at
+    the same time; a single proxy can only be used by one thread at a time.
     """
 
-    def __init__(self, base: IO[bytes], start: int) -> None:
+    def __init__(self, base: IO[bytes], start: int, lock: threading.Lock) -> None:
         self._base = base
         self._start = start
+        self._lock = lock
+        self._position = 0
+
+    @contextmanager
+    def _positioned_base(self) -> Iterator[IO[bytes]]:
+        """Give exclusive use of the base stream, moved to this proxy's
+        position, and record where the caller leaves it.
+        """
+        with self._lock:
+            self._base.seek(self._start + self._position)
+            try:
+                yield self._base
+            finally:
+                self._position = self._base.tell() - self._start
 
     @property
     def mode(self) -> str:
@@ -597,10 +713,12 @@ class _RangeStreamProxy(IO[bytes]):
         raise AssertionError("This proxy should not be used as a context manager.")
 
     def __iter__(self) -> Iterator[bytes]:
-        return self._base.__iter__()
+        return self
 
     def __next__(self) -> bytes:
-        return self._base.__next__()
+        if line := self.readline():
+            return line
+        raise StopIteration
 
     def close(self) -> None:
         raise AssertionError("This proxy should not ever be closed.")
@@ -619,33 +737,38 @@ class _RangeStreamProxy(IO[bytes]):
         return False
 
     def read(self, n: int = -1, /) -> bytes:
-        result = self._base.read(n)
-        return result
+        with self._positioned_base() as base:
+            return base.read(n)
 
     def readable(self) -> bool:
         return True
 
     def readline(self, limit: int = -1, /) -> bytes:
-        return self._base.readline(limit)
+        with self._positioned_base() as base:
+            return base.readline(limit)
 
     def readlines(self, hint: int = -1, /) -> list[bytes]:
-        return self._base.readlines(hint)
+        with self._positioned_base() as base:
+            return base.readlines(hint)
 
     def seek(self, offset: int, whence: int = 0) -> int:
         match whence:
             case os.SEEK_SET:
-                return self._base.seek(offset + self._start, os.SEEK_SET) - self._start
+                self._position = offset
             case os.SEEK_CUR:
-                return self._base.seek(offset, os.SEEK_CUR) - self._start
+                self._position += offset
             case os.SEEK_END:
-                return self._base.seek(offset, os.SEEK_END) - self._start
-        raise TypeError(f"Invalid value for 'whence': {whence}.")
+                with self._lock:
+                    self._position = self._base.seek(offset, os.SEEK_END) - self._start
+            case _:
+                raise TypeError(f"Invalid value for 'whence': {whence}.")
+        return self._position
 
     def seekable(self) -> bool:
         return True
 
     def tell(self) -> int:
-        return self._base.tell() - self._start
+        return self._position
 
     def truncate(self, size: int | None = None, /) -> int:
         raise OSError()
