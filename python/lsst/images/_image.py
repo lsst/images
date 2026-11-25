@@ -51,7 +51,10 @@ if TYPE_CHECKING:
         from lsst.afw.image import Image as LegacyImage
     except ImportError:
         type LegacyImage = Any  # type: ignore[no-redef]
-
+    try:
+        from galsim import Image as GalSimImage
+    except ImportError:
+        type GalSimImage = Any  # type: ignore[no-redef]
 
 DEFAULT_PIXEL_FRAME = GeneralFrame(unit=astropy.units.pix)
 """The pixel-grid `Frame` assumed when reconstructing a `SkyProjection` from a
@@ -430,6 +433,23 @@ class Image(GeneralizedImage):
             dtype=array.dtype.type,
             xy0=lsst.geom.Point2I(self._bbox.x.min, self._bbox.y.min),
         )
+
+    def to_galsim(self, *, copy: bool = False) -> GalSimImage:
+        """Return a `galsim.Image` view or copy.
+
+        Parameters
+        ----------
+        copy
+            If `True`, deep-copy image the array, instead of making a view.
+
+        Notes
+        -----
+        The returned image will not have a `galsim.BaseWCS` attached, even if
+        `sky_projection` is not `None`.  This may change in the future.
+        """
+        from galsim import Image as GalSimImage
+
+        return GalSimImage(self.array, xmin=self.bbox.x.min, ymin=self.bbox.y.min, copy=copy)
 
     @classmethod
     def from_hdu_list(

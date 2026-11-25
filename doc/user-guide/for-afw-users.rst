@@ -76,6 +76,13 @@ From ``lsst.[afw.]geom`` to `lsst.images`:
 - `Box.from_legacy`
 - `Polygon.from_legacy`
 
+Ellipses
+^^^^^^^^
+
+The many types in `lsst.afw.geom.ellipses` map to `Ellipse`, though the latter doesn't cover quite as many parameterizations of complex ellipticity.
+Instead of using different types for different parameterizations, the initial parameterization for `Ellipse` is set by the constructor keyword arguments or factory method, and then other parameterizations are computed and remembered as needed.
+`lsst.images` also has an `EllipseArray` type, which can be used to do vectorized conversions of array parameters.
+
 Coordinate Systems and Transforms
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
