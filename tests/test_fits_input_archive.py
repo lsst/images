@@ -21,6 +21,7 @@ from pathlib import Path
 from types import EllipsisType
 from typing import Any, ClassVar
 
+import astropy.io.fits
 import numpy as np
 import pytest
 
@@ -57,13 +58,34 @@ class _YieldingStream(io.BytesIO):
         return position
 
 
-def _write_arrays(arrays: list[np.ndarray], tmp_path: Path) -> tuple[Path, list[ArrayReferenceModel]]:
+def _write_arrays(
+    arrays: list[np.ndarray], tmp_path: Path, *, compressed: bool = True
+) -> tuple[Path, list[ArrayReferenceModel]]:
     """Write each array to its own HDU of a new archive."""
     filename = tmp_path / "arrays.fits"
-    with FitsOutputArchive.open(filename) as archive:
-        models = [archive.add_array(array, name=f"array{n}") for n, array in enumerate(arrays)]
+    names = [f"array{n}" for n in range(len(arrays))]
+    compression_options = None if compressed else dict.fromkeys(names)
+    with FitsOutputArchive.open(filename, compression_options=compression_options) as archive:
+        models = [archive.add_array(array, name=name) for name, array in zip(names, arrays, strict=True)]
         archive.add_tree(_TinyTree())
     return filename, models
+
+
+@pytest.mark.parametrize("compressed", [False, True])
+@pytest.mark.parametrize("dtype", [np.uint16, np.uint32, np.uint64])
+def test_full_read_of_unsigned_array(
+    tmp_path: Path, dtype: type[np.unsignedinteger], compressed: bool
+) -> None:
+    """Verify that reading all of an unsigned integer array, which FITS
+    stores as signed integers with an offset, returns the written values.
+    """
+    largest = np.iinfo(dtype).max
+    array = np.array([[0, 1], [largest - 1, largest]], dtype=dtype)
+    filename, (model,) = _write_arrays([array], tmp_path, compressed=compressed)
+    with FitsInputArchive.open(filename) as archive:
+        result = archive.get_array(model)
+    assert result.dtype == array.dtype
+    np.testing.assert_array_equal(result, array)
 
 
 @pytest.mark.parametrize("slices", [..., (slice(4, 12), slice(8, 24))])
@@ -89,3 +111,27 @@ def test_arrays_read_concurrently_from_shared_stream(
 
     for result, array in zip(results, arrays, strict=True):
         np.testing.assert_array_equal(result, array[slices])
+
+
+def test_compressed_arrays_decompress_concurrently(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that reading all of one compressed HDU does not have to wait
+    for another thread to finish reading all of a different one.
+    """
+    arrays = [np.arange(64, dtype=np.float32).reshape(8, 8) + n for n in range(2)]
+    filename, models = _write_arrays(arrays, tmp_path)
+    # Passed only when both threads are decompressing at the same time.
+    both_decompressing = threading.Barrier(len(models), timeout=10)
+    decompress = astropy.io.fits.CompImageSection.__getitem__
+
+    def decompress_together(section: astropy.io.fits.CompImageSection, index: Any) -> np.ndarray:
+        both_decompressing.wait()
+        return decompress(section, index)
+
+    monkeypatch.setattr(astropy.io.fits.CompImageSection, "__getitem__", decompress_together)
+
+    with FitsInputArchive.open(filename) as archive:
+        with ThreadPoolExecutor(max_workers=len(models)) as executor:
+            results = list(executor.map(archive.get_array, models))
+
+    for result, array in zip(results, arrays, strict=True):
+        np.testing.assert_array_equal(result, array)

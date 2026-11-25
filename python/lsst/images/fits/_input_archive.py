@@ -358,10 +358,10 @@ class FitsInputArchive(InputArchive[PointerModel]):
         if not isinstance(model, ArrayReferenceModel):
             raise ArchiveReadError("Inline array found where a reference array was expected.")
         key, reader = self._get_source_reader(model.source, is_table=False)
-        if slices is not ...:
-            array = reader.section[slices]
-        else:
-            array = reader.data
+        # Always read through the section, even for the full array: Astropy
+        # holds a lock shared by every HDU of the same type while it loads
+        # ``data``, which would make threads reading different HDUs take turns.
+        array = reader.section[slices]
         # FITS data is big-endian; uncompressed HDUs are returned that way.
         array = array.astype(array.dtype.newbyteorder("="), copy=False)
         if key not in self._opaque_metadata.headers:
