@@ -637,3 +637,22 @@ def test_read_with_workers_from_format_not_read_in_threads(tmp_path: Path, exten
     assert_masked_images_equal(
         MaskedImage.read(path, num_workers=3), MaskedImage.read(path), expect_view=False
     )
+
+
+@pytest.mark.parametrize("partial", [False, True])
+@pytest.mark.parametrize("bbox", [None, Box.factory[11:20, 25:30]])
+def test_read_with_workers_returns_written_pixels(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bbox: Box | None, partial: bool
+) -> None:
+    """Verify that whole and subimage reads with workers return the written
+    pixels, both when the file is read into memory first and when it is read
+    incrementally through fsspec.
+    """
+    mi = make_masked_image()
+    path = tmp_path / "mi.fits"
+    mi.write(str(path))
+    _, all_reading = _track_array_reads(monkeypatch, at_once=3)
+    with open_archive(path, MaskedImage, partial=partial, num_workers=3) as reader:
+        result = reader.read() if bbox is None else reader.read(bbox=bbox)
+    assert all_reading.is_set()
+    assert_masked_images_equal(result, mi if bbox is None else mi[bbox], expect_view=False)
