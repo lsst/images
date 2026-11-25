@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +34,7 @@ from lsst.images import (
     SkyProjection,
     get_legacy_visit_image_mask_planes,
 )
-from lsst.images.fits import FitsCompressionOptions, FitsOpaqueMetadata
+from lsst.images.fits import FitsCompressionOptions, FitsInputArchive, FitsOpaqueMetadata
 from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
@@ -529,3 +530,51 @@ def test_sky_circle_bbox() -> None:
         no_wcs.bbox_from_sky_circle(
             SkyCoord(ra=12.0 * u.deg, dec=13.0 * u.deg, frame="icrs"), Angle(1.0 * u.arcsec)
         )
+
+
+def _track_array_reads(
+    monkeypatch: pytest.MonkeyPatch, *, at_once: int = 1
+) -> tuple[set[int], threading.Event]:
+    """Record the threads that read arrays from FITS archives.
+
+    Each read is held back, for a limited time, until ``at_once`` reads are
+    in progress together, and the returned event is set when that happens.
+    """
+    threads: set[int] = set()
+    reached = threading.Event()
+    lock = threading.Lock()
+    in_progress = 0
+    get_array = FitsInputArchive.get_array
+
+    def tracked_get_array(archive: FitsInputArchive, *args: Any, **kwargs: Any) -> np.ndarray:
+        nonlocal in_progress
+        with lock:
+            threads.add(threading.get_ident())
+            in_progress += 1
+            if in_progress >= at_once:
+                reached.set()
+        try:
+            reached.wait(timeout=5)
+            return get_array(archive, *args, **kwargs)
+        finally:
+            with lock:
+                in_progress -= 1
+
+    monkeypatch.setattr(FitsInputArchive, "get_array", tracked_get_array)
+    return threads, reached
+
+
+def test_planes_read_together_from_archive_with_workers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that the image, mask and variance are all being read at once
+    when the FITS archive was opened with a worker for each of them.
+    """
+    mi = make_masked_image()
+    path = tmp_path / "mi.fits"
+    mi.write(str(path))
+    _, all_reading = _track_array_reads(monkeypatch, at_once=3)
+    with FitsInputArchive.open_tree(path, num_workers=3) as (archive, tree, _):
+        result = tree.deserialize(archive)
+    assert all_reading.is_set()
+    assert_masked_images_equal(result, mi, expect_view=False)
