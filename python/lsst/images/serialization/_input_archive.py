@@ -161,6 +161,7 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         path: ResourcePathExpression | IO[bytes],
         *,
         partial: bool = True,
+        num_workers: int = 1,
         **backend_kwargs: Any,
     ) -> AbstractContextManager[tuple[InputArchive[P], ArchiveTree, ArchiveInfo]]:
         """Open ``path``, load and validate its top-level tree, and yield
@@ -174,6 +175,10 @@ class InputArchive[P: pydantic.BaseModel](ABC):
         partial
             Whether the file should be opened for incremental reads or not.
             Can be ignored by a backend where not relevant.
+        num_workers
+            Maximum number of threads that deserializers may use to read
+            different parts of the file at the same time.  Can be ignored by
+            a backend that is not read in threads.
         **backend_kwargs
             Any keyword parameters that should be forwarded to the backend
             open.

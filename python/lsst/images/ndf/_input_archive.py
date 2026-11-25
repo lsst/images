@@ -188,6 +188,7 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         path: ResourcePathExpression | IO[bytes],
         *,
         partial: bool = True,
+        num_workers: int = 1,
         **backend_kwargs: Any,
     ) -> Iterator[tuple[Self, ArchiveTree, ArchiveInfo]]:
         """Open the NDF file and yield ``(archive, tree, info)``.
@@ -205,6 +206,9 @@ class NdfInputArchive(InputArchive[NdfPointerModel]):
         partial
             Accepted for interface compatibility but not meaningful; h5py
             reads lazily regardless.
+        num_workers
+            Accepted for interface compatibility but ignored; everything is
+            read in the calling thread.
         **backend_kwargs
             Backend-specific options; none are currently used.
         """

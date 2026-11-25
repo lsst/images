@@ -85,6 +85,7 @@ class JsonInputArchive(InputArchive[JsonRef]):
         path: ResourcePathExpression | IO[bytes],
         *,
         partial: bool = True,
+        num_workers: int = 1,
         **backend_kwargs: Any,
     ) -> Iterator[tuple[Self, ArchiveTree, ArchiveInfo]]:
         """Parse the JSON tree and yield ``(archive, tree, info)``.
@@ -96,6 +97,9 @@ class JsonInputArchive(InputArchive[JsonRef]):
             the file's content.
         partial
             Ignored. The entire JSON file is always read into memory.
+        num_workers
+            Ignored. Everything is deserialized from memory in the calling
+            thread.
         **backend_kwargs
             No keyword parameters are supported by this backend.
         """

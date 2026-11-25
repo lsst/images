@@ -14,6 +14,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,7 @@ from lsst.images import (
     get_legacy_visit_image_mask_planes,
 )
 from lsst.images.fits import FitsCompressionOptions, FitsInputArchive, FitsOpaqueMetadata
+from lsst.images.serialization import open_archive, read_archive
 from lsst.images.tests import (
     RoundtripFits,
     RoundtripJson,
@@ -578,3 +580,60 @@ def test_planes_read_together_from_archive_with_workers(
         result = tree.deserialize(archive)
     assert all_reading.is_set()
     assert_masked_images_equal(result, mi, expect_view=False)
+
+
+def _read_with_class_method(path: Path) -> MaskedImage:
+    return MaskedImage.read(path, num_workers=3)
+
+
+def _read_with_read_archive(path: Path) -> MaskedImage:
+    return read_archive(path, MaskedImage, num_workers=3)
+
+
+def _read_with_open_archive(path: Path) -> MaskedImage:
+    with open_archive(path, MaskedImage, num_workers=3) as reader:
+        return reader.read()
+
+
+@pytest.mark.parametrize("read", [_read_with_class_method, _read_with_read_archive, _read_with_open_archive])
+def test_read_with_workers_reads_planes_together(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, read: Callable[[Path], MaskedImage]
+) -> None:
+    """Verify that asking for a worker per plane when reading a FITS file
+    reads the image, mask and variance at the same time.
+    """
+    mi = make_masked_image()
+    path = tmp_path / "mi.fits"
+    mi.write(str(path))
+    _, all_reading = _track_array_reads(monkeypatch, at_once=3)
+    result = read(path)
+    assert all_reading.is_set()
+    assert_masked_images_equal(result, mi, expect_view=False)
+
+
+def test_read_uses_only_calling_thread_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that reading a FITS file without asking for workers reads every
+    plane in the calling thread.
+    """
+    mi = make_masked_image()
+    path = tmp_path / "mi.fits"
+    mi.write(str(path))
+    threads, _ = _track_array_reads(monkeypatch)
+    result = MaskedImage.read(path)
+    assert threads == {threading.get_ident()}
+    assert_masked_images_equal(result, mi, expect_view=False)
+
+
+@pytest.mark.parametrize(
+    "extension",
+    [".json", pytest.param(".sdf", marks=pytest.mark.skipif(not HAVE_H5PY, reason="h5py is not installed"))],
+)
+def test_read_with_workers_from_format_not_read_in_threads(tmp_path: Path, extension: str) -> None:
+    """Verify that asking for workers is accepted, and changes nothing, when
+    reading a format that is not read in threads.
+    """
+    path = tmp_path / f"mi{extension}"
+    make_masked_image().write(str(path))
+    assert_masked_images_equal(
+        MaskedImage.read(path, num_workers=3), MaskedImage.read(path), expect_view=False
+    )

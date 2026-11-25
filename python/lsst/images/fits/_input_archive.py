@@ -158,6 +158,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
         path: ResourcePathExpression | IO[bytes],
         *,
         partial: bool = True,
+        num_workers: int = 1,
         **backend_kwargs: Any,
     ) -> Iterator[tuple[Self, ArchiveTree, ArchiveInfo]]:
         """Open the FITS file and yield ``(archive, tree, info)``.
@@ -169,16 +170,17 @@ class FitsInputArchive(InputArchive[PointerModel]):
             containing the file's content.
         partial
             If `True` the file is opened without reading it all into memory.
+        num_workers
+            Maximum number of threads that deserializers may use to read
+            different HDUs at the same time.  The default of 1 does all
+            reading in the calling thread.
         **backend_kwargs
             Optional parameters for this backend. Currently supports
             ``page_size`` which can be used to override the default
             page size (which can be overridden globally by modifying
-            `DEFAULT_PAGE_SIZE`), and ``num_workers``, the maximum number of
-            threads that deserializers may use to read different HDUs at the
-            same time (1 by default).
+            `DEFAULT_PAGE_SIZE`).
         """
         page_size = backend_kwargs.pop("page_size", DEFAULT_PAGE_SIZE)
-        num_workers = backend_kwargs.pop("num_workers", 1)
         with cls.open(path, page_size=page_size, partial=partial, num_workers=num_workers) as archive:
             info = archive.info
             tree_cls = tree_class_for_info(info, path)
