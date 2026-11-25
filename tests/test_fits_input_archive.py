@@ -135,3 +135,36 @@ def test_compressed_arrays_decompress_concurrently(tmp_path: Path, monkeypatch: 
 
     for result, array in zip(results, arrays, strict=True):
         np.testing.assert_array_equal(result, array)
+
+
+def test_executor_runs_tasks_in_calling_thread_by_default(tmp_path: Path) -> None:
+    """Verify that an archive opened without extra workers runs the tasks
+    given to its executor in the calling thread.
+    """
+    filename, _ = _write_arrays([np.zeros((2, 2), dtype=np.float32)], tmp_path)
+    with FitsInputArchive.open(filename) as archive, archive.make_executor() as executor:
+        future = executor.submit(threading.get_ident)
+    assert future.result() == threading.get_ident()
+
+
+def test_default_executor_reports_task_failure_from_result(tmp_path: Path) -> None:
+    """Verify that a task that fails in the calling thread raises when its
+    result is requested, as it would had it run in another thread.
+    """
+    filename, _ = _write_arrays([np.zeros((2, 2), dtype=np.float32)], tmp_path)
+    with FitsInputArchive.open(filename) as archive, archive.make_executor() as executor:
+        future = executor.submit(int, "not a number")
+    with pytest.raises(ValueError, match="not a number"):
+        future.result()
+
+
+def test_executor_runs_tasks_at_the_same_time_when_given_workers(tmp_path: Path) -> None:
+    """Verify that an archive opened with several workers runs the tasks
+    given to its executor at the same time.
+    """
+    filename, _ = _write_arrays([np.zeros((2, 2), dtype=np.float32)], tmp_path)
+    # Each task returns only once both are running.
+    both_running = threading.Barrier(2, timeout=10)
+    with FitsInputArchive.open(filename, num_workers=2) as archive, archive.make_executor() as executor:
+        futures = [executor.submit(both_running.wait) for _ in range(2)]
+    assert sorted(future.result() for future in futures) == [0, 1]

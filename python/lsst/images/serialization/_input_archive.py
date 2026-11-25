@@ -15,6 +15,7 @@ __all__ = ("ArchiveInfo", "DetachedArchive", "InputArchive")
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from concurrent.futures import Executor, Future
 from contextlib import AbstractContextManager
 from types import EllipsisType
 from typing import IO, TYPE_CHECKING, Any, TypeVar
@@ -109,6 +110,20 @@ class ArchiveInfo(pydantic.BaseModel, frozen=True):
             schema_version=version,
             format_version=format_version,
         )
+
+
+class _SerialExecutor(Executor):
+    """An executor that runs each task in the calling thread as it is
+    submitted.
+    """
+
+    def submit[**A, R](self, fn: Callable[A, R], /, *args: A.args, **kwargs: A.kwargs) -> Future[R]:
+        future: Future[R] = Future()
+        try:
+            future.set_result(fn(*args, **kwargs))
+        except Exception as exc:
+            future.set_exception(exc)
+        return future
 
 
 class InputArchive[P: pydantic.BaseModel](ABC):
@@ -307,6 +322,26 @@ class InputArchive[P: pydantic.BaseModel](ABC):
             round-tripped if it is saved in the same format.
         """
         return None
+
+    def make_executor(self) -> Executor:
+        """Return a new executor for tasks that read from this archive.
+
+        Returns
+        -------
+        `concurrent.futures.Executor`
+            An executor to use as a context manager, so that every task has
+            finished when the block exits.
+
+        Notes
+        -----
+        Tasks run in other threads only if the archive was opened with more
+        than one worker and its backend can be read from several threads.
+        Otherwise each task runs in the calling thread as it is submitted.
+
+        Tasks that may run at the same time must read different arrays and
+        tables, and must not deserialize pointers.
+        """
+        return _SerialExecutor()
 
 
 class DetachedArchive(InputArchive[Any]):

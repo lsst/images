@@ -22,6 +22,7 @@ import io
 import os
 import threading
 from collections.abc import Callable, Iterator
+from concurrent.futures import Executor, ThreadPoolExecutor
 from contextlib import contextmanager
 from functools import cached_property
 from types import EllipsisType
@@ -117,6 +118,10 @@ class FitsInputArchive(InputArchive[PointerModel]):
     ----------
     stream
         Open binary stream the archive reads from.
+    num_workers
+        Maximum number of threads that deserializers may use to read
+        different HDUs at the same time.  The default of 1 does all reading
+        in the calling thread.
     """
 
     @classmethod
@@ -168,17 +173,21 @@ class FitsInputArchive(InputArchive[PointerModel]):
             Optional parameters for this backend. Currently supports
             ``page_size`` which can be used to override the default
             page size (which can be overridden globally by modifying
-            `DEFAULT_PAGE_SIZE`).
+            `DEFAULT_PAGE_SIZE`), and ``num_workers``, the maximum number of
+            threads that deserializers may use to read different HDUs at the
+            same time (1 by default).
         """
         page_size = backend_kwargs.pop("page_size", DEFAULT_PAGE_SIZE)
-        with cls.open(path, page_size=page_size, partial=partial) as archive:
+        num_workers = backend_kwargs.pop("num_workers", 1)
+        with cls.open(path, page_size=page_size, partial=partial, num_workers=num_workers) as archive:
             info = archive.info
             tree_cls = tree_class_for_info(info, path)
             parameterized = parameterize_tree(tree_cls, PointerModel)
             tree = archive.get_tree(parameterized)
             yield archive, tree, info
 
-    def __init__(self, stream: IO[bytes]) -> None:
+    def __init__(self, stream: IO[bytes], *, num_workers: int = 1) -> None:
+        self._num_workers = num_workers
         self._primary_hdu = astropy.io.fits.PrimaryHDU.readfrom(stream)
         # Every file this class can open was written by FitsOutputArchive,
         # which stamps FMTVER before writing anything else -- the container
@@ -242,6 +251,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
         *,
         page_size: int = DEFAULT_PAGE_SIZE,
         partial: bool = False,
+        num_workers: int = 1,
     ) -> Iterator[Self]:
         """Create an output archive that writes to the given file.
 
@@ -260,6 +270,10 @@ class FitsInputArchive(InputArchive[PointerModel]):
             Whether we will be reading only some of the archive, or if memory
             pressure forces us to read it only a little at a time.  If `False`
             (default), the entire raw file may be read into memory up front.
+        num_workers
+            Maximum number of threads that deserializers may use to read
+            different HDUs at the same time.  The default of 1 does all
+            reading in the calling thread.
 
         Returns
         -------
@@ -267,13 +281,13 @@ class FitsInputArchive(InputArchive[PointerModel]):
             A context manager that returns a `FitsInputArchive` when entered.
         """
         if _is_binary_stream(path):
-            yield cls(path)
+            yield cls(path, num_workers=num_workers)
             return
         path = ResourcePath(path)
         stream: IO[bytes]
         if not partial:
             stream = io.BytesIO(path.read())
-            yield cls(stream)
+            yield cls(stream, num_workers=num_workers)
         else:
             fs: fsspec.AbstractFileSystem
             fs, fp = path.to_fsspec()
@@ -287,7 +301,7 @@ class FitsInputArchive(InputArchive[PointerModel]):
                 cache_type=_READ_CACHE_TYPE,
                 cache_options={"maxblocks": maxblocks},
             ) as stream:
-                yield cls(stream)
+                yield cls(stream, num_workers=num_workers)
 
     @property
     def info(self) -> ArchiveInfo:
@@ -414,6 +428,12 @@ class FitsInputArchive(InputArchive[PointerModel]):
     def get_opaque_metadata(self) -> FitsOpaqueMetadata:
         # Docstring inherited.
         return self._opaque_metadata
+
+    def make_executor(self) -> Executor:
+        # Docstring inherited.
+        if self._num_workers > 1:
+            return ThreadPoolExecutor(max_workers=self._num_workers)
+        return super().make_executor()
 
     def _get_source_reader(self, source: str | int, is_table: bool) -> tuple[ExtensionKey, _ExtensionReader]:
         """Get a reader for the extension referenced by a serialiation model's
