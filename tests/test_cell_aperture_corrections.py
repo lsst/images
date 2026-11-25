@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
@@ -68,8 +69,8 @@ def _make_legacy(gc: dict[LegacyIndex2D, float]) -> LegacyStitchedApertureCorrec
 
 
 def _roundtrip(
-    aperture_corrections: dict[CellIJ, CellField],
-) -> tuple[CellApertureCorrectionMapSerializationModel, dict[str, CellField]]:
+    aperture_corrections: Mapping[str, CellField | None],
+) -> tuple[CellApertureCorrectionMapSerializationModel, dict[str, CellField | None]]:
     """Serialize a CellField map, persist it to JSON, and read it back.
 
     Returns the serialized model and the deserialized map, so tests can assert
@@ -90,12 +91,16 @@ def _roundtrip(
 
 @skip_no_legacy
 def test_from_legacy_records_missing_cells() -> None:
-    """Test that cells absent from the legacy map are recorded as missing."""
+    """Test that cells the legacy map has no entry for, and cells whose entry
+    is non-finite, are both recorded as missing.
+    """
     missing = {CELL_X, CELL_Y}
     present = [c for c in BASE_BOUNDS.cell_indices() if c not in missing]
     gc = {c.to_legacy(): 0.5 + 0.1 * c.i + 0.01 * c.j for c in present}
+    gc[CELL_Y.to_legacy()] = np.nan
     legacy = _make_legacy(gc)
     field = CellField.from_legacy_aperture_correction(legacy, BASE_BOUNDS)
+    assert field is not None
     assert field.bounds.missing == missing
     for cell in present:
         np.testing.assert_allclose(field.value_in_cell(cell), gc[cell.to_legacy()])
@@ -171,3 +176,23 @@ def test_deserialize_nan_column_becomes_missing() -> None:
     np.testing.assert_allclose(result["A"].value_in_cell(CELL_Y), ap["A"].value_in_cell(CELL_Y))
     with pytest.raises(BoundsError):
         result["B"].value_in_cell(CELL_Y)
+
+
+@skip_no_legacy
+def test_from_legacy_returns_none_without_usable_values() -> None:
+    """A name with no usable value in any cell converts to `None` instead of a
+    field with no cells.
+    """
+    all_nan = {c.to_legacy(): np.nan for c in BASE_BOUNDS.cell_indices()}
+    assert CellField.from_legacy_aperture_correction(_make_legacy(all_nan), BASE_BOUNDS) is None
+    # Cells the legacy container has no entry for are unusable in the same way.
+    assert CellField.from_legacy_aperture_correction(_make_legacy({}), BASE_BOUNDS) is None
+
+
+def test_serialize_without_any_usable_name_is_none() -> None:
+    """A map with no usable name — empty, or with only `None`-valued names —
+    records no aperture corrections at all, since there is nothing left to
+    define the shared bounds.
+    """
+    assert CellApertureCorrectionMapSerializationModel.serialize({}, JsonOutputArchive()) is None
+    assert CellApertureCorrectionMapSerializationModel.serialize({"A": None}, JsonOutputArchive()) is None

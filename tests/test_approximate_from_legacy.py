@@ -33,6 +33,7 @@ from lsst.images.cells import (
     CellPointSpreadFunction,
     CoaddProvenance,
     PatchDefinition,
+    approximate_aperture_corrections_from_legacy,
 )
 from lsst.images.tests import (
     DP2_COADD_DATA_ID,
@@ -435,6 +436,33 @@ def test_field_missing_cells_marked_and_nan(
         assert np.isnan(field._array[index.i, index.j]), name
         with pytest.raises(BoundsError):
             field.value_in_cell(legacy_test_coadd.sparse_cell_index)
+
+
+def test_approximate_from_legacy_returns_none_without_usable_values(
+    legacy_test_coadd: _LegacyTestCoadd,
+) -> None:
+    """A legacy field that cannot be sampled in any cell converts to `None`."""
+    unusable = LegacyChebyshevBoundedField(
+        legacy_test_coadd.bounds.bbox.to_legacy(),
+        np.full(legacy_test_coadd.bounds.subgrid_size.as_tuple(), np.nan),
+    )
+    assert CellField.approximate_from_legacy(unusable, legacy_test_coadd.bounds) is None
+
+
+def test_aperture_corrections_err_without_usable_flux_is_none(
+    legacy_test_coadd: _LegacyTestCoadd,
+) -> None:
+    """An ``*_instFluxErr`` field converts to `None` when its ``*_instFlux``
+    partner does, even though the legacy default of zero would otherwise be
+    a usable error value.
+    """
+    no_inputs = LegacyCoaddBoundedField(
+        legacy_test_coadd.bounds.bbox.to_legacy(), legacy_test_coadd.coadd.getWcs(), [], 0.0
+    )
+    converted = approximate_aperture_corrections_from_legacy(
+        {"a_instFlux": no_inputs, "a_instFluxErr": no_inputs}, legacy_test_coadd.bounds
+    )
+    assert converted == {"a_instFlux": None, "a_instFluxErr": None}
 
 
 def test_provenance_skips_missing_cells_and_matches_trimmed_inputs(
