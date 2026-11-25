@@ -20,6 +20,7 @@ __all__ = (
 
 import io
 import os
+import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import cached_property
@@ -219,8 +220,11 @@ class FitsInputArchive(InputArchive[PointerModel]):
         tail_data = stream.read(json_size + index_size)
         index_hdu = astropy.io.fits.BinTableHDU.fromstring(tail_data[json_size:])
         # Initialize lazy readers for all of the regular HDUs and the JSON HDU.
+        # The regular HDUs all read from the same stream, so they share a lock
+        # that lets different HDUs be read from different threads.
+        stream_lock = threading.Lock()
         self._readers = {
-            ExtensionKey.from_index_row(row): _ExtensionReader.from_index_row(row, stream)
+            ExtensionKey.from_index_row(row): _ExtensionReader.from_index_row(row, stream, stream_lock)
             for row in index_hdu.data
         }
         self._readers[ExtensionKey(JSON_COLUMN)] = _ExtensionReader.from_bytes(
@@ -466,7 +470,7 @@ class _ExtensionReader:
         self._stream = stream
 
     @classmethod
-    def from_index_row(cls, index_row: np.void, stream: IO[bytes]) -> _ExtensionReader:
+    def from_index_row(cls, index_row: np.void, stream: IO[bytes], lock: threading.Lock) -> _ExtensionReader:
         """Construct from a row of the binary table index HDU.
 
         Parameters
@@ -475,6 +479,8 @@ class _ExtensionReader:
             A record array row from the index HDU.
         stream
             The file-like object being used to read the full FITS file.
+        lock
+            Lock shared by every reader that reads from ``stream``.
 
         Returns
         -------
@@ -496,6 +502,7 @@ class _ExtensionReader:
             _RangeStreamProxy(
                 stream,
                 start=int(index_row["HDRADDR"]),
+                lock=lock,
             ),
         )
 
@@ -570,6 +577,8 @@ class _RangeStreamProxy(IO[bytes]):
     start
         Offset into the base stream that will be considered the start of the
         proxy stream.
+    lock
+        Lock shared by every proxy for the same base stream.
 
     Notes
     -----
@@ -580,11 +589,32 @@ class _RangeStreamProxy(IO[bytes]):
     happens when Astropy is trying to see whether the file was opened for
     appending) that ``seek(0)`` will set the file-like object to the start of
     the HDU.
+
+    Each proxy keeps its own position and moves the base stream there, while
+    holding the shared lock, immediately before every read.  Astropy seeks and
+    reads in separate calls, so without this a thread reading one extension
+    could move the base stream between another thread's seek and its read.
+    Proxies for different extensions can be used from different threads at
+    the same time; a single proxy can only be used by one thread at a time.
     """
 
-    def __init__(self, base: IO[bytes], start: int) -> None:
+    def __init__(self, base: IO[bytes], start: int, lock: threading.Lock) -> None:
         self._base = base
         self._start = start
+        self._lock = lock
+        self._position = 0
+
+    @contextmanager
+    def _positioned_base(self) -> Iterator[IO[bytes]]:
+        """Give exclusive use of the base stream, moved to this proxy's
+        position, and record where the caller leaves it.
+        """
+        with self._lock:
+            self._base.seek(self._start + self._position)
+            try:
+                yield self._base
+            finally:
+                self._position = self._base.tell() - self._start
 
     @property
     def mode(self) -> str:
@@ -597,10 +627,12 @@ class _RangeStreamProxy(IO[bytes]):
         raise AssertionError("This proxy should not be used as a context manager.")
 
     def __iter__(self) -> Iterator[bytes]:
-        return self._base.__iter__()
+        return self
 
     def __next__(self) -> bytes:
-        return self._base.__next__()
+        if line := self.readline():
+            return line
+        raise StopIteration
 
     def close(self) -> None:
         raise AssertionError("This proxy should not ever be closed.")
@@ -619,33 +651,38 @@ class _RangeStreamProxy(IO[bytes]):
         return False
 
     def read(self, n: int = -1, /) -> bytes:
-        result = self._base.read(n)
-        return result
+        with self._positioned_base() as base:
+            return base.read(n)
 
     def readable(self) -> bool:
         return True
 
     def readline(self, limit: int = -1, /) -> bytes:
-        return self._base.readline(limit)
+        with self._positioned_base() as base:
+            return base.readline(limit)
 
     def readlines(self, hint: int = -1, /) -> list[bytes]:
-        return self._base.readlines(hint)
+        with self._positioned_base() as base:
+            return base.readlines(hint)
 
     def seek(self, offset: int, whence: int = 0) -> int:
         match whence:
             case os.SEEK_SET:
-                return self._base.seek(offset + self._start, os.SEEK_SET) - self._start
+                self._position = offset
             case os.SEEK_CUR:
-                return self._base.seek(offset, os.SEEK_CUR) - self._start
+                self._position += offset
             case os.SEEK_END:
-                return self._base.seek(offset, os.SEEK_END) - self._start
-        raise TypeError(f"Invalid value for 'whence': {whence}.")
+                with self._lock:
+                    self._position = self._base.seek(offset, os.SEEK_END) - self._start
+            case _:
+                raise TypeError(f"Invalid value for 'whence': {whence}.")
+        return self._position
 
     def seekable(self) -> bool:
         return True
 
     def tell(self) -> int:
-        return self._base.tell() - self._start
+        return self._position
 
     def truncate(self, size: int | None = None, /) -> int:
         raise OSError()
